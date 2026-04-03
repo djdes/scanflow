@@ -1,8 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
+import { ProxyAgent } from 'undici';
 import { ParsedInvoiceData } from './types';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 
 export interface ApiAnalyzerResult {
   success: boolean;
@@ -38,6 +40,18 @@ function cleanJsonString(raw: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, '');    // multi-line comments
 }
 
+function createClient(apiKey: string): Anthropic {
+  const proxyUrl = config.anthropicProxyUrl;
+  if (proxyUrl) {
+    logger.info('Claude API: using HTTP proxy', { proxy: proxyUrl.replace(/\/\/.*@/, '//*:*@') });
+    return new Anthropic({
+      apiKey,
+      fetchOptions: { dispatcher: new ProxyAgent(proxyUrl) },
+    });
+  }
+  return new Anthropic({ apiKey });
+}
+
 function getMediaType(imagePath: string): 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' {
   const ext = path.extname(imagePath).toLowerCase();
   const map: Record<string, 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'> = {
@@ -67,7 +81,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
   logger.info('Claude API Analyzer: starting multi-page TEXT analysis', { textLength: combinedOcrText.length, pageCount });
 
   try {
-    const client = new Anthropic({ apiKey });
+    const client = createClient(apiKey);
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -138,7 +152,7 @@ export async function analyzeMultipleImagesWithClaudeApi(
       text: `${CLAUDE_API_PROMPT}\n\nВАЖНО: Это многостраничная накладная (${imagePaths.length} страниц). Объедини ВСЕ товары со ВСЕХ страниц в один список items. Итоговую сумму возьми из последней страницы (строка "Всего по накладной").`,
     });
 
-    const client = new Anthropic({ apiKey });
+    const client = createClient(apiKey);
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -191,7 +205,7 @@ export async function analyzeImageWithClaudeApi(
     const base64Image = imageBuffer.toString('base64');
     const mediaType = getMediaType(imagePath);
 
-    const client = new Anthropic({ apiKey });
+    const client = createClient(apiKey);
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',

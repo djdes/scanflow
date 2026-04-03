@@ -28,6 +28,7 @@ export const config = {
   claudeCodeGitBashPath: envStr('CLAUDE_CODE_GIT_BASH_PATH', ''),
   useClaudeAnalyzer: envBool('USE_CLAUDE_ANALYZER', false),
   anthropicApiKey: envStr('ANTHROPIC_API_KEY', ''),
+  anthropicProxyUrl: envStr('ANTHROPIC_PROXY_URL', ''),
 
   // Paths
   inboxDir: path.resolve(envStr('INBOX_DIR', './data/inbox')),
