@@ -1,8 +1,8 @@
 # 1C-JPGExchange — Документация для будущих доработок
 
-**Дата:** 2026-02-04
-**Версия:** 1.2 (production-ready)
-**Статус:** Гибридный OCR + очередь + многостраничные накладные
+**Дата:** 2026-04-03
+**Версия:** 1.5 (production, deployed)
+**Статус:** Production на scan.magday.ru | GitHub Actions CI/CD
 
 ---
 
@@ -18,6 +18,7 @@
 8. [Примеры обработанных документов](#примеры-обработанных-документов)
 9. [Гибридный OCR (Google Vision + Claude CLI)](#гибридный-ocr-google-vision--claude-cli-) ⭐
 10. [Многостраничные накладные](#многостраничные-накладные)
+11. [Деплой и CI/CD](#деплой-и-cicd) ⭐
 
 ---
 
@@ -999,21 +1000,175 @@ Invoice pages merged successfully {id: 1121, totalItemsCount: 10, addedItemsCoun
 
 ---
 
+## Деплой и CI/CD
+
+### Инфраструктура
+
+| Компонент | Значение |
+|-----------|----------|
+| **Хостинг** | FastPanel, Ubuntu 24.04 LTS |
+| **Сервер** | magday.ru (79.137.237.2) |
+| **Домен** | scan.magday.ru |
+| **SSH порт (локальный)** | 22 |
+| **SSH порт (GitHub Actions)** | 50222 |
+| **SSH пользователь** | magday |
+| **Node.js на сервере** | v20.20.0 (nvm) |
+| **PM2 процесс** | scan-magday |
+| **Порт приложения** | 8899 (nginx проксирует с домена) |
+| **GitHub репозиторий** | djdes/scan_magday (private) |
+
+### Автодеплой
+
+**Файл:** [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+
+При каждом `git push` в `main`:
+1. GitHub Actions запускает workflow
+2. `rsync` копирует файлы на сервер (SSH, порт 50222)
+3. `npm ci` + `npm run build` (TypeScript)
+4. `npm prune --production`
+5. `pm2 startOrRestart ecosystem.config.js`
+
+**Время деплоя:** ~25 секунд
+
+### GitHub Secrets
+
+| Secret | Описание |
+|--------|----------|
+| `SSH_PRIVATE_KEY` | Ed25519 ключ для деплоя |
+| `SSH_HOST` | magday.ru |
+| `SSH_USER` | magday |
+| `SSH_PORT` | 50222 |
+
+### Файловая структура на сервере
+
+```
+/var/www/magday/data/                    # HOME директория
+├── www/
+│   └── scan.magday.ru/
+│       ├── index.html                   # FastPanel placeholder (HTTPS)
+│       └── app/                         # Приложение
+│           ├── dist/                    # Скомпилированный JS
+│           ├── src/                     # Исходники (для отладки)
+│           ├── public/                  # Статический фронтенд
+│           ├── node_modules/
+│           ├── data/
+│           │   ├── database.sqlite      # БД (НЕ перезаписывается при деплое)
+│           │   ├── inbox/               # Входящие JPG
+│           │   ├── processed/           # Обработанные
+│           │   └── failed/              # С ошибками
+│           ├── google-credentials.json  # Google Vision (НЕ в git)
+│           ├── ecosystem.config.js      # PM2 конфигурация
+│           ├── .env                     # Конфигурация (НЕ в git)
+│           └── package.json
+├── logs/
+│   ├── scan-magday-out-*.log
+│   └── scan-magday-error-*.log
+└── .pm2/
+```
+
+### Что НЕ деплоится (rsync exclude)
+
+- `.env` — конфигурация сервера (создаётся вручную)
+- `google-credentials.json` — ключ Google Vision (загружается вручную)
+- `data/database.sqlite` — БД с данными
+- `data/inbox/*`, `data/processed/*`, `data/failed/*` — файлы накладных
+- `node_modules/`, `dist/` — пересоздаются при деплое
+- `.claude/`, `.vscode/`, `*.log` — dev-артефакты
+
+### HTTP прокси для Anthropic API
+
+Claude API работает через HTTP прокси (настроено в `.env` на сервере):
+
+```env
+ANTHROPIC_PROXY_URL=http://user:pass@host:port
+```
+
+**Файл:** [`src/ocr/claudeApiAnalyzer.ts`](src/ocr/claudeApiAnalyzer.ts) — используется `undici.ProxyAgent` + custom `fetch`.
+
+**Важно:** `fetchOptions.dispatcher` не работает на Node 20 с Anthropic SDK — нужно передавать `fetch` как custom функцию:
+```typescript
+const dispatcher = new ProxyAgent(proxyUrl);
+const proxiedFetch = (url, init) => undiciFetch(url, { ...init, dispatcher });
+new Anthropic({ apiKey, fetch: proxiedFetch });
+```
+
+### Полезные команды
+
+```bash
+# SSH на сервер (локально)
+ssh magday@magday.ru
+
+# PM2 управление
+pm2 list                           # статус процессов
+pm2 logs scan-magday               # live логи
+pm2 logs scan-magday --lines 50    # последние 50 строк
+pm2 restart scan-magday            # перезапуск
+pm2 stop scan-magday               # остановка
+pm2 flush scan-magday              # очистить логи
+
+# Проверка
+curl http://localhost:8899/health
+curl -H "X-API-Key: your-secret-api-key" http://localhost:8899/api/invoices/stats
+
+# GitHub Actions
+gh run list --repo djdes/scan_magday
+gh run watch <run-id> --repo djdes/scan_magday
+
+# Загрузка файлов на сервер (БД, credentials)
+# ВАЖНО: сначала остановить PM2, потом загрузить, потом запустить
+pm2 stop scan-magday
+scp -P 22 ./data/database.sqlite magday@magday.ru:~/www/scan.magday.ru/app/data/
+pm2 start scan-magday
+```
+
+### HTTPS
+
+HTTPS на scan.magday.ru показывает страницу FastPanel, а не приложение. HTTP проксирование на порт 8899 работает. Для HTTPS нужно настроить Node.js proxy в панели FastPanel (как сделано для haccp.magday.ru).
+
+### Важные заметки по деплою
+
+12. **rsync --delete удаляет файлы** не из git. `.env` и `google-credentials.json` защищены через `--exclude`, но если добавляете другие серверные файлы — добавьте exclude.
+
+13. **БД не деплоится** — она живёт только на сервере. Бэкап локальной БД — на dev-машине в `data/database.sqlite`.
+
+14. **PM2 ecosystem.config.js** — cwd указывает на серверный путь `/var/www/magday/data/www/scan.magday.ru/app`. При изменении структуры на сервере — обновить.
+
+15. **Node.js 20 на сервере** vs 25 на dev — TypeScript компилируется в ES2022 (совместим с обоими). Нативные зависимости (better-sqlite3, sharp) пересобираются при `npm ci`.
+
+---
+
 ## Контакты и ресурсы
 
-- **GitHub:** (если будет)
+- **GitHub:** https://github.com/djdes/scan_magday (private)
+- **Production:** http://scan.magday.ru/
 - **Документация 1С:УНФ 1.6:** https://its.1c.ru/db/unf
 - **Google Vision API docs:** https://cloud.google.com/vision/docs
 - **Claude API docs:** https://docs.anthropic.com/claude/reference
 
 ---
 
-**Последнее обновление:** 2026-02-04
+**Последнее обновление:** 2026-04-03
 **Автор:** Claude Code (совместно с разработчиком)
 
 ---
 
 ## Changelog
+
+### v1.5 (2026-04-03)
+- ✅ **Production деплой** на scan.magday.ru (FastPanel, Ubuntu 24.04)
+- ✅ **GitHub Actions CI/CD** — автодеплой при push в main (~25 сек)
+- ✅ GitHub repo: djdes/scan_magday (private), SSH secrets настроены
+- ✅ PM2 процесс `scan-magday` на порту 8899
+- ✅ **HTTP прокси для Anthropic API** — undici ProxyAgent + custom fetch
+- ✅ Google Vision credentials загружены на сервер
+- ✅ База данных (1141 накладных) мигрирована на сервер
+
+### v1.4 (2026-02-27)
+- ✅ **Двойной режим анализа** — переключение Google Vision+CLI / Claude API
+- ✅ **Claude API анализатор** — прямая отправка изображений в Anthropic API
+- ✅ **Извлечение реквизитов поставщика** — ИНН, БИК, счета, адрес (для счетов на оплату)
+- ✅ Страница настроек в дашборде
+- ✅ Определение типа документа (счет_на_оплату, торг_12, упд, счет_фактура)
 
 ### v1.3 (2026-02-04)
 - ✅ **Внешняя обработка для 1С:УНФ 1.6** — исходный код в папке `1c/`
