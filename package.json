@@ -1,0 +1,49 @@
+{
+  "name": "1c-jpgexchange",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test:ocr": "ts-node src/scripts/test-ocr.ts",
+    "test:parse": "ts-node src/scripts/test-parse.ts",
+    "test:mapping": "ts-node src/scripts/test-mapping.ts",
+    "test:pipeline": "ts-node src/scripts/test-pipeline.ts",
+    "test:webhook": "ts-node src/scripts/test-webhook.ts",
+    "test:hybrid": "ts-node src/scripts/test-hybrid.ts",
+    "test:position-parser": "ts-node src/scripts/test-position-parser.ts",
+    "test:1c-api": "ts-node src/scripts/test-1c-api.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.1.0",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@google-cloud/vision": "^5.3.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.0.0",
+    "@types/node-cron": "^3.0.11",
+    "better-sqlite3": "^12.8.0",
+    "chokidar": "^5.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "fuse.js": "^7.1.0",
+    "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0",
+    "winston": "^3.19.0"
+  }
+}

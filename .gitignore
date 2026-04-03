@@ -1,0 +1,25 @@
+node_modules/
+dist/
+data/database.sqlite
+data/inbox/*
+data/processed/*
+data/failed/*
+!data/inbox/.gitkeep
+!data/processed/.gitkeep
+!data/failed/.gitkeep
+.env
+google-credentials.json
+*.log
+
+# Dev artifacts
+.claude/
+.playwright-mcp/
+.vscode/
+nul
+eng.traineddata
+rus.traineddata
+temp_invoice.json
+cwww1C-JPGExchangetemp_invoice.json
+datainbox.gitkeep
+architecture.excalidraw
+improvements.excalidraw

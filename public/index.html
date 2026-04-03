@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>1C-JPGExchange</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- Auth Screen -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <h1>1C-JPGExchange</h1>
+    <p>API-ключ для доступа к дашборду</p>
+    <div class="input-group">
+      <input type="password" id="auth-key-input" placeholder="API Key"
+             onkeydown="if(event.key==='Enter')document.getElementById('auth-btn').click()">
+      <button class="btn btn-primary" id="auth-btn" onclick="App.login(document.getElementById('auth-key-input').value)">
+        Войти
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <header>
+    <div class="header-inner">
+      <div class="logo">1C-JPGExchange</div>
+      <nav>
+        <a href="#/invoices" data-tab="invoices">Накладные</a>
+        <a href="#/upload" data-tab="upload">Загрузка</a>
+        <a href="#/mappings" data-tab="mappings">Номенклатура</a>
+        <a href="#/webhook" data-tab="webhook">Webhook 1C</a>
+        <a href="#/settings" data-tab="settings">Настройки</a>
+      </nav>
+      <div class="header-right">
+        <button class="btn-logout" onclick="App.logout()">Выйти</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Invoices Section -->
+    <section id="view-invoices">
+      <div id="invoices-stats" class="stats-bar"></div>
+      <div id="invoices-list">
+        <div class="filters" id="invoices-filters"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Файл</th>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Поставщик</th>
+                <th>Сумма</th>
+                <th>Обработка</th>
+                <th>Статус</th>
+                <th>Создан</th>
+              </tr>
+            </thead>
+            <tbody id="invoices-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="invoices-pagination"></div>
+      </div>
+
+      <div id="invoice-detail" style="display:none">
+        <a href="#/invoices" class="back-link">&larr; Назад к списку</a>
+        <div class="card">
+          <div class="invoice-header" id="invoice-header-fields"></div>
+          <div class="invoice-actions" id="invoice-actions"></div>
+        </div>
+        <div class="card" id="invoice-supplier-details" style="display:none">
+          <h3 style="margin-bottom:12px">Реквизиты поставщика</h3>
+        </div>
+        <div class="card">
+          <h2 style="margin-bottom:16px">Товары</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Название (скан)</th>
+                  <th>Название (1С)</th>
+                  <th>Кол-во</th>
+                  <th>Ед.</th>
+                  <th>Цена</th>
+                  <th>Сумма</th>
+                  <th>НДС%</th>
+                  <th>Точность</th>
+                </tr>
+              </thead>
+              <tbody id="invoice-items-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <details>
+          <summary>OCR-текст (сырой)</summary>
+          <div class="ocr-text" id="invoice-ocr-text"></div>
+        </details>
+      </div>
+    </section>
+
+    <!-- Upload Section -->
+    <section id="view-upload">
+      <h2 style="margin-bottom:20px">Загрузка накладной</h2>
+      <div class="card">
+        <div class="drop-zone" id="drop-zone">
+          <div class="drop-icon">&#128247;</div>
+          <div class="drop-text">Перетащите файл сюда или нажмите для выбора</div>
+          <div class="drop-hint">JPG, PNG, BMP, TIFF, WEBP (макс. 20 МБ)</div>
+          <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" style="display:none">
+        </div>
+        <div class="progress-bar" id="upload-progress">
+          <div class="progress-fill" id="upload-progress-fill"></div>
+        </div>
+        <div class="upload-result" id="upload-result"></div>
+      </div>
+    </section>
+
+    <!-- Mappings Section -->
+    <section id="view-mappings">
+      <div class="card-header" style="margin-bottom:16px">
+        <h2>Номенклатурные соответствия</h2>
+        <button class="btn btn-primary" onclick="Mappings.showAddForm()">+ Добавить</button>
+      </div>
+      <div class="search-bar">
+        <input type="text" id="mappings-search" placeholder="Поиск..." oninput="Mappings.filter(this.value)">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Скан-имя</th>
+              <th>Имя в 1С</th>
+              <th>Категория</th>
+              <th>Ед.изм.</th>
+              <th>Подтв.</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="mappings-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Webhook Section -->
+    <section id="view-webhook">
+      <h2 style="margin-bottom:20px">Настройки Webhook 1C</h2>
+      <div class="card">
+        <div class="form-group">
+          <label>URL вебхука</label>
+          <input type="url" id="wh-url" placeholder="http://server:8080/hs/invoices">
+        </div>
+        <div class="form-group">
+          <label>Токен авторизации</label>
+          <input type="text" id="wh-token" placeholder="Bearer token">
+        </div>
+        <div class="form-group">
+          <label>Включён</label>
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="wh-enabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <span id="wh-status-text">Выключен</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:24px">
+          <button class="btn btn-primary" onclick="Webhook.save()">Сохранить</button>
+          <button class="btn btn-outline" onclick="Webhook.test()">Тест</button>
+        </div>
+        <div id="wh-test-result" style="margin-top:16px"></div>
+      </div>
+    </section>
+
+    <!-- Settings Section -->
+    <section id="view-settings">
+      <h2 style="margin-bottom:20px">Настройки анализатора</h2>
+      <div class="card">
+        <div class="form-group">
+          <label>Режим распознавания</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="analyzer-mode" value="hybrid" checked>
+              <div>
+                <strong>Google Vision + Claude CLI</strong>
+                <div class="radio-desc">Бесплатно (MAX подписка). Google Vision для OCR, Claude CLI для структуризации текста.</div>
+              </div>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="analyzer-mode" value="claude_api">
+              <div>
+                <strong>Claude API (Anthropic)</strong>
+                <div class="radio-desc">Платно (~$0.01/накладная). Изображение отправляется напрямую в Claude API. Понимает таблицы без Google Vision.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="form-group" id="api-key-group" style="display:none">
+          <label>API-ключ Anthropic</label>
+          <input type="password" id="settings-api-key" placeholder="sk-ant-api03-...">
+          <div id="api-key-status" class="field-hint"></div>
+        </div>
+        <div style="margin-top:24px">
+          <button class="btn btn-primary" onclick="Settings.save()">Сохранить</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="notifications"></div>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/invoices.js"></script>
+<script src="/js/upload.js"></script>
+<script src="/js/mappings.js"></script>
+<script src="/js/webhook.js"></script>
+<script src="/js/settings.js"></script>
+</body>
+</html>
