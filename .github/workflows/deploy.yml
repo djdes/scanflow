@@ -56,11 +56,14 @@ jobs:
           # Create data dirs if missing
           mkdir -p data/inbox data/processed data/failed
 
-          # Install production dependencies
-          npm ci --production 2>&1 || npm install --production 2>&1
+          # Install all dependencies (need devDeps for tsc)
+          npm ci 2>&1 || npm install 2>&1
 
           # Build TypeScript
           npm run build 2>&1
+
+          # Prune dev dependencies
+          npm prune --production 2>&1
 
           # Restart with PM2
           pm2 startOrRestart ecosystem.config.js 2>&1
