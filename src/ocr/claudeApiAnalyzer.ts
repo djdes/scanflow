@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
-import { ProxyAgent } from 'undici';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import { ParsedInvoiceData } from './types';
 import { logger } from '../utils/logger';
 import { config } from '../config';
@@ -44,10 +44,10 @@ function createClient(apiKey: string): Anthropic {
   const proxyUrl = config.anthropicProxyUrl;
   if (proxyUrl) {
     logger.info('Claude API: using HTTP proxy', { proxy: proxyUrl.replace(/\/\/.*@/, '//*:*@') });
-    return new Anthropic({
-      apiKey,
-      fetchOptions: { dispatcher: new ProxyAgent(proxyUrl) },
-    });
+    const dispatcher = new ProxyAgent(proxyUrl);
+    const proxiedFetch: typeof globalThis.fetch = (url, init) =>
+      undiciFetch(url as any, { ...init as any, dispatcher }) as any;
+    return new Anthropic({ apiKey, fetch: proxiedFetch });
   }
   return new Anthropic({ apiKey });
 }
