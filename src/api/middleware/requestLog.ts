@@ -19,21 +19,25 @@ export function apiRequestLog(req: Request, res: Response, next: NextFunction): 
     return;
   }
 
+  // Capture path/method/ua NOW before Express router mounting rewrites req.path
+  // inside the res.on('finish') handler.
   const start = Date.now();
+  const capturedPath = req.originalUrl || req.path;
+  const capturedMethod = req.method;
+  const capturedRemoteAddr = (req.headers['x-forwarded-for'] as string | undefined)
+    || req.socket.remoteAddress
+    || null;
+  const capturedUserAgent = (req.headers['user-agent'] as string | undefined) || null;
 
   res.on('finish', () => {
     try {
       const db = getDb();
-      const remoteAddr = (req.headers['x-forwarded-for'] as string | undefined)
-        || req.socket.remoteAddress
-        || null;
-      const userAgent = (req.headers['user-agent'] as string | undefined) || null;
       const duration = Date.now() - start;
 
       db.prepare(
         `INSERT INTO api_requests_log (method, path, remote_addr, user_agent, status_code, duration_ms)
          VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(req.method, req.path, remoteAddr, userAgent, res.statusCode, duration);
+      ).run(capturedMethod, capturedPath, capturedRemoteAddr, capturedUserAgent, res.statusCode, duration);
 
       // Prune old entries (>7 days). Fires on every insert which is fine at
       // current traffic; no perf concern.
