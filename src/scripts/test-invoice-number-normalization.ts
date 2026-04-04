@@ -300,6 +300,14 @@ function testCanonicalizeSupplier(): void {
   assert(canonicalizeSupplierName('Яндекс') === 'Яндекс',
     'без легальной формы → без изменений');
 
+  // NEGATIVE: legal form embedded in the middle of a larger string (garbage
+  // data like bank details) must NOT trigger canonicalization
+  const bankDetails = '40702810142020102827, в банке ВОЛГО-ВЯТСКИЙ БАНК ПАО Сбербанк Г. НИЖНИЙ НОВГОРОД, БИК 042202603';
+  assert(canonicalizeSupplierName(bankDetails) === bankDetails,
+    'ПАО в середине банковской строки → без изменений');
+  assert(canonicalizeSupplierName('Банк ООО Сбербанк') === 'Банк ООО Сбербанк',
+    'ООО в середине → без изменений');
+
   // Idempotency
   const once = canonicalizeSupplierName('Общество с ограниченной ответственностью "МС ЛОГИСТИК"');
   const twice = canonicalizeSupplierName(once);

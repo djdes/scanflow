@@ -145,28 +145,96 @@ export function normalizeSupplierName(sup: string | null | undefined): string {
  * supplier names. Order matters: longer patterns (full phrases) are tried
  * BEFORE their abbreviations, so "Общество с ограниченной ответственностью"
  * is matched before bare "ООО".
+ *
+ * Each rule has TWO patterns — one anchored at the start of the string and
+ * one at the end. A legal form buried in the middle of a string (e.g. bank
+ * details like "ВОЛГО-ВЯТСКИЙ БАНК ПАО Сбербанк...") must NOT be treated
+ * as a supplier legal form.
+ *
+ * JS \b (word boundary) only works with Latin \w, not Cyrillic — so we use
+ * Unicode-aware lookarounds (?<!\p{L})...(?!\p{L}) with the /u flag.
  */
-const LEGAL_FORM_RULES: Array<{ pattern: RegExp; short: string; quoteName: boolean }> = [
-  // Full phrases (longer patterns first)
-  { pattern: /общество\s+с\s+ограниченной\s+ответственностью/i, short: 'ООО', quoteName: true },
-  { pattern: /публичное\s+акционерное\s+общество/i, short: 'ПАО', quoteName: true },
-  { pattern: /открытое\s+акционерное\s+общество/i, short: 'ОАО', quoteName: true },
-  { pattern: /закрытое\s+акционерное\s+общество/i, short: 'ЗАО', quoteName: true },
-  { pattern: /акционерное\s+общество/i, short: 'АО', quoteName: true },
-  { pattern: /индивидуальный\s+предприниматель/i, short: 'ИП', quoteName: false },
+interface LegalFormRule {
+  startPattern: RegExp;
+  endPattern: RegExp;
+  short: string;
+  quoteName: boolean;
+}
 
-  // Short forms, including OCR quirks (Latin OOO, three zeros 000 from Cyrillic ООО).
-  // NOTE: JS \b (word boundary) only works with Latin \w, not Cyrillic, so we use
-  // Unicode-aware lookarounds (?<!\p{L})...(?!\p{L}) which mean "not preceded/followed
-  // by a letter of any script". Requires the /u flag.
-  { pattern: /(?<!\p{L})ООО(?!\p{L})/iu, short: 'ООО', quoteName: true },
-  { pattern: /(?<!\p{L})OOO(?!\p{L})/iu, short: 'ООО', quoteName: true }, // Latin O's
-  { pattern: /(?<!\p{L})000(?!\p{L})/iu, short: 'ООО', quoteName: true }, // three zeros
-  { pattern: /(?<!\p{L})ПАО(?!\p{L})/iu, short: 'ПАО', quoteName: true },
-  { pattern: /(?<!\p{L})ОАО(?!\p{L})/iu, short: 'ОАО', quoteName: true },
-  { pattern: /(?<!\p{L})ЗАО(?!\p{L})/iu, short: 'ЗАО', quoteName: true },
-  { pattern: /(?<!\p{L})АО(?!\p{L})/iu, short: 'АО', quoteName: true },
-  { pattern: /(?<!\p{L})ИП(?!\p{L})/iu, short: 'ИП', quoteName: false },
+const LEGAL_FORM_RULES: LegalFormRule[] = [
+  // Full phrases (longer patterns first)
+  {
+    startPattern: /^общество\s+с\s+ограниченной\s+ответственностью(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})общество\s+с\s+ограниченной\s+ответственностью\s*$/iu,
+    short: 'ООО', quoteName: true,
+  },
+  {
+    startPattern: /^публичное\s+акционерное\s+общество(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})публичное\s+акционерное\s+общество\s*$/iu,
+    short: 'ПАО', quoteName: true,
+  },
+  {
+    startPattern: /^открытое\s+акционерное\s+общество(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})открытое\s+акционерное\s+общество\s*$/iu,
+    short: 'ОАО', quoteName: true,
+  },
+  {
+    startPattern: /^закрытое\s+акционерное\s+общество(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})закрытое\s+акционерное\s+общество\s*$/iu,
+    short: 'ЗАО', quoteName: true,
+  },
+  {
+    startPattern: /^акционерное\s+общество(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})акционерное\s+общество\s*$/iu,
+    short: 'АО', quoteName: true,
+  },
+  {
+    startPattern: /^индивидуальный\s+предприниматель(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})индивидуальный\s+предприниматель\s*$/iu,
+    short: 'ИП', quoteName: false,
+  },
+
+  // Short forms, including OCR quirks (Latin OOO, three zeros 000 from Cyrillic ООО)
+  {
+    startPattern: /^ООО(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})ООО\s*$/iu,
+    short: 'ООО', quoteName: true,
+  },
+  {
+    startPattern: /^OOO(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})OOO\s*$/iu,
+    short: 'ООО', quoteName: true,
+  },
+  {
+    startPattern: /^000(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})000\s*$/iu,
+    short: 'ООО', quoteName: true,
+  },
+  {
+    startPattern: /^ПАО(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})ПАО\s*$/iu,
+    short: 'ПАО', quoteName: true,
+  },
+  {
+    startPattern: /^ОАО(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})ОАО\s*$/iu,
+    short: 'ОАО', quoteName: true,
+  },
+  {
+    startPattern: /^ЗАО(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})ЗАО\s*$/iu,
+    short: 'ЗАО', quoteName: true,
+  },
+  {
+    startPattern: /^АО(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})АО\s*$/iu,
+    short: 'АО', quoteName: true,
+  },
+  {
+    startPattern: /^ИП(?!\p{L})/iu,
+    endPattern: /(?<!\p{L})ИП\s*$/iu,
+    short: 'ИП', quoteName: false,
+  },
 ];
 
 /**
@@ -198,16 +266,27 @@ const LEGAL_FORM_RULES: Array<{ pattern: RegExp; short: string; quoteName: boole
 export function canonicalizeSupplierName(sup: string | null | undefined): string {
   if (!sup) return '';
 
+  const trimmed = sup.trim();
+
   let detectedForm: string | null = null;
   let quoteName = true;
-  let remaining = sup;
+  let remaining = trimmed;
 
-  // Try each rule in order; first match wins
+  // Try each rule in order; first match wins. Check start anchor first,
+  // then end anchor. Matches in the middle of the string are ignored so
+  // that strings like "ВОЛГО-ВЯТСКИЙ БАНК ПАО Сбербанк..." don't get
+  // falsely treated as suppliers.
   for (const rule of LEGAL_FORM_RULES) {
-    if (rule.pattern.test(remaining)) {
+    if (rule.startPattern.test(trimmed)) {
       detectedForm = rule.short;
       quoteName = rule.quoteName;
-      remaining = remaining.replace(rule.pattern, ' ');
+      remaining = trimmed.replace(rule.startPattern, ' ');
+      break;
+    }
+    if (rule.endPattern.test(trimmed)) {
+      detectedForm = rule.short;
+      quoteName = rule.quoteName;
+      remaining = trimmed.replace(rule.endPattern, ' ');
       break;
     }
   }
