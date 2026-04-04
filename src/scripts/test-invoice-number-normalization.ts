@@ -11,6 +11,7 @@ import {
   extractDigitSequence,
   normalizeSupplierName,
   suppliersMatch,
+  canonicalizeSupplierName,
 } from '../utils/invoiceNumber';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { getDb } from '../database/db';
@@ -245,6 +246,67 @@ function testWithSupplier(): void {
 }
 
 // ============================================================
+// Test: canonicalizeSupplierName — rewrite to canonical storage form
+// ============================================================
+function testCanonicalizeSupplier(): void {
+  console.log('\n=== Test: canonicalizeSupplierName ===');
+
+  // ООО variants → canonical "ООО "Name""
+  assert(canonicalizeSupplierName('Общество с ограниченной ответственностью "МС ЛОГИСТИК"')
+    === 'ООО "МС ЛОГИСТИК"',
+    'Полная форма → ООО "МС ЛОГИСТИК"');
+
+  assert(canonicalizeSupplierName('ООО "МС ЛОГИСТИК"')
+    === 'ООО "МС ЛОГИСТИК"',
+    'Уже канонический → без изменений');
+
+  assert(canonicalizeSupplierName('МС ЛОГИСТИК ООО')
+    === 'ООО "МС ЛОГИСТИК"',
+    'ООО в конце → переезд в начало + кавычки');
+
+  assert(canonicalizeSupplierName('Мс логисТИК 000')
+    === 'ООО "Мс логисТИК"',
+    '000 (OCR zeros) → ООО');
+
+  assert(canonicalizeSupplierName('OOO "Test Company"')
+    === 'ООО "Test Company"',
+    'Latin OOO → Cyrillic ООО');
+
+  // ИП: no quotes around name
+  assert(canonicalizeSupplierName('ИП Иванов И.И.')
+    === 'ИП Иванов И.И.',
+    'ИП уже канонический');
+
+  assert(canonicalizeSupplierName('Индивидуальный предприниматель Иванов И.И.')
+    === 'ИП Иванов И.И.',
+    'Полная форма ИП → сокращённая');
+
+  // Other legal forms
+  assert(canonicalizeSupplierName('Акционерное общество "Ромашка"')
+    === 'АО "Ромашка"',
+    'АО полная форма → АО');
+
+  assert(canonicalizeSupplierName('Публичное акционерное общество "Газпром"')
+    === 'ПАО "Газпром"',
+    'ПАО полная форма → ПАО');
+
+  assert(canonicalizeSupplierName('Закрытое акционерное общество "Бета"')
+    === 'ЗАО "Бета"',
+    'ЗАО полная форма → ЗАО');
+
+  // Edge cases
+  assert(canonicalizeSupplierName('') === '', 'empty → empty');
+  assert(canonicalizeSupplierName(null) === '', 'null → empty');
+  assert(canonicalizeSupplierName('Яндекс') === 'Яндекс',
+    'без легальной формы → без изменений');
+
+  // Idempotency
+  const once = canonicalizeSupplierName('Общество с ограниченной ответственностью "МС ЛОГИСТИК"');
+  const twice = canonicalizeSupplierName(once);
+  assert(once === twice, 'идемпотентно');
+}
+
+// ============================================================
 // Test 9: Production bug — МСМС-40626 vs 40626 with supplier variations
 // ============================================================
 function testDigitSequenceFallback(): void {
@@ -315,6 +377,7 @@ async function main(): Promise<void> {
   testExtractDigits();
   testNormalizeSupplier();
   testSuppliersMatch();
+  testCanonicalizeSupplier();
   testFindRecentByNumber();
   testWithSupplier();
   testDigitSequenceFallback();

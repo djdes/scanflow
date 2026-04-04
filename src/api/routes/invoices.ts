@@ -6,6 +6,7 @@ import { getDb } from '../../database/db';
 import { sendToWebhook } from '../../integration/webhook';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
 
 const router = Router();
 
@@ -96,6 +97,40 @@ router.delete('/:id', (req: Request, res: Response) => {
 
   invoiceRepo.delete(id);
   res.json({ data: { id, deleted: true } });
+});
+
+// POST /api/invoices/canonicalize-suppliers — retroactively rewrite supplier
+// names in existing invoices to the canonical form (ООО "Name" / ИП Name).
+// Safe to run repeatedly — canonicalizeSupplierName is idempotent.
+router.post('/canonicalize-suppliers', (_req: Request, res: Response) => {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT id, supplier FROM invoices WHERE supplier IS NOT NULL AND supplier != ''`
+  ).all() as Array<{ id: number; supplier: string }>;
+
+  const update = db.prepare('UPDATE invoices SET supplier = ? WHERE id = ?');
+  let updated = 0;
+  const changes: Array<{ id: number; before: string; after: string }> = [];
+
+  for (const row of rows) {
+    const canonical = canonicalizeSupplierName(row.supplier);
+    if (canonical && canonical !== row.supplier) {
+      update.run(canonical, row.id);
+      updated++;
+      if (changes.length < 20) {
+        changes.push({ id: row.id, before: row.supplier, after: canonical });
+      }
+    }
+  }
+
+  logger.info('Canonicalized supplier names', { total: rows.length, updated });
+  res.json({
+    data: {
+      scanned: rows.length,
+      updated,
+      sample_changes: changes,
+    },
+  });
 });
 
 // POST /api/invoices/reprocess — move files from processed/failed back to inbox

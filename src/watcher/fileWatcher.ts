@@ -7,6 +7,7 @@ import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
+import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -221,7 +222,7 @@ export class FileWatcher {
               invoiceRepo.updateInvoiceData(targetInvoiceId, {
                 invoice_number: unifiedParsed.invoice_number,
                 invoice_date: unifiedParsed.invoice_date,
-                supplier: unifiedParsed.supplier,
+                supplier: unifiedParsed.supplier ? canonicalizeSupplierName(unifiedParsed.supplier) : undefined,
                 total_sum: unifiedParsed.total_sum,
                 vat_sum: unifiedParsed.vat_sum,
                 invoice_type: unifiedParsed.invoice_type,
@@ -280,7 +281,7 @@ export class FileWatcher {
         invoiceRepo.updateInvoiceData(invoice.id, {
           invoice_number: parsed.invoice_number,
           invoice_date: parsed.invoice_date,
-          supplier: parsed.supplier,
+          supplier: parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : undefined,
           total_sum: parsed.total_sum,
           vat_sum: parsed.vat_sum,
           invoice_type: parsed.invoice_type,

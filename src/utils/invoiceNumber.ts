@@ -141,6 +141,109 @@ export function normalizeSupplierName(sup: string | null | undefined): string {
 }
 
 /**
+ * Canonical legal forms that should always be used in stored/displayed
+ * supplier names. Order matters: longer patterns (full phrases) are tried
+ * BEFORE their abbreviations, so "Общество с ограниченной ответственностью"
+ * is matched before bare "ООО".
+ */
+const LEGAL_FORM_RULES: Array<{ pattern: RegExp; short: string; quoteName: boolean }> = [
+  // Full phrases (longer patterns first)
+  { pattern: /общество\s+с\s+ограниченной\s+ответственностью/i, short: 'ООО', quoteName: true },
+  { pattern: /публичное\s+акционерное\s+общество/i, short: 'ПАО', quoteName: true },
+  { pattern: /открытое\s+акционерное\s+общество/i, short: 'ОАО', quoteName: true },
+  { pattern: /закрытое\s+акционерное\s+общество/i, short: 'ЗАО', quoteName: true },
+  { pattern: /акционерное\s+общество/i, short: 'АО', quoteName: true },
+  { pattern: /индивидуальный\s+предприниматель/i, short: 'ИП', quoteName: false },
+
+  // Short forms, including OCR quirks (Latin OOO, three zeros 000 from Cyrillic ООО).
+  // NOTE: JS \b (word boundary) only works with Latin \w, not Cyrillic, so we use
+  // Unicode-aware lookarounds (?<!\p{L})...(?!\p{L}) which mean "not preceded/followed
+  // by a letter of any script". Requires the /u flag.
+  { pattern: /(?<!\p{L})ООО(?!\p{L})/iu, short: 'ООО', quoteName: true },
+  { pattern: /(?<!\p{L})OOO(?!\p{L})/iu, short: 'ООО', quoteName: true }, // Latin O's
+  { pattern: /(?<!\p{L})000(?!\p{L})/iu, short: 'ООО', quoteName: true }, // three zeros
+  { pattern: /(?<!\p{L})ПАО(?!\p{L})/iu, short: 'ПАО', quoteName: true },
+  { pattern: /(?<!\p{L})ОАО(?!\p{L})/iu, short: 'ОАО', quoteName: true },
+  { pattern: /(?<!\p{L})ЗАО(?!\p{L})/iu, short: 'ЗАО', quoteName: true },
+  { pattern: /(?<!\p{L})АО(?!\p{L})/iu, short: 'АО', quoteName: true },
+  { pattern: /(?<!\p{L})ИП(?!\p{L})/iu, short: 'ИП', quoteName: false },
+];
+
+/**
+ * Rewrite a supplier name to a canonical storage/display form.
+ *
+ * Detects the legal form (ООО, ИП, ОАО, ЗАО, ПАО, АО) regardless of how
+ * it's written in the source (full phrase, abbreviation, OCR quirks like
+ * Latin "OOO" or three zeros "000"), strips it from wherever it appears
+ * in the string, cleans up the remaining name, and rebuilds the output as:
+ *
+ *   - `ООО "Name"` for company forms (quoted)
+ *   - `ИП Name`    for individual entrepreneurs (no quotes)
+ *
+ * If no legal form is detected, returns the original trimmed string.
+ *
+ * Applied at storage time in fileWatcher so all new invoices have
+ * consistent supplier names. Idempotent — safe to call repeatedly.
+ *
+ * @example
+ *   canonicalizeSupplierName('Общество с ограниченной ответственностью "МС ЛОГИСТИК"')
+ *     // → 'ООО "МС ЛОГИСТИК"'
+ *   canonicalizeSupplierName('Мс логисТИК 000')
+ *     // → 'ООО "Мс логисТИК"'
+ *   canonicalizeSupplierName('МС ЛОГИСТИК ООО')
+ *     // → 'ООО "МС ЛОГИСТИК"'
+ *   canonicalizeSupplierName('Индивидуальный предприниматель Иванов И.И.')
+ *     // → 'ИП Иванов И.И.'
+ */
+export function canonicalizeSupplierName(sup: string | null | undefined): string {
+  if (!sup) return '';
+
+  let detectedForm: string | null = null;
+  let quoteName = true;
+  let remaining = sup;
+
+  // Try each rule in order; first match wins
+  for (const rule of LEGAL_FORM_RULES) {
+    if (rule.pattern.test(remaining)) {
+      detectedForm = rule.short;
+      quoteName = rule.quoteName;
+      remaining = remaining.replace(rule.pattern, ' ');
+      break;
+    }
+  }
+
+  // Clean up remaining name:
+  //   - normalize various quote styles to ASCII "
+  //   - collapse whitespace
+  //   - trim whitespace and some leading/trailing punctuation, but DO NOT
+  //     strip trailing periods (they're part of initials: "Иванов И.И.")
+  remaining = remaining
+    .replace(/[«»""„"]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[\s,:;\-]+|[\s,:;\-]+$/g, '')
+    .trim();
+
+  // Strip surrounding quotes from the bare name (we'll re-add them if needed)
+  if (remaining.startsWith('"') && remaining.endsWith('"')) {
+    remaining = remaining.slice(1, -1).trim();
+  }
+
+  if (!detectedForm) {
+    return sup.trim();
+  }
+
+  if (!remaining) {
+    return detectedForm;
+  }
+
+  if (quoteName) {
+    return `${detectedForm} "${remaining}"`;
+  }
+  return `${detectedForm} ${remaining}`;
+}
+
+/**
  * Check if two supplier strings refer to the same legal entity despite
  * OCR variations and formatting differences.
  *
