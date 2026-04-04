@@ -116,6 +116,45 @@ router.delete('/:id', (req: Request, res: Response) => {
   res.json({ data: { id, deleted: true } });
 });
 
+// POST /api/invoices/bulk-delete-except-latest — admin cleanup.
+// Deletes ALL invoices (and their items) except the latest N by created_at.
+// Body: { keep: number }
+// Returns count of deleted rows. Intended for one-off cleanup before the
+// first real 1C import run — removes old test/garbage data so the 1C
+// /pending list isn't polluted with hundreds of obsolete records.
+router.post('/bulk-delete-except-latest', (req: Request, res: Response) => {
+  const { keep } = req.body as { keep?: unknown };
+  if (typeof keep !== 'number' || keep < 0 || !Number.isInteger(keep)) {
+    res.status(400).json({ error: 'keep must be a non-negative integer' });
+    return;
+  }
+
+  const db = getDb();
+  // Collect IDs to KEEP (top N by created_at DESC)
+  const keepRows = db.prepare(
+    `SELECT id FROM invoices ORDER BY created_at DESC LIMIT ?`
+  ).all(keep) as Array<{ id: number }>;
+  const keepIds = new Set(keepRows.map(r => r.id));
+
+  // Find IDs to delete
+  const allRows = db.prepare('SELECT id FROM invoices').all() as Array<{ id: number }>;
+  const toDelete = allRows.map(r => r.id).filter(id => !keepIds.has(id));
+
+  const delItems = db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?');
+  const delInvoice = db.prepare('DELETE FROM invoices WHERE id = ?');
+
+  const tx = db.transaction((ids: number[]) => {
+    for (const id of ids) {
+      delItems.run(id);
+      delInvoice.run(id);
+    }
+  });
+  tx(toDelete);
+
+  logger.info('Bulk delete complete', { kept: keepIds.size, deleted: toDelete.length });
+  res.json({ data: { kept: keepIds.size, deleted: toDelete.length } });
+});
+
 // POST /api/invoices/canonicalize-suppliers — retroactively rewrite supplier
 // names in existing invoices to the canonical form (ООО "Name" / ИП Name).
 // Safe to run repeatedly — canonicalizeSupplierName is idempotent.
