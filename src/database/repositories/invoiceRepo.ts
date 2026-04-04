@@ -1,4 +1,5 @@
 import { getDb } from '../db';
+import { normalizeInvoiceNumber } from '../../utils/invoiceNumber';
 
 export interface Invoice {
   id: number;
@@ -213,32 +214,49 @@ export const invoiceRepo = {
   },
 
   /**
-   * Найти недавнюю накладную с таким же номером и поставщиком.
+   * Найти недавнюю накладную с таким же номером (и, опционально, поставщиком).
    * Используется для объединения многостраничных накладных.
    *
-   * @param invoiceNumber - номер накладной
-   * @param supplier - поставщик (опционально)
+   * Сравнение по нормализованному номеру: учитывает кириллические/латинские
+   * омоглифы (В↔B, М↔M, ...), регистр, пробелы, ведущие № и #. Это нужно,
+   * потому что OCR может прочитать одну и ту же цифру/букву по-разному на
+   * разных страницах одного и того же документа.
+   *
+   * @param invoiceNumber - номер накладной (в любой форме)
+   * @param supplier - поставщик (опционально, exact match)
    * @param withinMinutes - искать за последние N минут (по умолчанию 10)
    */
   findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10): Invoice | undefined {
+    const target = normalizeInvoiceNumber(invoiceNumber);
+    if (!target) return undefined;
+
     const db = getDb();
 
-    // Ищем накладную с таким же номером, созданную недавно
+    // Загружаем кандидатов в окне времени (с номером, в активных статусах),
+    // затем фильтруем по нормализованному сравнению в JS.
     const query = supplier
       ? `SELECT * FROM invoices
-         WHERE invoice_number = ? AND supplier = ?
+         WHERE invoice_number IS NOT NULL AND invoice_number != ''
+         AND supplier = ?
          AND created_at > datetime('now', '-${withinMinutes} minutes')
          AND status IN ('processed', 'parsing', 'ocr_processing')
-         ORDER BY created_at DESC LIMIT 1`
+         ORDER BY created_at DESC`
       : `SELECT * FROM invoices
-         WHERE invoice_number = ?
+         WHERE invoice_number IS NOT NULL AND invoice_number != ''
          AND created_at > datetime('now', '-${withinMinutes} minutes')
          AND status IN ('processed', 'parsing', 'ocr_processing')
-         ORDER BY created_at DESC LIMIT 1`;
+         ORDER BY created_at DESC`;
 
-    return supplier
-      ? db.prepare(query).get(invoiceNumber, supplier) as Invoice | undefined
-      : db.prepare(query).get(invoiceNumber) as Invoice | undefined;
+    const candidates = (supplier
+      ? db.prepare(query).all(supplier)
+      : db.prepare(query).all()) as Invoice[];
+
+    for (const candidate of candidates) {
+      if (normalizeInvoiceNumber(candidate.invoice_number) === target) {
+        return candidate;
+      }
+    }
+    return undefined;
   },
 
   /**
