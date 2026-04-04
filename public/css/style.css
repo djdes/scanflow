@@ -661,6 +661,122 @@ details[open] summary { margin-bottom: 12px; }
   display: none;
 }
 
+/* ========== Camera Tab ========== */
+.btn-camera-capture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  padding: 28px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary, #2563eb), var(--primary-dark, #1d4ed8));
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+  min-height: 96px;
+}
+.btn-camera-capture:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
+}
+.btn-camera-capture:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+.btn-camera-capture:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.btn-camera-capture svg {
+  flex-shrink: 0;
+}
+
+.camera-counter {
+  text-align: center;
+  color: var(--text-muted, #64748b);
+  font-size: 14px;
+  margin-top: 16px;
+  min-height: 20px;
+}
+
+.camera-history {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.camera-history-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  background: var(--bg, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  transition: border-color 0.15s ease;
+}
+.camera-history-item:hover {
+  border-color: var(--border-hover, #cbd5e1);
+}
+
+.camera-history-item img {
+  width: 56px;
+  height: 74px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: #e2e8f0;
+}
+
+.camera-history-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.camera-history-name {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.camera-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  align-self: flex-start;
+}
+.camera-status-loading {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.camera-status-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+.camera-status-ok:hover {
+  background: #bbf7d0;
+}
+.camera-status-error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 /* ========== Toggle Switch ========== */
 .toggle-wrap {
   display: flex;

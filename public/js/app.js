@@ -46,6 +46,10 @@ const App = {
       document.getElementById('view-upload').style.display = 'block';
       document.querySelector('nav a[data-tab="upload"]').classList.add('active');
       Upload.init();
+    } else if (hash === '#/camera') {
+      document.getElementById('view-camera').style.display = 'block';
+      document.querySelector('nav a[data-tab="camera"]').classList.add('active');
+      Camera.init();
     } else if (hash === '#/mappings') {
       document.getElementById('view-mappings').style.display = 'block';
       document.querySelector('nav a[data-tab="mappings"]').classList.add('active');
