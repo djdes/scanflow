@@ -17,8 +17,10 @@
 import '../config';
 import { config } from '../config';
 
-const BASE_URL = `http://localhost:${config.apiPort}`;
-const API_KEY = config.apiKey;
+// Allow overriding target via env vars for running against prod:
+//   BASE_URL=https://scan.magday.ru API_KEY=... npx ts-node src/scripts/test-1c-api.ts
+const BASE_URL = process.env.BASE_URL || `http://localhost:${config.apiPort}`;
+const API_KEY = process.env.API_KEY || config.apiKey;
 
 let passCount = 0;
 let failCount = 0;

@@ -85,6 +85,23 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
   res.json({ data: { id, status: 'sent_to_1c' } });
 });
 
+// POST /api/invoices/:id/reset — reset from sent_to_1c back to processed.
+// Used when a 1C import needs to be retried (e.g. user deleted the document
+// in 1C and wants to re-pull it via the external processing).
+router.post('/:id/reset', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = invoiceRepo.getById(id);
+
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+
+  const db = getDb();
+  db.prepare("UPDATE invoices SET status = 'processed', sent_at = NULL WHERE id = ?").run(id);
+  res.json({ data: { id, status: 'processed' } });
+});
+
 // DELETE /api/invoices/:id — delete invoice and its items
 router.delete('/:id', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
