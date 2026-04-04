@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form:Form xmlns:form="http://v8.1c.ru/8.2/managed-application/form" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<title>
+		<v8:item>
+			<v8:lang>ru</v8:lang>
+			<v8:content>Загрузка накладных со сканера</v8:content>
+		</v8:item>
+	</title>
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
+		<AutoFill>false</AutoFill>
+	</AutoCommandBar>
+	<ChildItems>
+		<Button name="ЗагрузитьНакладные" id="1">
+			<Type>UsualButton</Type>
+			<CommandName>Form.Command.ЗагрузитьНакладные</CommandName>
+			<ExtendedTooltip name="ЗагрузитьНакладныеРасширеннаяПодсказка" id="2"/>
+		</Button>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="Объект" id="1">
+			<Type>
+				<v8:Type>cfg:ExternalDataProcessorObject.КНД_ЗагрузкаНакладныхСканер</v8:Type>
+			</Type>
+			<MainAttribute>true</MainAttribute>
+		</Attribute>
+	</Attributes>
+	<Commands>
+		<Command name="ЗагрузитьНакладные" id="1">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Загрузить накладные</v8:content>
+				</v8:item>
+			</Title>
+			<ToolTip>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Получить распознанные накладные со scan.magday.ru и создать документы Приходная накладная</v8:content>
+				</v8:item>
+			</ToolTip>
+			<Action>ЗагрузитьНакладные</Action>
+		</Command>
+	</Commands>
+</form:Form>
