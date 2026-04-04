@@ -26,6 +26,8 @@ export interface Invoice {
   error_message: string | null;
   created_at: string;
   sent_at: string | null;
+  approved_for_1c: number;
+  approved_at: string | null;
 }
 
 export interface InvoiceItem {
@@ -113,8 +115,38 @@ export const invoiceRepo = {
       .all(limit, offset) as Invoice[];
   },
 
+  /**
+   * Накладные, которые пользователь явно отправил в 1С кнопкой "Отправить в 1С"
+   * в дашборде. Возвращает только те что approved_for_1c=1 И в активных статусах
+   * (не sent_to_1c ещё и не error).
+   */
   getPending(): Invoice[] {
-    return this.getAll('processed');
+    const db = getDb();
+    return db.prepare(
+      `SELECT * FROM invoices
+       WHERE approved_for_1c = 1
+       AND status IN ('processed', 'parsing', 'ocr_processing')
+       ORDER BY created_at DESC`
+    ).all() as Invoice[];
+  },
+
+  /**
+   * Пометить накладную как одобренную для 1С.
+   * Не меняет status — он остаётся 'processed'.
+   * 1C забирает накладную через /pending, создаёт документ, вызывает /confirm,
+   * только после этого status становится 'sent_to_1c'.
+   */
+  approveForOneC(id: number): void {
+    const db = getDb();
+    db.prepare("UPDATE invoices SET approved_for_1c = 1, approved_at = datetime('now') WHERE id = ?").run(id);
+  },
+
+  /**
+   * Отозвать одобрение (если передумали отправлять в 1С).
+   */
+  unapproveForOneC(id: number): void {
+    const db = getDb();
+    db.prepare('UPDATE invoices SET approved_for_1c = 0, approved_at = NULL WHERE id = ?').run(id);
   },
 
   updateStatus(id: number, status: string, errorMessage?: string): void {

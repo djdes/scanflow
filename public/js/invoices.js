@@ -207,10 +207,16 @@ const Invoices = {
       const actions = document.getElementById('invoice-actions');
       let actionsHtml = '';
       if (data.status === 'processed') {
-        actionsHtml += `<button class="btn btn-primary" onclick="Invoices.sendTo1C(${data.id})">Отправить в 1С</button>`;
+        if (data.approved_for_1c) {
+          // Already approved — show withdraw option + status badge
+          actionsHtml += `<div class="badge badge-sent" style="padding:8px 16px">✓ Ожидает загрузки в 1С</div>`;
+          actionsHtml += `<button class="btn btn-outline" onclick="Invoices.unapproveForOneC(${data.id})">Отозвать отправку</button>`;
+        } else {
+          actionsHtml += `<button class="btn btn-primary" onclick="Invoices.sendTo1C(${data.id})">Отправить в 1С</button>`;
+        }
       }
-      if (data.status === 'processed' || data.status === 'sent_to_1c') {
-        actionsHtml += `<button class="btn btn-success" onclick="Invoices.confirm(${data.id})">Подтвердить отправку</button>`;
+      if (data.status === 'sent_to_1c') {
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.resetStatus(${data.id})">Сбросить статус (для повторной загрузки)</button>`;
       }
       if (data.error_message) {
         actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${data.error_message}</div>`;
@@ -253,21 +259,39 @@ const Invoices = {
       const res = await App.api(`/invoices/${id}/send`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        App.notify('Накладная отправлена в 1С', 'success');
+        App.notify('Накладная помечена для отправки. Загрузите через обработку в 1С.', 'success');
         this.showDetail(id);
       } else {
-        App.notify(data.error || 'Ошибка отправки', 'error');
+        App.notify(data.error || 'Ошибка', 'error');
       }
     } catch (e) {
-      App.notify('Ошибка отправки: ' + e.message, 'error');
+      App.notify('Ошибка: ' + e.message, 'error');
     }
   },
 
-  async confirm(id) {
+  async unapproveForOneC(id) {
     try {
-      const res = await App.api(`/invoices/${id}/confirm`, { method: 'POST' });
+      const res = await App.api(`/invoices/${id}/unapprove`, { method: 'POST' });
       if (res.ok) {
-        App.notify('Отправка подтверждена', 'success');
+        App.notify('Отправка отозвана', 'success');
+        this.showDetail(id);
+      } else {
+        const data = await res.json();
+        App.notify(data.error || 'Ошибка', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  async resetStatus(id) {
+    if (!confirm('Сбросить статус накладной? Она станет "Обработан" и исчезнет из списка готовых к 1С. Для повторной отправки нужно будет снова нажать "Отправить в 1С".')) {
+      return;
+    }
+    try {
+      const res = await App.api(`/invoices/${id}/reset`, { method: 'POST' });
+      if (res.ok) {
+        App.notify('Статус сброшен', 'success');
         this.showDetail(id);
       } else {
         const data = await res.json();

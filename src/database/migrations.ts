@@ -105,5 +105,20 @@ export function runMigrations(db: Database.Database): void {
     `);
   }
 
+  // === Migration v4: Approval workflow for 1C ===
+  // User explicitly clicks "Отправить в 1С" in the dashboard to mark an
+  // invoice as ready for 1C pickup. /pending endpoint returns only approved.
+  const hasApproved = db.prepare(
+    "SELECT COUNT(*) as cnt FROM pragma_table_info('invoices') WHERE name = 'approved_for_1c'"
+  ).get() as { cnt: number };
+
+  if (hasApproved.cnt === 0) {
+    logger.info('Migration v4: Adding approved_for_1c column...');
+    db.exec(`
+      ALTER TABLE invoices ADD COLUMN approved_for_1c INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE invoices ADD COLUMN approved_at TEXT;
+    `);
+  }
+
   logger.info('Database migrations completed');
 }

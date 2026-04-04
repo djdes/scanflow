@@ -48,7 +48,17 @@ router.get('/:id', (req: Request, res: Response) => {
   res.json({ data: invoice });
 });
 
-// POST /api/invoices/:id/send — manually send to 1C webhook
+// POST /api/invoices/:id/send — approve invoice for 1C pickup.
+//
+// Approval workflow (user-controlled):
+//   1. User reviews invoice in dashboard
+//   2. Clicks "Отправить в 1С" → this endpoint → approved_for_1c = 1
+//   3. 1C external processing calls GET /api/invoices/pending → sees this invoice
+//   4. 1C creates ПриходнаяНакладная document, then calls POST /:id/confirm
+//   5. Confirm endpoint sets status = sent_to_1c
+//
+// Does NOT call the old webhook (which was never configured in production).
+// The webhook path was replaced by this explicit pull/approval model.
 router.post('/:id/send', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = invoiceRepo.getById(id);
@@ -59,19 +69,32 @@ router.post('/:id/send', async (req: Request, res: Response) => {
   }
 
   if (invoice.status !== 'processed') {
-    res.status(400).json({ error: `Invoice must be in "processed" status, current: "${invoice.status}"` });
+    res.status(400).json({
+      error: `Invoice must be in "processed" status, current: "${invoice.status}"`
+    });
     return;
   }
 
-  const success = await sendToWebhook(id);
-  if (success) {
-    res.json({ message: 'Sent to 1C', status: 'sent_to_1c' });
-  } else {
-    res.status(500).json({ error: 'Failed to send to 1C webhook. Check webhook configuration.' });
+  // Also try the legacy webhook if configured — backward compat for anyone
+  // who has a webhook URL set up. If no webhook is configured, this is a no-op.
+  try {
+    await sendToWebhook(id);
+  } catch {
+    // Webhook is optional; ignore failures
   }
+
+  // Primary flow: mark as approved so 1C picks it up on next /pending call
+  invoiceRepo.approveForOneC(id);
+
+  res.json({
+    data: { id, approved_for_1c: true },
+    message: 'Накладная помечена для отправки в 1С. Загрузите через обработку в 1С.'
+  });
 });
 
-// POST /api/invoices/:id/confirm — confirm sent to 1C
+// POST /api/invoices/:id/confirm — confirm sent to 1C.
+// Called by 1C external processing after it successfully creates the document.
+// Sets status = sent_to_1c AND clears approved_for_1c (because it's now done).
 router.post('/:id/confirm', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = invoiceRepo.getById(id);
@@ -82,12 +105,14 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
   }
 
   invoiceRepo.markSent(id);
+  const db = getDb();
+  db.prepare('UPDATE invoices SET approved_for_1c = 0 WHERE id = ?').run(id);
   res.json({ data: { id, status: 'sent_to_1c' } });
 });
 
 // POST /api/invoices/:id/reset — reset from sent_to_1c back to processed.
-// Used when a 1C import needs to be retried (e.g. user deleted the document
-// in 1C and wants to re-pull it via the external processing).
+// Also clears approved_for_1c flag so user has to explicitly re-approve
+// before 1C picks it up again (avoids accidental double-imports).
 router.post('/:id/reset', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = invoiceRepo.getById(id);
@@ -98,8 +123,25 @@ router.post('/:id/reset', (req: Request, res: Response) => {
   }
 
   const db = getDb();
-  db.prepare("UPDATE invoices SET status = 'processed', sent_at = NULL WHERE id = ?").run(id);
-  res.json({ data: { id, status: 'processed' } });
+  db.prepare(
+    "UPDATE invoices SET status = 'processed', sent_at = NULL, approved_for_1c = 0, approved_at = NULL WHERE id = ?"
+  ).run(id);
+  res.json({ data: { id, status: 'processed', approved_for_1c: false } });
+});
+
+// POST /api/invoices/:id/unapprove — withdraw the "Отправить в 1С" approval.
+// Use when user wants to cancel the pending 1C upload before 1C has fetched it.
+router.post('/:id/unapprove', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = invoiceRepo.getById(id);
+
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+
+  invoiceRepo.unapproveForOneC(id);
+  res.json({ data: { id, approved_for_1c: false } });
 });
 
 // DELETE /api/invoices/:id — delete invoice and its items
