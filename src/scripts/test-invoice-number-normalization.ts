@@ -6,7 +6,12 @@
  * Usage: npm run test:invoice-number
  */
 import '../config';
-import { normalizeInvoiceNumber } from '../utils/invoiceNumber';
+import {
+  normalizeInvoiceNumber,
+  extractDigitSequence,
+  normalizeSupplierName,
+  suppliersMatch,
+} from '../utils/invoiceNumber';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { getDb } from '../database/db';
 
@@ -82,10 +87,90 @@ function testEdgeCases(): void {
 }
 
 // ============================================================
-// Test 4: findRecentByNumber uses normalization
+// Test 4: extractDigitSequence
+// ============================================================
+function testExtractDigits(): void {
+  console.log('\n=== Test 4: extractDigitSequence ===');
+
+  assert(extractDigitSequence('МСМС-40626') === '40626',
+    'МСМС-40626 → 40626');
+  assert(extractDigitSequence('40626') === '40626',
+    '40626 → 40626');
+  assert(extractDigitSequence('17-0048600') === '170048600',
+    '17-0048600 → 170048600 (concatenated)');
+  assert(extractDigitSequence('BM-611') === '611',
+    'BM-611 → 611');
+  assert(extractDigitSequence('') === '', 'empty → empty');
+  assert(extractDigitSequence('ABC') === '', 'no digits → empty');
+  assert(extractDigitSequence(null) === '', 'null → empty');
+}
+
+// ============================================================
+// Test 5: normalizeSupplierName
+// ============================================================
+function testNormalizeSupplier(): void {
+  console.log('\n=== Test 5: normalizeSupplierName ===');
+
+  // The 4 actual supplier strings from production that should all collapse
+  // to the same canonical form "мслогистик":
+  const variants = [
+    'Общество с ограниченной ответственностью "МС ЛОГИСТИК"',
+    'ООО "МС ЛОГИСТИК"',
+    'Мс логисТИК 000',  // OCR reads three О's as three zeros
+    'МС ЛОГИСТИК ООО',
+  ];
+  const normalized = variants.map(normalizeSupplierName);
+  console.log('  Normalized variants:', normalized);
+
+  for (let i = 1; i < normalized.length; i++) {
+    assert(normalized[i] === normalized[0],
+      `variant ${i} normalizes same as variant 0 ("${normalized[i]}" vs "${normalized[0]}")`);
+  }
+
+  // Basic cases
+  assert(normalizeSupplierName('') === '', 'empty');
+  assert(normalizeSupplierName(null) === '', 'null');
+  assert(normalizeSupplierName('ИП Иванов И.И.') !== '', 'ИП preserved with name');
+}
+
+// ============================================================
+// Test 6: suppliersMatch
+// ============================================================
+function testSuppliersMatch(): void {
+  console.log('\n=== Test 6: suppliersMatch ===');
+
+  assert(suppliersMatch(
+    'Общество с ограниченной ответственностью "МС ЛОГИСТИК"',
+    'Мс логисТИК 000'
+  ), 'Full form matches short form');
+
+  assert(suppliersMatch(
+    'ООО "МС ЛОГИСТИК"',
+    'МС ЛОГИСТИК ООО'
+  ), 'Different word order matches');
+
+  assert(suppliersMatch(
+    'ООО "Вкусный мир ТК"',
+    'ООО "Вкусный мир ТК"'
+  ), 'Identical suppliers match');
+
+  // Negative cases — different companies must NOT match
+  assert(!suppliersMatch(
+    'ООО "МС ЛОГИСТИК"',
+    'ООО "Свит Лайф Фудсервис"'
+  ), 'Different companies do NOT match');
+
+  assert(!suppliersMatch('', 'ООО "Test"'),
+    'Empty does not match anything');
+  assert(!suppliersMatch('ООО "Test"', null),
+    'null does not match anything');
+}
+
+// ============================================================
+// Test 7: findRecentByNumber uses normalization
 // ============================================================
 function testFindRecentByNumber(): void {
-  console.log('\n=== Test 4: findRecentByNumber handles homoglyphs ===');
+  console.log('\n=== Test 7: findRecentByNumber handles homoglyphs ===');
 
   // Create test invoice with Latin BM-611
   const page1 = invoiceRepo.create({
@@ -126,7 +211,7 @@ function testFindRecentByNumber(): void {
 // Test 5: Supplier filter still works with normalization
 // ============================================================
 function testWithSupplier(): void {
-  console.log('\n=== Test 5: Supplier filter compatibility ===');
+  console.log('\n=== Test 8: Supplier filter compatibility ===');
 
   const a = invoiceRepo.create({
     file_name: 'a.jpg', file_path: '/tmp/a.jpg',
@@ -160,6 +245,64 @@ function testWithSupplier(): void {
 }
 
 // ============================================================
+// Test 9: Production bug — МСМС-40626 vs 40626 with supplier variations
+// ============================================================
+function testDigitSequenceFallback(): void {
+  console.log('\n=== Test 9: Digit-sequence fallback (МСМС-40626 ↔ 40626) ===');
+
+  // Page 1: full invoice number with prefix
+  const page1 = invoiceRepo.create({
+    file_name: 'test-msms-page1.jpg',
+    file_path: '/tmp/test-msms-page1.jpg',
+    invoice_number: 'МСМС-40626',
+    invoice_date: '2026-03-24',
+    supplier: 'Общество с ограниченной ответственностью "МС ЛОГИСТИК"',
+  });
+  invoiceRepo.updateStatus(page1.id, 'processed');
+
+  // Page 2 arrives with truncated number (OCR missed the prefix) and different
+  // supplier form
+  const found = invoiceRepo.findRecentByNumber(
+    '40626',
+    'Мс логисТИК 000',
+    10
+  );
+  assert(!!found, 'findRecentByNumber finds page 1 from truncated number + alt supplier');
+  assert(found?.id === page1.id, `Matches correct invoice: got ${found?.id}, expected ${page1.id}`);
+
+  // Negative case: same digit sequence but DIFFERENT supplier should NOT merge
+  const unrelated = invoiceRepo.create({
+    file_name: 'unrelated.jpg',
+    file_path: '/tmp/unrelated.jpg',
+    invoice_number: 'INV-40626',
+    invoice_date: '2026-03-24',
+    supplier: 'ООО "Совершенно другая компания"',
+  });
+  invoiceRepo.updateStatus(unrelated.id, 'processed');
+
+  const notFoundForDifferentSupplier = invoiceRepo.findRecentByNumber(
+    '40626',
+    'ООО "Третья фирма"',
+    10
+  );
+  // Should return undefined since neither page1 nor unrelated matches "Третья фирма" supplier
+  assert(!notFoundForDifferentSupplier,
+    'Digit match fails when supplier does not match any candidate');
+
+  // But searching for the first variant's supplier should still find page1
+  const foundAgain = invoiceRepo.findRecentByNumber(
+    '40626',
+    'ООО "МС ЛОГИСТИК"',
+    10
+  );
+  assert(foundAgain?.id === page1.id,
+    `Still finds page 1 with another supplier variant: ${foundAgain?.id}`);
+
+  invoiceRepo.delete(page1.id);
+  invoiceRepo.delete(unrelated.id);
+}
+
+// ============================================================
 // Run all tests
 // ============================================================
 async function main(): Promise<void> {
@@ -169,8 +312,12 @@ async function main(): Promise<void> {
   testHomoglyphs();
   testCaseAndWhitespace();
   testEdgeCases();
+  testExtractDigits();
+  testNormalizeSupplier();
+  testSuppliersMatch();
   testFindRecentByNumber();
   testWithSupplier();
+  testDigitSequenceFallback();
 
   console.log('\n===================================');
   console.log(`Results: ${passCount} passed, ${failCount} failed`);

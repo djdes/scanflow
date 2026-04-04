@@ -149,12 +149,15 @@ export class FileWatcher {
       let targetInvoiceId = invoice.id;
       let isMergedPage = false;
 
-      // Strategy A: match by invoice_number (within last 10 minutes)
+      // Strategy A: match by invoice_number (within last 10 minutes).
+      // Supplier is passed through so that the digit-sequence fallback inside
+      // findRecentByNumber can fuzzy-match supplier names that OCR read
+      // differently across pages (e.g. "ООО МС ЛОГИСТИК" vs full legal form).
       let existingInvoice: ReturnType<typeof invoiceRepo.findRecentByNumber> = undefined;
       if (parsed.invoice_number) {
         existingInvoice = invoiceRepo.findRecentByNumber(
           parsed.invoice_number,
-          undefined,
+          parsed.supplier ?? undefined,
           10
         );
       }

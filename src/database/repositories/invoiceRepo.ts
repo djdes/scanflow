@@ -1,5 +1,9 @@
 import { getDb } from '../db';
-import { normalizeInvoiceNumber } from '../../utils/invoiceNumber';
+import {
+  normalizeInvoiceNumber,
+  extractDigitSequence,
+  suppliersMatch,
+} from '../../utils/invoiceNumber';
 
 export interface Invoice {
   id: number;
@@ -217,45 +221,68 @@ export const invoiceRepo = {
    * Найти недавнюю накладную с таким же номером (и, опционально, поставщиком).
    * Используется для объединения многостраничных накладных.
    *
-   * Сравнение по нормализованному номеру: учитывает кириллические/латинские
-   * омоглифы (В↔B, М↔M, ...), регистр, пробелы, ведущие № и #. Это нужно,
-   * потому что OCR может прочитать одну и ту же цифру/букву по-разному на
-   * разных страницах одного и того же документа.
+   * Две стратегии матчинга:
+   *
+   *   1. **Exact normalized match** — сравнение по нормализованному номеру:
+   *      учитывает кириллические/латинские омоглифы (В↔B, М↔M, ...), регистр,
+   *      пробелы, разделители, ведущие № / #.
+   *
+   *   2. **Digit-sequence fallback** (если exact провалился) — сравнение по
+   *      последовательности цифр + fuzzy-match поставщика. Это нужно когда OCR
+   *      читает на одной странице префикс буквами, а на другой — только цифры
+   *      (напр. "МСМС-40626" на стр.1 и "40626" на стр.2). Требует:
+   *        - одинаковая цифровая последовательность (минимум 3 цифры)
+   *        - fuzzy-match поставщика (см. suppliersMatch)
+   *
+   *   Передаваемый supplier, если есть, участвует в обеих стратегиях (exact
+   *   идёт через SQL = в 1-й стратегии, fallback — через fuzzy в JS).
    *
    * @param invoiceNumber - номер накладной (в любой форме)
-   * @param supplier - поставщик (опционально, exact match)
+   * @param supplier - поставщик (опционально, для fuzzy fallback в пункте 2)
    * @param withinMinutes - искать за последние N минут (по умолчанию 10)
    */
   findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10): Invoice | undefined {
-    const target = normalizeInvoiceNumber(invoiceNumber);
-    if (!target) return undefined;
+    const targetNormalized = normalizeInvoiceNumber(invoiceNumber);
+    if (!targetNormalized) return undefined;
+
+    const targetDigits = extractDigitSequence(invoiceNumber);
 
     const db = getDb();
 
-    // Загружаем кандидатов в окне времени (с номером, в активных статусах),
-    // затем фильтруем по нормализованному сравнению в JS.
-    const query = supplier
-      ? `SELECT * FROM invoices
-         WHERE invoice_number IS NOT NULL AND invoice_number != ''
-         AND supplier = ?
-         AND created_at > datetime('now', '-${withinMinutes} minutes')
-         AND status IN ('processed', 'parsing', 'ocr_processing')
-         ORDER BY created_at DESC`
-      : `SELECT * FROM invoices
-         WHERE invoice_number IS NOT NULL AND invoice_number != ''
-         AND created_at > datetime('now', '-${withinMinutes} minutes')
-         AND status IN ('processed', 'parsing', 'ocr_processing')
-         ORDER BY created_at DESC`;
+    // Загружаем ВСЕХ кандидатов в окне времени (не фильтруем по supplier в SQL,
+    // чтобы fallback мог использовать fuzzy-match), затем сравниваем в JS.
+    const candidates = db.prepare(
+      `SELECT * FROM invoices
+       WHERE invoice_number IS NOT NULL AND invoice_number != ''
+       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       AND status IN ('processed', 'parsing', 'ocr_processing')
+       ORDER BY created_at DESC`
+    ).all() as Invoice[];
 
-    const candidates = (supplier
-      ? db.prepare(query).all(supplier)
-      : db.prepare(query).all()) as Invoice[];
-
+    // Pass 1: exact normalized match (with optional strict supplier filter)
     for (const candidate of candidates) {
-      if (normalizeInvoiceNumber(candidate.invoice_number) === target) {
-        return candidate;
+      if (normalizeInvoiceNumber(candidate.invoice_number) === targetNormalized) {
+        if (!supplier || candidate.supplier === supplier) {
+          return candidate;
+        }
       }
     }
+
+    // Pass 2: digit-sequence fallback. Requires 3+ digits to avoid matching
+    // common short sequences like "1" or "17".
+    if (targetDigits.length >= 3) {
+      for (const candidate of candidates) {
+        const candDigits = extractDigitSequence(candidate.invoice_number);
+        if (candDigits !== targetDigits) continue;
+
+        // Both sides must have a supplier, and they must fuzzy-match.
+        // This is the safety net — same digits alone is not enough.
+        if (supplier && candidate.supplier && suppliersMatch(supplier, candidate.supplier)) {
+          return candidate;
+        }
+      }
+    }
+
     return undefined;
   },
 
