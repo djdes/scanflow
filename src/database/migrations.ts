@@ -120,5 +120,29 @@ export function runMigrations(db: Database.Database): void {
     `);
   }
 
+  // === Migration v5: API request log (debug) ===
+  // Records every hit to /api/* endpoints so we can verify whether 1C
+  // actually reached the server when troubleshooting import issues.
+  const hasApiRequestsLog = db.prepare(
+    "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table' AND name = 'api_requests_log'"
+  ).get() as { cnt: number };
+
+  if (hasApiRequestsLog.cnt === 0) {
+    logger.info('Migration v5: Creating api_requests_log table...');
+    db.exec(`
+      CREATE TABLE api_requests_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        remote_addr TEXT,
+        user_agent TEXT,
+        status_code INTEGER,
+        duration_ms INTEGER
+      );
+      CREATE INDEX idx_api_requests_log_timestamp ON api_requests_log(timestamp);
+    `);
+  }
+
   logger.info('Database migrations completed');
 }

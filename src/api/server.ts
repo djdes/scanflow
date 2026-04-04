@@ -4,11 +4,13 @@ import path from 'path';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth } from './middleware/auth';
+import { apiRequestLog } from './middleware/requestLog';
 import invoicesRouter from './routes/invoices';
 import mappingsRouter, { setMapper } from './routes/mappings';
 import uploadRouter, { setFileWatcher } from './routes/upload';
 import webhookRouter from './routes/webhook';
 import settingsRouter from './routes/settings';
+import debugRouter from './routes/debug';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -22,6 +24,10 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Middleware
   app.use(cors());
   app.use(express.json());
+
+  // Debug: log every /api/* request to DB so we can diagnose "did the client
+  // actually reach us?" without SSH access to pm2/nginx logs
+  app.use(apiRequestLog);
 
   // Inject dependencies
   setMapper(mapper);
@@ -38,6 +44,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/upload', apiKeyAuth, uploadRouter);
   app.use('/api/webhook', apiKeyAuth, webhookRouter);
   app.use('/api/settings', apiKeyAuth, settingsRouter);
+  app.use('/api/debug', apiKeyAuth, debugRouter);
 
   // Mobile camera page (no auth — accessed from phone on local network)
   app.get('/camera', (_req, res) => {
