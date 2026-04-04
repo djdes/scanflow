@@ -99,30 +99,6 @@ router.delete('/:id', (req: Request, res: Response) => {
   res.json({ data: { id, deleted: true } });
 });
 
-// POST /api/invoices/restore-supplier — one-shot repair endpoint.
-// Takes { ids: number[], supplier: string } and sets supplier for each id.
-// Used to restore legacy bank-details records that a buggy canonicalization
-// corrupted. TODO: remove after legacy repair is done.
-router.post('/restore-supplier', (req: Request, res: Response) => {
-  const { ids, supplier } = req.body as { ids?: unknown; supplier?: unknown };
-  if (!Array.isArray(ids) || ids.length === 0 || typeof supplier !== 'string') {
-    res.status(400).json({ error: 'ids (number[]) and supplier (string) required' });
-    return;
-  }
-  if (ids.some(id => typeof id !== 'number')) {
-    res.status(400).json({ error: 'all ids must be numbers' });
-    return;
-  }
-  const db = getDb();
-  const stmt = db.prepare('UPDATE invoices SET supplier = ? WHERE id = ?');
-  let updated = 0;
-  for (const id of ids as number[]) {
-    const r = stmt.run(supplier, id);
-    if (r.changes > 0) updated++;
-  }
-  res.json({ data: { requested: ids.length, updated } });
-});
-
 // POST /api/invoices/canonicalize-suppliers — retroactively rewrite supplier
 // names in existing invoices to the canonical form (ООО "Name" / ИП Name).
 // Safe to run repeatedly — canonicalizeSupplierName is idempotent.
