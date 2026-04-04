@@ -80,4 +80,18 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
   res.json({ data: { id, status: 'sent_to_1c' } });
 });
 
+// DELETE /api/invoices/:id — delete invoice and its items
+router.delete('/:id', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = invoiceRepo.getById(id);
+
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+
+  invoiceRepo.delete(id);
+  res.json({ data: { id, deleted: true } });
+});
+
 export default router;

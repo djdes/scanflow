@@ -62,7 +62,7 @@ const Invoices = {
       const tbody = document.getElementById('invoices-tbody');
 
       if (!data || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">
+        tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
           <div class="empty-icon">&#128196;</div>
           <div>Накладных пока нет. Загрузите фото или положите в папку data/inbox/</div>
         </div></td></tr>`;
@@ -80,6 +80,10 @@ const Invoices = {
           <td>${App.ocrEngineBadge(inv.ocr_engine)}</td>
           <td>${App.statusBadge(inv.status)}</td>
           <td>${App.formatDate(inv.created_at)}</td>
+          <td style="text-align:center">
+            <button class="btn-icon-danger" title="Удалить накладную"
+                    onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
+          </td>
         </tr>
       `).join('');
 
@@ -211,6 +215,8 @@ const Invoices = {
       if (data.error_message) {
         actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${data.error_message}</div>`;
       }
+      // Delete button (destructive, always visible, pushed to the right)
+      actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
 
       // Items table
@@ -269,6 +275,29 @@ const Invoices = {
       }
     } catch (e) {
       App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  async deleteInvoice(id, event) {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    if (!confirm(`Удалить накладную #${id}? Это действие нельзя отменить.`)) {
+      return;
+    }
+    try {
+      const res = await App.api(`/invoices/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        App.notify('Накладная удалена', 'success');
+        App.navigate('#/invoices');
+        this.showList();
+      } else {
+        const data = await res.json();
+        App.notify(data.error || 'Ошибка удаления', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка удаления: ' + e.message, 'error');
     }
   }
 };
