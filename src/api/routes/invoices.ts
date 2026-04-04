@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
+import path from 'path';
+import fs from 'fs';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { getDb } from '../../database/db';
 import { sendToWebhook } from '../../integration/webhook';
+import { config } from '../../config';
+import { logger } from '../../utils/logger';
 
 const router = Router();
 
@@ -93,5 +97,93 @@ router.delete('/:id', (req: Request, res: Response) => {
   invoiceRepo.delete(id);
   res.json({ data: { id, deleted: true } });
 });
+
+// POST /api/invoices/reprocess — move files from processed/failed back to inbox
+// Used to retrigger OCR+parsing after parser improvements, or to retry failed invoices.
+// Body: { file_names: string[], wait_for_completion?: boolean }
+// Sequential: moves file, waits for processing (DB poll) before moving next.
+// This matters for multi-page merging where page N+1 must find page N's DB record.
+router.post('/reprocess', async (req: Request, res: Response) => {
+  const { file_names, wait_for_completion = true } = req.body as {
+    file_names?: unknown;
+    wait_for_completion?: boolean;
+  };
+
+  if (!Array.isArray(file_names) || file_names.length === 0) {
+    res.status(400).json({ error: 'file_names must be a non-empty array of strings' });
+    return;
+  }
+  if (file_names.some(f => typeof f !== 'string' || !f)) {
+    res.status(400).json({ error: 'Each file_name must be a non-empty string' });
+    return;
+  }
+
+  const results: Array<{ file: string; status: string; from?: string; invoice_id?: number; error?: string }> = [];
+
+  for (let i = 0; i < file_names.length; i++) {
+    // Path-traversal protection: take basename only
+    const fileName = path.basename(file_names[i] as string);
+
+    const processedPath = path.join(config.processedDir, fileName);
+    const failedPath = path.join(config.failedDir, fileName);
+    const inboxPath = path.join(config.inboxDir, fileName);
+
+    let source: string | null = null;
+    let sourceLabel = '';
+    if (fs.existsSync(processedPath)) {
+      source = processedPath;
+      sourceLabel = 'processed';
+    } else if (fs.existsSync(failedPath)) {
+      source = failedPath;
+      sourceLabel = 'failed';
+    }
+
+    if (!source) {
+      results.push({ file: fileName, status: 'not_found' });
+      continue;
+    }
+
+    try {
+      // Move file to inbox — the chokidar file watcher will pick it up
+      fs.renameSync(source, inboxPath);
+      logger.info('Reprocess: moved file to inbox', { file: fileName, from: sourceLabel });
+
+      if (wait_for_completion) {
+        // Poll DB for processing completion (max 90s)
+        const invoiceId = await waitForProcessed(fileName, 90000);
+        if (invoiceId) {
+          results.push({ file: fileName, status: 'processed', from: sourceLabel, invoice_id: invoiceId });
+        } else {
+          results.push({ file: fileName, status: 'timeout', from: sourceLabel });
+        }
+      } else {
+        results.push({ file: fileName, status: 'moved', from: sourceLabel });
+      }
+    } catch (err) {
+      results.push({ file: fileName, status: 'error', error: (err as Error).message });
+    }
+  }
+
+  res.json({ data: { results } });
+});
+
+/**
+ * Poll for an invoice record with this fileName to reach a terminal status
+ * (processed, sent_to_1c, or error). Returns the invoice id on success,
+ * null on timeout.
+ */
+async function waitForProcessed(fileName: string, timeoutMs: number): Promise<number | null> {
+  const start = Date.now();
+  const terminalStatuses = ['processed', 'sent_to_1c', 'error'];
+
+  while (Date.now() - start < timeoutMs) {
+    const inv = invoiceRepo.findRecentByFileName(fileName, 10);
+    if (inv && terminalStatuses.includes(inv.status)) {
+      return inv.id;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  return null;
+}
 
 export default router;
