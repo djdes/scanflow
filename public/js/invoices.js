@@ -362,15 +362,31 @@ const Invoices = {
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
     if (results.length === 0) { dd.style.display = 'none'; return; }
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // Inline onclick with stringified data was unusable: JSON.stringify wraps
+    // names in double quotes, which close the onclick="..." attribute early
+    // and the handler silently breaks. Switched to data-* attributes + a
+    // single delegated click listener attached once per dropdown.
     dd.innerHTML = results.map(r => `
       <div class="nom-picker-option"
-           onmousedown="event.preventDefault()"
-           onclick="Invoices.selectNomItem('${input.dataset.invoiceId}', '${input.dataset.itemId}', '${r.guid}', ${JSON.stringify(r.name).replace(/'/g, "\\'")})">
-        <strong>${r.name}</strong>
-        ${r.unit ? '<span class="nom-unit">' + r.unit + '</span>' : ''}
+           data-guid="${esc(r.guid)}"
+           data-name="${esc(r.name)}"
+           onmousedown="event.preventDefault()">
+        <strong>${esc(r.name)}</strong>
+        ${r.unit ? '<span class="nom-unit">' + esc(r.unit) + '</span>' : ''}
       </div>
     `).join('');
     dd.style.display = 'block';
+    // Attach delegated click handler once. _clickBound flag prevents duplicate
+    // listeners when the dropdown re-renders on each keystroke.
+    if (!dd._clickBound) {
+      dd.addEventListener('click', (e) => {
+        const opt = e.target.closest('.nom-picker-option');
+        if (!opt) return;
+        this.selectNomItem(input.dataset.invoiceId, input.dataset.itemId, opt.dataset.guid, opt.dataset.name);
+      });
+      dd._clickBound = true;
+    }
   },
 
   onNomFocus(event) {

@@ -124,15 +124,28 @@ const Mappings = {
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
     if (results.length === 0) { dd.style.display = 'none'; return; }
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // Inline onclick with JSON.stringify(name) broke the HTML attribute
+    // because nested double quotes closed it early. Use data-* + delegated
+    // click handler bound once per dropdown instead.
     dd.innerHTML = results.map(r => `
       <div class="nom-picker-option"
-           onmousedown="event.preventDefault()"
-           onclick="Mappings.pickEditNom('${r.guid}', ${JSON.stringify(r.name).replace(/'/g, "\\'")})">
-        <strong>${r.name}</strong>
-        ${r.unit ? '<span class="nom-unit">' + r.unit + '</span>' : ''}
+           data-guid="${esc(r.guid)}"
+           data-name="${esc(r.name)}"
+           onmousedown="event.preventDefault()">
+        <strong>${esc(r.name)}</strong>
+        ${r.unit ? '<span class="nom-unit">' + esc(r.unit) + '</span>' : ''}
       </div>
     `).join('');
     dd.style.display = 'block';
+    if (!dd._clickBound) {
+      dd.addEventListener('click', (e) => {
+        const opt = e.target.closest('.nom-picker-option');
+        if (!opt) return;
+        this.pickEditNom(opt.dataset.guid, opt.dataset.name);
+      });
+      dd._clickBound = true;
+    }
   },
 
   pickEditNom(guid, name) {
@@ -213,15 +226,25 @@ const Mappings = {
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
     if (results.length === 0) { dd.style.display = 'none'; return; }
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     dd.innerHTML = results.map(r => `
       <div class="nom-picker-option"
-           onmousedown="event.preventDefault()"
-           onclick="Mappings.pickAddNom('${r.guid}', ${JSON.stringify(r.name).replace(/'/g, "\\'")})">
-        <strong>${r.name}</strong>
-        ${r.unit ? '<span class="nom-unit">' + r.unit + '</span>' : ''}
+           data-guid="${esc(r.guid)}"
+           data-name="${esc(r.name)}"
+           onmousedown="event.preventDefault()">
+        <strong>${esc(r.name)}</strong>
+        ${r.unit ? '<span class="nom-unit">' + esc(r.unit) + '</span>' : ''}
       </div>
     `).join('');
     dd.style.display = 'block';
+    if (!dd._clickBound) {
+      dd.addEventListener('click', (e) => {
+        const opt = e.target.closest('.nom-picker-option');
+        if (!opt) return;
+        this.pickAddNom(opt.dataset.guid, opt.dataset.name);
+      });
+      dd._clickBound = true;
+    }
   },
 
   pickAddNom(guid, name) {
