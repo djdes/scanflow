@@ -289,15 +289,36 @@ async function waitForProcessed(fileName: string, timeoutMs: number): Promise<nu
 }
 
 // PUT /api/invoices/:invoiceId/items/:itemId/map — set or clear onec_guid for a single line item.
-// Side effects:
-//   - Updates invoice_items.onec_guid and mapped_name
+//
+// When setting (onec_guid is a non-empty string):
+//   - Validates the onec_guid exists in onec_nomenclature
+//   - Updates invoice_items.onec_guid + mapped_name (to the 1C catalog name)
 //   - Upserts nomenclature_mappings for this scan name → onec_guid (learned mapping)
 //   - Records supplier usage (times_seen, last_seen_*)
-//   - Invalidates mapper cache so subsequent invoices benefit immediately
+//   - Invalidates mapper cache so the next invoice benefits immediately
+//
+// When clearing (onec_guid is null, empty string, whitespace):
+//   - Clears invoice_items.onec_guid on this item only
+//   - Reverts invoice_items.mapped_name to the original_name (raw scan text)
+//   - Does NOT touch nomenclature_mappings — clearing one invoice's mapping must not
+//     corrupt the global learned mapping that other invoices may still depend on
+//   - Invalidates mapper cache (no-op in practice since learned mapping is unchanged,
+//     but cheap and defensive)
+//
+// All mutations are wrapped in a single DB transaction so partial failure cannot
+// leave inconsistent state across invoice_items / nomenclature_mappings / mapping_supplier_usage.
 router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
   const invoiceId = parseInt(req.params.invoiceId as string, 10);
   const itemId = parseInt(req.params.itemId as string, 10);
-  const { onec_guid } = req.body as { onec_guid?: string | null };
+  if (Number.isNaN(invoiceId) || Number.isNaN(itemId)) {
+    res.status(400).json({ error: 'invalid invoiceId or itemId' });
+    return;
+  }
+
+  // Normalize onec_guid: empty string / whitespace / missing → null, otherwise trimmed string
+  const rawGuid = (req.body as { onec_guid?: string | null } | undefined)?.onec_guid;
+  const onec_guid: string | null =
+    typeof rawGuid === 'string' && rawGuid.trim() !== '' ? rawGuid.trim() : null;
 
   const invoice = invoiceRepo.getById(invoiceId);
   if (!invoice) {
@@ -310,31 +331,46 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
     return;
   }
 
+  // If setting a mapping, validate the GUID exists in the synced catalog
   let resolvedName: string | null = null;
   if (onec_guid) {
     const onecRow = onecNomenclatureRepo.getByGuid(onec_guid);
     if (!onecRow) {
-      res.status(400).json({ error: `onec_guid ${onec_guid} not found in onec_nomenclature` });
+      res.status(400).json({ error: 'onec_guid not found in onec_nomenclature' });
       return;
     }
     resolvedName = onecRow.name;
   }
 
-  // Update the invoice item itself
-  invoiceRepo.mapItem(itemId, onec_guid ?? null, resolvedName);
+  // Display name: 1C catalog name when mapping is set, raw scan text when clearing
+  const displayName = onec_guid ? resolvedName : item.original_name;
 
-  // Learn: upsert nomenclature_mappings for this scan name
-  const mapping = mappingRepo.upsert({
-    scanned_name: item.original_name,
-    mapped_name_1c: resolvedName ?? item.original_name,
-    onec_guid: onec_guid ?? null,
-  });
-  mappingRepo.recordUsage(mapping.id, invoice.supplier ?? null);
+  // All mutations in one transaction
+  const db = getDb();
+  db.transaction(() => {
+    invoiceRepo.mapItem(itemId, onec_guid, displayName);
 
-  // Invalidate mapper cache so the next invoice benefits immediately
+    // Learning loop: only touch the global nomenclature_mappings when SETTING.
+    // Clearing a single invoice item's mapping must not corrupt a learned mapping
+    // that other invoices may still rely on.
+    if (onec_guid) {
+      const mapping = mappingRepo.upsert({
+        scanned_name: item.original_name,
+        mapped_name_1c: resolvedName as string,
+        onec_guid,
+      });
+      mappingRepo.recordUsage(mapping.id, invoice.supplier ?? null);
+    }
+  })();
+
+  // Invalidate mapper cache so the next fuzzy lookup rebuilds
   if (mapper) mapper.invalidateCache();
 
   const updatedItem = invoiceRepo.getItemById(itemId);
+  if (!updatedItem) {
+    res.status(500).json({ error: 'Failed to retrieve updated item' });
+    return;
+  }
   res.json({ data: updatedItem });
 });
 
