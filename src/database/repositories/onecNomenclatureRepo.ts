@@ -66,6 +66,22 @@ export const onecNomenclatureRepo = {
     return tx(items);
   },
 
+  /**
+   * Delete all catalog rows. Used before a full re-sync from 1C when the query
+   * that sources the sync changes shape (e.g. "all nomenclature" → "only items
+   * that appear in recent purchase documents"), and we need to evict stale rows
+   * that would otherwise remain and pollute mapping suggestions.
+   *
+   * Dangling onec_guid references in nomenclature_mappings are tolerated: the
+   * mapper's dead-GUID fallthrough sends those lookups back to fuzzy search
+   * against the newly-rebuilt catalog.
+   */
+  clearAll(): number {
+    const db = getDb();
+    const result = db.prepare('DELETE FROM onec_nomenclature').run();
+    return result.changes;
+  },
+
   getByGuid(guid: string): OnecNomenclatureRow | undefined {
     const db = getDb();
     return db.prepare('SELECT * FROM onec_nomenclature WHERE guid = ?')

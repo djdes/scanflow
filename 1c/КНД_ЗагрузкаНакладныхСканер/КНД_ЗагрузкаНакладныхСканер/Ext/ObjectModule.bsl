@@ -800,27 +800,50 @@
 	// failure modes visible inside the report string instead.
 	Попытка
 
+		// Step 0: clear the server catalog before re-syncing. We switched the
+		// source query from "all Справочник.Номенклатура" to "items that appear
+		// in recent purchase documents", so stale rows (finished products,
+		// semi-finished goods) from the old approach must be evicted — otherwise
+		// they keep showing up as autocomplete suggestions on the site and get
+		// wrongly matched to raw ingredients in scanned invoices.
+		РезультатОчистки = ОчиститьКаталогНаСервере();
+		Если НЕ РезультатОчистки.Успех Тогда
+			Отчёт.Добавить("✗ Не удалось очистить каталог: " + РезультатОчистки.Ошибка);
+			Возврат СоздатьОтчётСтроку(Отчёт);
+		КонецЕсли;
+		Отчёт.Добавить("Каталог на сервере очищен (удалено: " + Строка(РезультатОчистки.Удалено) + ")");
+
+		// Purchase-documents-driven sync: only nomenclature that actually appears
+		// in posted Документ.ПриходнаяНакладная within the last 6 months. This
+		// automatically excludes finished products (we never buy those, we make
+		// them) and keeps the catalog focused on what's realistically expected
+		// in a scanned incoming invoice. Also includes groups (parents) in the
+		// result so hierarchy can be reconstructed on the site.
+		ДатаНачала = ДобавитьМесяц(НачалоДня(ТекущаяДата()), -6);
+
 		Запрос = Новый Запрос;
-		// ЕСТЬNULL on every potentially-null text column. When the underlying
-		// catalog row has a missing unit / full_name / code (common for groups
-		// or legacy rows), the join evaluates to SQL NULL, which the query
-		// result surfaces as the BSL Null type — and ЗаписатьJSON does NOT
-		// accept Null (only Неопределено). Coerce to empty string at query time.
+		// ЕСТЬNULL on every potentially-null text column — ЗаписатьJSON does NOT
+		// accept SQL Null, only Неопределено, so coerce to empty string here.
+		Запрос.УстановитьПараметр("ДатаНачала", ДатаНачала);
 		Запрос.Текст =
-			"ВЫБРАТЬ
-			|	Номенклатура.Ссылка КАК Ссылка,
-			|	ЕСТЬNULL(Номенклатура.Код, """") КАК Код,
-			|	ЕСТЬNULL(Номенклатура.Наименование, """") КАК Наименование,
-			|	ЕСТЬNULL(Номенклатура.НаименованиеПолное, """") КАК НаименованиеПолное,
-			|	ЕСТЬNULL(Номенклатура.ЕдиницаИзмерения.Наименование, """") КАК ЕдиницаИзмерения,
-			|	Номенклатура.Родитель КАК Родитель,
-			|	Номенклатура.ЭтоГруппа КАК ЭтоГруппа
+			"ВЫБРАТЬ РАЗЛИЧНЫЕ
+			|	Запасы.Номенклатура КАК Ссылка,
+			|	ЕСТЬNULL(Запасы.Номенклатура.Код, """") КАК Код,
+			|	ЕСТЬNULL(Запасы.Номенклатура.Наименование, """") КАК Наименование,
+			|	ЕСТЬNULL(Запасы.Номенклатура.НаименованиеПолное, """") КАК НаименованиеПолное,
+			|	ЕСТЬNULL(Запасы.Номенклатура.ЕдиницаИзмерения.Наименование, """") КАК ЕдиницаИзмерения,
+			|	Запасы.Номенклатура.Родитель КАК Родитель,
+			|	Запасы.Номенклатура.ЭтоГруппа КАК ЭтоГруппа
 			|ИЗ
-			|	Справочник.Номенклатура КАК Номенклатура
+			|	Документ.ПриходнаяНакладная.Запасы КАК Запасы
 			|ГДЕ
-			|	НЕ Номенклатура.ПометкаУдаления";
+			|	Запасы.Ссылка.Проведен
+			|	И Запасы.Ссылка.Дата >= &ДатаНачала
+			|	И НЕ Запасы.Номенклатура.ПометкаУдаления";
 
 		Выборка = Запрос.Выполнить().Выбрать();
+
+		Отчёт.Добавить("Источник: Документ.ПриходнаяНакладная, с " + Формат(ДатаНачала, "ДФ=dd.MM.yyyy"));
 
 		РазмерБатча = 500;
 		Батч = Новый Массив;
@@ -899,6 +922,35 @@
 	КонецПопытки;
 
 	Возврат СоздатьОтчётСтроку(Отчёт);
+
+КонецФункции
+
+// Clears the remote nomenclature catalog before re-sync. Called once at the
+// start of ВыгрузитьНоменклатуруНаСайт so that the new purchase-documents-only
+// query rebuilds the catalog from scratch instead of leaving stale finished
+// products from the old "all catalog" sync behind.
+Функция ОчиститьКаталогНаСервере()
+
+	Соединение = СоздатьHTTPСоединение();
+	Если Соединение = Неопределено Тогда
+		Возврат Новый Структура("Успех, Ошибка, Удалено", Ложь, "Нет соединения", 0);
+	КонецЕсли;
+
+	Запрос = Новый HTTPЗапрос("/api/nomenclature");
+	Запрос.Заголовки.Вставить("X-API-Key", КОНСТ_КлючAPI());
+
+	Попытка
+		Ответ = Соединение.Удалить(Запрос);
+	Исключение
+		Возврат Новый Структура("Успех, Ошибка, Удалено", Ложь, ОписаниеОшибки(), 0);
+	КонецПопытки;
+
+	Если Ответ.КодСостояния <> 200 Тогда
+		Возврат Новый Структура("Успех, Ошибка, Удалено", Ложь,
+			"HTTP " + Строка(Ответ.КодСостояния), 0);
+	КонецЕсли;
+
+	Возврат Новый Структура("Успех, Ошибка, Удалено", Истина, "", 0);
 
 КонецФункции
 

@@ -40,6 +40,21 @@ router.post('/sync', (req: Request, res: Response) => {
   }
 });
 
+// DELETE /api/nomenclature — clear catalog before a full re-sync from 1C.
+// Called by the BSL "Выгрузить номенклатуру" command to evict stale rows
+// (e.g. finished products after switching to a purchase-documents-only query).
+router.delete('/', (_req: Request, res: Response) => {
+  try {
+    const deleted = onecNomenclatureRepo.clearAll();
+    if (mapper) mapper.invalidateCache();
+    logger.info('Nomenclature catalog cleared', { deleted });
+    res.json({ data: { deleted } });
+  } catch (err) {
+    logger.error('Nomenclature clear failed', { error: (err as Error).message });
+    res.status(500).json({ error: 'Clear failed: ' + (err as Error).message });
+  }
+});
+
 // GET /api/nomenclature — list catalog items
 router.get('/', (req: Request, res: Response) => {
   const excludeFolders = req.query.exclude_folders === 'true';
