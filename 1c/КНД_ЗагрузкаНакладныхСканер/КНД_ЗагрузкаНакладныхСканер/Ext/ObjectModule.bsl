@@ -813,18 +813,18 @@
 		КонецЕсли;
 		Отчёт.Добавить("Каталог на сервере очищен (удалено: " + Строка(РезультатОчистки.Удалено) + ")");
 
-		// Purchase-documents-driven sync: only nomenclature that actually appears
-		// in posted Документ.ПриходнаяНакладная within the last 6 months. This
-		// automatically excludes finished products (we never buy those, we make
-		// them) and keeps the catalog focused on what's realistically expected
-		// in a scanned incoming invoice. Also includes groups (parents) in the
-		// result so hierarchy can be reconstructed on the site.
-		ДатаНачала = ДобавитьМесяц(НачалоДня(ТекущаяДата()), -6);
+		// Purchase-documents-driven sync: take the LAST 10 posted Приходные
+		// накладные (by date desc), collect DISTINCT nomenclature from their
+		// Запасы tables. Date-based windows were fragile (the user's most recent
+		// invoice turned out to be 7 months old) so we switched to a top-N
+		// approach — always pulls something relevant regardless of posting gaps.
+		// ПЕРВЫЕ N in 1C query language must be a compile-time literal, not a
+		// parameter — if you need to change the count, edit the query text below.
+		КоличествоДокументов = 10;
 
 		Запрос = Новый Запрос;
 		// ЕСТЬNULL on every potentially-null text column — ЗаписатьJSON does NOT
 		// accept SQL Null, only Неопределено, so coerce to empty string here.
-		Запрос.УстановитьПараметр("ДатаНачала", ДатаНачала);
 		Запрос.Текст =
 			"ВЫБРАТЬ РАЗЛИЧНЫЕ
 			|	Запасы.Номенклатура КАК Ссылка,
@@ -837,13 +837,20 @@
 			|ИЗ
 			|	Документ.ПриходнаяНакладная.Запасы КАК Запасы
 			|ГДЕ
-			|	Запасы.Ссылка.Проведен
-			|	И Запасы.Ссылка.Дата >= &ДатаНачала
+			|	Запасы.Ссылка В
+			|		(ВЫБРАТЬ ПЕРВЫЕ 10
+			|			Док.Ссылка
+			|		ИЗ
+			|			Документ.ПриходнаяНакладная КАК Док
+			|		ГДЕ
+			|			Док.Проведен
+			|		УПОРЯДОЧИТЬ ПО
+			|			Док.Дата УБЫВ)
 			|	И НЕ Запасы.Номенклатура.ПометкаУдаления";
 
 		Выборка = Запрос.Выполнить().Выбрать();
 
-		Отчёт.Добавить("Источник: Документ.ПриходнаяНакладная, с " + Формат(ДатаНачала, "ДФ=dd.MM.yyyy"));
+		Отчёт.Добавить("Источник: последние " + Строка(КоличествоДокументов) + " проведённых Приходных накладных");
 
 		РазмерБатча = 500;
 		Батч = Новый Массив;
