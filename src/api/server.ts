@@ -11,6 +11,7 @@ import uploadRouter, { setFileWatcher } from './routes/upload';
 import webhookRouter from './routes/webhook';
 import settingsRouter from './routes/settings';
 import debugRouter from './routes/debug';
+import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes/nomenclature';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -31,6 +32,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
 
   // Inject dependencies
   setMapper(mapper);
+  setNomenclatureMapper(mapper);
   setFileWatcher(fileWatcher);
 
   // Health check (no auth)
@@ -45,6 +47,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/webhook', apiKeyAuth, webhookRouter);
   app.use('/api/settings', apiKeyAuth, settingsRouter);
   app.use('/api/debug', apiKeyAuth, debugRouter);
+  app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);
 
   // Mobile camera page (no auth — accessed from phone on local network)
   app.get('/camera', (_req, res) => {
