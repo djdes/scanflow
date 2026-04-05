@@ -233,6 +233,29 @@
 	Отчёт.Добавить("Создано документов: " + Строка(КоличествоСоздано));
 	Отчёт.Добавить("Ошибок: " + Строка(КоличествоОшибок));
 
+	// Auto-sync nomenclature back to the site after invoice load. When 1C
+	// creates new catalog entries (first-time supplier items that the user
+	// didn't map on the dashboard), those need to appear in the server-side
+	// catalog so the user can then map scan names to them for future auto-
+	// resolution. Otherwise the user has to manually click two buttons in a
+	// row every time. Only runs if at least one document was created —
+	// skipping the sync on empty/failed loads avoids pointless catalog churn.
+	Если КоличествоСоздано > 0 Тогда
+		Отчёт.Добавить("");
+		Отчёт.Добавить("--- Автовыгрузка номенклатуры на сайт ---");
+		Попытка
+			ОтчётВыгрузки = ВыгрузитьНоменклатуруНаСайт();
+			// Merge the nomenclature sync report into the main one so the user
+			// sees everything in a single dialog.
+			Для Каждого СтрокаОтчёта Из СтрРазделить(ОтчётВыгрузки, Символы.ПС, Ложь) Цикл
+				Отчёт.Добавить(СтрокаОтчёта);
+			КонецЦикла;
+		Исключение
+			Отчёт.Добавить("⚠ Автовыгрузка номенклатуры упала: " + ОписаниеОшибки());
+			ЗаписатьОшибкуВЖурнал("Автовыгрузка номенклатуры после загрузки накладных: " + ОписаниеОшибки());
+		КонецПопытки;
+	КонецЕсли;
+
 	Возврат СоздатьОтчётСтроку(Отчёт);
 
 КонецФункции
@@ -833,6 +856,13 @@
 		//
 		// ЕСТЬNULL on every potentially-null text column — ЗаписатьJSON does NOT
 		// accept SQL Null, only Неопределено, so coerce to empty string here.
+		// NB: the inner subquery does NOT filter by Проведен. By design, the
+		// "Загрузить накладные со сканера" command writes documents WITHOUT
+		// posting them (пользователь проверяет и проводит вручную). Excluding
+		// unposted docs would mean that new nomenclature created during that
+		// load wouldn't flow back to the site until the user manually posts,
+		// breaking the learning loop. The ПометкаУдаления check on Номенклатура
+		// prevents trash, and the top-10 window naturally bounds the set.
 		Запрос.Текст =
 			"ВЫБРАТЬ
 			|	Номенклатура.Ссылка КАК Ссылка,
@@ -857,7 +887,7 @@
 			|				ИЗ
 			|					Документ.ПриходнаяНакладная КАК Док
 			|				ГДЕ
-			|					Док.Проведен
+			|					НЕ Док.ПометкаУдаления
 			|				УПОРЯДОЧИТЬ ПО
 			|					Док.Дата УБЫВ))
 			|	И НЕ Номенклатура.ПометкаУдаления";
