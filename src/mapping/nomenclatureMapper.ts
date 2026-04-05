@@ -56,24 +56,36 @@ export class NomenclatureMapper {
     if (learned) {
       if (learned.onec_guid) {
         const onec = onecNomenclatureRepo.getByGuid(learned.onec_guid);
+        if (onec) {
+          return {
+            original_name: scannedName,
+            mapped_name: onec.name,
+            onec_guid: learned.onec_guid,
+            confidence: 1.0,
+            source: 'learned',
+            mapping_id: learned.id,
+          };
+        }
+        // GUID existed in learned mapping but is no longer in onec_nomenclature
+        // (deleted since last sync or catalog not re-synced). Log and fall through
+        // to fuzzy search so we don't propagate a dead GUID to 1C.
+        logger.warn('Learned mapping has onec_guid not found in onec_nomenclature — treating as unresolved', {
+          scannedName,
+          onec_guid: learned.onec_guid,
+          mapping_id: learned.id,
+        });
+        // intentional fallthrough — do not return here
+      } else {
+        // Legacy mapping without onec_guid
         return {
           original_name: scannedName,
-          mapped_name: onec?.name ?? learned.mapped_name_1c,
-          onec_guid: learned.onec_guid,
-          confidence: 1.0,
-          source: 'learned',
+          mapped_name: learned.mapped_name_1c,
+          onec_guid: null,
+          confidence: 0.9,
+          source: 'legacy',
           mapping_id: learned.id,
         };
       }
-      // Legacy mapping without onec_guid
-      return {
-        original_name: scannedName,
-        mapped_name: learned.mapped_name_1c,
-        onec_guid: null,
-        confidence: 0.9,
-        source: 'legacy',
-        mapping_id: learned.id,
-      };
     }
 
     // 2. Fuzzy search against onec_nomenclature

@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   assert(r1.source === 'onec_fuzzy', `source=onec_fuzzy, got ${r1.source}`);
   assert(r1.onec_guid === 'test-map-1', `onec_guid test-map-1, got ${r1.onec_guid}`);
   assert(r1.mapped_name === 'Картофель сырой', `mapped_name=Картофель сырой, got ${r1.mapped_name}`);
-  assert(r1.confidence >= 0.5, `confidence ≥ 0.5, got ${r1.confidence}`);
+  assert(r1.confidence >= 0.7, `confidence ≥ 0.7, got ${r1.confidence}`);
 
   console.log('\n=== Case 2: learned mapping (exact scan name) wins over fuzzy ===');
   const created = mappingRepo.create({
@@ -63,9 +63,18 @@ async function main(): Promise<void> {
     .run('testmap:legacy', 'Legacy Item Name');
   mapper.invalidateCache();
   const r4 = mapper.map('testmap:legacy');
-  assert(r4.source === 'learned' || r4.source === 'legacy', `source=learned|legacy, got ${r4.source}`);
+  assert(r4.source === 'legacy', `source=legacy, got ${r4.source}`);
   assert(r4.onec_guid === null, `onec_guid null for legacy, got ${r4.onec_guid}`);
   assert(r4.mapped_name === 'Legacy Item Name', `mapped_name=Legacy Item Name, got ${r4.mapped_name}`);
+
+  console.log('\n=== Case 5: learned mapping points at deleted onec_nomenclature row → falls through ===');
+  db.prepare(`INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c, onec_guid) VALUES (?, ?, ?)`)
+    .run('testmap:deadlink', 'Some old name', 'test-map-deleted-guid-xyz');
+  mapper.invalidateCache();
+  const r5 = mapper.map('testmap:deadlink');
+  assert(r5.onec_guid !== 'test-map-deleted-guid-xyz', 'does not propagate dead GUID');
+  assert(r5.source === 'none', `falls through to none (no fuzzy match for scan name), got ${r5.source}`);
+  assert(r5.confidence === 0, `confidence=0 after fallthrough, got ${r5.confidence}`);
 
   // Cleanup
   mappingRepo.delete(created.id);
