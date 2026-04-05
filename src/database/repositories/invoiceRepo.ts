@@ -41,6 +41,7 @@ export interface InvoiceItem {
   total: number | null;
   vat_rate: number | null;
   mapping_confidence: number;
+  onec_guid: string | null;
 }
 
 export interface CreateInvoiceData {
@@ -71,6 +72,7 @@ export interface CreateInvoiceItemData {
   total?: number;
   vat_rate?: number;
   mapping_confidence?: number;
+  onec_guid?: string | null;
 }
 
 export const invoiceRepo = {
@@ -190,8 +192,8 @@ export const invoiceRepo = {
   addItem(data: CreateInvoiceItemData): InvoiceItem {
     const db = getDb();
     const stmt = db.prepare(`
-      INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence)
-      VALUES (@invoice_id, @original_name, @mapped_name, @quantity, @unit, @price, @total, @vat_rate, @mapping_confidence)
+      INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence, onec_guid)
+      VALUES (@invoice_id, @original_name, @mapped_name, @quantity, @unit, @price, @total, @vat_rate, @mapping_confidence, @onec_guid)
     `);
     const result = stmt.run({
       invoice_id: data.invoice_id,
@@ -203,6 +205,7 @@ export const invoiceRepo = {
       total: data.total ?? null,
       vat_rate: data.vat_rate ?? null,
       mapping_confidence: data.mapping_confidence ?? 0,
+      onec_guid: data.onec_guid ?? null,
     });
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(Number(result.lastInsertRowid)) as InvoiceItem;
   },
@@ -210,6 +213,24 @@ export const invoiceRepo = {
   getItems(invoiceId: number): InvoiceItem[] {
     const db = getDb();
     return db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(invoiceId) as InvoiceItem[];
+  },
+
+  getItemById(id: number): InvoiceItem | undefined {
+    const db = getDb();
+    return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(id) as InvoiceItem | undefined;
+  },
+
+  /**
+   * Set or clear the 1C GUID link for a single invoice line item. Also
+   * updates the cached mapped_name for display. Caller is responsible for
+   * updating nomenclature_mappings and mapping_supplier_usage.
+   */
+  mapItem(itemId: number, onecGuid: string | null, mappedName: string | null): InvoiceItem | undefined {
+    const db = getDb();
+    db.prepare(
+      `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name) WHERE id = ?`
+    ).run(onecGuid, mappedName, itemId);
+    return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(itemId) as InvoiceItem | undefined;
   },
 
   getWithItems(id: number): (Invoice & { items: InvoiceItem[] }) | undefined {
