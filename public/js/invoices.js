@@ -214,13 +214,13 @@ const Invoices = {
           actionsHtml += `<div class="badge badge-sent" style="padding:8px 16px">✓ Ожидает загрузки в 1С</div>`;
           actionsHtml += `<button class="btn btn-outline" onclick="Invoices.unapproveForOneC(${data.id})">Отозвать отправку</button>`;
         } else {
-          const disabled = unmappedCount > 0 ? 'disabled' : '';
-          const title = unmappedCount > 0
-            ? `title="Сопоставьте ${unmappedCount} товар(ов) с 1С перед отправкой"`
-            : '';
-          actionsHtml += `<button class="btn btn-primary" ${disabled} ${title} onclick="Invoices.sendTo1C(${data.id})">Отправить в 1С</button>`;
+          // Allow sending even with unmatched items — the BSL side calls
+          // НайтиИлиСоздатьНоменклатуру() which auto-creates new catalog
+          // entries in 1C when no match is found. This is the normal flow
+          // for first-time supplier items we haven't ordered before.
+          actionsHtml += `<button class="btn btn-primary" onclick="Invoices.sendTo1C(${data.id})">Отправить в 1С</button>`;
           if (unmappedCount > 0) {
-            actionsHtml += `<div class="badge badge-new" style="padding:8px 16px">Не сопоставлено: ${unmappedCount}</div>`;
+            actionsHtml += `<div class="badge badge-new" style="padding:8px 16px" title="Несопоставленные товары будут созданы как новая номенклатура в 1С">Новых товаров: ${unmappedCount}</div>`;
           }
         }
       }
@@ -284,6 +284,27 @@ const Invoices = {
   },
 
   async sendTo1C(id) {
+    // If there are unmapped items, confirm the user actually wants 1C to
+    // auto-create new nomenclature entries for them. This is a destructive-ish
+    // operation (creates real catalog rows in УНФ) so a one-time confirm is
+    // worth the minor friction.
+    const row = document.querySelector(`tr[data-invoice-id="${id}"]`);
+    let unmappedCount = 0;
+    try {
+      const r = await App.api(`/invoices/${id}`);
+      if (r.ok) {
+        const j = await r.json();
+        unmappedCount = (j.data?.items || []).filter(it => !it.onec_guid).length;
+      }
+    } catch {}
+    if (unmappedCount > 0) {
+      const ok = confirm(
+        `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
+        `При загрузке в 1С они будут созданы как НОВЫЕ позиции в справочнике Номенклатура по их названию из скана.\n\n` +
+        `Продолжить?`
+      );
+      if (!ok) return;
+    }
     try {
       const res = await App.api(`/invoices/${id}/send`, { method: 'POST' });
       const data = await res.json();
