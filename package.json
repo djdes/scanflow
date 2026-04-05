@@ -17,7 +17,8 @@
     "test:1c-api": "ts-node src/scripts/test-1c-api.ts",
     "test:delete": "ts-node src/scripts/test-delete-invoice.ts",
     "test:invoice-number": "ts-node src/scripts/test-invoice-number-normalization.ts",
-    "test:onec-nomenclature": "ts-node src/scripts/test-onec-nomenclature.ts"
+    "test:onec-nomenclature": "ts-node src/scripts/test-onec-nomenclature.ts",
+    "test:nomenclature-mapper": "ts-node src/scripts/test-nomenclature-mapper.ts"
   },
   "keywords": [],
   "author": "",

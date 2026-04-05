@@ -1,99 +1,124 @@
 import Fuse, { IFuseOptions } from 'fuse.js';
 import { mappingRepo, NomenclatureMapping } from '../database/repositories/mappingRepo';
+import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import { logger } from '../utils/logger';
 
 export interface MappingResult {
   original_name: string;
   mapped_name: string;
+  onec_guid: string | null;
   confidence: number;
-  source: 'exact' | 'fuzzy' | 'none';
+  source: 'learned' | 'onec_fuzzy' | 'legacy' | 'none';
+  mapping_id: number | null; // id of nomenclature_mappings row if matched
 }
 
-const FUSE_OPTIONS: IFuseOptions<NomenclatureMapping> = {
-  keys: ['scanned_name', 'mapped_name_1c'],
-  threshold: 0.4,
+const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
+  keys: ['name', 'full_name'],
+  threshold: 0.3, // Fuse score — best score must be ≤ 0.3, i.e. confidence ≥ 0.7
   includeScore: true,
   minMatchCharLength: 3,
 };
 
+const MIN_FUZZY_CONFIDENCE = 0.7;
+
 export class NomenclatureMapper {
-  private fuse: Fuse<NomenclatureMapping> | null = null;
+  private onecFuse: Fuse<OnecNomenclatureRow> | null = null;
 
   private refreshIndex(): void {
-    const allMappings = mappingRepo.getAll();
-    this.fuse = new Fuse(allMappings, FUSE_OPTIONS);
-    logger.debug('Nomenclature index refreshed', { count: allMappings.length });
+    const items = onecNomenclatureRepo.listItems({ excludeFolders: true });
+    this.onecFuse = new Fuse(items, ONEC_FUSE_OPTIONS);
+    logger.debug('Nomenclature mapper index refreshed', { onecItems: items.length });
   }
 
-  private ensureIndex(): Fuse<NomenclatureMapping> {
-    if (!this.fuse) {
+  private ensureIndex(): Fuse<OnecNomenclatureRow> {
+    if (!this.onecFuse) {
       this.refreshIndex();
     }
-    return this.fuse!;
+    return this.onecFuse!;
   }
 
+  invalidateCache(): void {
+    this.onecFuse = null;
+    logger.info('Nomenclature mapper cache invalidated');
+  }
+
+  /**
+   * Resolve a scanned item name to a 1C Номенклатура reference.
+   * Lookup order:
+   *   1. Learned mapping by exact scanned_name → returns onec_guid + name from onec_nomenclature
+   *      (or legacy mapped_name_1c if the old row has no onec_guid set)
+   *   2. Fuzzy search against onec_nomenclature (confidence ≥ 0.7)
+   *   3. None
+   */
   map(scannedName: string): MappingResult {
-    // 1. Exact match
-    const exact = mappingRepo.getByScannedName(scannedName);
-    if (exact) {
-      logger.debug('Exact mapping found', { scannedName, mappedName: exact.mapped_name_1c });
+    // 1. Learned mapping
+    const learned = mappingRepo.getByScannedName(scannedName);
+    if (learned) {
+      if (learned.onec_guid) {
+        const onec = onecNomenclatureRepo.getByGuid(learned.onec_guid);
+        return {
+          original_name: scannedName,
+          mapped_name: onec?.name ?? learned.mapped_name_1c,
+          onec_guid: learned.onec_guid,
+          confidence: 1.0,
+          source: 'learned',
+          mapping_id: learned.id,
+        };
+      }
+      // Legacy mapping without onec_guid
       return {
         original_name: scannedName,
-        mapped_name: exact.mapped_name_1c,
-        confidence: 1.0,
-        source: 'exact',
+        mapped_name: learned.mapped_name_1c,
+        onec_guid: null,
+        confidence: 0.9,
+        source: 'legacy',
+        mapping_id: learned.id,
       };
     }
 
-    // 2. Fuzzy search
+    // 2. Fuzzy search against onec_nomenclature
     const fuse = this.ensureIndex();
     const results = fuse.search(scannedName);
-
     if (results.length > 0 && results[0].score !== undefined) {
       const best = results[0];
-      const confidence = 1 - best.score!;
-
-      if (confidence >= 0.6) {
-        logger.debug('Fuzzy mapping found', {
-          scannedName,
-          mappedName: best.item.mapped_name_1c,
-          confidence,
-        });
+      const confidence = 1 - (best.score as number);
+      if (confidence >= MIN_FUZZY_CONFIDENCE) {
         return {
           original_name: scannedName,
-          mapped_name: best.item.mapped_name_1c,
+          mapped_name: best.item.name,
+          onec_guid: best.item.guid,
           confidence,
-          source: 'fuzzy',
+          source: 'onec_fuzzy',
+          mapping_id: null,
         };
       }
     }
 
-    // 3. No match — return original name
-    logger.debug('No mapping found', { scannedName });
+    // 3. None
     return {
       original_name: scannedName,
       mapped_name: scannedName,
+      onec_guid: null,
       confidence: 0,
       source: 'none',
+      mapping_id: null,
     };
   }
 
   mapAll(names: string[]): MappingResult[] {
-    return names.map(name => this.map(name));
+    return names.map(n => this.map(n));
   }
 
-  invalidateCache(): void {
-    this.fuse = null;
-    logger.info('Nomenclature cache invalidated');
-  }
-
-  getSuggestions(scannedName: string, limit: number = 5): Array<{ name: string; confidence: number }> {
+  getSuggestions(scannedName: string, limit: number = 5): Array<{ guid: string; name: string; confidence: number }> {
     const fuse = this.ensureIndex();
     const results = fuse.search(scannedName, { limit });
-
     return results.map(r => ({
-      name: r.item.mapped_name_1c,
+      guid: r.item.guid,
+      name: r.item.name,
       confidence: 1 - (r.score || 1),
     }));
   }
 }
+
+// Re-export for callers that previously used NomenclatureMapping
+export type { NomenclatureMapping };
