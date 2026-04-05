@@ -24,7 +24,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
 
   // Middleware
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
 
   // Debug: log every /api/* request to DB so we can diagnose "did the client
   // actually reach us?" without SSH access to pm2/nginx logs

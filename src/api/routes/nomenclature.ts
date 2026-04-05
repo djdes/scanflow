@@ -19,20 +19,25 @@ router.post('/sync', (req: Request, res: Response) => {
     res.status(400).json({ error: 'items must be a non-empty array' });
     return;
   }
-  // Basic validation: each item needs guid + name
+  // Basic validation: each item needs a non-empty guid + name (reject whitespace-only too)
   for (const item of items) {
-    if (!item.guid || !item.name) {
-      res.status(400).json({ error: 'each item must have guid and name' });
+    if (!item.guid || !String(item.guid).trim() || !item.name || !String(item.name).trim()) {
+      res.status(400).json({ error: 'each item must have a non-empty guid and name' });
       return;
     }
   }
-  const upserted = onecNomenclatureRepo.bulkUpsert(items);
-  // CRITICAL: invalidate the Fuse index used by NomenclatureMapper so the
-  // next map() call rebuilds from fresh onec_nomenclature rows. Without this,
-  // mapper.map() silently uses stale data until the server restarts.
-  if (mapper) mapper.invalidateCache();
-  logger.info('Nomenclature sync completed', { upserted });
-  res.json({ data: { upserted, total: items.length } });
+  try {
+    const upserted = onecNomenclatureRepo.bulkUpsert(items);
+    // CRITICAL: invalidate the Fuse index used by NomenclatureMapper so the
+    // next map() call rebuilds from fresh onec_nomenclature rows. Without this,
+    // mapper.map() silently uses stale data until the server restarts.
+    if (mapper) mapper.invalidateCache();
+    logger.info('Nomenclature sync completed', { upserted });
+    res.json({ data: { upserted, total: items.length } });
+  } catch (err) {
+    logger.error('Nomenclature sync failed', { error: (err as Error).message });
+    res.status(500).json({ error: 'Sync failed: ' + (err as Error).message });
+  }
 });
 
 // GET /api/nomenclature — list catalog items

@@ -62,6 +62,24 @@ async function main(): Promise<void> {
   const badRes = await fetchApi('/api/nomenclature/sync', { method: 'POST', body: JSON.stringify({}) });
   assert(badRes.status === 400, `empty body → 400, got ${badRes.status}`);
 
+  console.log('\n=== POST sync rejects whitespace-only guid ===');
+  const wsRes = await fetchApi('/api/nomenclature/sync', {
+    method: 'POST',
+    body: JSON.stringify({
+      items: [{ guid: '   ', name: 'Valid Name', is_folder: false, is_weighted: false }],
+    }),
+  });
+  assert(wsRes.status === 400, `whitespace guid → 400, got ${wsRes.status}`);
+
+  console.log('\n=== POST sync rejects whitespace-only name ===');
+  const wsNameRes = await fetchApi('/api/nomenclature/sync', {
+    method: 'POST',
+    body: JSON.stringify({
+      items: [{ guid: 'valid-guid-xyz', name: '   ', is_folder: false, is_weighted: false }],
+    }),
+  });
+  assert(wsNameRes.status === 400, `whitespace name → 400, got ${wsNameRes.status}`);
+
   // Cleanup via direct DB access
   const { getDb } = await import('../database/db');
   const db = getDb();
