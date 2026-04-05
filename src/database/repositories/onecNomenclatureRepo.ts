@@ -96,7 +96,11 @@ export const onecNomenclatureRepo = {
       clauses.push('is_folder = 0');
     }
     if (opts.search) {
-      clauses.push('(name LIKE @search OR full_name LIKE @search)');
+      // ulower() is a custom JS-backed Unicode-aware LOWER registered in db.ts.
+      // Required because SQLite's built-in LOWER() and LIKE's case-insensitive
+      // mode are ASCII-only — Cyrillic "Картоф" wouldn't match a lowercase
+      // search term otherwise.
+      clauses.push('(ulower(name) LIKE ulower(@search) OR ulower(full_name) LIKE ulower(@search))');
       params.search = `%${opts.search}%`;
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';

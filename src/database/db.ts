@@ -18,6 +18,16 @@ export function getDb(): Database.Database {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
 
+    // SQLite's built-in LOWER()/UPPER() and the LIKE operator's case-insensitive
+    // mode are ASCII-only. "Картоф" LIKE "%картоф%" returns false. Register a
+    // Unicode-aware lower function backed by JS String.prototype.toLowerCase(),
+    // so queries can write `WHERE ulower(name) LIKE ulower(?)` to get proper
+    // case-insensitive matching for Cyrillic (and any other script).
+    db.function('ulower', { deterministic: true }, (value: unknown) => {
+      if (value === null || value === undefined) return null;
+      return String(value).toLowerCase();
+    });
+
     runMigrations(db);
     logger.info('Database initialized', { path: config.dbPath });
   }
