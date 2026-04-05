@@ -210,34 +210,63 @@
       <div class="section-header" style="margin-bottom:16px">
         <div>
           <h2>Номенклатурные соответствия</h2>
-          <p class="section-subtitle">Связь названий из сканов с номенклатурой 1С</p>
+          <div id="mappings-catalog-status" class="section-subtitle">Загрузка...</div>
         </div>
-        <button class="btn btn-primary" onclick="Mappings.showAddForm()">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          Добавить
-        </button>
+        <button class="btn btn-primary" onclick="Mappings.showAddForm()">+ Добавить</button>
       </div>
-      <div class="search-bar">
-        <div class="input-icon-wrap">
-          <svg class="input-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <input type="text" id="mappings-search" placeholder="Поиск по названию..." oninput="Mappings.filter(this.value)">
+
+      <div class="tabs" style="margin-bottom:16px">
+        <button class="tab-btn active" id="mappings-mode-all" onclick="Mappings.setMode('all')">Все маппинги</button>
+        <button class="tab-btn" id="mappings-mode-by-supplier" onclick="Mappings.setMode('by-supplier')">По поставщикам</button>
+      </div>
+
+      <div id="mappings-mode-all-pane">
+        <div class="filters">
+          <input type="text" id="mappings-search" placeholder="Поиск..." oninput="Mappings.filter(this.value)">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Скан имя</th>
+                <th>1С товар</th>
+                <th>GUID</th>
+                <th>Посл. поставщик</th>
+                <th>× раз</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="mappings-tbody"></tbody>
+          </table>
         </div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Скан-имя</th>
-              <th>Имя в 1С</th>
-              <th>Категория</th>
-              <th>Ед.изм.</th>
-              <th>Подтв.</th>
-              <th>Действия</th>
-            </tr>
-          </thead>
-          <tbody id="mappings-tbody"></tbody>
-        </table>
+
+      <div id="mappings-mode-by-supplier-pane" style="display:none">
+        <div class="supplier-layout">
+          <aside class="supplier-sidebar">
+            <div class="supplier-sidebar-header">Поставщики</div>
+            <div id="supplier-list"></div>
+          </aside>
+          <div class="supplier-content">
+            <div id="supplier-header" class="supplier-content-header">Выберите поставщика слева</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Скан имя</th>
+                    <th>1С товар</th>
+                    <th>GUID</th>
+                    <th>× раз</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="supplier-mappings-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 

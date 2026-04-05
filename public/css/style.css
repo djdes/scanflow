@@ -1038,3 +1038,90 @@ details[open] summary { margin-bottom: 12px; }
   background: #fee2e2;
   color: #b91c1c;
 }
+
+/* Tabs inside nomenclature section */
+.tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  padding-bottom: 0;
+}
+.tab-btn {
+  background: transparent;
+  border: none;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: var(--primary, #3b82f6); }
+.tab-btn.active {
+  color: var(--primary, #3b82f6);
+  border-bottom-color: var(--primary, #3b82f6);
+}
+
+/* Supplier-by-supplier layout */
+.supplier-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  min-height: 400px;
+}
+.supplier-sidebar {
+  background: var(--bg, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 600px;
+  overflow-y: auto;
+}
+.supplier-sidebar-header {
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  background: #fff;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  position: sticky;
+  top: 0;
+}
+.supplier-item {
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.supplier-item:hover { background: #fff; }
+.supplier-item.active {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+}
+.supplier-item.active .supplier-count {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+.supplier-count {
+  background: var(--border, #e2e8f0);
+  color: var(--text, #1e293b);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.supplier-content {
+  min-width: 0;
+}
+.supplier-content-header {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text, #1e293b);
+}
