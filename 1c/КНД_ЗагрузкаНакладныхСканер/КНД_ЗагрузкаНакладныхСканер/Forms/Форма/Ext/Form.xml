@@ -15,6 +15,11 @@
 			<CommandName>Form.Command.ЗагрузитьНакладные</CommandName>
 			<ExtendedTooltip name="ЗагрузитьНакладныеРасширеннаяПодсказка" id="2"/>
 		</Button>
+		<Button name="ВыгрузитьНоменклатуру" id="3">
+			<Type>UsualButton</Type>
+			<CommandName>Form.Command.ВыгрузитьНоменклатуру</CommandName>
+			<ExtendedTooltip name="ВыгрузитьНоменклатуруРасширеннаяПодсказка" id="4"/>
+		</Button>
 	</ChildItems>
 	<Attributes>
 		<Attribute name="Объект" id="1">
@@ -39,6 +44,21 @@
 				</v8:item>
 			</ToolTip>
 			<Action>ЗагрузитьНакладные</Action>
+		</Command>
+		<Command name="ВыгрузитьНоменклатуру" id="2">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Выгрузить номенклатуру</v8:content>
+				</v8:item>
+			</Title>
+			<ToolTip>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Выгрузить справочник Номенклатура на scan.magday.ru</v8:content>
+				</v8:item>
+			</ToolTip>
+			<Action>ВыгрузитьНоменклатуру</Action>
 		</Command>
 	</Commands>
 </form:Form>
