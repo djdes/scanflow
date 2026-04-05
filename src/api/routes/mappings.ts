@@ -9,15 +9,22 @@ export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
 }
 
-// GET /api/mappings — list all mappings
-router.get('/', (_req: Request, res: Response) => {
-  const mappings = mappingRepo.getAll();
+// GET /api/mappings — list mappings.
+// Query params:
+//   supplier: filter by supplier name (via mapping_supplier_usage)
+//   unmapped: "true" to only return mappings with no onec_guid
+router.get('/', (req: Request, res: Response) => {
+  const supplier = req.query.supplier as string | undefined;
+  const unmapped = req.query.unmapped === 'true';
+  const mappings = (supplier || unmapped)
+    ? mappingRepo.getAllFiltered({ supplier, unmapped })
+    : mappingRepo.getAll();
   res.json({ data: mappings, count: mappings.length });
 });
 
 // POST /api/mappings — create mapping
 router.post('/', (req: Request, res: Response) => {
-  const { scanned_name, mapped_name_1c, category, default_unit, approved } = req.body;
+  const { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid } = req.body;
 
   if (!scanned_name || !mapped_name_1c) {
     res.status(400).json({ error: 'scanned_name and mapped_name_1c are required' });
@@ -30,6 +37,7 @@ router.post('/', (req: Request, res: Response) => {
     category,
     default_unit,
     approved: approved ?? false,
+    onec_guid: onec_guid ?? null,
   });
 
   if (mapper) mapper.invalidateCache();
@@ -46,7 +54,8 @@ router.put('/:id', (req: Request, res: Response) => {
     return;
   }
 
-  mappingRepo.update(id, req.body);
+  const { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid } = req.body;
+  mappingRepo.update(id, { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid });
   if (mapper) mapper.invalidateCache();
 
   const updated = mappingRepo.getById(id);
