@@ -177,18 +177,25 @@ export function runMigrations(db: Database.Database): void {
   ).get() as { cnt: number };
 
   if (hasMappingOnecGuid.cnt === 0) {
-    logger.info('Migration v7: Extending nomenclature_mappings and invoice_items...');
+    logger.info('Migration v7: Extending nomenclature_mappings...');
     db.exec(`
       ALTER TABLE nomenclature_mappings ADD COLUMN onec_guid TEXT;
       ALTER TABLE nomenclature_mappings ADD COLUMN times_seen INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE nomenclature_mappings ADD COLUMN last_seen_supplier TEXT;
       ALTER TABLE nomenclature_mappings ADD COLUMN last_seen_at TEXT;
 
-      ALTER TABLE invoice_items ADD COLUMN onec_guid TEXT;
-
       CREATE INDEX IF NOT EXISTS idx_nomenclature_mappings_onec_guid
         ON nomenclature_mappings(onec_guid);
     `);
+  }
+
+  const hasInvoiceItemOnecGuid = db.prepare(
+    "SELECT COUNT(*) as cnt FROM pragma_table_info('invoice_items') WHERE name = 'onec_guid'"
+  ).get() as { cnt: number };
+
+  if (hasInvoiceItemOnecGuid.cnt === 0) {
+    logger.info('Migration v7: Extending invoice_items with onec_guid...');
+    db.exec(`ALTER TABLE invoice_items ADD COLUMN onec_guid TEXT;`);
   }
 
   logger.info('Database migrations completed');
