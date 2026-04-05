@@ -96,26 +96,32 @@ export const mappingRepo = {
    *
    * Called on every successful NomenclatureMapper.map() during invoice
    * processing, and on every explicit user mapping via the dashboard.
+   *
+   * Both writes are wrapped in a transaction so that a failure in the
+   * supplier_usage upsert cannot leave the per-mapping counter advanced
+   * without a corresponding per-supplier row.
    */
   recordUsage(mappingId: number, supplier: string | null | undefined): void {
     const db = getDb();
-    db.prepare(`
-      UPDATE nomenclature_mappings
-      SET times_seen = times_seen + 1,
-          last_seen_supplier = COALESCE(?, last_seen_supplier),
-          last_seen_at = datetime('now')
-      WHERE id = ?
-    `).run(supplier ?? null, mappingId);
-
-    if (supplier) {
+    db.transaction(() => {
       db.prepare(`
-        INSERT INTO mapping_supplier_usage (mapping_id, supplier, first_seen_at, last_seen_at, times_seen)
-        VALUES (?, ?, datetime('now'), datetime('now'), 1)
-        ON CONFLICT(mapping_id, supplier) DO UPDATE SET
-          last_seen_at = datetime('now'),
-          times_seen = times_seen + 1
-      `).run(mappingId, supplier);
-    }
+        UPDATE nomenclature_mappings
+        SET times_seen = times_seen + 1,
+            last_seen_supplier = COALESCE(?, last_seen_supplier),
+            last_seen_at = datetime('now')
+        WHERE id = ?
+      `).run(supplier ?? null, mappingId);
+
+      if (supplier) {
+        db.prepare(`
+          INSERT INTO mapping_supplier_usage (mapping_id, supplier, first_seen_at, last_seen_at, times_seen)
+          VALUES (?, ?, datetime('now'), datetime('now'), 1)
+          ON CONFLICT(mapping_id, supplier) DO UPDATE SET
+            last_seen_at = datetime('now'),
+            times_seen = times_seen + 1
+        `).run(mappingId, supplier);
+      }
+    })();
   },
 
   /**
@@ -136,7 +142,7 @@ export const mappingRepo = {
       params.push(opts.supplier);
     }
     if (opts.unmapped) {
-      clauses.push('(m.onec_guid IS NULL OR m.onec_guid = "")');
+      clauses.push("(m.onec_guid IS NULL OR m.onec_guid = '')");
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
 
