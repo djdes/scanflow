@@ -198,5 +198,26 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE invoice_items ADD COLUMN onec_guid TEXT;`);
   }
 
+  // === Migration v8: mapping_supplier_usage (per-supplier stats m2m) ===
+  const hasSupplierUsage = db.prepare(
+    "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table' AND name = 'mapping_supplier_usage'"
+  ).get() as { cnt: number };
+
+  if (hasSupplierUsage.cnt === 0) {
+    logger.info('Migration v8: Creating mapping_supplier_usage table...');
+    db.exec(`
+      CREATE TABLE mapping_supplier_usage (
+        mapping_id    INTEGER NOT NULL,
+        supplier      TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_seen_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        times_seen    INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (mapping_id, supplier),
+        FOREIGN KEY (mapping_id) REFERENCES nomenclature_mappings(id) ON DELETE CASCADE
+      );
+      CREATE INDEX idx_mapping_supplier_usage_supplier ON mapping_supplier_usage(supplier);
+    `);
+  }
+
   logger.info('Database migrations completed');
 }
