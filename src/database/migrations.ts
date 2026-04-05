@@ -144,5 +144,32 @@ export function runMigrations(db: Database.Database): void {
     `);
   }
 
+  // === Migration v6: onec_nomenclature (1C catalog mirror) ===
+  // Local copy of Справочник.Номенклатура from 1С. Primary key is the GUID
+  // from the 1C reference (Ссылка.УникальныйИдентификатор). All mapping
+  // decisions in the dashboard eventually resolve to one of these rows.
+  const hasOnecNomenclature = db.prepare(
+    "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table' AND name = 'onec_nomenclature'"
+  ).get() as { cnt: number };
+
+  if (hasOnecNomenclature.cnt === 0) {
+    logger.info('Migration v6: Creating onec_nomenclature table...');
+    db.exec(`
+      CREATE TABLE onec_nomenclature (
+        guid        TEXT PRIMARY KEY,
+        code        TEXT,
+        name        TEXT NOT NULL,
+        full_name   TEXT,
+        unit        TEXT,
+        parent_guid TEXT,
+        is_folder   INTEGER NOT NULL DEFAULT 0,
+        is_weighted INTEGER NOT NULL DEFAULT 0,
+        synced_at   TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_onec_nomenclature_name ON onec_nomenclature(name COLLATE NOCASE);
+      CREATE INDEX idx_onec_nomenclature_parent ON onec_nomenclature(parent_guid);
+    `);
+  }
+
   logger.info('Database migrations completed');
 }
