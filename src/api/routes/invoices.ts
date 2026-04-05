@@ -2,11 +2,19 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
+import { mappingRepo } from '../../database/repositories/mappingRepo';
+import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { getDb } from '../../database/db';
 import { sendToWebhook } from '../../integration/webhook';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
+import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+
+let mapper: NomenclatureMapper | null = null;
+export function setMapper(m: NomenclatureMapper): void {
+  mapper = m;
+}
 
 const router = Router();
 
@@ -279,5 +287,55 @@ async function waitForProcessed(fileName: string, timeoutMs: number): Promise<nu
   }
   return null;
 }
+
+// PUT /api/invoices/:invoiceId/items/:itemId/map — set or clear onec_guid for a single line item.
+// Side effects:
+//   - Updates invoice_items.onec_guid and mapped_name
+//   - Upserts nomenclature_mappings for this scan name → onec_guid (learned mapping)
+//   - Records supplier usage (times_seen, last_seen_*)
+//   - Invalidates mapper cache so subsequent invoices benefit immediately
+router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
+  const invoiceId = parseInt(req.params.invoiceId as string, 10);
+  const itemId = parseInt(req.params.itemId as string, 10);
+  const { onec_guid } = req.body as { onec_guid?: string | null };
+
+  const invoice = invoiceRepo.getById(invoiceId);
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+  const item = invoiceRepo.getItemById(itemId);
+  if (!item || item.invoice_id !== invoiceId) {
+    res.status(404).json({ error: 'Invoice item not found' });
+    return;
+  }
+
+  let resolvedName: string | null = null;
+  if (onec_guid) {
+    const onecRow = onecNomenclatureRepo.getByGuid(onec_guid);
+    if (!onecRow) {
+      res.status(400).json({ error: `onec_guid ${onec_guid} not found in onec_nomenclature` });
+      return;
+    }
+    resolvedName = onecRow.name;
+  }
+
+  // Update the invoice item itself
+  invoiceRepo.mapItem(itemId, onec_guid ?? null, resolvedName);
+
+  // Learn: upsert nomenclature_mappings for this scan name
+  const mapping = mappingRepo.upsert({
+    scanned_name: item.original_name,
+    mapped_name_1c: resolvedName ?? item.original_name,
+    onec_guid: onec_guid ?? null,
+  });
+  mappingRepo.recordUsage(mapping.id, invoice.supplier ?? null);
+
+  // Invalidate mapper cache so the next invoice benefits immediately
+  if (mapper) mapper.invalidateCache();
+
+  const updatedItem = invoiceRepo.getItemById(itemId);
+  res.json({ data: updatedItem });
+});
 
 export default router;

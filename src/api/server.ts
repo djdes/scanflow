@@ -5,7 +5,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth } from './middleware/auth';
 import { apiRequestLog } from './middleware/requestLog';
-import invoicesRouter from './routes/invoices';
+import invoicesRouter, { setMapper as setInvoicesMapper } from './routes/invoices';
 import mappingsRouter, { setMapper } from './routes/mappings';
 import uploadRouter, { setFileWatcher } from './routes/upload';
 import webhookRouter from './routes/webhook';
@@ -33,6 +33,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Inject dependencies
   setMapper(mapper);
   setNomenclatureMapper(mapper);
+  setInvoicesMapper(mapper);
   setFileWatcher(fileWatcher);
 
   // Health check (no auth)
