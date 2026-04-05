@@ -125,6 +125,8 @@ const Invoices = {
     document.getElementById('invoices-list').style.display = 'none';
     document.getElementById('invoice-detail').style.display = 'block';
 
+    await OnecCatalog.load();
+
     try {
       const { data } = await App.apiJson(`/invoices/${id}`);
       if (!data) {
@@ -206,13 +208,20 @@ const Invoices = {
       // Actions
       const actions = document.getElementById('invoice-actions');
       let actionsHtml = '';
+      const unmappedCount = (data.items || []).filter(it => !it.onec_guid).length;
       if (data.status === 'processed') {
         if (data.approved_for_1c) {
-          // Already approved — show withdraw option + status badge
           actionsHtml += `<div class="badge badge-sent" style="padding:8px 16px">✓ Ожидает загрузки в 1С</div>`;
           actionsHtml += `<button class="btn btn-outline" onclick="Invoices.unapproveForOneC(${data.id})">Отозвать отправку</button>`;
         } else {
-          actionsHtml += `<button class="btn btn-primary" onclick="Invoices.sendTo1C(${data.id})">Отправить в 1С</button>`;
+          const disabled = unmappedCount > 0 ? 'disabled' : '';
+          const title = unmappedCount > 0
+            ? `title="Сопоставьте ${unmappedCount} товар(ов) с 1С перед отправкой"`
+            : '';
+          actionsHtml += `<button class="btn btn-primary" ${disabled} ${title} onclick="Invoices.sendTo1C(${data.id})">Отправить в 1С</button>`;
+          if (unmappedCount > 0) {
+            actionsHtml += `<div class="badge badge-new" style="padding:8px 16px">Не сопоставлено: ${unmappedCount}</div>`;
+          }
         }
       }
       if (data.status === 'sent_to_1c') {
@@ -228,11 +237,30 @@ const Invoices = {
       // Items table
       const itemsTbody = document.getElementById('invoice-items-tbody');
       if (data.items && data.items.length > 0) {
-        itemsTbody.innerHTML = data.items.map((item, i) => `
-          <tr>
+        itemsTbody.innerHTML = data.items.map((item, i) => {
+          const badge = item.onec_guid
+            ? '<span class="nom-badge nom-badge-ok" title="Сопоставлено">✓</span>'
+            : '<span class="nom-badge nom-badge-missing" title="Требует сопоставления">●</span>';
+          const currentName = item.mapped_name || item.original_name;
+          const safeName = currentName.replace(/"/g, '&quot;');
+          return `
+          <tr data-item-id="${item.id}">
             <td>${i + 1}</td>
             <td>${item.original_name}</td>
-            <td>${item.mapped_name || '—'}</td>
+            <td>
+              <div class="nom-picker">
+                ${badge}
+                <input type="text" class="nom-picker-input"
+                       value="${safeName}"
+                       data-invoice-id="${data.id}"
+                       data-item-id="${item.id}"
+                       data-current-guid="${item.onec_guid || ''}"
+                       oninput="Invoices.onNomInput(event)"
+                       onfocus="Invoices.onNomFocus(event)"
+                       onblur="Invoices.onNomBlur(event)">
+                <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
+              </div>
+            </td>
             <td style="text-align:right">${item.quantity != null ? item.quantity : '—'}</td>
             <td>${item.unit || '—'}</td>
             <td style="text-align:right">${App.formatMoney(item.price)}</td>
@@ -240,7 +268,8 @@ const Invoices = {
             <td style="text-align:center">${item.vat_rate != null ? item.vat_rate + '%' : '—'}</td>
             <td>${App.confidenceBadge(item.mapping_confidence || 0)}</td>
           </tr>
-        `).join('');
+        `;
+        }).join('');
       } else {
         itemsTbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">Товары не найдены</div></td></tr>';
       }
@@ -322,6 +351,52 @@ const Invoices = {
       }
     } catch (e) {
       App.notify('Ошибка удаления: ' + e.message, 'error');
+    }
+  },
+
+  onNomInput(event) {
+    const input = event.target;
+    const dd = document.getElementById('nom-dd-' + input.dataset.itemId);
+    if (!dd) return;
+    const q = input.value.trim();
+    if (!q) { dd.style.display = 'none'; return; }
+    const results = OnecCatalog.search(q, 10);
+    if (results.length === 0) { dd.style.display = 'none'; return; }
+    dd.innerHTML = results.map(r => `
+      <div class="nom-picker-option"
+           onmousedown="event.preventDefault()"
+           onclick="Invoices.selectNomItem('${input.dataset.invoiceId}', '${input.dataset.itemId}', '${r.guid}', ${JSON.stringify(r.name).replace(/'/g, "\\'")})">
+        <strong>${r.name}</strong>
+        ${r.unit ? '<span class="nom-unit">' + r.unit + '</span>' : ''}
+      </div>
+    `).join('');
+    dd.style.display = 'block';
+  },
+
+  onNomFocus(event) {
+    this.onNomInput(event);
+  },
+
+  onNomBlur(event) {
+    const dd = document.getElementById('nom-dd-' + event.target.dataset.itemId);
+    setTimeout(() => { if (dd) dd.style.display = 'none'; }, 150);
+  },
+
+  async selectNomItem(invoiceId, itemId, guid, name) {
+    try {
+      const res = await App.api(`/invoices/${invoiceId}/items/${itemId}/map`, {
+        method: 'PUT',
+        body: { onec_guid: guid },
+      });
+      if (res.ok) {
+        App.notify(`Сопоставлено: ${name}`, 'success');
+        this.showDetail(parseInt(invoiceId, 10));
+      } else {
+        const data = await res.json();
+        App.notify(data.error || 'Ошибка сопоставления', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
     }
   }
 };
