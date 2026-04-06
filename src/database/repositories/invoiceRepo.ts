@@ -340,6 +340,28 @@ export const invoiceRepo = {
   },
 
   /**
+   * Найти недавнюю накладную с таким же поставщиком (для объединения страниц при быстрой съёмке).
+   */
+  findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Invoice | undefined {
+    const db = getDb();
+    const candidates = db.prepare(
+      `SELECT * FROM invoices
+       WHERE supplier IS NOT NULL AND supplier != ''
+       AND id != ?
+       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       AND status IN ('processed', 'parsing', 'ocr_processing')
+       ORDER BY created_at DESC`
+    ).all(excludeId) as Invoice[];
+
+    for (const candidate of candidates) {
+      if (candidate.supplier && suppliersMatch(supplier, candidate.supplier)) {
+        return candidate;
+      }
+    }
+    return undefined;
+  },
+
+  /**
    * Добавить дополнительный файл к существующей накладной.
    * Используется для многостраничных накладных.
    */

@@ -169,8 +169,7 @@ export class FileWatcher {
       if (!existingInvoice) {
         const pageMatch = fileName.match(/^photo_(\d+)_(.+)$/);
         if (pageMatch && parseInt(pageMatch[1]) > 1) {
-          // This is page 2+ — look for page 1 with same timestamp
-          const timestamp = pageMatch[2]; // e.g. "2026-03-31_23-15-45.jpg"
+          const timestamp = pageMatch[2];
           existingInvoice = invoiceRepo.findRecentByFileNamePattern(
             `photo_%_${timestamp}`,
             invoice.id,
@@ -182,6 +181,23 @@ export class FileWatcher {
               existingFile: existingInvoice.file_name,
             });
           }
+        }
+      }
+
+      // Strategy C: match by supplier within 2 minutes (camera rapid capture)
+      // If this page has no invoice_number but same supplier as a recent invoice — merge
+      if (!existingInvoice && parsed.supplier) {
+        existingInvoice = invoiceRepo.findRecentBySupplier(
+          parsed.supplier,
+          invoice.id,
+          2  // within last 2 minutes
+        );
+        if (existingInvoice && existingInvoice.id !== invoice.id) {
+          logger.info('Multi-page: matched by supplier within 2 min', {
+            currentFile: fileName,
+            existingFile: existingInvoice.file_name,
+            supplier: parsed.supplier,
+          });
         }
       }
 
