@@ -41,6 +41,18 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // Recent errors (no auth — for quick diagnostics without SSH)
+  app.get('/api/errors', (_req, res) => {
+    const { getDb } = require('../database/db');
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT id, file_name, error_message, created_at
+       FROM invoices WHERE status = 'error'
+       ORDER BY id DESC LIMIT 10`
+    ).all();
+    res.json({ data: rows });
+  });
+
   // API routes (with auth)
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
