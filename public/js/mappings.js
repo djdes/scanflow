@@ -12,6 +12,8 @@ const Mappings = {
     this.updateCatalogStatus();
     if (this.mode === 'all') {
       await this.loadAll();
+    } else if (this.mode === 'catalog') {
+      this.renderCatalog();
     } else {
       await this.loadSuppliers();
     }
@@ -32,8 +34,10 @@ const Mappings = {
     this.mode = mode;
     document.getElementById('mappings-mode-all').classList.toggle('active', mode === 'all');
     document.getElementById('mappings-mode-by-supplier').classList.toggle('active', mode === 'by-supplier');
+    document.getElementById('mappings-mode-catalog').classList.toggle('active', mode === 'catalog');
     document.getElementById('mappings-mode-all-pane').style.display = mode === 'all' ? 'block' : 'none';
     document.getElementById('mappings-mode-by-supplier-pane').style.display = mode === 'by-supplier' ? 'block' : 'none';
+    document.getElementById('mappings-mode-catalog-pane').style.display = mode === 'catalog' ? 'block' : 'none';
     this.load();
   },
 
@@ -349,6 +353,43 @@ const Mappings = {
             <button class="btn btn-outline btn-sm" onclick="Mappings.startEdit(${m.id})">Ред.</button>
             <button class="btn btn-danger btn-sm" onclick="Mappings.remove(${m.id})">Удалить</button>
           </td>
+        </tr>
+      `;
+    }).join('');
+  },
+
+  filterCatalog(query) { this.renderCatalog(query); },
+
+  renderCatalog(filterQuery = '') {
+    const tbody = document.getElementById('catalog-tbody');
+    if (!tbody) return;
+    let items = OnecCatalog.items || [];
+    if (filterQuery) {
+      const q = filterQuery.toLowerCase();
+      items = items.filter(it =>
+        (it.name || '').toLowerCase().includes(q) ||
+        (it.full_name || '').toLowerCase().includes(q) ||
+        (it.code || '').toLowerCase().includes(q)
+      );
+    }
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">
+        <div class="empty-icon">&#128230;</div>
+        <div>${filterQuery ? 'Ничего не найдено' : 'Справочник пуст. Выгрузите номенклатуру из 1С.'}</div>
+      </div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = items.map((it, i) => {
+      const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const guidShort = it.guid ? it.guid.substring(0, 8) + '…' : '—';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${esc(it.code) || '—'}</td>
+          <td><strong>${esc(it.name)}</strong></td>
+          <td>${esc(it.full_name) || '—'}</td>
+          <td>${esc(it.unit) || '—'}</td>
+          <td><code style="font-size:11px" title="${esc(it.guid)}">${guidShort}</code></td>
         </tr>
       `;
     }).join('');

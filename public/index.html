@@ -223,6 +223,7 @@
       <div class="tabs" style="margin-bottom:16px">
         <button class="tab-btn active" id="mappings-mode-all" onclick="Mappings.setMode('all')">Все маппинги</button>
         <button class="tab-btn" id="mappings-mode-by-supplier" onclick="Mappings.setMode('by-supplier')">По поставщикам</button>
+        <button class="tab-btn" id="mappings-mode-catalog" onclick="Mappings.setMode('catalog')">Справочник 1С</button>
       </div>
 
       <div id="mappings-mode-all-pane">
@@ -271,6 +272,27 @@
               </table>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div id="mappings-mode-catalog-pane" style="display:none">
+        <div class="filters">
+          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Код</th>
+                <th>Наименование</th>
+                <th>Полное наименование</th>
+                <th>Ед.</th>
+                <th>GUID</th>
+              </tr>
+            </thead>
+            <tbody id="catalog-tbody"></tbody>
+          </table>
         </div>
       </div>
     </section>
