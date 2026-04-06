@@ -27,6 +27,7 @@
   "type": "commonjs",
   "devDependencies": {
     "@types/node": "^25.1.0",
+    "@types/nodemailer": "^8.0.0",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
@@ -47,6 +48,7 @@
     "fuse.js": "^7.1.0",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.4",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0",
     "undici": "^8.0.1",

@@ -8,6 +8,7 @@ import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { mappingRepo } from '../database/repositories/mappingRepo';
+import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
@@ -371,6 +372,12 @@ export class FileWatcher {
       const errorMsg = (err as Error).message;
       invoiceRepo.updateStatus(invoice.id, 'error', errorMsg);
       logger.error('Invoice processing failed', { id: invoice.id, fileName, error: errorMsg });
+
+      // Email notification
+      sendErrorEmail(
+        `Ошибка обработки накладной: ${fileName}`,
+        `Файл: ${fileName}\nID: ${invoice.id}\n\nОшибка:\n${errorMsg}\n\nStack:\n${(err as Error).stack || '—'}`
+      ).catch(() => {});
 
       // Move to failed
       if (!config.dryRun) {
