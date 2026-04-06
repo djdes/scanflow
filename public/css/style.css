@@ -713,6 +713,47 @@ details[open] summary { margin-bottom: 12px; }
   gap: 10px;
 }
 
+.camera-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.camera-queue-item {
+  position: relative;
+  width: 100px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid var(--primary, #2563eb);
+  background: #f8fafc;
+}
+.camera-queue-item img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+}
+.camera-queue-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px;
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+}
+.camera-queue-info .btn {
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 18px;
+  min-width: auto;
+}
+.btn-camera-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 .camera-history-item {
   display: flex;
   align-items: center;
