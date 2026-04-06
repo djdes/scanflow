@@ -5,7 +5,7 @@ const SMTP_HOST = process.env.SMTP_HOST || 'wesetup.ru';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
 const SMTP_USER = process.env.SMTP_USER || 'tech@wesetup.ru';
 const SMTP_PASS = process.env.SMTP_PASS || '0M2r8H4t';
-const MAIL_TO = process.env.MAIL_TO || 'tech@wesetup.ru';
+const MAIL_TO = process.env.MAIL_TO || 'bugdenes@gmail.com';
 
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
