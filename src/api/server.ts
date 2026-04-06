@@ -53,6 +53,45 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.json({ data: rows });
   });
 
+  // Reprocess recent errors (no auth — for quick recovery)
+  app.post('/api/reprocess-errors', async (_req, res) => {
+    const { getDb } = require('../database/db');
+    const fsMod = require('fs');
+    const pathMod = require('path');
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT id, file_name FROM invoices WHERE status = 'error' ORDER BY id DESC LIMIT 10`
+    ).all() as Array<{ id: number; file_name: string }>;
+
+    const results: Array<{ id: number; file: string; status: string }> = [];
+    for (const row of rows) {
+      const fileName = pathMod.basename(row.file_name);
+      const failedPath = pathMod.join(config.failedDir, fileName);
+      const processedPath = pathMod.join(config.processedDir, fileName);
+      const inboxPath = pathMod.join(config.inboxDir, fileName);
+
+      let source: string | null = null;
+      if (fsMod.existsSync(failedPath)) source = failedPath;
+      else if (fsMod.existsSync(processedPath)) source = processedPath;
+
+      if (!source) {
+        results.push({ id: row.id, file: fileName, status: 'file_not_found' });
+        continue;
+      }
+
+      try {
+        // Delete the old error record so a fresh one is created
+        db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(row.id);
+        db.prepare('DELETE FROM invoices WHERE id = ?').run(row.id);
+        fsMod.renameSync(source, inboxPath);
+        results.push({ id: row.id, file: fileName, status: 'moved_to_inbox' });
+      } catch (e: any) {
+        results.push({ id: row.id, file: fileName, status: 'error: ' + e.message });
+      }
+    }
+    res.json({ data: results });
+  });
+
   // API routes (with auth)
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
