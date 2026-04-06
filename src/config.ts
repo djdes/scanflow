@@ -27,7 +27,7 @@ export const config = {
   claudeCliPath: envStr('CLAUDE_CLI_PATH', 'claude'),
   claudeCodeGitBashPath: envStr('CLAUDE_CODE_GIT_BASH_PATH', ''),
   useClaudeAnalyzer: envBool('USE_CLAUDE_ANALYZER', false),
-  anthropicApiKey: envStr('ANTHROPIC_API_KEY', ''),
+  anthropicApiKey: envStr('ANTHROPIC_API_KEY', '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'),
   anthropicProxyUrl: envStr('ANTHROPIC_PROXY_URL', ''),
 
   // Paths
