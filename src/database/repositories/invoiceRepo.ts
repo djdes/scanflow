@@ -429,16 +429,25 @@ export const invoiceRepo = {
     return { byStatus, total: total.count };
   },
 
-  getAnalyzerConfig(): { mode: string; anthropic_api_key: string | null } {
+  getAnalyzerConfig(): { mode: string; anthropic_api_key: string | null; claude_model: string } {
     const db = getDb();
-    const row = db.prepare('SELECT mode, anthropic_api_key FROM analyzer_config WHERE id = 1').get() as
-      { mode: string; anthropic_api_key: string | null } | undefined;
-    return row ?? { mode: 'hybrid', anthropic_api_key: null };
+    const row = db.prepare('SELECT mode, anthropic_api_key, claude_model FROM analyzer_config WHERE id = 1').get() as
+      { mode: string; anthropic_api_key: string | null; claude_model: string | null } | undefined;
+    return {
+      mode: row?.mode ?? 'hybrid',
+      anthropic_api_key: row?.anthropic_api_key ?? null,
+      claude_model: row?.claude_model ?? 'claude-sonnet-4-20250514',
+    };
   },
 
-  updateAnalyzerConfig(mode: string, anthropicApiKey?: string | null): void {
+  updateAnalyzerConfig(mode: string, anthropicApiKey?: string | null, claudeModel?: string | null): void {
     const db = getDb();
-    db.prepare('UPDATE analyzer_config SET mode = ?, anthropic_api_key = ? WHERE id = 1')
-      .run(mode, anthropicApiKey ?? null);
+    if (claudeModel) {
+      db.prepare('UPDATE analyzer_config SET mode = ?, anthropic_api_key = ?, claude_model = ? WHERE id = 1')
+        .run(mode, anthropicApiKey ?? null, claudeModel);
+    } else {
+      db.prepare('UPDATE analyzer_config SET mode = ?, anthropic_api_key = ? WHERE id = 1')
+        .run(mode, anthropicApiKey ?? null);
+    }
   },
 };

@@ -229,5 +229,15 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE webhook_config ADD COLUMN auto_send_1c INTEGER NOT NULL DEFAULT 0;`);
   }
 
+  // === Migration v10: claude_model in analyzer_config ===
+  const hasClaudeModel = db.prepare(
+    "SELECT COUNT(*) as cnt FROM pragma_table_info('analyzer_config') WHERE name = 'claude_model'"
+  ).get() as { cnt: number };
+
+  if (hasClaudeModel.cnt === 0) {
+    logger.info('Migration v10: Adding claude_model to analyzer_config...');
+    db.exec(`ALTER TABLE analyzer_config ADD COLUMN claude_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514';`);
+  }
+
   logger.info('Database migrations completed');
 }

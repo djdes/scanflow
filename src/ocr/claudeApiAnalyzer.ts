@@ -73,6 +73,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
   combinedOcrText: string,
   apiKey: string,
   pageCount: number,
+  modelId: string = 'claude-sonnet-4-20250514',
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
     return { success: false, error: 'Anthropic API key not configured' };
@@ -84,7 +85,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
     const client = createClient(apiKey);
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: modelId,
       max_tokens: 8192,
       messages: [
         {
@@ -127,6 +128,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
 export async function analyzeMultipleImagesWithClaudeApi(
   imagePaths: string[],
   apiKey: string,
+  modelId: string = 'claude-sonnet-4-20250514',
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
     return { success: false, error: 'Anthropic API key not configured' };
@@ -155,7 +157,7 @@ export async function analyzeMultipleImagesWithClaudeApi(
     const client = createClient(apiKey);
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: modelId,
       max_tokens: 8192,
       messages: [{ role: 'user', content }],
     });
@@ -193,6 +195,7 @@ export async function analyzeMultipleImagesWithClaudeApi(
 export async function analyzeImageWithClaudeApi(
   imagePath: string,
   apiKey: string,
+  modelId: string = 'claude-sonnet-4-20250514',
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
     return { success: false, error: 'Anthropic API key not configured' };
@@ -208,7 +211,7 @@ export async function analyzeImageWithClaudeApi(
     const client = createClient(apiKey);
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: modelId,
       max_tokens: 4096,
       messages: [
         {

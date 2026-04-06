@@ -12,6 +12,7 @@ router.get('/analyzer', (_req: Request, res: Response) => {
       data: {
         mode: config.mode,
         has_api_key: !!config.anthropic_api_key,
+        claude_model: config.claude_model,
       },
     });
   } catch (err) {
@@ -22,7 +23,7 @@ router.get('/analyzer', (_req: Request, res: Response) => {
 // PUT /api/settings/analyzer — update analyzer config
 router.put('/analyzer', (req: Request, res: Response) => {
   try {
-    const { mode, anthropic_api_key } = req.body;
+    const { mode, anthropic_api_key, claude_model } = req.body;
 
     if (!mode || !['hybrid', 'claude_api'].includes(mode)) {
       res.status(400).json({ error: 'Invalid mode. Must be "hybrid" or "claude_api"' });
@@ -30,16 +31,14 @@ router.put('/analyzer', (req: Request, res: Response) => {
     }
 
     if (mode === 'claude_api' && !anthropic_api_key) {
-      // Check if there's already a key stored
       const current = invoiceRepo.getAnalyzerConfig();
       if (!current.anthropic_api_key) {
         res.status(400).json({ error: 'Anthropic API key is required for Claude API mode' });
         return;
       }
-      // Keep existing key, just switch mode
-      invoiceRepo.updateAnalyzerConfig(mode);
+      invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model);
     } else {
-      invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key);
+      invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model);
     }
 
     logger.info('Analyzer config updated', { mode });

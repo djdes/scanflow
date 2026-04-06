@@ -14,6 +14,9 @@ const Settings = {
           document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
           document.getElementById('api-key-status').style.color = 'var(--green)';
         }
+        if (data.claude_model) {
+          document.getElementById('settings-claude-model').value = data.claude_model;
+        }
       }
       this.loaded = true;
     } catch (e) {
@@ -50,7 +53,8 @@ const Settings = {
     const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value;
     if (!mode) return;
 
-    const body = { mode };
+    const claudeModel = document.getElementById('settings-claude-model').value;
+    const body = { mode, claude_model: claudeModel };
     const apiKeyInput = document.getElementById('settings-api-key');
     if (mode === 'claude_api' && apiKeyInput.value.trim()) {
       body.anthropic_api_key = apiKeyInput.value.trim();

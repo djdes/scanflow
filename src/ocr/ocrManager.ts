@@ -177,9 +177,10 @@ export class OcrManager {
 
     const analyzerConfig = invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
+    const modelId = analyzerConfig.claude_model;
 
     if (apiKey) {
-      const apiResult = await analyzeMultiPageTextWithClaudeApi(ocrResult.text, apiKey, 1);
+      const apiResult = await analyzeMultiPageTextWithClaudeApi(ocrResult.text, apiKey, 1, modelId);
       if (apiResult.success && apiResult.data) {
         logger.info('Hybrid OCR: Anthropic API text analyzer succeeded', {
           itemsCount: apiResult.data.items?.length ?? 0,
@@ -208,13 +209,13 @@ export class OcrManager {
   async recognizeMultiPageWithClaudeApi(imagePaths: string[]): Promise<OcrResult> {
     const analyzerConfig = invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
+    const modelId = analyzerConfig.claude_model;
 
     if (!apiKey) {
       throw new Error('Anthropic API key not configured. Set it in Settings.');
     }
 
-    // No resize for Claude API — it handles large images natively
-    const result = await analyzeMultipleImagesWithClaudeApi(imagePaths, apiKey);
+    const result = await analyzeMultipleImagesWithClaudeApi(imagePaths, apiKey, modelId);
 
     if (result.success && result.data) {
       return {
@@ -234,12 +235,13 @@ export class OcrManager {
   async analyzeMultiPageText(combinedOcrText: string, pageCount: number): Promise<OcrResult> {
     const analyzerConfig = invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
+    const modelId = analyzerConfig.claude_model;
 
     if (!apiKey) {
       throw new Error('Anthropic API key not configured.');
     }
 
-    const result = await analyzeMultiPageTextWithClaudeApi(combinedOcrText, apiKey, pageCount);
+    const result = await analyzeMultiPageTextWithClaudeApi(combinedOcrText, apiKey, pageCount, modelId);
 
     if (result.success && result.data) {
       return {
@@ -260,17 +262,16 @@ export class OcrManager {
   async recognizeWithClaudeApi(imagePath: string): Promise<OcrResult> {
     const analyzerConfig = invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
+    const modelId = analyzerConfig.claude_model;
 
     if (!apiKey) {
       throw new Error('Anthropic API key not configured. Set it in Settings.');
     }
 
-    // No resize for Claude API — it handles large images natively
-    // Aggressive resize destroys small text on ТОРГ-12 invoices
     const processedPath = imagePath;
 
     try {
-      const result = await analyzeImageWithClaudeApi(processedPath, apiKey);
+      const result = await analyzeImageWithClaudeApi(processedPath, apiKey, modelId);
 
       if (result.success && result.data) {
         return {
