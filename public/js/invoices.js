@@ -125,6 +125,16 @@ const Invoices = {
     document.getElementById('invoices-list').style.display = 'none';
     document.getElementById('invoice-detail').style.display = 'block';
 
+    this._currentInvoiceId = id;
+    this._photosLoaded = false;
+
+    // Reset to items tab
+    document.getElementById('invoice-tab-items').style.display = 'block';
+    document.getElementById('invoice-tab-photos').style.display = 'none';
+    document.getElementById('invoice-tab-ocr').style.display = 'none';
+    const tabBtns = document.querySelectorAll('#invoice-detail .tabs .tab-btn');
+    tabBtns.forEach((b, i) => b.classList.toggle('active', i === 0));
+
     await OnecCatalog.load();
 
     try {
@@ -417,6 +427,51 @@ const Invoices = {
   onNomBlur(event) {
     const dd = document.getElementById('nom-dd-' + event.target.dataset.itemId);
     setTimeout(() => { if (dd) dd.style.display = 'none'; }, 150);
+  },
+
+  switchTab(tab, btn) {
+    // Hide all tabs
+    document.getElementById('invoice-tab-items').style.display = 'none';
+    document.getElementById('invoice-tab-photos').style.display = 'none';
+    document.getElementById('invoice-tab-ocr').style.display = 'none';
+
+    // Deactivate all buttons
+    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    // Show selected tab
+    document.getElementById('invoice-tab-' + tab).style.display = 'block';
+
+    // Load photos on first switch
+    if (tab === 'photos' && !this._photosLoaded) {
+      this.loadPhotos();
+    }
+  },
+
+  async loadPhotos() {
+    const container = document.getElementById('invoice-photos-container');
+    const id = this._currentInvoiceId;
+    if (!id) return;
+
+    try {
+      const { data } = await App.apiJson(`/invoices/${id}/photos`);
+      if (!data || data.length === 0) {
+        container.innerHTML = '<div class="empty-state">Фото не найдены</div>';
+        return;
+      }
+
+      container.innerHTML = data.map((photo, i) => `
+        <div style="margin-bottom:16px">
+          <div style="margin-bottom:4px;color:#888;font-size:13px">Лист ${i + 1}: ${photo.filename}</div>
+          <img src="${photo.url}?key=${encodeURIComponent(App.apiKey)}" alt="${photo.filename}"
+               style="max-width:100%;border:1px solid #e0e0e0;border-radius:6px"
+               onerror="this.outerHTML='<div class=\\'empty-state\\'>Файл не найден на диске</div>'">
+        </div>
+      `).join('');
+      this._photosLoaded = true;
+    } catch (e) {
+      container.innerHTML = '<div class="empty-state">Ошибка загрузки фото</div>';
+    }
   },
 
   async selectNomItem(invoiceId, itemId, guid, name) {

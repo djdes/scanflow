@@ -43,6 +43,63 @@ router.get('/pending', (_req: Request, res: Response) => {
   res.json({ data: result, count: result.length });
 });
 
+// GET /api/invoices/:id/photos — list photo files for an invoice
+router.get('/:id/photos', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = invoiceRepo.getById(id);
+
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+
+  const fileNames = (invoice.file_name || '')
+    .split(',')
+    .map(f => f.trim())
+    .filter(f => f.length > 0);
+
+  const photos = fileNames.map(filename => ({
+    filename,
+    url: `/api/invoices/${id}/photos/${encodeURIComponent(filename)}`,
+  }));
+
+  res.json({ data: photos });
+});
+
+// GET /api/invoices/:id/photos/:filename — serve photo file
+router.get('/:id/photos/:filename', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = invoiceRepo.getById(id);
+
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+
+  const requestedFile = req.params.filename as string;
+
+  // Validate file belongs to this invoice
+  const fileNames = (invoice.file_name || '')
+    .split(',')
+    .map(f => f.trim());
+
+  if (!fileNames.includes(requestedFile)) {
+    res.status(404).json({ error: 'File not found for this invoice' });
+    return;
+  }
+
+  // Path-traversal protection: use basename only
+  const safeFilename = path.basename(requestedFile);
+  const filePath = path.join(config.processedDir, safeFilename);
+
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'File not found on disk' });
+    return;
+  }
+
+  res.sendFile(filePath);
+});
+
 // GET /api/invoices/:id — single invoice with items
 router.get('/:id', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);

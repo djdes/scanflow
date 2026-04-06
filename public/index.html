@@ -128,8 +128,12 @@
         <div class="card" id="invoice-supplier-details" style="display:none">
           <h3 style="margin-bottom:12px">Реквизиты поставщика</h3>
         </div>
-        <div class="card">
-          <h2 style="margin-bottom:16px">Товары</h2>
+        <div class="tabs" style="margin-bottom:0">
+          <button class="tab-btn active" onclick="Invoices.switchTab('items', this)">Товары</button>
+          <button class="tab-btn" onclick="Invoices.switchTab('photos', this)">Фото</button>
+          <button class="tab-btn" onclick="Invoices.switchTab('ocr', this)">OCR-текст</button>
+        </div>
+        <div class="card" id="invoice-tab-items">
           <div class="table-wrap">
             <table>
               <thead>
@@ -149,13 +153,14 @@
             </table>
           </div>
         </div>
-        <details>
-          <summary>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:6px"><path d="M2 3h12M2 7h8M2 11h12M2 15h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            OCR-текст (сырой)
-          </summary>
+        <div class="card" id="invoice-tab-photos" style="display:none">
+          <div id="invoice-photos-container">
+            <div class="empty-state">Загрузка фото...</div>
+          </div>
+        </div>
+        <div class="card" id="invoice-tab-ocr" style="display:none">
           <div class="ocr-text" id="invoice-ocr-text"></div>
-        </details>
+        </div>
       </div>
     </section>
 
