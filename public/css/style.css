@@ -747,11 +747,22 @@ details[open] summary { margin-bottom: 12px; }
   line-height: 18px;
   min-width: auto;
 }
+.camera-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.camera-buttons .btn-camera-capture {
+  flex: 1;
+}
 .btn-camera-send {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  min-width: 140px;
+  font-size: 16px;
+  white-space: nowrap;
 }
 
 .camera-history-item {
@@ -1001,6 +1012,59 @@ details[open] summary { margin-bottom: 12px; }
   .form-row { flex-direction: column; }
   .invoice-header { grid-template-columns: 1fr 1fr; }
   .section-header { flex-direction: column; gap: 12px; }
+
+  /* Camera — mobile */
+  #view-camera .card {
+    padding: 12px;
+  }
+  #view-camera .section-header {
+    text-align: center;
+  }
+  .camera-buttons {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .btn-camera-capture {
+    padding: 24px 16px;
+    font-size: 18px;
+    border-radius: 14px;
+  }
+  .btn-camera-capture svg {
+    width: 28px;
+    height: 28px;
+  }
+  .btn-camera-send {
+    padding: 16px;
+    font-size: 18px;
+    border-radius: 14px;
+    min-width: auto;
+  }
+  .camera-queue {
+    gap: 8px;
+  }
+  .camera-queue-item {
+    width: 80px;
+  }
+  .camera-queue-item img {
+    height: 64px;
+  }
+  .camera-history-item {
+    padding: 8px;
+    gap: 10px;
+  }
+  .camera-history-item img {
+    width: 44px;
+    height: 58px;
+  }
+  .camera-history-name {
+    font-size: 11px;
+  }
+
+  /* Tables — horizontal scroll on mobile */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* ========== Scrollbar ========== */
