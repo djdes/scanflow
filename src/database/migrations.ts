@@ -236,7 +236,7 @@ export function runMigrations(db: Database.Database): void {
 
   if (hasClaudeModel.cnt === 0) {
     logger.info('Migration v10: Adding claude_model to analyzer_config...');
-    db.exec(`ALTER TABLE analyzer_config ADD COLUMN claude_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514';`);
+    db.exec(`ALTER TABLE analyzer_config ADD COLUMN claude_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6-20250627';`);
   }
 
   logger.info('Database migrations completed');
