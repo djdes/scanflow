@@ -190,7 +190,7 @@ export class FileWatcher {
         existingInvoice = invoiceRepo.findRecentBySupplier(
           parsed.supplier,
           invoice.id,
-          2  // within last 2 minutes
+          5  // within last 5 minutes
         );
         if (existingInvoice && existingInvoice.id !== invoice.id) {
           logger.info('Multi-page: matched by supplier within 2 min', {
