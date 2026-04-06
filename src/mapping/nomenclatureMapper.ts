@@ -21,6 +21,24 @@ const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
 
 const MIN_FUZZY_CONFIDENCE = 0.7;
 
+/**
+ * Strip weight/volume/count suffixes and packaging info from scanned names.
+ * "Капуста морская(3кг)" → "Капуста морская"
+ * "Батон Нарезной 0,4 кг" → "Батон Нарезной"
+ * "Вода 1.5л пэт" → "Вода пэт"  (keeps non-measure words)
+ */
+function normalizeName(name: string): string {
+  let s = name;
+  // Remove content in parentheses: "(3кг)", "(вес)", "(1л)" etc.
+  s = s.replace(/\s*\([^)]*\)\s*/g, ' ');
+  // Remove standalone weight/volume/count patterns: "3кг", "0,4 кг", "1.5 л", "500г", "10шт", "50 мл"
+  s = s.replace(/\b\d+[.,]?\d*\s*(?:кг|г|гр|л|мл|шт|уп|упак|пач|бут)\.?\b/gi, '');
+  // Remove trailing "в/у", "б/к", "зам.", "охл.", "свежемор." etc. — keep as is, they're descriptive
+  // Clean up extra spaces
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return s;
+}
+
 export class NomenclatureMapper {
   private onecFuse: Fuse<OnecNomenclatureRow> | null = null;
 
@@ -51,8 +69,11 @@ export class NomenclatureMapper {
    *   3. None
    */
   map(scannedName: string): MappingResult {
-    // 1. Learned mapping
-    const learned = mappingRepo.getByScannedName(scannedName);
+    const cleanName = normalizeName(scannedName);
+
+    // 1. Learned mapping (try original first, then cleaned)
+    const learned = mappingRepo.getByScannedName(scannedName)
+      || (cleanName !== scannedName ? mappingRepo.getByScannedName(cleanName) : null);
     if (learned) {
       if (learned.onec_guid) {
         const onec = onecNomenclatureRepo.getByGuid(learned.onec_guid);
@@ -88,9 +109,10 @@ export class NomenclatureMapper {
       }
     }
 
-    // 2. Fuzzy search against onec_nomenclature
+    // 2. Fuzzy search against onec_nomenclature (use cleaned name)
     const fuse = this.ensureIndex();
-    const results = fuse.search(scannedName);
+    const searchTerm = cleanName || scannedName;
+    const results = fuse.search(searchTerm);
     if (results.length > 0 && results[0].score !== undefined) {
       const best = results[0];
       const confidence = 1 - (best.score as number);
@@ -123,7 +145,7 @@ export class NomenclatureMapper {
 
   getSuggestions(scannedName: string, limit: number = 5): Array<{ guid: string; name: string; confidence: number }> {
     const fuse = this.ensureIndex();
-    const results = fuse.search(scannedName, { limit });
+    const results = fuse.search(normalizeName(scannedName) || scannedName, { limit });
     return results.map(r => ({
       guid: r.item.guid,
       name: r.item.name,
