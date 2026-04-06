@@ -236,7 +236,16 @@ export function runMigrations(db: Database.Database): void {
 
   if (hasClaudeModel.cnt === 0) {
     logger.info('Migration v10: Adding claude_model to analyzer_config...');
-    db.exec(`ALTER TABLE analyzer_config ADD COLUMN claude_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6-20250627';`);
+    db.exec(`ALTER TABLE analyzer_config ADD COLUMN claude_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6';`);
+  }
+
+  // Migration v11: Fix stale model ID in existing databases
+  const currentModel = db.prepare(
+    `SELECT claude_model FROM analyzer_config WHERE id = 1`
+  ).get() as { claude_model: string } | undefined;
+  if (currentModel && currentModel.claude_model.includes('20250627')) {
+    logger.info('Migration v11: Fixing claude_model from dated to latest...');
+    db.exec(`UPDATE analyzer_config SET claude_model = 'claude-sonnet-4-6' WHERE claude_model LIKE '%20250627%';`);
   }
 
   logger.info('Database migrations completed');

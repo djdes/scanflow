@@ -436,7 +436,7 @@ export const invoiceRepo = {
     return {
       mode: row?.mode ?? 'hybrid',
       anthropic_api_key: row?.anthropic_api_key ?? null,
-      claude_model: row?.claude_model ?? 'claude-sonnet-4-6-20250627',
+      claude_model: row?.claude_model ?? 'claude-sonnet-4-6',
     };
   },
 
