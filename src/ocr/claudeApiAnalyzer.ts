@@ -73,7 +73,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
   combinedOcrText: string,
   apiKey: string,
   pageCount: number,
-  modelId: string = 'claude-sonnet-4-6-20250627',
+  modelId: string = 'claude-sonnet-4-5-20250514',
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
     return { success: false, error: 'Anthropic API key not configured' };
@@ -128,7 +128,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
 export async function analyzeMultipleImagesWithClaudeApi(
   imagePaths: string[],
   apiKey: string,
-  modelId: string = 'claude-sonnet-4-6-20250627',
+  modelId: string = 'claude-sonnet-4-5-20250514',
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
     return { success: false, error: 'Anthropic API key not configured' };
@@ -195,7 +195,7 @@ export async function analyzeMultipleImagesWithClaudeApi(
 export async function analyzeImageWithClaudeApi(
   imagePath: string,
   apiKey: string,
-  modelId: string = 'claude-sonnet-4-6-20250627',
+  modelId: string = 'claude-sonnet-4-5-20250514',
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
     return { success: false, error: 'Anthropic API key not configured' };
