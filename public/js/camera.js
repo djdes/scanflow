@@ -2,7 +2,7 @@
 const Camera = {
   initialized: false,
   totalUploaded: 0,
-  history: [], // { url, name, status, invoiceId?, error? }
+  history: [], // { url, name, file, status, invoiceId?, error? }
 
   init() {
     if (this.initialized) return;
@@ -28,6 +28,7 @@ const Camera = {
     this.history.push({
       url: previewUrl,
       name: file.name || `photo_${idx + 1}.jpg`,
+      file,
       status: 'uploading',
     });
     this.renderHistory();
@@ -78,6 +79,16 @@ const Camera = {
     el.textContent = parts.join(' · ');
   },
 
+  retry(idx) {
+    const h = this.history[idx];
+    if (!h || !h.file || h.status !== 'error') return;
+    h.status = 'uploading';
+    h.error = null;
+    this.renderHistory();
+    this.updateCounter();
+    this.doUpload(h.file, idx);
+  },
+
   renderHistory() {
     const container = document.getElementById('camera-history');
     if (this.history.length === 0) {
@@ -85,14 +96,16 @@ const Camera = {
       return;
     }
 
-    container.innerHTML = this.history.slice().reverse().map(h => {
+    const items = this.history.map((h, i) => ({ ...h, idx: i })).reverse();
+    container.innerHTML = items.map(h => {
       let statusHtml = '';
       if (h.status === 'uploading') {
         statusHtml = '<span class="camera-status camera-status-loading">Загрузка...</span>';
       } else if (h.status === 'ok') {
         statusHtml = `<a href="#/invoices/${h.invoiceId}" class="camera-status camera-status-ok">Накладная #${h.invoiceId}</a>`;
       } else {
-        statusHtml = `<span class="camera-status camera-status-error" title="${h.error || ''}">Ошибка</span>`;
+        statusHtml = `<span class="camera-status camera-status-error" title="${h.error || ''}">Ошибка</span>
+          <button class="btn btn-sm btn-outline" onclick="Camera.retry(${h.idx})" style="margin-left:8px">Повторить</button>`;
       }
       return `<div class="camera-history-item">
         <img src="${h.url}" alt="">
