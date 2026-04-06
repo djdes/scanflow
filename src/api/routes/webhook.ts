@@ -6,6 +6,7 @@ interface WebhookConfig {
   url: string;
   enabled: number;
   auth_token: string | null;
+  auto_send_1c: number;
 }
 
 const router = Router();
@@ -14,21 +15,21 @@ const router = Router();
 router.get('/config', (_req: Request, res: Response) => {
   const db = getDb();
   const config = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get() as WebhookConfig | undefined;
-  res.json({ data: config || { id: 1, url: '', enabled: 0, auth_token: null } });
+  res.json({ data: config || { id: 1, url: '', enabled: 0, auth_token: null, auto_send_1c: 0 } });
 });
 
 // PUT /api/webhook/config
 router.put('/config', (req: Request, res: Response) => {
   const db = getDb();
-  const { url, enabled, auth_token } = req.body;
+  const { url, enabled, auth_token, auto_send_1c } = req.body;
 
   const existing = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
   if (existing) {
-    db.prepare('UPDATE webhook_config SET url = ?, enabled = ?, auth_token = ? WHERE id = 1')
-      .run(url || '', enabled ? 1 : 0, auth_token || null);
+    db.prepare('UPDATE webhook_config SET url = ?, enabled = ?, auth_token = ?, auto_send_1c = ? WHERE id = 1')
+      .run(url || '', enabled ? 1 : 0, auth_token || null, auto_send_1c ? 1 : 0);
   } else {
-    db.prepare('INSERT INTO webhook_config (id, url, enabled, auth_token) VALUES (1, ?, ?, ?)')
-      .run(url || '', enabled ? 1 : 0, auth_token || null);
+    db.prepare('INSERT INTO webhook_config (id, url, enabled, auth_token, auto_send_1c) VALUES (1, ?, ?, ?, ?)')
+      .run(url || '', enabled ? 1 : 0, auth_token || null, auto_send_1c ? 1 : 0);
   }
 
   const updated = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();

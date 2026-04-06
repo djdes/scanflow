@@ -341,7 +341,20 @@ export class FileWatcher {
         });
       }
 
-      // 8. Move file to processed
+      // 8. Auto-send to 1C if enabled
+      try {
+        const db = (await import('../database/db')).getDb();
+        const whConfig = db.prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1').get() as { auto_send_1c: number } | undefined;
+        if (whConfig?.auto_send_1c) {
+          const finalId = targetInvoiceId;
+          invoiceRepo.approveForOneC(finalId);
+          logger.info('Auto-approved for 1C', { id: finalId });
+        }
+      } catch (e) {
+        logger.warn('Auto-send check failed', { error: (e as Error).message });
+      }
+
+      // 9. Move file to processed
       if (!config.dryRun) {
         try {
           const destPath = path.join(config.processedDir, fileName);

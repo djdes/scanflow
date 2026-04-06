@@ -20,6 +20,22 @@ const Settings = {
       console.error('Failed to load settings', e);
     }
 
+    // Load auto-send setting from webhook config
+    try {
+      const { data } = await App.apiJson('/webhook/config');
+      const cb = document.getElementById('settings-auto-send');
+      const label = document.getElementById('settings-auto-send-text');
+      if (data) {
+        cb.checked = !!data.auto_send_1c;
+        label.textContent = cb.checked ? 'Включена' : 'Выключена';
+      }
+      cb.addEventListener('change', () => {
+        label.textContent = cb.checked ? 'Включена' : 'Выключена';
+      });
+    } catch (e) {
+      console.error('Failed to load auto-send setting', e);
+    }
+
     document.querySelectorAll('input[name="analyzer-mode"]').forEach(radio => {
       radio.addEventListener('change', () => this.toggleApiKeyField(radio.value));
     });
@@ -49,6 +65,28 @@ const Settings = {
       } else {
         const data = await res.json();
         App.notify(data.error || 'Ошибка сохранения', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  async saveAutoSend() {
+    const cb = document.getElementById('settings-auto-send');
+    try {
+      // Read current webhook config, update only auto_send_1c
+      const { data: current } = await App.apiJson('/webhook/config');
+      const body = {
+        url: current?.url || '',
+        enabled: current?.enabled || 0,
+        auth_token: current?.auth_token || '',
+        auto_send_1c: cb.checked ? 1 : 0,
+      };
+      const res = await App.api('/webhook/config', { method: 'PUT', body });
+      if (res.ok) {
+        App.notify(cb.checked ? 'Автоотправка включена' : 'Автоотправка выключена', 'success');
+      } else {
+        App.notify('Ошибка сохранения', 'error');
       }
     } catch (e) {
       App.notify('Ошибка: ' + e.message, 'error');

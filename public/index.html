@@ -365,6 +365,23 @@
           <button class="btn btn-primary" onclick="Settings.save()">Сохранить</button>
         </div>
       </div>
+
+      <div class="card" style="margin-top:24px">
+        <div class="form-group">
+          <label>Автоотправка в 1С</label>
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="settings-auto-send">
+              <span class="toggle-slider"></span>
+            </label>
+            <span id="settings-auto-send-text">Выключена</span>
+          </div>
+          <div class="field-hint">Накладные будут автоматически отправляться в 1С сразу после распознавания (без ручного нажатия "Отправить")</div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" onclick="Settings.saveAutoSend()">Сохранить</button>
+        </div>
+      </div>
     </section>
   </main>
 

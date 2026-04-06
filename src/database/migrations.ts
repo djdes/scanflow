@@ -219,5 +219,15 @@ export function runMigrations(db: Database.Database): void {
     `);
   }
 
+  // === Migration v9: auto_send_1c flag in webhook_config ===
+  const hasAutoSend = db.prepare(
+    "SELECT COUNT(*) as cnt FROM pragma_table_info('webhook_config') WHERE name = 'auto_send_1c'"
+  ).get() as { cnt: number };
+
+  if (hasAutoSend.cnt === 0) {
+    logger.info('Migration v9: Adding auto_send_1c to webhook_config...');
+    db.exec(`ALTER TABLE webhook_config ADD COLUMN auto_send_1c INTEGER NOT NULL DEFAULT 0;`);
+  }
+
   logger.info('Database migrations completed');
 }
