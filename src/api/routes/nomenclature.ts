@@ -50,11 +50,11 @@ router.post('/sync', (req: Request, res: Response) => {
 router.delete('/', (_req: Request, res: Response) => {
   try {
     const deleted = onecNomenclatureRepo.clearAll();
-    // All GUIDs gone — all mappings with onec_guid are now orphaned
-    const orphaned = mappingRepo.removeOrphaned();
+    // Don't removeOrphaned here — catalog is temporarily empty,
+    // POST /sync will refill it and clean orphans after.
     if (mapper) mapper.invalidateCache();
-    logger.info('Nomenclature catalog cleared', { deleted, orphaned });
-    res.json({ data: { deleted, orphaned_removed: orphaned } });
+    logger.info('Nomenclature catalog cleared', { deleted });
+    res.json({ data: { deleted } });
   } catch (err) {
     logger.error('Nomenclature clear failed', { error: (err as Error).message });
     res.status(500).json({ error: 'Clear failed: ' + (err as Error).message });
