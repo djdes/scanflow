@@ -263,8 +263,13 @@
 
       <!-- 1C Catalog -->
       <div id="mappings-mode-catalog-pane" style="display:none">
-        <div class="filters">
-          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)">
+        <div class="filters" style="display:flex; gap:12px; align-items:center">
+          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)" style="flex:1">
+          <div class="field-hint" id="catalog-sync-info" style="white-space:nowrap"></div>
+        </div>
+        <div class="field-hint" style="margin-bottom:12px; color:var(--text-muted)">
+          Справочник обновляется автоматически при каждой загрузке накладных из 1С. Для ручного обновления: в 1С → Обработка → "Выгрузить номенклатуру".
+          <br>Товары с пометкой на удаление в 1С не выгружаются.
         </div>
         <div class="table-wrap">
           <table>

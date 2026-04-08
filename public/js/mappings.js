@@ -195,6 +195,12 @@ const Mappings = {
   renderCatalog(filterQuery = '') {
     const tbody = document.getElementById('catalog-tbody');
     if (!tbody) return;
+    // Show sync info
+    const syncEl = document.getElementById('catalog-sync-info');
+    if (syncEl) {
+      const ts = OnecCatalog.lastSyncedAt ? new Date(OnecCatalog.lastSyncedAt).toLocaleString('ru-RU') : '—';
+      syncEl.textContent = `${OnecCatalog.items.length} товаров · Обновлено: ${ts}`;
+    }
     let items = OnecCatalog.items || [];
     if (filterQuery) {
       const q = filterQuery.toLowerCase();
