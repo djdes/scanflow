@@ -14,12 +14,12 @@ export interface MappingResult {
 
 const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
   keys: ['name', 'full_name'],
-  threshold: 0.3, // Fuse score — best score must be ≤ 0.3, i.e. confidence ≥ 0.7
+  threshold: 0.5, // Fuse score — best score must be ≤ 0.5, i.e. confidence ≥ 0.5
   includeScore: true,
   minMatchCharLength: 3,
 };
 
-const MIN_FUZZY_CONFIDENCE = 0.7;
+const MIN_FUZZY_CONFIDENCE = 0.5;
 
 /**
  * Strip weight/volume/count suffixes and packaging info from scanned names.
@@ -29,10 +29,16 @@ const MIN_FUZZY_CONFIDENCE = 0.7;
  */
 function normalizeName(name: string): string {
   let s = name;
-  // Remove ALL content in parentheses: "(помидоры)", "(вес)", "(3кг)", "(основное)" etc.
+  // Remove ALL content in parentheses: "(помидоры)", "(вес)", "(3кг)" etc.
   s = s.replace(/\s*\([^)]*\)\s*/g, ' ');
-  // Remove standalone weight/volume/count patterns: "3кг", "0,4 кг", "1.5 л", "500г", "10шт", "50 мл"
-  s = s.replace(/\b\d+[.,]?\d*\s*(?:кг|г|гр|л|мл|шт|уп|упак|пач|бут)\.?\b/gi, '');
+  // Remove weight/volume/count anywhere: "5кг", "0,4 кг", "1.5л", "500г", "10шт", "360шт", "50мл"
+  s = s.replace(/\d+[.,]?\d*\s*(?:кг|г|гр|л|мл|шт|уп|упак|пач|бут)\.?/gi, '');
+  // Remove standalone numbers that look like weight: "5", "1.5", "0,4" (only if surrounded by spaces/edges)
+  s = s.replace(/(?:^|\s)\d+[.,]?\d*(?:\s|$)/g, ' ');
+  // Remove packaging/brand suffixes: "пэт", "в/у", "б/у", "вбу", "в вакууме"
+  s = s.replace(/\b(?:пэт|ПЭТ|в\/у|б\/у|вбу|б\/к|б\/г|в вакууме|с\/м|с\/к|с\/с|в\/к|в\/с)\b/gi, '');
+  // Remove trailing dashes with content: "- 5,3 кг"
+  s = s.replace(/\s*-\s*[\d.,]+\s*(?:кг|г|л|мл|шт)?\.?\s*/gi, '');
   // Clean up extra spaces
   s = s.replace(/\s{2,}/g, ' ').trim();
   return s;
