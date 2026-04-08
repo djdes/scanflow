@@ -225,10 +225,33 @@
         <button class="tab-btn" id="mappings-mode-catalog" onclick="Mappings.setMode('catalog')">Справочник 1С</button>
       </div>
 
+      <!-- Add mapping form (hidden by default) -->
+      <div id="add-mapping-form" style="display:none; margin-bottom:16px" class="card">
+        <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap">
+          <div class="form-group" style="flex:1; min-width:200px; margin:0">
+            <label>Название из накладной</label>
+            <input type="text" id="add-map-scanned" placeholder="Как пишут в накладной">
+          </div>
+          <div class="form-group" style="flex:1; min-width:200px; margin:0">
+            <label>Товар 1С</label>
+            <div class="nom-picker">
+              <input type="text" class="nom-picker-input" id="add-map-nom-input" placeholder="Начните вводить..."
+                     oninput="Mappings.onAddInput()" onfocus="Mappings.onAddInput()"
+                     onblur="setTimeout(() => { const dd=document.getElementById('add-map-dd'); if(dd) dd.style.display='none'; }, 150)">
+              <div class="nom-picker-dropdown" id="add-map-dd"></div>
+            </div>
+            <input type="hidden" id="add-map-guid">
+          </div>
+          <button class="btn btn-primary" onclick="Mappings.saveNew()" style="height:38px">Добавить</button>
+          <button class="btn btn-outline" onclick="Mappings.hideAddForm()" style="height:38px">Отмена</button>
+        </div>
+      </div>
+
       <!-- Grouped mappings -->
       <div id="mappings-mode-all-pane">
-        <div class="filters">
-          <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)">
+        <div class="filters" style="display:flex; gap:12px; align-items:center">
+          <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)" style="flex:1">
+          <button class="btn btn-primary btn-sm" onclick="Mappings.showAddForm()">+ Добавить</button>
         </div>
         <div class="table-wrap">
           <table>

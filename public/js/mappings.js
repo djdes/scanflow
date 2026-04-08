@@ -189,7 +189,68 @@ const Mappings = {
     }
   },
 
-  // --- Catalog tab (unchanged) ---
+  // --- Add mapping form ---
+  showAddForm() {
+    document.getElementById('add-mapping-form').style.display = 'block';
+    document.getElementById('add-map-scanned').value = '';
+    document.getElementById('add-map-nom-input').value = '';
+    document.getElementById('add-map-guid').value = '';
+    document.getElementById('add-map-scanned').focus();
+  },
+
+  hideAddForm() {
+    document.getElementById('add-mapping-form').style.display = 'none';
+  },
+
+  onAddInput() {
+    const input = document.getElementById('add-map-nom-input');
+    const dd = document.getElementById('add-map-dd');
+    if (!input || !dd) return;
+    const q = input.value.trim();
+    if (!q) { dd.style.display = 'none'; return; }
+    const results = OnecCatalog.search(q, 10);
+    if (results.length === 0) { dd.style.display = 'none'; return; }
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    dd.innerHTML = results.map(r => `
+      <div class="nom-picker-option" onmousedown="event.preventDefault(); Mappings.pickAdd('${esc(r.guid)}', '${esc(r.name)}')">
+        <strong>${esc(r.name)}</strong>
+        ${r.unit ? '<span class="nom-unit">' + esc(r.unit) + '</span>' : ''}
+      </div>
+    `).join('');
+    dd.style.display = 'block';
+  },
+
+  pickAdd(guid, name) {
+    document.getElementById('add-map-nom-input').value = name;
+    document.getElementById('add-map-guid').value = guid;
+    document.getElementById('add-map-dd').style.display = 'none';
+  },
+
+  async saveNew() {
+    const scanned = document.getElementById('add-map-scanned').value.trim();
+    const name = document.getElementById('add-map-nom-input').value.trim();
+    const guid = document.getElementById('add-map-guid').value;
+    if (!scanned) { App.notify('Введите название из накладной', 'error'); return; }
+    if (!name || !guid) { App.notify('Выберите товар 1С', 'error'); return; }
+    try {
+      const res = await App.api('/mappings', {
+        method: 'POST',
+        body: { scanned_name: scanned, mapped_name_1c: name, onec_guid: guid },
+      });
+      if (res.ok) {
+        App.notify('Сопоставление добавлено', 'success');
+        this.hideAddForm();
+        this.loadGrouped();
+      } else {
+        const data = await res.json();
+        App.notify(data.error || 'Ошибка', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  // --- Catalog tab ---
   filterCatalog(query) { this.renderCatalog(query); },
 
   renderCatalog(filterQuery = '') {
