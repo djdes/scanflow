@@ -29,11 +29,10 @@ const MIN_FUZZY_CONFIDENCE = 0.7;
  */
 function normalizeName(name: string): string {
   let s = name;
-  // Remove content in parentheses: "(3кг)", "(вес)", "(1л)" etc.
+  // Remove ALL content in parentheses: "(помидоры)", "(вес)", "(3кг)", "(основное)" etc.
   s = s.replace(/\s*\([^)]*\)\s*/g, ' ');
   // Remove standalone weight/volume/count patterns: "3кг", "0,4 кг", "1.5 л", "500г", "10шт", "50 мл"
   s = s.replace(/\b\d+[.,]?\d*\s*(?:кг|г|гр|л|мл|шт|уп|упак|пач|бут)\.?\b/gi, '');
-  // Remove trailing "в/у", "б/к", "зам.", "охл.", "свежемор." etc. — keep as is, they're descriptive
   // Clean up extra spaces
   s = s.replace(/\s{2,}/g, ' ').trim();
   return s;
