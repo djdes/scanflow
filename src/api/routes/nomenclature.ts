@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repositories/onecNomenclatureRepo';
-import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 
@@ -70,11 +69,5 @@ router.get('/stats', (_req: Request, res: Response) => {
   res.json({ data: onecNomenclatureRepo.stats() });
 });
 
-// GET /api/nomenclature/suppliers — aggregated list of suppliers across mappings
-router.get('/suppliers', (_req: Request, res: Response) => {
-  const suppliers = mappingRepo.getSupplierList();
-  const unmapped = mappingRepo.getUnmappedCount();
-  res.json({ data: { suppliers, unmapped_count: unmapped } });
-});
 
 export default router;

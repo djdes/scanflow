@@ -217,30 +217,27 @@
           <h2>Номенклатурные соответствия</h2>
           <div id="mappings-catalog-status" class="section-subtitle">Загрузка...</div>
         </div>
-        <button class="btn btn-primary" onclick="Mappings.showAddForm()">+ Добавить</button>
       </div>
 
       <div class="tabs" style="margin-bottom:16px">
-        <button class="tab-btn active" id="mappings-mode-all" onclick="Mappings.setMode('all')">Все маппинги</button>
-        <button class="tab-btn" id="mappings-mode-by-supplier" onclick="Mappings.setMode('by-supplier')">По поставщикам</button>
+        <button class="tab-btn active" id="mappings-mode-all" onclick="Mappings.setMode('all')">Соответствия</button>
+        <button class="tab-btn" id="mappings-mode-unmapped" onclick="Mappings.setMode('unmapped')">Не сопоставлено</button>
         <button class="tab-btn" id="mappings-mode-catalog" onclick="Mappings.setMode('catalog')">Справочник 1С</button>
       </div>
 
+      <!-- Grouped mappings -->
       <div id="mappings-mode-all-pane">
         <div class="filters">
-          <input type="text" id="mappings-search" placeholder="Поиск..." oninput="Mappings.filter(this.value)">
+          <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)">
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Скан имя</th>
-                <th>1С товар</th>
-                <th>GUID</th>
-                <th>Посл. поставщик</th>
-                <th>× раз</th>
-                <th></th>
+                <th style="width:30%">Товар 1С</th>
+                <th>Варианты из накладных</th>
+                <th style="width:80px;text-align:right">Всего</th>
+                <th style="width:40px"></th>
               </tr>
             </thead>
             <tbody id="mappings-tbody"></tbody>
@@ -248,33 +245,23 @@
         </div>
       </div>
 
-      <div id="mappings-mode-by-supplier-pane" style="display:none">
-        <div class="supplier-layout">
-          <aside class="supplier-sidebar">
-            <div class="supplier-sidebar-header">Поставщики</div>
-            <div id="supplier-list"></div>
-          </aside>
-          <div class="supplier-content">
-            <div id="supplier-header" class="supplier-content-header">Выберите поставщика слева</div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Скан имя</th>
-                    <th>1С товар</th>
-                    <th>GUID</th>
-                    <th>× раз</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="supplier-mappings-tbody"></tbody>
-              </table>
-            </div>
-          </div>
+      <!-- Unmapped items -->
+      <div id="mappings-mode-unmapped-pane" style="display:none">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Название из накладной</th>
+                <th>Сопоставить с 1С</th>
+                <th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody id="unmapped-tbody"></tbody>
+          </table>
         </div>
       </div>
 
+      <!-- 1C Catalog -->
       <div id="mappings-mode-catalog-pane" style="display:none">
         <div class="filters">
           <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)">

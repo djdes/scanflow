@@ -117,6 +117,32 @@ export class NomenclatureMapper {
       const best = results[0];
       const confidence = 1 - (best.score as number);
       if (confidence >= MIN_FUZZY_CONFIDENCE) {
+        // Auto-save as learned mapping for future exact match
+        try {
+          const existing = mappingRepo.getByScannedName(scannedName);
+          if (!existing) {
+            mappingRepo.create({
+              scanned_name: scannedName,
+              mapped_name_1c: best.item.name,
+              onec_guid: best.item.guid,
+            });
+          }
+          // Also save cleaned name variant if different
+          if (cleanName !== scannedName) {
+            const existingClean = mappingRepo.getByScannedName(cleanName);
+            if (!existingClean) {
+              mappingRepo.create({
+                scanned_name: cleanName,
+                mapped_name_1c: best.item.name,
+                onec_guid: best.item.guid,
+              });
+            }
+          }
+        } catch (e) {
+          // Don't fail mapping if auto-save fails
+          logger.warn('Auto-save mapping failed', { scannedName, error: (e as Error).message });
+        }
+
         return {
           original_name: scannedName,
           mapped_name: best.item.name,

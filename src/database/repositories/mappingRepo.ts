@@ -89,85 +89,32 @@ export const mappingRepo = {
     return this.create(data);
   },
 
-  /**
-   * Record that this mapping was used for an invoice from `supplier`.
-   * Increments the mapping's times_seen, updates last_seen_supplier/at,
-   * and upserts a row in mapping_supplier_usage.
-   *
-   * Called on every successful NomenclatureMapper.map() during invoice
-   * processing, and on every explicit user mapping via the dashboard.
-   *
-   * Both writes are wrapped in a transaction so that a failure in the
-   * supplier_usage upsert cannot leave the per-mapping counter advanced
-   * without a corresponding per-supplier row.
-   */
-  recordUsage(mappingId: number, supplier: string | null | undefined): void {
+  getAllGrouped(): Array<{ onec_guid: string; mapped_name: string; variants: NomenclatureMapping[] }> {
     const db = getDb();
-    db.transaction(() => {
-      db.prepare(`
-        UPDATE nomenclature_mappings
-        SET times_seen = times_seen + 1,
-            last_seen_supplier = COALESCE(?, last_seen_supplier),
-            last_seen_at = datetime('now')
-        WHERE id = ?
-      `).run(supplier ?? null, mappingId);
+    const all = db.prepare(
+      `SELECT * FROM nomenclature_mappings
+       WHERE onec_guid IS NOT NULL AND onec_guid != ''
+       ORDER BY mapped_name_1c, scanned_name`
+    ).all() as NomenclatureMapping[];
 
-      if (supplier) {
-        db.prepare(`
-          INSERT INTO mapping_supplier_usage (mapping_id, supplier, first_seen_at, last_seen_at, times_seen)
-          VALUES (?, ?, datetime('now'), datetime('now'), 1)
-          ON CONFLICT(mapping_id, supplier) DO UPDATE SET
-            last_seen_at = datetime('now'),
-            times_seen = times_seen + 1
-        `).run(mappingId, supplier);
+    const groups = new Map<string, { onec_guid: string; mapped_name: string; variants: NomenclatureMapping[] }>();
+    for (const m of all) {
+      const key = m.onec_guid || m.mapped_name_1c;
+      if (!groups.has(key)) {
+        groups.set(key, { onec_guid: m.onec_guid || '', mapped_name: m.mapped_name_1c, variants: [] });
       }
-    })();
+      groups.get(key)!.variants.push(m);
+    }
+    return Array.from(groups.values());
   },
 
-  /**
-   * List mappings with optional filters:
-   *   - supplier: only mappings linked to this supplier in mapping_supplier_usage
-   *   - unmapped: only mappings where onec_guid IS NULL
-   * Sorted by last_seen_at DESC (most-recently-seen first), falling back to mapped_name_1c.
-   */
-  getAllFiltered(opts: { supplier?: string; unmapped?: boolean } = {}): NomenclatureMapping[] {
+  getUnmapped(): NomenclatureMapping[] {
     const db = getDb();
-    const clauses: string[] = [];
-    const params: unknown[] = [];
-    let join = '';
-
-    if (opts.supplier) {
-      join = 'JOIN mapping_supplier_usage u ON u.mapping_id = m.id';
-      clauses.push('u.supplier = ?');
-      params.push(opts.supplier);
-    }
-    if (opts.unmapped) {
-      clauses.push("(m.onec_guid IS NULL OR m.onec_guid = '')");
-    }
-    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-
     return db.prepare(
-      `SELECT m.* FROM nomenclature_mappings m ${join} ${where}
-       ORDER BY COALESCE(m.last_seen_at, '') DESC, m.mapped_name_1c COLLATE NOCASE`
-    ).all(...params) as NomenclatureMapping[];
-  },
-
-  getSupplierList(): Array<{ supplier: string; mappings_count: number }> {
-    const db = getDb();
-    return db.prepare(`
-      SELECT supplier, COUNT(DISTINCT mapping_id) as mappings_count
-      FROM mapping_supplier_usage
-      GROUP BY supplier
-      ORDER BY mappings_count DESC, supplier
-    `).all() as Array<{ supplier: string; mappings_count: number }>;
-  },
-
-  getUnmappedCount(): number {
-    const db = getDb();
-    const row = db.prepare(
-      `SELECT COUNT(*) as c FROM nomenclature_mappings WHERE onec_guid IS NULL OR onec_guid = ''`
-    ).get() as { c: number };
-    return row.c;
+      `SELECT * FROM nomenclature_mappings
+       WHERE onec_guid IS NULL OR onec_guid = ''
+       ORDER BY scanned_name`
+    ).all() as NomenclatureMapping[];
   },
 
   importBulk(items: CreateMappingData[]): number {

@@ -9,17 +9,11 @@ export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
 }
 
-// GET /api/mappings — list mappings.
-// Query params:
-//   supplier: filter by supplier name (via mapping_supplier_usage)
-//   unmapped: "true" to only return mappings with no onec_guid
-router.get('/', (req: Request, res: Response) => {
-  const supplier = req.query.supplier as string | undefined;
-  const unmapped = req.query.unmapped === 'true';
-  const mappings = (supplier || unmapped)
-    ? mappingRepo.getAllFiltered({ supplier, unmapped })
-    : mappingRepo.getAll();
-  res.json({ data: mappings, count: mappings.length });
+// GET /api/mappings — grouped by 1C item
+router.get('/', (_req: Request, res: Response) => {
+  const grouped = mappingRepo.getAllGrouped();
+  const unmapped = mappingRepo.getUnmapped();
+  res.json({ data: { grouped, unmapped } });
 });
 
 // POST /api/mappings — create mapping

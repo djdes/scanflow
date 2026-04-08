@@ -474,7 +474,6 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
         mapped_name_1c: resolvedName as string,
         onec_guid,
       });
-      mappingRepo.recordUsage(mapping.id, invoice.supplier ?? null);
     }
   })();
 

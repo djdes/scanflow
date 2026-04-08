@@ -7,7 +7,6 @@ import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
-import { mappingRepo } from '../database/repositories/mappingRepo';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 
@@ -265,9 +264,6 @@ export class FileWatcher {
                   mapping_confidence: mapping.confidence,
                   onec_guid: mapping.onec_guid,
                 });
-                if (mapping.mapping_id !== null) {
-                  mappingRepo.recordUsage(mapping.mapping_id, unifiedParsed.supplier ?? null);
-                }
               }
 
               invoiceRepo.recalculateTotal(targetInvoiceId);
@@ -331,9 +327,6 @@ export class FileWatcher {
           mapping_confidence: mapping.confidence,
           onec_guid: mapping.onec_guid,
         });
-        if (mapping.mapping_id !== null) {
-          mappingRepo.recordUsage(mapping.mapping_id, parsed.supplier ?? null);
-        }
       }
 
       // 6. If merged, recalculate total and delete the temporary invoice record
