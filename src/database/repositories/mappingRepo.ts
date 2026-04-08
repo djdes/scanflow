@@ -141,4 +141,18 @@ export const mappingRepo = {
 
     return transaction(items);
   },
+
+  /**
+   * Удалить маппинги, чей onec_guid больше не существует в onec_nomenclature.
+   * Вызывается после пересинхронизации справочника.
+   */
+  removeOrphaned(): number {
+    const db = getDb();
+    const result = db.prepare(
+      `DELETE FROM nomenclature_mappings
+       WHERE onec_guid IS NOT NULL AND onec_guid != ''
+       AND onec_guid NOT IN (SELECT guid FROM onec_nomenclature)`
+    ).run();
+    return result.changes;
+  },
 };

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repositories/onecNomenclatureRepo';
+import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 
@@ -27,12 +28,16 @@ router.post('/sync', (req: Request, res: Response) => {
   }
   try {
     const upserted = onecNomenclatureRepo.bulkUpsert(items);
+    // Clean up mappings that point to deleted 1C items
+    const orphaned = mappingRepo.removeOrphaned();
+    if (orphaned > 0) {
+      logger.info('Removed orphaned mappings after sync', { orphaned });
+    }
     // CRITICAL: invalidate the Fuse index used by NomenclatureMapper so the
-    // next map() call rebuilds from fresh onec_nomenclature rows. Without this,
-    // mapper.map() silently uses stale data until the server restarts.
+    // next map() call rebuilds from fresh onec_nomenclature rows.
     if (mapper) mapper.invalidateCache();
     logger.info('Nomenclature sync completed', { upserted });
-    res.json({ data: { upserted, total: items.length } });
+    res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });
   } catch (err) {
     logger.error('Nomenclature sync failed', { error: (err as Error).message });
     res.status(500).json({ error: 'Sync failed: ' + (err as Error).message });
@@ -45,9 +50,11 @@ router.post('/sync', (req: Request, res: Response) => {
 router.delete('/', (_req: Request, res: Response) => {
   try {
     const deleted = onecNomenclatureRepo.clearAll();
+    // All GUIDs gone — all mappings with onec_guid are now orphaned
+    const orphaned = mappingRepo.removeOrphaned();
     if (mapper) mapper.invalidateCache();
-    logger.info('Nomenclature catalog cleared', { deleted });
-    res.json({ data: { deleted } });
+    logger.info('Nomenclature catalog cleared', { deleted, orphaned });
+    res.json({ data: { deleted, orphaned_removed: orphaned } });
   } catch (err) {
     logger.error('Nomenclature clear failed', { error: (err as Error).message });
     res.status(500).json({ error: 'Clear failed: ' + (err as Error).message });
