@@ -411,10 +411,15 @@ export const invoiceRepo = {
   /**
    * Удалить накладную и все её товары.
    */
-  delete(id: number): void {
+  delete(id: number): { file_name: string | null } {
     const db = getDb();
-    db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(id);
-    db.prepare('DELETE FROM invoices WHERE id = ?').run(id);
+    const invoice = this.getById(id);
+    const fileName = invoice?.file_name ?? null;
+    db.transaction(() => {
+      db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(id);
+      db.prepare('DELETE FROM invoices WHERE id = ?').run(id);
+    })();
+    return { file_name: fileName };
   },
 
   /**

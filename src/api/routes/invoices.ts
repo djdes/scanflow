@@ -209,7 +209,7 @@ router.post('/:id/unapprove', (req: Request, res: Response) => {
   res.json({ data: { id, approved_for_1c: false } });
 });
 
-// DELETE /api/invoices/:id — delete invoice and its items
+// DELETE /api/invoices/:id — delete invoice, its items, and associated files
 router.delete('/:id', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = invoiceRepo.getById(id);
@@ -219,8 +219,66 @@ router.delete('/:id', (req: Request, res: Response) => {
     return;
   }
 
-  invoiceRepo.delete(id);
-  res.json({ data: { id, deleted: true } });
+  try {
+    const { file_name } = invoiceRepo.delete(id);
+
+    // Delete associated photo files from processed/failed dirs
+    if (file_name) {
+      const fs = require('fs');
+      const path = require('path');
+      const { config } = require('../../config');
+      const fileNames = file_name.split(',').map((f: string) => f.trim());
+      for (const fn of fileNames) {
+        for (const dir of [config.processedDir, config.failedDir, config.inboxDir]) {
+          try {
+            const fp = path.join(dir, fn);
+            if (fs.existsSync(fp)) fs.unlinkSync(fp);
+          } catch { /* ignore */ }
+        }
+      }
+    }
+
+    res.json({ data: { id, deleted: true } });
+  } catch (err) {
+    logger.error('Failed to delete invoice', { id, error: (err as Error).message });
+    res.status(500).json({ error: 'Ошибка удаления накладной' });
+  }
+});
+
+// POST /api/invoices/delete-batch — delete multiple invoices
+router.post('/delete-batch', (req: Request, res: Response) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: 'ids array required' });
+    return;
+  }
+
+  const fs = require('fs');
+  const path = require('path');
+  const { config } = require('../../config');
+  let deleted = 0;
+
+  for (const id of ids) {
+    try {
+      const { file_name } = invoiceRepo.delete(id);
+      if (file_name) {
+        const fileNames = file_name.split(',').map((f: string) => f.trim());
+        for (const fn of fileNames) {
+          for (const dir of [config.processedDir, config.failedDir, config.inboxDir]) {
+            try {
+              const fp = path.join(dir, fn);
+              if (fs.existsSync(fp)) fs.unlinkSync(fp);
+            } catch { /* ignore */ }
+          }
+        }
+      }
+      deleted++;
+    } catch (err) {
+      logger.error('Failed to delete invoice in batch', { id, error: (err as Error).message });
+    }
+  }
+
+  res.json({ data: { deleted, total: ids.length } });
 });
 
 // POST /api/invoices/canonicalize-suppliers — retroactively rewrite supplier
