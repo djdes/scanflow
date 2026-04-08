@@ -120,8 +120,8 @@ export const mappingRepo = {
   importBulk(items: CreateMappingData[]): number {
     const db = getDb();
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved)
-      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved)
+      INSERT OR REPLACE INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid)
+      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved, @onec_guid)
     `);
 
     const transaction = db.transaction((items: CreateMappingData[]) => {
@@ -133,6 +133,7 @@ export const mappingRepo = {
           category: item.category ?? null,
           default_unit: item.default_unit ?? null,
           approved: item.approved ? 1 : 0,
+          onec_guid: item.onec_guid ?? null,
         });
         count++;
       }
