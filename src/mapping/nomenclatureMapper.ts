@@ -14,12 +14,12 @@ export interface MappingResult {
 
 const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
   keys: ['name', 'full_name'],
-  threshold: 0.5, // Fuse score — best score must be ≤ 0.5, i.e. confidence ≥ 0.5
+  threshold: 0.4, // Fuse score — best score must be ≤ 0.4, i.e. confidence ≥ 0.6
   includeScore: true,
   minMatchCharLength: 3,
 };
 
-const MIN_FUZZY_CONFIDENCE = 0.5;
+const MIN_FUZZY_CONFIDENCE = 0.6;
 
 /**
  * Strip weight/volume/count suffixes and packaging info from scanned names.
