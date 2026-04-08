@@ -7,6 +7,8 @@ const Settings = {
     try {
       const { data } = await App.apiJson('/settings/analyzer');
       if (data) {
+        const modeRadio = document.querySelector(`input[name="analyzer-mode"][value="${data.mode}"]`);
+        if (modeRadio) modeRadio.checked = true;
         if (data.has_api_key) {
           document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
           document.getElementById('api-key-status').style.color = 'var(--green)';
@@ -38,8 +40,9 @@ const Settings = {
   },
 
   async save() {
+    const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value || 'claude_api';
     const claudeModel = document.getElementById('settings-claude-model').value;
-    const body = { mode: 'claude_api', claude_model: claudeModel };
+    const body = { mode, claude_model: claudeModel };
     const apiKeyInput = document.getElementById('settings-api-key');
     if (apiKeyInput.value.trim()) {
       body.anthropic_api_key = apiKeyInput.value.trim();

@@ -352,6 +352,25 @@
         <p class="section-subtitle">Выберите режим распознавания накладных</p>
       </div>
       <div class="card">
+        <div class="form-group">
+          <label>Режим распознавания</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="analyzer-mode" value="hybrid">
+              <div>
+                <strong>Google Vision + Claude API</strong>
+                <div class="radio-desc">Google Vision извлекает текст, Claude структурирует. Лучше для сложных/мелких накладных.</div>
+              </div>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="analyzer-mode" value="claude_api" checked>
+              <div>
+                <strong>Только Claude API</strong>
+                <div class="radio-desc">Claude сам читает фото и извлекает данные. Быстрее, один запрос.</div>
+              </div>
+            </label>
+          </div>
+        </div>
         <div class="form-group" id="api-key-group">
           <label>API-ключ Anthropic</label>
           <input type="password" id="settings-api-key" placeholder="sk-ant-api03-...">
