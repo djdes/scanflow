@@ -362,27 +362,53 @@ const Invoices = {
     }
   },
 
-  async deleteInvoice(id, event) {
+  deleteInvoice(id, event) {
     if (event) {
       event.stopPropagation();
       event.preventDefault();
     }
-    if (!confirm(`Удалить накладную #${id}? Это действие нельзя отменить.`)) {
-      return;
-    }
-    try {
-      const res = await App.api(`/invoices/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        App.notify('Накладная удалена', 'success');
-        App.navigate('#/invoices');
-        this.showList();
-      } else {
-        const data = await res.json();
-        App.notify(data.error || 'Ошибка удаления', 'error');
+    this.showConfirm(
+      'Удалить накладную?',
+      `Накладная #${id} будет удалена вместе с фото. Это действие нельзя отменить.`,
+      async () => {
+        try {
+          const res = await App.api(`/invoices/${id}`, { method: 'DELETE' });
+          if (res.ok) {
+            App.notify('Накладная удалена', 'success');
+            App.navigate('#/invoices');
+            this.showList();
+          } else {
+            const data = await res.json();
+            App.notify(data.error || 'Ошибка удаления', 'error');
+          }
+        } catch (e) {
+          App.notify('Ошибка удаления: ' + e.message, 'error');
+        }
       }
-    } catch (e) {
-      App.notify('Ошибка удаления: ' + e.message, 'error');
-    }
+    );
+  },
+
+  showConfirm(title, text, onOk) {
+    const modal = document.getElementById('confirm-modal');
+    document.getElementById('confirm-modal-title').textContent = title;
+    document.getElementById('confirm-modal-text').textContent = text;
+    modal.style.display = 'flex';
+
+    const okBtn = document.getElementById('confirm-modal-ok');
+    const cancelBtn = document.getElementById('confirm-modal-cancel');
+
+    const close = () => {
+      modal.style.display = 'none';
+      okBtn.replaceWith(okBtn.cloneNode(true));
+      cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+    };
+
+    document.getElementById('confirm-modal-cancel').addEventListener('click', close);
+    document.getElementById('confirm-modal-ok').addEventListener('click', () => {
+      close();
+      onOk();
+    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); }, { once: true });
   },
 
   onNomInput(event) {
