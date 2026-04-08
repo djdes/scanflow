@@ -94,6 +94,20 @@ const Mappings = {
             <td><button class="btn-icon-danger" title="Удалить вариант" onclick="Mappings.removeVariant(${v.id}, event)">&#10005;</button></td>
           </tr>
         `).join('');
+        // Add inline "add variant" row
+        expandedRows += `
+          <tr class="mapping-expanded-row">
+            <td></td>
+            <td colspan="2">
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="add-variant-${esc(g.onec_guid)}" placeholder="Новый вариант..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px"
+                       onclick="event.stopPropagation()"
+                       onkeydown="if(event.key==='Enter'){event.stopPropagation();Mappings.addVariant('${esc(g.onec_guid)}','${esc(g.mapped_name)}')}">
+                <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();Mappings.addVariant('${esc(g.onec_guid)}','${esc(g.mapped_name)}')">+</button>
+              </div>
+            </td>
+            <td></td>
+          </tr>`;
       }
 
       return `
@@ -111,6 +125,28 @@ const Mappings = {
   toggleExpand(guid) {
     this.expandedGuid = this.expandedGuid === guid ? null : guid;
     this.renderGrouped(document.getElementById('mappings-search')?.value || '');
+  },
+
+  async addVariant(guid, mappedName) {
+    const input = document.getElementById('add-variant-' + guid);
+    if (!input) return;
+    const scanned = input.value.trim();
+    if (!scanned) { App.notify('Введите название', 'error'); return; }
+    try {
+      const res = await App.api('/mappings', {
+        method: 'POST',
+        body: { scanned_name: scanned, mapped_name_1c: mappedName, onec_guid: guid },
+      });
+      if (res.ok) {
+        App.notify('Вариант добавлен', 'success');
+        this.loadGrouped();
+      } else {
+        const data = await res.json();
+        App.notify(data.error || 'Ошибка', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
   },
 
   async removeVariant(id, event) {
