@@ -337,26 +337,7 @@
         <p class="section-subtitle">Выберите режим распознавания накладных</p>
       </div>
       <div class="card">
-        <div class="form-group">
-          <label>Режим распознавания</label>
-          <div class="radio-group">
-            <label class="radio-label">
-              <input type="radio" name="analyzer-mode" value="hybrid" checked>
-              <div>
-                <strong>Google Vision + Claude CLI</strong>
-                <div class="radio-desc">Бесплатно (MAX подписка). Google Vision для OCR, Claude CLI для структуризации текста.</div>
-              </div>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="analyzer-mode" value="claude_api">
-              <div>
-                <strong>Claude API (Anthropic)</strong>
-                <div class="radio-desc">Платно (~$0.01/накладная). Изображение отправляется напрямую в Claude API. Понимает таблицы без Google Vision.</div>
-              </div>
-            </label>
-          </div>
-        </div>
-        <div class="form-group" id="api-key-group" style="display:none">
+        <div class="form-group" id="api-key-group">
           <label>API-ключ Anthropic</label>
           <input type="password" id="settings-api-key" placeholder="sk-ant-api03-...">
           <div id="api-key-status" class="field-hint"></div>

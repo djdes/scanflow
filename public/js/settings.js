@@ -7,9 +7,6 @@ const Settings = {
     try {
       const { data } = await App.apiJson('/settings/analyzer');
       if (data) {
-        const modeRadio = document.querySelector(`input[name="analyzer-mode"][value="${data.mode}"]`);
-        if (modeRadio) modeRadio.checked = true;
-        this.toggleApiKeyField(data.mode);
         if (data.has_api_key) {
           document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
           document.getElementById('api-key-status').style.color = 'var(--green)';
@@ -38,33 +35,21 @@ const Settings = {
     } catch (e) {
       console.error('Failed to load auto-send setting', e);
     }
-
-    document.querySelectorAll('input[name="analyzer-mode"]').forEach(radio => {
-      radio.addEventListener('change', () => this.toggleApiKeyField(radio.value));
-    });
-  },
-
-  toggleApiKeyField(mode) {
-    const apiKeyGroup = document.getElementById('api-key-group');
-    apiKeyGroup.style.display = mode === 'claude_api' ? 'block' : 'none';
   },
 
   async save() {
-    const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value;
-    if (!mode) return;
-
     const claudeModel = document.getElementById('settings-claude-model').value;
-    const body = { mode, claude_model: claudeModel };
+    const body = { mode: 'claude_api', claude_model: claudeModel };
     const apiKeyInput = document.getElementById('settings-api-key');
-    if (mode === 'claude_api' && apiKeyInput.value.trim()) {
+    if (apiKeyInput.value.trim()) {
       body.anthropic_api_key = apiKeyInput.value.trim();
     }
 
     try {
       const res = await App.api('/settings/analyzer', { method: 'PUT', body });
       if (res.ok) {
-        App.notify('Настройки анализатора сохранены', 'success');
-        document.getElementById('api-key-status').textContent = mode === 'claude_api' ? 'API-ключ сохранён' : '';
+        App.notify('Настройки сохранены', 'success');
+        document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
         apiKeyInput.value = '';
       } else {
         const data = await res.json();
@@ -78,7 +63,6 @@ const Settings = {
   async saveAutoSend() {
     const cb = document.getElementById('settings-auto-send');
     try {
-      // Read current webhook config, update only auto_send_1c
       const { data: current } = await App.apiJson('/webhook/config');
       const body = {
         url: current?.url || '',
