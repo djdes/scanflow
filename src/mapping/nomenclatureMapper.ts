@@ -19,7 +19,14 @@ const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
   minMatchCharLength: 3,
 };
 
+// Minimum confidence to return a fuzzy match at all (user sees it)
 const MIN_FUZZY_CONFIDENCE = 0.6;
+
+// Minimum confidence to AUTO-SAVE a fuzzy match as a learned mapping.
+// Higher than MIN_FUZZY_CONFIDENCE so questionable matches don't pollute
+// learned mappings (they would become "exact" 1.0-confidence lookups next time).
+// Matches between 0.6 and 0.8 are shown but NOT saved — user can approve manually.
+const AUTO_SAVE_CONFIDENCE = 0.8;
 
 /**
  * Strip weight/volume/count suffixes and packaging info from scanned names.
@@ -122,30 +129,33 @@ export class NomenclatureMapper {
       const best = results[0];
       const confidence = 1 - (best.score as number);
       if (confidence >= MIN_FUZZY_CONFIDENCE) {
-        // Auto-save as learned mapping for future exact match
-        try {
-          const existing = mappingRepo.getByScannedName(scannedName);
-          if (!existing) {
-            mappingRepo.create({
-              scanned_name: scannedName,
-              mapped_name_1c: best.item.name,
-              onec_guid: best.item.guid,
-            });
-          }
-          // Also save cleaned name variant if different
-          if (cleanName !== scannedName) {
-            const existingClean = mappingRepo.getByScannedName(cleanName);
-            if (!existingClean) {
+        // Auto-save ONLY if confidence is high enough to avoid polluting
+        // learned mappings. Matches in [0.6, 0.8) are returned to the user
+        // but not persisted — they need manual confirmation.
+        if (confidence >= AUTO_SAVE_CONFIDENCE) {
+          try {
+            const existing = mappingRepo.getByScannedName(scannedName);
+            if (!existing) {
               mappingRepo.create({
-                scanned_name: cleanName,
+                scanned_name: scannedName,
                 mapped_name_1c: best.item.name,
                 onec_guid: best.item.guid,
               });
             }
+            // Also save cleaned name variant if different
+            if (cleanName !== scannedName) {
+              const existingClean = mappingRepo.getByScannedName(cleanName);
+              if (!existingClean) {
+                mappingRepo.create({
+                  scanned_name: cleanName,
+                  mapped_name_1c: best.item.name,
+                  onec_guid: best.item.guid,
+                });
+              }
+            }
+          } catch (e) {
+            logger.warn('Auto-save mapping failed', { scannedName, error: (e as Error).message });
           }
-        } catch (e) {
-          // Don't fail mapping if auto-save fails
-          logger.warn('Auto-save mapping failed', { scannedName, error: (e as Error).message });
         }
 
         return {

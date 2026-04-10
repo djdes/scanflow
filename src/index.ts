@@ -1,3 +1,4 @@
+import cron from 'node-cron';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { getDb, closeDb } from './database/db';
@@ -5,6 +6,7 @@ import { OcrManager } from './ocr/ocrManager';
 import { NomenclatureMapper } from './mapping/nomenclatureMapper';
 import { FileWatcher } from './watcher/fileWatcher';
 import { startServer } from './api/server';
+import { backupDatabase } from './utils/backup';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -40,6 +42,17 @@ async function main(): Promise<void> {
 
   // Start REST API server
   startServer(fileWatcher, mapper);
+
+  // Schedule daily database backup at 03:00 server time
+  cron.schedule('0 3 * * *', () => {
+    logger.info('Running scheduled database backup...');
+    backupDatabase();
+  });
+  logger.info('Daily database backup scheduled at 03:00');
+
+  // Run one backup immediately on startup — captures current state
+  // before any crash or issues happen in this session.
+  backupDatabase();
 
   logger.info('=== 1C-JPGExchange is running ===');
 }

@@ -248,5 +248,18 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`UPDATE analyzer_config SET claude_model = 'claude-sonnet-4-6' WHERE claude_model LIKE '%20250627%';`);
   }
 
+  // === Migration v12: file_hash column on invoices (duplicate detection) ===
+  const hasFileHash = db.prepare(
+    "SELECT COUNT(*) as cnt FROM pragma_table_info('invoices') WHERE name = 'file_hash'"
+  ).get() as { cnt: number };
+
+  if (hasFileHash.cnt === 0) {
+    logger.info('Migration v12: Adding file_hash to invoices...');
+    db.exec(`
+      ALTER TABLE invoices ADD COLUMN file_hash TEXT;
+      CREATE INDEX IF NOT EXISTS idx_invoices_file_hash ON invoices(file_hash);
+    `);
+  }
+
   logger.info('Database migrations completed');
 }

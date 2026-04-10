@@ -1,7 +1,18 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../../database/db';
+import { backupDatabase } from '../../utils/backup';
 
 const router = Router();
+
+// POST /api/debug/backup — trigger manual database backup
+router.post('/backup', (_req: Request, res: Response) => {
+  const backupPath = backupDatabase();
+  if (backupPath) {
+    res.json({ success: true, path: backupPath });
+  } else {
+    res.status(500).json({ success: false, error: 'Backup failed, check server logs' });
+  }
+});
 
 // GET /api/debug/requests-log?limit=50&path_like=%invoices%
 // Returns recent API request log entries (most recent first).

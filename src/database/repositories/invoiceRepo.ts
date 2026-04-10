@@ -28,6 +28,7 @@ export interface Invoice {
   sent_at: string | null;
   approved_for_1c: number;
   approved_at: string | null;
+  file_hash: string | null;
 }
 
 export interface InvoiceItem {
@@ -252,6 +253,30 @@ export const invoiceRepo = {
        AND created_at > datetime('now', '-${withinMinutes} minutes')
        ORDER BY created_at DESC LIMIT 1`
     ).get(fileName, `%${fileName}%`) as Invoice | undefined;
+  },
+
+  /**
+   * Найти накладную по SHA-256 хешу содержимого файла.
+   * Используется для защиты от дублирующих загрузок одного и того же фото
+   * (даже если оно переименовано).
+   */
+  findByFileHash(fileHash: string): Invoice | undefined {
+    const db = getDb();
+    return db.prepare(
+      `SELECT * FROM invoices
+       WHERE file_hash = ?
+       AND status != 'error'
+       ORDER BY created_at DESC
+       LIMIT 1`
+    ).get(fileHash) as Invoice | undefined;
+  },
+
+  /**
+   * Сохранить SHA-256 хеш файла в накладную.
+   */
+  setFileHash(id: number, fileHash: string): void {
+    const db = getDb();
+    db.prepare('UPDATE invoices SET file_hash = ? WHERE id = ?').run(fileHash, id);
   },
 
   /**

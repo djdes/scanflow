@@ -9,6 +9,7 @@ import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
+import { sha256File } from '../utils/fileHash';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -103,11 +104,46 @@ export class FileWatcher {
   }
 
   async processFile(filePath: string, fileName: string, forceEngine?: string): Promise<number> {
+    // 0. Content-based deduplication via SHA-256.
+    // Catches the case where the same photo is uploaded twice
+    // (same content, possibly different name). Protects against
+    // double-processing during network retries or accidental re-uploads.
+    let fileHash: string | null = null;
+    try {
+      fileHash = sha256File(filePath);
+      const duplicate = invoiceRepo.findByFileHash(fileHash);
+      if (duplicate) {
+        logger.info('Duplicate file detected by hash, returning existing invoice', {
+          filePath,
+          hash: fileHash.substring(0, 12),
+          existingInvoiceId: duplicate.id,
+        });
+        // Clean up the duplicate file from inbox — move to processed
+        if (!config.dryRun) {
+          try {
+            const destPath = path.join(config.processedDir, fileName);
+            if (fs.existsSync(filePath)) fs.renameSync(filePath, destPath);
+          } catch { /* ignore — file may already be gone */ }
+        }
+        return duplicate.id;
+      }
+    } catch (e) {
+      logger.warn('Failed to compute file hash, continuing without dedup', {
+        filePath,
+        error: (e as Error).message,
+      });
+    }
+
     // 1. Create invoice record
     const invoice = invoiceRepo.create({
       file_name: fileName,
       file_path: filePath,
     });
+
+    // Store hash immediately so concurrent uploads see it
+    if (fileHash) {
+      invoiceRepo.setFileHash(invoice.id, fileHash);
+    }
 
     try {
       // 2. OCR (hybrid mode: Google Vision + Claude analyzer if enabled)
