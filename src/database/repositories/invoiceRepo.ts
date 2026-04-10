@@ -413,6 +413,49 @@ export const invoiceRepo = {
   /**
    * Найти недавнюю накладную с таким же поставщиком (для объединения страниц при быстрой съёмке).
    */
+  /**
+   * Last-resort merge strategy: return the single most recently processed
+   * invoice within `withinMinutes` minutes, excluding the given id. Used when
+   * a scanned page has no invoice_number AND no supplier extracted (common
+   * for page 2+ of a multi-page УПД/ТОРГ-12 — the top half with all the
+   * header metadata is on page 1, and page 2 is just the bottom of the table
+   * plus signatures). Without this fallback such pages become orphans.
+   *
+   * Intentionally does NOT look at 'parsing' rows — only 'processed' — so
+   * that concurrent uploads of two different invoices can't accidentally
+   * merge with each other mid-processing.
+   */
+  findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2): Invoice | undefined {
+    const db = getDb();
+    return db.prepare(
+      `SELECT * FROM invoices
+       WHERE id != ?
+       AND status = 'processed'
+       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       ORDER BY created_at DESC
+       LIMIT 1`
+    ).get(excludeId) as Invoice | undefined;
+  },
+
+  /**
+   * Cleanup: mark rows stuck in 'parsing' or 'ocr_processing' for longer
+   * than `staleMinutes` as 'error'. Called on startup to recover from
+   * crashes / deploys that interrupted in-flight processing and left rows
+   * stranded. Without this the dashboard fills up with ghost rows that
+   * can't be deleted through normal merge flow.
+   */
+  markStaleAsFailed(staleMinutes: number = 5): number {
+    const db = getDb();
+    const result = db.prepare(
+      `UPDATE invoices
+       SET status = 'error',
+           error_message = COALESCE(error_message, 'Processing interrupted (stuck in parsing/ocr_processing)')
+       WHERE status IN ('parsing', 'ocr_processing')
+       AND created_at < datetime('now', '-${staleMinutes} minutes')`
+    ).run();
+    return result.changes;
+  },
+
   findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Invoice | undefined {
     const db = getDb();
     const candidates = db.prepare(

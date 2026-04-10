@@ -236,6 +236,27 @@ export class FileWatcher {
         }
       }
 
+      // Strategy D: temporal proximity fallback. If this page has no
+      // invoice_number AND no supplier extracted (typical of the bottom
+      // half of a УПД/ТОРГ-12 that shows only the end of the table and
+      // signatures), treat it as a continuation of the most recent
+      // processed invoice uploaded within the last 2 minutes. Without
+      // this fallback, page 2 becomes an orphan row with empty metadata.
+      //
+      // Safety: only consults 'processed' rows (not 'parsing'), so we
+      // never merge two concurrently-uploading invoices into each other.
+      if (!existingInvoice && !parsed.invoice_number && !parsed.supplier) {
+        existingInvoice = invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2);
+        if (existingInvoice) {
+          logger.info('Multi-page: matched by temporal proximity (no metadata on this page)', {
+            currentFile: fileName,
+            existingFile: existingInvoice.file_name,
+            existingId: existingInvoice.id,
+            parsedItemsCount: parsed.items.length,
+          });
+        }
+      }
+
       if (existingInvoice && existingInvoice.id !== invoice.id) {
           // This is an additional page of an existing invoice
           logger.info('Multi-page invoice detected, merging into existing', {
@@ -247,16 +268,32 @@ export class FileWatcher {
           targetInvoiceId = existingInvoice.id;
           isMergedPage = true;
 
-          // Append file name and raw text to existing invoice
+          // Snapshot the existing invoice's raw_text BEFORE appending, so we
+          // can build the correct "combined" text for re-analysis later. If
+          // we read it back from DB after appendRawText, we'd double the new
+          // page. This also captures the OCR text for the early-delete case
+          // where the temp row is gone before re-analysis runs.
+          const existingTextSnapshot = existingInvoice.raw_text || '';
+
+          // Append file name and raw text to existing invoice.
           invoiceRepo.appendFileName(existingInvoice.id, fileName);
           invoiceRepo.appendRawText(existingInvoice.id, ocrResult.text);
 
+          // CRITICAL: delete the temp invoice row NOW, before any failable
+          // async work. Previously this delete happened at the end of the
+          // merge path — if the process crashed / was restarted during the
+          // multi-page re-analysis (a 10–60s Claude API call), or if any
+          // intermediate step threw, the temp row stayed behind as an orphan
+          // stuck in status 'parsing'. Early delete makes the merge atomic
+          // from the moment append succeeds: either the page is folded into
+          // the parent, or nothing happens (the parent is unchanged).
+          invoiceRepo.delete(invoice.id);
+
           // Re-process ALL pages together: combine OCR texts and send to Claude
           try {
-            // Get combined OCR text (existing pages + new page)
-            const existingText = existingInvoice.raw_text || '';
+            // Use the pre-append snapshot so combinedText is not doubled up
             const separator = '\n\n--- СТРАНИЦА ---\n\n';
-            const combinedText = existingText + separator + ocrResult.text;
+            const combinedText = existingTextSnapshot + separator + ocrResult.text;
             const pageCount = combinedText.split('--- СТРАНИЦА ---').length;
 
             logger.info('Multi-page: re-analyzing combined OCR text', {
@@ -303,7 +340,6 @@ export class FileWatcher {
               }
 
               invoiceRepo.recalculateTotal(targetInvoiceId);
-              invoiceRepo.delete(invoice.id);
               invoiceRepo.updateStatus(targetInvoiceId, 'processed');
 
               const totalItems = invoiceRepo.getItems(targetInvoiceId);
@@ -365,10 +401,11 @@ export class FileWatcher {
         });
       }
 
-      // 6. If merged, recalculate total and delete the temporary invoice record
+      // 6. If merged, recalculate total. (The temp invoice row was already
+      //    deleted above, immediately after appendFileName/appendRawText, so
+      //    we don't need to delete it again here.)
       if (isMergedPage) {
         invoiceRepo.recalculateTotal(targetInvoiceId);
-        invoiceRepo.delete(invoice.id);
 
         const existingItems = invoiceRepo.getItems(targetInvoiceId);
         logger.info('Invoice pages merged successfully (append mode)', {

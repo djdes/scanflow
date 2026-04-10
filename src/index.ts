@@ -10,6 +10,7 @@ import { backupDatabase } from './utils/backup';
 import { cleanupOldRequestLogs } from './api/middleware/requestLog';
 import { cleanupOldPhotos } from './utils/photoRetention';
 import { checkDiskSpace } from './utils/diskMonitor';
+import { invoiceRepo } from './database/repositories/invoiceRepo';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -29,6 +30,20 @@ async function main(): Promise<void> {
   // Initialize database
   getDb();
   logger.info('Database ready');
+
+  // Recover from crashes / interrupted deploys: mark any invoice row stuck
+  // in 'parsing' or 'ocr_processing' for more than 5 minutes as 'error'.
+  // Without this, rows whose processing was killed mid-flight stay orphaned
+  // forever because the normal delete-on-merge path only runs inside the
+  // processFile() function.
+  try {
+    const stuckRecovered = invoiceRepo.markStaleAsFailed(5);
+    if (stuckRecovered > 0) {
+      logger.warn('Recovered stale invoices stuck in processing', { count: stuckRecovered });
+    }
+  } catch (e) {
+    logger.error('Startup stale-invoice recovery failed', { error: (e as Error).message });
+  }
 
   // Initialize OCR
   ocrManager = new OcrManager();
