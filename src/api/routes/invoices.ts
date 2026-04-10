@@ -209,11 +209,13 @@ router.post('/:id/unapprove', (req: Request, res: Response) => {
   res.json({ data: { id, approved_for_1c: false } });
 });
 
-// POST /api/invoices/:id/remap — re-run nomenclature matching for unmapped items.
-// Used after 1C catalog is updated — items that had no match before may now
-// find a counterpart in the refreshed onec_nomenclature table.
+// POST /api/invoices/:id/remap — re-run nomenclature matching.
+// Query param: ?all=true to also re-map items that already have a GUID.
+// Useful after 1C catalog update — new items may be a better match for
+// already-mapped lines.
 router.post('/:id/remap', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
+  const includeAll = req.query.all === 'true';
   const invoice = invoiceRepo.getById(id);
 
   if (!invoice) {
@@ -231,12 +233,16 @@ router.post('/:id/remap', (req: Request, res: Response) => {
 
   const items = invoiceRepo.getItems(id);
   let remapped = 0;
+  let changed = 0;
   for (const item of items) {
-    // Only re-map items that don't have a GUID yet (avoid overwriting confirmed ones)
-    if (item.onec_guid) continue;
+    // Skip already-mapped unless ?all=true
+    if (!includeAll && item.onec_guid) continue;
 
     const result = mapper.map(item.original_name);
     if (result.onec_guid) {
+      // Count as "changed" only if the result differs from current
+      if (result.onec_guid !== item.onec_guid) changed++;
+
       invoiceRepo.updateItemMapping(
         item.id,
         result.onec_guid,
@@ -247,8 +253,8 @@ router.post('/:id/remap', (req: Request, res: Response) => {
     }
   }
 
-  logger.info('Re-mapped invoice items', { id, remapped, total: items.length });
-  res.json({ data: { id, remapped, total: items.length } });
+  logger.info('Re-mapped invoice items', { id, remapped, changed, total: items.length, all: includeAll });
+  res.json({ data: { id, remapped, changed, total: items.length } });
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files

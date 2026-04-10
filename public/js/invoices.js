@@ -240,10 +240,9 @@ const Invoices = {
       if (data.error_message) {
         actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${data.error_message}</div>`;
       }
-      // Remap button — shown when there are unmapped items
-      if (unmappedCount > 0) {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id})" title="Пересопоставить товары после обновления справочника 1С">Обновить сопоставление</button>`;
-      }
+      // Remap button — always visible. Regular click = only unmapped items.
+      // Shift+click (or long title) = force re-map of everything.
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, event)" title="Обычный клик — только несопоставленные. Shift+клик — пересопоставить всё">Обновить сопоставление</button>`;
       // Delete button (destructive, always visible, pushed to the right)
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
@@ -348,16 +347,21 @@ const Invoices = {
     }
   },
 
-  async remap(id) {
+  async remap(id, event) {
+    const forceAll = event && (event.shiftKey || event.ctrlKey || event.metaKey);
+    const url = forceAll ? `/invoices/${id}/remap?all=true` : `/invoices/${id}/remap`;
     try {
-      const res = await App.api(`/invoices/${id}/remap`, { method: 'POST' });
+      const res = await App.api(url, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         const remapped = data.data?.remapped ?? 0;
-        if (remapped > 0) {
+        const changed = data.data?.changed ?? 0;
+        if (forceAll) {
+          App.notify(`Пересопоставлено: ${remapped}, изменений: ${changed}`, 'success');
+        } else if (remapped > 0) {
           App.notify(`Сопоставлено дополнительно: ${remapped}`, 'success');
         } else {
-          App.notify('Новых сопоставлений не найдено', 'success');
+          App.notify('Новых сопоставлений не найдено. Shift+клик для полного пересопоставления', 'success');
         }
         this.showDetail(id);
       } else {
