@@ -240,9 +240,11 @@ const Invoices = {
       if (data.error_message) {
         actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${data.error_message}</div>`;
       }
-      // Remap button — always visible. Regular click = only unmapped items.
-      // Shift+click (or long title) = force re-map of everything.
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, event)" title="Обычный клик — только несопоставленные. Shift+клик — пересопоставить всё">Обновить сопоставление</button>`;
+      // Remap buttons — two separate buttons, planshet-friendly
+      if (unmappedCount > 0) {
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
+      }
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
       // Delete button (destructive, always visible, pushed to the right)
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
@@ -347,8 +349,7 @@ const Invoices = {
     }
   },
 
-  async remap(id, event) {
-    const forceAll = event && (event.shiftKey || event.ctrlKey || event.metaKey);
+  async remap(id, forceAll) {
     const url = forceAll ? `/invoices/${id}/remap?all=true` : `/invoices/${id}/remap`;
     try {
       const res = await App.api(url, { method: 'POST' });
@@ -361,7 +362,7 @@ const Invoices = {
         } else if (remapped > 0) {
           App.notify(`Сопоставлено дополнительно: ${remapped}`, 'success');
         } else {
-          App.notify('Новых сопоставлений не найдено. Shift+клик для полного пересопоставления', 'success');
+          App.notify('Новых сопоставлений не найдено', 'success');
         }
         this.showDetail(id);
       } else {
