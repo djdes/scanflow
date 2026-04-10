@@ -209,6 +209,43 @@ router.post('/:id/unapprove', (req: Request, res: Response) => {
   res.json({ data: { id, approved_for_1c: false } });
 });
 
+// POST /api/invoices/:id/remap — re-run nomenclature matching for unmapped items.
+// Used after 1C catalog is updated — items that had no match before may now
+// find a counterpart in the refreshed onec_nomenclature table.
+router.post('/:id/remap', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = invoiceRepo.getById(id);
+
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+
+  if (!mapper) {
+    res.status(500).json({ error: 'Mapper not initialized' });
+    return;
+  }
+
+  // Refresh mapper cache to pick up any new nomenclature
+  mapper.invalidateCache();
+
+  const items = invoiceRepo.getItems(id);
+  let remapped = 0;
+  for (const item of items) {
+    // Only re-map items that don't have a GUID yet (avoid overwriting confirmed ones)
+    if (item.onec_guid) continue;
+
+    const result = mapper.map(item.original_name);
+    if (result.onec_guid) {
+      invoiceRepo.mapItem(item.id, result.onec_guid, result.mapped_name);
+      remapped++;
+    }
+  }
+
+  logger.info('Re-mapped invoice items', { id, remapped, total: items.length });
+  res.json({ data: { id, remapped, total: items.length } });
+});
+
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files
 router.delete('/:id', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);

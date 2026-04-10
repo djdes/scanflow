@@ -240,6 +240,10 @@ const Invoices = {
       if (data.error_message) {
         actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${data.error_message}</div>`;
       }
+      // Remap button — shown when there are unmapped items
+      if (unmappedCount > 0) {
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id})" title="Пересопоставить товары после обновления справочника 1С">Обновить сопоставление</button>`;
+      }
       // Delete button (destructive, always visible, pushed to the right)
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
@@ -334,6 +338,27 @@ const Invoices = {
       const res = await App.api(`/invoices/${id}/unapprove`, { method: 'POST' });
       if (res.ok) {
         App.notify('Отправка отозвана', 'success');
+        this.showDetail(id);
+      } else {
+        const data = await res.json();
+        App.notify(data.error || 'Ошибка', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  async remap(id) {
+    try {
+      const res = await App.api(`/invoices/${id}/remap`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        const remapped = data.data?.remapped ?? 0;
+        if (remapped > 0) {
+          App.notify(`Сопоставлено дополнительно: ${remapped}`, 'success');
+        } else {
+          App.notify('Новых сопоставлений не найдено', 'success');
+        }
         this.showDetail(id);
       } else {
         const data = await res.json();
