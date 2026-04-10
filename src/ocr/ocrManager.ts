@@ -1,8 +1,6 @@
 import { OcrEngine, OcrResult } from './types';
 import { GoogleVisionEngine } from './googleVision';
-import { ClaudeCodeBridgeEngine } from './claudeCodeBridge';
 import { TesseractEngine } from './tesseract';
-import { analyzeTextWithClaude } from './claudeTextAnalyzer';
 import { analyzeImageWithClaudeApi, analyzeMultipleImagesWithClaudeApi, analyzeMultiPageTextWithClaudeApi } from './claudeApiAnalyzer';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { config } from '../config';
@@ -14,7 +12,6 @@ import os from 'os';
 
 const ENGINE_MAP: Record<string, () => OcrEngine> = {
   google_vision: () => new GoogleVisionEngine(),
-  claude_cli: () => new ClaudeCodeBridgeEngine(),
   tesseract: () => new TesseractEngine(),
 };
 

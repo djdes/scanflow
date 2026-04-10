@@ -2,6 +2,7 @@
 const App = {
   apiKey: localStorage.getItem('apiKey') || '',
   baseUrl: '/api',
+  _activeRequests: 0,
 
   /**
    * Escape arbitrary text for safe insertion into innerHTML.
@@ -17,18 +18,53 @@ const App = {
       .replace(/'/g, '&#39;');
   },
 
+  /**
+   * Top progress bar — reference-counted so concurrent requests don't
+   * flicker the bar off early. Auto-wraps all fetches made via App.api().
+   */
+  _progressStart() {
+    this._activeRequests++;
+    const el = document.getElementById('top-progress');
+    if (el) el.classList.add('is-active');
+  },
+  _progressStop() {
+    this._activeRequests = Math.max(0, this._activeRequests - 1);
+    if (this._activeRequests === 0) {
+      const el = document.getElementById('top-progress');
+      if (el) el.classList.remove('is-active');
+    }
+  },
+
+  /**
+   * Render skeleton rows into a tbody while real data is fetching.
+   * Callers pass columns as widths (e.g. ['w-24', 'w-80', 'w-60']).
+   */
+  skeletonRows(tbodyId, columnWidths, rowCount = 5) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    const row = `<tr class="skeleton-row">${columnWidths.map(w =>
+      `<td><span class="skeleton-bar ${w}"></span></td>`
+    ).join('')}</tr>`;
+    tbody.innerHTML = row.repeat(rowCount);
+  },
+
   async api(path, options = {}) {
     const headers = { 'X-API-Key': this.apiKey, ...options.headers };
     if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify(options.body);
     }
-    const res = await fetch(this.baseUrl + path, { ...options, headers });
-    if (res.status === 401) {
-      this.logout();
-      throw new Error('Unauthorized');
+    this._progressStart();
+    try {
+      const res = await fetch(this.baseUrl + path, { ...options, headers });
+      if (res.status === 401) {
+        this.logout();
+        throw new Error('Unauthorized');
+      }
+      return res;
+    } finally {
+      this._progressStop();
     }
-    return res;
   },
 
   async apiJson(path, options = {}) {

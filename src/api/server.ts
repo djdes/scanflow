@@ -68,9 +68,65 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setInvoicesMapper(mapper);
   setFileWatcher(fileWatcher);
 
-  // Health check (no auth)
+  // Health check (no auth) — runs real probes against the DB, credentials
+  // file, anthropic key, and inbox queue depth. Returns 503 if any critical
+  // check fails. Used by uptime monitoring.
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    const checks: Record<string, { ok: boolean; detail?: string }> = {};
+    let allOk = true;
+
+    // DB ping
+    try {
+      const { getDb } = require('../database/db');
+      const db = getDb();
+      db.prepare('SELECT 1').get();
+      checks.database = { ok: true };
+    } catch (e) {
+      checks.database = { ok: false, detail: (e as Error).message };
+      allOk = false;
+    }
+
+    // Google credentials file (optional — only if hybrid mode)
+    try {
+      const fs = require('fs');
+      if (config.googleCredentials && fs.existsSync(config.googleCredentials)) {
+        fs.accessSync(config.googleCredentials, fs.constants.R_OK);
+        checks.google_credentials = { ok: true };
+      } else {
+        checks.google_credentials = { ok: true, detail: 'not required (claude_api mode)' };
+      }
+    } catch (e) {
+      checks.google_credentials = { ok: false, detail: (e as Error).message };
+      // Not fatal — claude_api mode doesn't need Google
+    }
+
+    // Anthropic key present
+    checks.anthropic_api_key = config.anthropicApiKey
+      ? { ok: true }
+      : { ok: false, detail: 'ANTHROPIC_API_KEY not set in env' };
+    if (!config.anthropicApiKey) allOk = false;
+
+    // Inbox queue depth (alert if stuck — files not being processed)
+    try {
+      const fs = require('fs');
+      const pendingFiles = fs.existsSync(config.inboxDir)
+        ? fs.readdirSync(config.inboxDir).filter((f: string) => !f.startsWith('.')).length
+        : 0;
+      const stuck = pendingFiles >= 50;
+      checks.inbox_queue = {
+        ok: !stuck,
+        detail: `${pendingFiles} files pending`,
+      };
+      if (stuck) allOk = false;
+    } catch (e) {
+      checks.inbox_queue = { ok: false, detail: (e as Error).message };
+    }
+
+    res.status(allOk ? 200 : 503).json({
+      status: allOk ? 'ok' : 'degraded',
+      timestamp: new Date().toISOString(),
+      checks,
+    });
   });
 
   // API routes (with auth)

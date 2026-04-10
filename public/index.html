@@ -29,7 +29,8 @@
     <div class="input-group">
       <div class="input-icon-wrap">
         <svg class="input-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1a4 4 0 00-4 4v3H3a1 1 0 00-1 1v5a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V5a4 4 0 00-4-4zm2 7H6V5a2 2 0 114 0v3z" fill="currentColor" opacity="0.4"/></svg>
-        <input type="password" id="auth-key-input" placeholder="API Key"
+        <label for="auth-key-input" class="sr-only">API-ключ</label>
+        <input type="password" id="auth-key-input" placeholder="API Key" aria-label="API-ключ"
                onkeydown="if(event.key==='Enter')document.getElementById('auth-btn').click()">
       </div>
       <button class="btn btn-primary" id="auth-btn" onclick="App.login(document.getElementById('auth-key-input').value)">
@@ -407,7 +408,8 @@
     </section>
   </main>
 
-  <div id="notifications"></div>
+  <div id="top-progress" class="top-progress" aria-hidden="true"></div>
+  <div id="notifications" aria-live="polite" aria-atomic="false"></div>
 
   <!-- Confirm modal -->
   <div id="confirm-modal" class="modal-overlay" style="display:none">

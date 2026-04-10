@@ -1067,6 +1067,113 @@ details[open] summary { margin-bottom: 12px; }
   }
 }
 
+/* ========== Accessibility utilities ========== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ========== Loading States ==========
+ * Three complementary techniques, not a lazy spinner:
+ *  1. Top progress bar — always visible during any API call
+ *  2. Skeleton rows — tables feel like they have shape, not emptiness
+ *  3. Pulsing button — action buttons show their pending state inline
+ */
+
+/* 1. Top progress bar (NProgress-inspired, but custom) */
+.top-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.top-progress.is-active {
+  opacity: 1;
+}
+.top-progress::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--primary, #1a6dff) 50%,
+    transparent 100%);
+  animation: top-progress-slide 1.2s ease-in-out infinite;
+}
+@keyframes top-progress-slide {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+
+/* 2. Skeleton rows — monochrome shimmer that respects the row layout */
+.skeleton-row td {
+  padding: 14px 12px;
+}
+.skeleton-bar {
+  display: inline-block;
+  height: 12px;
+  background: linear-gradient(90deg,
+    #f1f5f9 0%,
+    #e2e8f0 50%,
+    #f1f5f9 100%);
+  background-size: 200% 100%;
+  border-radius: 3px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+  vertical-align: middle;
+}
+.skeleton-bar.w-full { width: 100%; }
+.skeleton-bar.w-80   { width: 80%; }
+.skeleton-bar.w-60   { width: 60%; }
+.skeleton-bar.w-40   { width: 40%; }
+.skeleton-bar.w-24   { width: 24px; }
+@keyframes skeleton-pulse {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 3. Pulsing button — for action buttons mid-request */
+.btn.is-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.btn.is-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  color: #fff;
+  animation: btn-spin 0.7s linear infinite;
+}
+.btn-outline.is-loading::after {
+  color: var(--primary, #1a6dff);
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ========== Confirm Modal ========== */
 .modal-overlay {
   position: fixed;

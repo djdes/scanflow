@@ -57,6 +57,9 @@ const Invoices = {
     let url = `/invoices?limit=${this.limit}&offset=${this.offset}`;
     if (this.currentStatus) url += `&status=${this.currentStatus}`;
 
+    // Show skeleton rows while real data is loading — feels instant
+    App.skeletonRows('invoices-tbody', ['w-24', 'w-full', 'w-40', 'w-40', 'w-60', 'w-40', 'w-40', 'w-40', 'w-40', 'w-24'], 6);
+
     try {
       const { data } = await App.apiJson(url);
       const tbody = document.getElementById('invoices-tbody');
@@ -87,6 +90,7 @@ const Invoices = {
           <td>${App.formatDate(inv.created_at)}</td>
           <td style="text-align:center">
             <button class="btn-icon-danger" title="Удалить накладную"
+                    aria-label="Удалить накладную ${inv.id}"
                     onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
           </td>
         </tr>

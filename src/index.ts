@@ -8,6 +8,8 @@ import { FileWatcher } from './watcher/fileWatcher';
 import { startServer } from './api/server';
 import { backupDatabase } from './utils/backup';
 import { cleanupOldRequestLogs } from './api/middleware/requestLog';
+import { cleanupOldPhotos } from './utils/photoRetention';
+import { checkDiskSpace } from './utils/diskMonitor';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -57,6 +59,20 @@ async function main(): Promise<void> {
     const deleted = cleanupOldRequestLogs();
     logger.info('API request log cleanup', { deleted });
   });
+
+  // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files
+  // older than 90 days to prevent unbounded disk growth.
+  cron.schedule('10 3 * * 0', () => {
+    logger.info('Running weekly photo retention cleanup...');
+    cleanupOldPhotos();
+  });
+
+  // Disk space check every 6 hours + once on startup.
+  // Emails when free space < 5 GB.
+  cron.schedule('0 */6 * * *', () => {
+    checkDiskSpace();
+  });
+  checkDiskSpace();
 
   // Run one backup immediately on startup — captures current state
   // before any crash or issues happen in this session.
