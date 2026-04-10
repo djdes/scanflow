@@ -10,6 +10,8 @@ data/failed/*
 .env
 google-credentials.json
 *.log
+logs/
+logs/.*-audit.json
 
 # Dev artifacts
 .claude/
