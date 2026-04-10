@@ -479,6 +479,45 @@ tbody tr.clickable:hover { background: var(--primary-soft); }
 }
 .btn-icon-danger:active { transform: scale(0.95); }
 
+/* Generic (non-destructive) inline icon button — used for edit actions */
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+.btn-icon:hover {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  border-color: var(--primary, #3b82f6);
+  transform: scale(1.05);
+}
+.btn-icon:active { transform: scale(0.95); }
+
+/* Pack-size badge — tiny inline label next to a mapping variant name */
+.pack-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: #eef2ff;
+  color: #4338ca;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 .form-actions {
   display: flex;
   gap: 12px;

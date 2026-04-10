@@ -86,14 +86,23 @@ const Mappings = {
 
       let expandedRows = '';
       if (isExpanded) {
-        expandedRows = g.variants.map(v => `
+        expandedRows = g.variants.map(v => {
+          // Show pack conversion rule next to the name, if set
+          const packLabel = (v.pack_size && v.pack_unit)
+            ? `<span class="pack-badge" title="1 ед. = ${v.pack_size} ${esc(v.pack_unit)}">&nbsp;↦ ${v.pack_size} ${esc(v.pack_unit)}</span>`
+            : '';
+          return `
           <tr class="mapping-expanded-row">
             <td></td>
-            <td>${esc(v.scanned_name)}</td>
+            <td>${esc(v.scanned_name)}${packLabel}</td>
             <td style="text-align:right">${v.times_seen || 0}×</td>
-            <td><button class="btn-icon-danger" title="Удалить вариант" onclick="Mappings.removeVariant(${v.id}, event)">&#10005;</button></td>
+            <td style="white-space:nowrap">
+              <button class="btn-icon" title="Редактировать упаковку (кг)" onclick="Mappings.editPack(${v.id}, event)">&#9998;</button>
+              <button class="btn-icon-danger" title="Удалить вариант" onclick="Mappings.removeVariant(${v.id}, event)">&#10005;</button>
+            </td>
           </tr>
-        `).join('');
+        `;
+        }).join('');
         // Add inline "add variant" row
         expandedRows += `
           <tr class="mapping-expanded-row">
@@ -157,6 +166,60 @@ const Mappings = {
       if (res.ok) {
         App.notify('Вариант удалён', 'success');
         this.loadGrouped();
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  // Edit the pack_size / pack_unit on a single mapping variant.
+  // Shows a prompt asking for size in kg. Empty / 0 clears the transform.
+  // We only support kg right now per product decision.
+  async editPack(id, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    // Find the variant in the currently loaded data so we can show the
+    // existing value as the prompt default
+    let current = null;
+    for (const g of this.grouped) {
+      const v = g.variants.find(x => x.id === id);
+      if (v) { current = v; break; }
+    }
+    const currentSize = current?.pack_size ?? '';
+    const input = prompt(
+      'Размер упаковки в килограммах (для пересчёта "1 шт → N кг"):\n\n'
+      + '• Введите число (например, 50)\n'
+      + '• Оставьте пустым или 0, чтобы снять правило',
+      String(currentSize)
+    );
+    if (input === null) return; // cancelled
+
+    let pack_size = null;
+    let pack_unit = null;
+    const trimmed = input.trim().replace(',', '.');
+    if (trimmed !== '' && trimmed !== '0') {
+      const n = parseFloat(trimmed);
+      if (!isFinite(n) || n <= 0) {
+        App.notify('Некорректное число', 'error');
+        return;
+      }
+      pack_size = n;
+      pack_unit = 'кг';
+    }
+
+    try {
+      const res = await App.api(`/mappings/${id}`, {
+        method: 'PUT',
+        body: { pack_size, pack_unit },
+      });
+      if (res.ok) {
+        App.notify(
+          pack_size ? `Правило сохранено: 1 ед. = ${pack_size} кг` : 'Правило упаковки снято',
+          'success'
+        );
+        this.loadGrouped();
+      } else {
+        const data = await res.json();
+        App.notify(data.error || 'Ошибка сохранения', 'error');
       }
     } catch (e) {
       App.notify('Ошибка: ' + e.message, 'error');

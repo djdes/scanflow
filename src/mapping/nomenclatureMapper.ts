@@ -10,6 +10,11 @@ export interface MappingResult {
   confidence: number;
   source: 'learned' | 'onec_fuzzy' | 'legacy' | 'none';
   mapping_id: number | null; // id of nomenclature_mappings row if matched
+  // Pack transform carried through from the learned mapping (if any).
+  // When both are non-null, the watcher rewrites the item:
+  //   quantity *= pack_size, unit = pack_unit, price = total / new quantity
+  pack_size: number | null;
+  pack_unit: string | null;
 }
 
 const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
@@ -97,6 +102,8 @@ export class NomenclatureMapper {
             confidence: 1.0,
             source: 'learned',
             mapping_id: learned.id,
+            pack_size: learned.pack_size,
+            pack_unit: learned.pack_unit,
           };
         }
         // GUID existed in learned mapping but is no longer in onec_nomenclature
@@ -117,6 +124,8 @@ export class NomenclatureMapper {
           confidence: 0.9,
           source: 'legacy',
           mapping_id: learned.id,
+          pack_size: learned.pack_size,
+          pack_unit: learned.pack_unit,
         };
       }
     }
@@ -165,6 +174,8 @@ export class NomenclatureMapper {
           confidence,
           source: 'onec_fuzzy',
           mapping_id: null,
+          pack_size: null,
+          pack_unit: null,
         };
       }
     }
@@ -177,6 +188,8 @@ export class NomenclatureMapper {
       confidence: 0,
       source: 'none',
       mapping_id: null,
+      pack_size: null,
+      pack_unit: null,
     };
   }
 

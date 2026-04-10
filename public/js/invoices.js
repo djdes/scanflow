@@ -541,14 +541,66 @@ const Invoices = {
     }
   },
 
+  // Detects "(50кг)" / "(1.5 кг)" style pack-size hints in a scanned name.
+  // Returns parsed {pack_size, pack_unit} or null. Only kg — по запросу
+  // пользователя волюметрия (л/мл) сюда не попадает.
+  detectPackKg(scannedName) {
+    if (!scannedName) return null;
+    const m = scannedName.match(/\(\s*(\d+(?:[.,]\d+)?)\s*кг\s*\)/i);
+    if (!m) return null;
+    const n = parseFloat(m[1].replace(',', '.'));
+    if (!isFinite(n) || n <= 0) return null;
+    return { pack_size: n, pack_unit: 'кг' };
+  },
+
   async selectNomItem(invoiceId, itemId, guid, name) {
+    // Find the row in the current table so we can read the item's scan name
+    // and current quantity for the pack-size prompt. If the row isn't there
+    // (edge case — table re-rendered), skip the prompt gracefully.
+    let packOverride = null;
     try {
+      const row = document.querySelector(`#invoice-items-tbody tr[data-item-id="${itemId}"]`);
+      if (row) {
+        const scanNameCell = row.querySelector('td:nth-child(2)');
+        const scanName = scanNameCell ? scanNameCell.textContent.trim() : '';
+        const detected = this.detectPackKg(scanName);
+        if (detected) {
+          // Read the current quantity from the 4th <td>. If it's a number > 0
+          // we can show "1 × 50 = 50 кг" in the prompt. Otherwise fall back to
+          // a generic "apply 50 kg per unit?" message.
+          const qtyCell = row.querySelector('td:nth-child(4)');
+          const qtyText = qtyCell ? qtyCell.textContent.replace(',', '.').replace(/\s/g, '') : '';
+          const currentQty = parseFloat(qtyText);
+          const hasQty = isFinite(currentQty) && currentQty > 0;
+          const newQty = hasQty ? currentQty * detected.pack_size : detected.pack_size;
+          const msg = hasQty
+            ? `Обнаружено в названии: ${detected.pack_size} ${detected.pack_unit}.\n\n`
+              + `Пересчитать эту позицию как ${currentQty} × ${detected.pack_size} = ${newQty} ${detected.pack_unit} `
+              + `и запомнить правило для следующих накладных с этим же названием?`
+            : `Обнаружено в названии: ${detected.pack_size} ${detected.pack_unit}.\n\n`
+              + `Применить упаковку 1 шт = ${detected.pack_size} ${detected.pack_unit} и запомнить правило?`;
+          if (confirm(msg)) {
+            packOverride = detected;
+          }
+        }
+      }
+    } catch {
+      // Detection is purely cosmetic — never block saving if it throws.
+    }
+
+    try {
+      const body = { onec_guid: guid };
+      if (packOverride) {
+        body.pack_size = packOverride.pack_size;
+        body.pack_unit = packOverride.pack_unit;
+      }
       const res = await App.api(`/invoices/${invoiceId}/items/${itemId}/map`, {
         method: 'PUT',
-        body: { onec_guid: guid },
+        body,
       });
       if (res.ok) {
-        App.notify(`Сопоставлено: ${name}`, 'success');
+        const extra = packOverride ? ` (${packOverride.pack_size} ${packOverride.pack_unit})` : '';
+        App.notify(`Сопоставлено: ${name}${extra}`, 'success');
         this.showDetail(parseInt(invoiceId, 10));
       } else {
         const data = await res.json();

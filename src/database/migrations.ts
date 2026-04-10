@@ -261,5 +261,24 @@ export function runMigrations(db: Database.Database): void {
     `);
   }
 
+  // === Migration v13: pack_size / pack_unit on nomenclature_mappings ===
+  // Supports the "1 мешок = 50 кг" unit-conversion pattern: suppliers write
+  // "Мука (50кг) — 1 шт" on the invoice, but the warehouse in 1С tracks flour
+  // in kg. When a mapping carries pack_size=50 + pack_unit='кг', the watcher
+  // rewrites the invoice item: quantity *= pack_size, unit = pack_unit, and
+  // price is recomputed from total (so the total stays the same). NULL on
+  // both columns preserves the old behavior (no transform).
+  const hasPackSize = db.prepare(
+    "SELECT COUNT(*) as cnt FROM pragma_table_info('nomenclature_mappings') WHERE name = 'pack_size'"
+  ).get() as { cnt: number };
+
+  if (hasPackSize.cnt === 0) {
+    logger.info('Migration v13: Adding pack_size/pack_unit to nomenclature_mappings...');
+    db.exec(`
+      ALTER TABLE nomenclature_mappings ADD COLUMN pack_size REAL;
+      ALTER TABLE nomenclature_mappings ADD COLUMN pack_unit TEXT;
+    `);
+  }
+
   logger.info('Database migrations completed');
 }

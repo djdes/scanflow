@@ -10,6 +10,7 @@ import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
+import { applyPackTransform } from '../mapping/packTransform';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -325,14 +326,21 @@ export class FileWatcher {
               for (const item of unifiedParsed.items) {
                 if (!item.name) continue;
                 const mapping = this.mapper.map(item.name);
+                // Apply pack transform if the learned mapping specifies one
+                // ("Мука (50кг) — 1 шт" → "Мука — 50 кг"). Keeps total unchanged.
+                const transformed = applyPackTransform(
+                  { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+                  mapping.pack_size,
+                  mapping.pack_unit,
+                );
                 invoiceRepo.addItem({
                   invoice_id: targetInvoiceId,
                   original_name: item.name,
                   mapped_name: mapping.mapped_name,
-                  quantity: item.quantity,
-                  unit: item.unit,
-                  price: item.price,
-                  total: item.total,
+                  quantity: transformed.quantity,
+                  unit: transformed.unit,
+                  price: transformed.price,
+                  total: transformed.total,
                   vat_rate: item.vat_rate,
                   mapping_confidence: mapping.confidence,
                   onec_guid: mapping.onec_guid,
@@ -387,14 +395,20 @@ export class FileWatcher {
       for (const item of parsed.items) {
         if (!item.name) continue; // skip items without a name
         const mapping = this.mapper.map(item.name);
+        // Apply pack transform if the learned mapping specifies one.
+        const transformed = applyPackTransform(
+          { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+          mapping.pack_size,
+          mapping.pack_unit,
+        );
         invoiceRepo.addItem({
           invoice_id: targetInvoiceId,
           original_name: item.name,
           mapped_name: mapping.mapped_name,
-          quantity: item.quantity,
-          unit: item.unit,
-          price: item.price,
-          total: item.total,
+          quantity: transformed.quantity,
+          unit: transformed.unit,
+          price: transformed.price,
+          total: transformed.total,
           vat_rate: item.vat_rate,
           mapping_confidence: mapping.confidence,
           onec_guid: mapping.onec_guid,

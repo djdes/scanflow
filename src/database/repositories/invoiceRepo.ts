@@ -270,6 +270,26 @@ export const invoiceRepo = {
   },
 
   /**
+   * Update quantity / unit / price on an invoice item. Used by the pack
+   * transform path in the item-map endpoint: when user confirms "1 мешок =
+   * 50 кг", we rewrite the saved line so it shows the converted values
+   * immediately on the detail page (and forwards them to 1С unchanged).
+   * Total is preserved upstream — the caller already recomputed price from
+   * the original total.
+   */
+  updateItemQuantity(
+    itemId: number,
+    quantity: number | null,
+    unit: string | null,
+    price: number | null,
+  ): void {
+    const db = getDb();
+    db.prepare(
+      `UPDATE invoice_items SET quantity = ?, unit = ?, price = ? WHERE id = ?`
+    ).run(quantity, unit, price, itemId);
+  },
+
+  /**
    * Update mapping + confidence on an invoice item. Used by /remap endpoint
    * so that the UI "точность" column reflects the new fuzzy score.
    */

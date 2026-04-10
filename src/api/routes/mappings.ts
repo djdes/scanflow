@@ -16,6 +16,31 @@ router.get('/', (_req: Request, res: Response) => {
   res.json({ data: { grouped, unmapped } });
 });
 
+// Normalize pack_size / pack_unit from a request body. Accepts the fields
+// in either form (number or numeric string), coerces to valid pack_size > 0,
+// non-empty trimmed pack_unit, else null. Returns an object suitable for
+// merging into CreateMappingData — only includes the keys the caller passed
+// explicitly so partial updates don't clobber existing values.
+function parsePackFields(body: unknown): { pack_size?: number | null; pack_unit?: string | null } {
+  const out: { pack_size?: number | null; pack_unit?: string | null } = {};
+  if (!body || typeof body !== 'object') return out;
+  const b = body as { pack_size?: unknown; pack_unit?: unknown };
+  if ('pack_size' in b) {
+    const raw = b.pack_size;
+    if (raw == null || raw === '') {
+      out.pack_size = null;
+    } else {
+      const n = Number(raw);
+      out.pack_size = isFinite(n) && n > 0 ? n : null;
+    }
+  }
+  if ('pack_unit' in b) {
+    const raw = b.pack_unit;
+    out.pack_unit = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+  }
+  return out;
+}
+
 // POST /api/mappings — create mapping
 router.post('/', (req: Request, res: Response) => {
   const { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid } = req.body;
@@ -25,6 +50,7 @@ router.post('/', (req: Request, res: Response) => {
     return;
   }
 
+  const pack = parsePackFields(req.body);
   const mapping = mappingRepo.upsert({
     scanned_name,
     mapped_name_1c,
@@ -32,6 +58,7 @@ router.post('/', (req: Request, res: Response) => {
     default_unit,
     approved: approved ?? false,
     onec_guid: onec_guid ?? null,
+    ...pack,
   });
 
   if (mapper) mapper.invalidateCache();
@@ -49,7 +76,8 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 
   const { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid } = req.body;
-  mappingRepo.update(id, { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid });
+  const pack = parsePackFields(req.body);
+  mappingRepo.update(id, { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, ...pack });
   if (mapper) mapper.invalidateCache();
 
   const updated = mappingRepo.getById(id);

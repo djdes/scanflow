@@ -478,9 +478,23 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
   }
 
   // Normalize onec_guid: empty string / whitespace / missing → null, otherwise trimmed string
-  const rawGuid = (req.body as { onec_guid?: string | null } | undefined)?.onec_guid;
+  const body = req.body as {
+    onec_guid?: string | null;
+    pack_size?: number | null;
+    pack_unit?: string | null;
+  } | undefined;
+  const rawGuid = body?.onec_guid;
   const onec_guid: string | null =
     typeof rawGuid === 'string' && rawGuid.trim() !== '' ? rawGuid.trim() : null;
+
+  // Pack fields: accept number (optionally via string), non-positive / NaN → null
+  const rawPackSize = body?.pack_size;
+  const packSizeNum = rawPackSize == null ? null : Number(rawPackSize);
+  const pack_size: number | null =
+    packSizeNum != null && isFinite(packSizeNum) && packSizeNum > 0 ? packSizeNum : null;
+  const rawPackUnit = body?.pack_unit;
+  const pack_unit: string | null =
+    typeof rawPackUnit === 'string' && rawPackUnit.trim() !== '' ? rawPackUnit.trim() : null;
 
   const invoice = invoiceRepo.getById(invoiceId);
   if (!invoice) {
@@ -507,20 +521,51 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
   // Display name: 1C catalog name when mapping is set, raw scan text when clearing
   const displayName = onec_guid ? resolvedName : item.original_name;
 
+  // If pack transform is provided alongside the mapping, compute the new
+  // quantity/unit/price BEFORE the transaction so we can write them atomically
+  // with the mapping change. Total is preserved unchanged.
+  const applyPack = onec_guid != null && pack_size != null && pack_unit != null;
+  let transformedQty: number | null = item.quantity;
+  let transformedUnit: string | null = item.unit;
+  let transformedPrice: number | null = item.price;
+  if (applyPack && item.quantity != null && item.quantity > 0) {
+    const total = item.total != null
+      ? item.total
+      : (item.price != null ? item.price * item.quantity : null);
+    const newQty = item.quantity * (pack_size as number);
+    const newPrice = total != null && newQty > 0 ? total / newQty : item.price;
+    transformedQty = newQty;
+    transformedUnit = pack_unit;
+    transformedPrice = newPrice;
+  }
+
   // All mutations in one transaction
   const db = getDb();
   db.transaction(() => {
     invoiceRepo.mapItem(itemId, onec_guid, displayName);
 
+    // Write transformed quantity/unit/price on the item if applicable
+    if (applyPack) {
+      invoiceRepo.updateItemQuantity(itemId, transformedQty, transformedUnit, transformedPrice);
+    }
+
     // Learning loop: only touch the global nomenclature_mappings when SETTING.
     // Clearing a single invoice item's mapping must not corrupt a learned mapping
-    // that other invoices may still rely on.
+    // that other invoices may still rely on. Pack fields are persisted alongside
+    // only when explicitly provided — if the caller omits them, any existing
+    // pack values on the learned mapping are preserved (we can't tell from an
+    // empty body whether the user wanted to clear or just didn't re-send them).
     if (onec_guid) {
-      const mapping = mappingRepo.upsert({
+      const upsertPayload: Parameters<typeof mappingRepo.upsert>[0] = {
         scanned_name: item.original_name,
         mapped_name_1c: resolvedName as string,
         onec_guid,
-      });
+      };
+      if (applyPack) {
+        upsertPayload.pack_size = pack_size;
+        upsertPayload.pack_unit = pack_unit;
+      }
+      mappingRepo.upsert(upsertPayload);
     }
   })();
 

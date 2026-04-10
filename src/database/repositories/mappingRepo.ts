@@ -12,6 +12,11 @@ export interface NomenclatureMapping {
   times_seen: number;
   last_seen_supplier: string | null;
   last_seen_at: string | null;
+  // Pack conversion: when set, the watcher rewrites matching invoice items
+  // as quantity *= pack_size, unit = pack_unit, price = total / new quantity.
+  // Used for "Мука (50кг) — 1 шт" → "Мука — 50 кг" type transforms.
+  pack_size: number | null;
+  pack_unit: string | null;
 }
 
 export interface CreateMappingData {
@@ -21,14 +26,16 @@ export interface CreateMappingData {
   default_unit?: string;
   approved?: boolean;
   onec_guid?: string | null;
+  pack_size?: number | null;
+  pack_unit?: string | null;
 }
 
 export const mappingRepo = {
   create(data: CreateMappingData): NomenclatureMapping {
     const db = getDb();
     const stmt = db.prepare(`
-      INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid)
-      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved, @onec_guid)
+      INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
+      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved, @onec_guid, @pack_size, @pack_unit)
     `);
     const result = stmt.run({
       scanned_name: data.scanned_name,
@@ -37,6 +44,8 @@ export const mappingRepo = {
       default_unit: data.default_unit ?? null,
       approved: data.approved ? 1 : 0,
       onec_guid: data.onec_guid ?? null,
+      pack_size: data.pack_size ?? null,
+      pack_unit: data.pack_unit ?? null,
     });
     return db.prepare('SELECT * FROM nomenclature_mappings WHERE id = ?')
       .get(Number(result.lastInsertRowid)) as NomenclatureMapping;
@@ -69,6 +78,8 @@ export const mappingRepo = {
     if (data.default_unit !== undefined) { fields.push('default_unit = @default_unit'); values.default_unit = data.default_unit; }
     if (data.approved !== undefined) { fields.push('approved = @approved'); values.approved = data.approved ? 1 : 0; }
     if (data.onec_guid !== undefined) { fields.push('onec_guid = @onec_guid'); values.onec_guid = data.onec_guid; }
+    if (data.pack_size !== undefined) { fields.push('pack_size = @pack_size'); values.pack_size = data.pack_size; }
+    if (data.pack_unit !== undefined) { fields.push('pack_unit = @pack_unit'); values.pack_unit = data.pack_unit; }
 
     if (fields.length > 0) {
       db.prepare(`UPDATE nomenclature_mappings SET ${fields.join(', ')} WHERE id = @id`).run(values);
@@ -120,8 +131,8 @@ export const mappingRepo = {
   importBulk(items: CreateMappingData[]): number {
     const db = getDb();
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid)
-      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved, @onec_guid)
+      INSERT OR REPLACE INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
+      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved, @onec_guid, @pack_size, @pack_unit)
     `);
 
     const transaction = db.transaction((items: CreateMappingData[]) => {
@@ -134,6 +145,8 @@ export const mappingRepo = {
           default_unit: item.default_unit ?? null,
           approved: item.approved ? 1 : 0,
           onec_guid: item.onec_guid ?? null,
+          pack_size: item.pack_size ?? null,
+          pack_unit: item.pack_unit ?? null,
         });
         count++;
       }
