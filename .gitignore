@@ -20,6 +20,11 @@ eng.traineddata
 rus.traineddata
 temp_invoice.json
 cwww1C-JPGExchangetemp_invoice.json
+temp_*.json
+temp_*.txt
+
+# Backups (server-only)
+data/backups/
 datainbox.gitkeep
 architecture.excalidraw
 improvements.excalidraw
