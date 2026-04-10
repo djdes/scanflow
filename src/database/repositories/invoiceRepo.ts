@@ -134,6 +134,41 @@ export const invoiceRepo = {
   },
 
   /**
+   * Fetch pending invoices + their items in 2 queries instead of N+1.
+   * Used by GET /api/invoices/pending which is polled by the 1C side.
+   */
+  getPendingWithItems(): Array<Invoice & { items: InvoiceItem[] }> {
+    const db = getDb();
+    const invoices = db.prepare(
+      `SELECT * FROM invoices
+       WHERE approved_for_1c = 1
+       AND status IN ('processed', 'parsing', 'ocr_processing')
+       ORDER BY created_at DESC`
+    ).all() as Invoice[];
+
+    if (invoices.length === 0) return [];
+
+    const ids = invoices.map(i => i.id);
+    const placeholders = ids.map(() => '?').join(',');
+    const items = db.prepare(
+      `SELECT * FROM invoice_items WHERE invoice_id IN (${placeholders}) ORDER BY id`
+    ).all(...ids) as InvoiceItem[];
+
+    const itemsByInvoice = new Map<number, InvoiceItem[]>();
+    for (const item of items) {
+      if (!itemsByInvoice.has(item.invoice_id)) {
+        itemsByInvoice.set(item.invoice_id, []);
+      }
+      itemsByInvoice.get(item.invoice_id)!.push(item);
+    }
+
+    return invoices.map(inv => ({
+      ...inv,
+      items: itemsByInvoice.get(inv.id) ?? [],
+    }));
+  },
+
+  /**
    * Пометить накладную как одобренную для 1С.
    * Не меняет status — он остаётся 'processed'.
    * 1C забирает накладную через /pending, создаёт документ, вызывает /confirm,

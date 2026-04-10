@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { config } from '../config';
 import { logger } from '../utils/logger';
@@ -24,11 +26,41 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
 
   // Middleware
   app.use(cors());
+
+  // Security headers. contentSecurityPolicy disabled because the dashboard
+  // uses inline onclick handlers extensively; re-enable after refactoring to
+  // addEventListener-only handlers.
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }));
+
+  // Global rate limit — catches runaway clients and DoS attempts.
+  // 300 req/min/IP is generous for legit use, hard wall for abuse.
+  const globalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, try again later' },
+  });
+  app.use(globalLimiter);
+
   app.use(express.json({ limit: '10mb' }));
 
   // Debug: log every /api/* request to DB so we can diagnose "did the client
   // actually reach us?" without SSH access to pm2/nginx logs
   app.use(apiRequestLog);
+
+  // Stricter limit specifically for uploads (expensive: disk + Claude API).
+  // Applied below on /api/upload route mount.
+  const uploadLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many uploads, slow down' },
+  });
 
   // Inject dependencies
   setMapper(mapper);
@@ -41,61 +73,12 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Recent errors (no auth — for quick diagnostics without SSH)
-  app.get('/api/errors', (_req, res) => {
-    const { getDb } = require('../database/db');
-    const db = getDb();
-    const rows = db.prepare(
-      `SELECT id, file_name, error_message, created_at
-       FROM invoices WHERE status = 'error'
-       ORDER BY id DESC LIMIT 10`
-    ).all();
-    res.json({ data: rows });
-  });
-
-  // Reprocess recent errors (no auth — for quick recovery)
-  app.post('/api/reprocess-errors', async (_req, res) => {
-    const { getDb } = require('../database/db');
-    const fsMod = require('fs');
-    const pathMod = require('path');
-    const db = getDb();
-    const rows = db.prepare(
-      `SELECT id, file_name FROM invoices WHERE status = 'error' ORDER BY id DESC LIMIT 10`
-    ).all() as Array<{ id: number; file_name: string }>;
-
-    const results: Array<{ id: number; file: string; status: string }> = [];
-    for (const row of rows) {
-      const fileName = pathMod.basename(row.file_name);
-      const failedPath = pathMod.join(config.failedDir, fileName);
-      const processedPath = pathMod.join(config.processedDir, fileName);
-      const inboxPath = pathMod.join(config.inboxDir, fileName);
-
-      let source: string | null = null;
-      if (fsMod.existsSync(failedPath)) source = failedPath;
-      else if (fsMod.existsSync(processedPath)) source = processedPath;
-
-      if (!source) {
-        results.push({ id: row.id, file: fileName, status: 'file_not_found' });
-        continue;
-      }
-
-      try {
-        // Delete the old error record so a fresh one is created
-        db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(row.id);
-        db.prepare('DELETE FROM invoices WHERE id = ?').run(row.id);
-        fsMod.renameSync(source, inboxPath);
-        results.push({ id: row.id, file: fileName, status: 'moved_to_inbox' });
-      } catch (e: any) {
-        results.push({ id: row.id, file: fileName, status: 'error: ' + e.message });
-      }
-    }
-    res.json({ data: results });
-  });
-
   // API routes (with auth)
+  // NOTE: /api/errors and /api/reprocess-errors moved under /api/debug/* which
+  // is already protected by apiKeyAuth. See src/api/routes/debug.ts.
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
-  app.use('/api/upload', apiKeyAuth, uploadRouter);
+  app.use('/api/upload', apiKeyAuth, uploadLimiter, uploadRouter);
   app.use('/api/webhook', apiKeyAuth, webhookRouter);
   app.use('/api/settings', apiKeyAuth, settingsRouter);
   app.use('/api/debug', apiKeyAuth, debugRouter);

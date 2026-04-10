@@ -3,6 +3,20 @@ const App = {
   apiKey: localStorage.getItem('apiKey') || '',
   baseUrl: '/api',
 
+  /**
+   * Escape arbitrary text for safe insertion into innerHTML.
+   * Use for ANY value coming from the server — supplier names, OCR text,
+   * filenames, error messages. Never bypass this for user/OCR-sourced data.
+   */
+  esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+
   async api(path, options = {}) {
     const headers = { 'X-API-Key': this.apiKey, ...options.headers };
     if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {

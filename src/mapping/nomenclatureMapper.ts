@@ -34,7 +34,7 @@ const AUTO_SAVE_CONFIDENCE = 0.8;
  * "Батон Нарезной 0,4 кг" → "Батон Нарезной"
  * "Вода 1.5л пэт" → "Вода пэт"  (keeps non-measure words)
  */
-function normalizeName(name: string): string {
+export function normalizeName(name: string): string {
   let s = name;
   // Remove ALL content in parentheses: "(помидоры)", "(вес)", "(3кг)" etc.
   s = s.replace(/\s*\([^)]*\)\s*/g, ' ');

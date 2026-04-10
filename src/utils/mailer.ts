@@ -1,11 +1,11 @@
 import nodemailer from 'nodemailer';
 import { logger } from './logger';
 
-const SMTP_HOST = process.env.SMTP_HOST || 'wesetup.ru';
+const SMTP_HOST = process.env.SMTP_HOST || '';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
-const SMTP_USER = process.env.SMTP_USER || 'tech@wesetup.ru';
-const SMTP_PASS = process.env.SMTP_PASS || '0M2r8H4t';
-const MAIL_TO = process.env.MAIL_TO || 'bugdenes@gmail.com';
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const MAIL_TO = process.env.MAIL_TO || '';
 
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
@@ -19,6 +19,12 @@ let lastSentAt = 0;
 const MIN_INTERVAL_MS = 30_000; // max 1 email per 30 seconds
 
 export async function sendErrorEmail(subject: string, details: string): Promise<void> {
+  // Skip silently if SMTP not configured — don't spam logs
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS || !MAIL_TO) {
+    logger.debug('SMTP not configured, skipping error email', { subject });
+    return;
+  }
+
   const now = Date.now();
   if (now - lastSentAt < MIN_INTERVAL_MS) {
     logger.debug('Skipping error email (rate limited)', { subject });

@@ -7,6 +7,8 @@
     "dev": "nodemon",
     "build": "tsc",
     "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:ocr": "ts-node src/scripts/test-ocr.ts",
     "test:parse": "ts-node src/scripts/test-parse.ts",
     "test:mapping": "ts-node src/scripts/test-mapping.ts",
@@ -30,7 +32,8 @@
     "@types/nodemailer": "^8.0.0",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -45,7 +48,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
     "fuse.js": "^7.1.0",
+    "helmet": "^8.1.0",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.4",

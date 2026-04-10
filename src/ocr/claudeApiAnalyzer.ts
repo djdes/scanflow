@@ -13,6 +13,46 @@ export interface ApiAnalyzerResult {
   error?: string;
 }
 
+// 90s per Claude API request. Single-image accounting scans can legitimately
+// take 30-60s on Opus; 90s gives us headroom before failing over to retry.
+const CLAUDE_API_TIMEOUT_MS = 90_000;
+
+// Total retries = 2 (3 attempts). Backoff: 1s, 2s. Total worst-case wall time
+// ~ 90 + 1 + 90 + 2 + 90 = 273s per invoice if Claude is consistently slow.
+const CLAUDE_API_MAX_RETRIES = 2;
+
+/**
+ * Wrap a Claude API call with retry + exponential backoff.
+ * - Retries on 5xx and 429 (rate limit)
+ * - Does NOT retry on 4xx auth/bad-request errors (they're not transient)
+ * - Each attempt gets its own timeout signal
+ */
+async function withRetry<T>(fn: (signal: AbortSignal) => Promise<T>, label: string): Promise<T> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= CLAUDE_API_MAX_RETRIES; attempt++) {
+    try {
+      const signal = AbortSignal.timeout(CLAUDE_API_TIMEOUT_MS);
+      return await fn(signal);
+    } catch (e) {
+      lastError = e as Error;
+      const status = (e as { status?: number }).status;
+      // Don't retry on 4xx except 429 — those are client errors
+      if (status && status >= 400 && status < 500 && status !== 429) {
+        throw e;
+      }
+      if (attempt < CLAUDE_API_MAX_RETRIES) {
+        const backoffMs = 1000 * Math.pow(2, attempt);
+        logger.warn(`${label}: attempt ${attempt + 1} failed, retrying in ${backoffMs}ms`, {
+          error: (e as Error).message,
+          status,
+        });
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+  throw lastError ?? new Error(`${label}: unknown failure`);
+}
+
 const CLAUDE_API_PROMPT = `Ты эксперт по распознаванию накладных. Проанализируй это изображение накладной и извлеки структурированные данные.
 
 ВАЖНО:
@@ -89,16 +129,19 @@ export async function analyzeMultiPageTextWithClaudeApi(
   try {
     const client = createClient(apiKey);
 
-    const response = await client.messages.create({
-      model: modelId,
-      max_tokens: 8192,
-      messages: [
-        {
-          role: 'user',
-          content: `${CLAUDE_API_PROMPT}\n\nВАЖНО: Это многостраничная накладная (${pageCount} страниц). OCR-текст всех страниц объединён ниже с разделителем "--- СТРАНИЦА ---". Объедини ВСЕ товары со ВСЕХ страниц в один список items. Итоговую сумму возьми из последней страницы (строка "Всего по накладной" или "На сумму").\n\nOCR-ТЕКСТ:\n${combinedOcrText}`,
-        },
-      ],
-    });
+    const response = await withRetry(
+      (signal) => client.messages.create({
+        model: modelId,
+        max_tokens: 8192,
+        messages: [
+          {
+            role: 'user',
+            content: `${CLAUDE_API_PROMPT}\n\nВАЖНО: Это многостраничная накладная (${pageCount} страниц). OCR-текст всех страниц объединён ниже с разделителем "--- СТРАНИЦА ---". Объедини ВСЕ товары со ВСЕХ страниц в один список items. Итоговую сумму возьми из последней страницы (строка "Всего по накладной" или "На сумму").\n\nOCR-ТЕКСТ:\n${combinedOcrText}`,
+          },
+        ],
+      }, { signal }),
+      'Claude API multi-page text'
+    );
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
@@ -161,11 +204,14 @@ export async function analyzeMultipleImagesWithClaudeApi(
 
     const client = createClient(apiKey);
 
-    const response = await client.messages.create({
-      model: modelId,
-      max_tokens: 8192,
-      messages: [{ role: 'user', content }],
-    });
+    const response = await withRetry(
+      (signal) => client.messages.create({
+        model: modelId,
+        max_tokens: 8192,
+        messages: [{ role: 'user', content }],
+      }, { signal }),
+      'Claude API multi-image'
+    );
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
@@ -215,29 +261,32 @@ export async function analyzeImageWithClaudeApi(
 
     const client = createClient(apiKey);
 
-    const response = await client.messages.create({
-      model: modelId,
-      max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType,
-                data: base64Image,
+    const response = await withRetry(
+      (signal) => client.messages.create({
+        model: modelId,
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: base64Image,
+                },
               },
-            },
-            {
-              type: 'text',
-              text: CLAUDE_API_PROMPT,
-            },
-          ],
-        },
-      ],
-    });
+              {
+                type: 'text',
+                text: CLAUDE_API_PROMPT,
+              },
+            ],
+          },
+        ],
+      }, { signal }),
+      'Claude API single image'
+    );
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {

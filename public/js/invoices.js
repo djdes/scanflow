@@ -69,13 +69,18 @@ const Invoices = {
         return;
       }
 
-      tbody.innerHTML = data.map(inv => `
+      tbody.innerHTML = data.map(inv => {
+        const fileName = App.esc(inv.file_name || '');
+        const fileNameDisplay = (inv.file_name || '').length > 30
+          ? App.esc(inv.file_name.substring(0, 30) + '...')
+          : fileName;
+        return `
         <tr class="clickable" onclick="App.navigate('#/invoices/${inv.id}')">
           <td>${inv.id}</td>
-          <td title="${inv.file_name}">${inv.file_name.length > 30 ? inv.file_name.substring(0, 30) + '...' : inv.file_name}</td>
-          <td>${inv.invoice_number || '—'}</td>
+          <td title="${fileName}">${fileNameDisplay}</td>
+          <td>${App.esc(inv.invoice_number || '—')}</td>
           <td>${App.formatDate(inv.invoice_date)}</td>
-          <td>${inv.supplier || '—'}</td>
+          <td>${App.esc(inv.supplier || '—')}</td>
           <td style="text-align:right">${App.formatMoney(inv.total_sum)}</td>
           <td>${App.ocrEngineBadge(inv.ocr_engine)}</td>
           <td>${App.statusBadge(inv.status)}</td>
@@ -85,7 +90,8 @@ const Invoices = {
                     onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
 
       // Pagination
       const pagination = document.getElementById('invoices-pagination');
@@ -150,7 +156,7 @@ const Invoices = {
       header.innerHTML = `
         <div class="invoice-field">
           <div class="field-label">Номер</div>
-          <div class="field-value">${data.invoice_number || '—'}</div>
+          <div class="field-value">${App.esc(data.invoice_number || '—')}</div>
         </div>
         <div class="invoice-field">
           <div class="field-label">Дата</div>
@@ -158,7 +164,7 @@ const Invoices = {
         </div>
         <div class="invoice-field">
           <div class="field-label">Поставщик</div>
-          <div class="field-value">${data.supplier || '—'}</div>
+          <div class="field-value">${App.esc(data.supplier || '—')}</div>
         </div>
         <div class="invoice-field">
           <div class="field-label">Сумма</div>
@@ -178,7 +184,7 @@ const Invoices = {
         </div>
         <div class="invoice-field">
           <div class="field-label">Файл</div>
-          <div class="field-value">${data.file_name}</div>
+          <div class="field-value">${App.esc(data.file_name || '')}</div>
         </div>
         <div class="invoice-field">
           <div class="field-label">Создан</div>
@@ -191,22 +197,22 @@ const Invoices = {
       if (data.supplier_inn || data.supplier_bik || data.supplier_account) {
         let html = '<h3 style="margin-bottom:12px">Реквизиты поставщика</h3><div class="invoice-header">';
         if (data.invoice_type) {
-          html += `<div class="invoice-field"><div class="field-label">Тип документа</div><div class="field-value">${data.invoice_type}</div></div>`;
+          html += `<div class="invoice-field"><div class="field-label">Тип документа</div><div class="field-value">${App.esc(data.invoice_type)}</div></div>`;
         }
         if (data.supplier_inn) {
-          html += `<div class="invoice-field"><div class="field-label">ИНН</div><div class="field-value">${data.supplier_inn}</div></div>`;
+          html += `<div class="invoice-field"><div class="field-label">ИНН</div><div class="field-value">${App.esc(data.supplier_inn)}</div></div>`;
         }
         if (data.supplier_bik) {
-          html += `<div class="invoice-field"><div class="field-label">БИК</div><div class="field-value">${data.supplier_bik}</div></div>`;
+          html += `<div class="invoice-field"><div class="field-label">БИК</div><div class="field-value">${App.esc(data.supplier_bik)}</div></div>`;
         }
         if (data.supplier_account) {
-          html += `<div class="invoice-field"><div class="field-label">Расч. счёт</div><div class="field-value">${data.supplier_account}</div></div>`;
+          html += `<div class="invoice-field"><div class="field-label">Расч. счёт</div><div class="field-value">${App.esc(data.supplier_account)}</div></div>`;
         }
         if (data.supplier_corr_account) {
-          html += `<div class="invoice-field"><div class="field-label">Корр. счёт</div><div class="field-value">${data.supplier_corr_account}</div></div>`;
+          html += `<div class="invoice-field"><div class="field-label">Корр. счёт</div><div class="field-value">${App.esc(data.supplier_corr_account)}</div></div>`;
         }
         if (data.supplier_address) {
-          html += `<div class="invoice-field"><div class="field-label">Адрес</div><div class="field-value">${data.supplier_address}</div></div>`;
+          html += `<div class="invoice-field"><div class="field-label">Адрес</div><div class="field-value">${App.esc(data.supplier_address)}</div></div>`;
         }
         html += '</div>';
         supplierBlock.innerHTML = html;
@@ -238,7 +244,7 @@ const Invoices = {
         actionsHtml += `<button class="btn btn-outline" onclick="Invoices.resetStatus(${data.id})">Сбросить статус (для повторной загрузки)</button>`;
       }
       if (data.error_message) {
-        actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${data.error_message}</div>`;
+        actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${App.esc(data.error_message)}</div>`;
       }
       // Remap buttons — two separate buttons, planshet-friendly
       if (unmappedCount > 0) {
@@ -256,12 +262,13 @@ const Invoices = {
           const badge = item.onec_guid
             ? '<span class="nom-badge nom-badge-ok" title="Сопоставлено">✓</span>'
             : '<span class="nom-badge nom-badge-missing" title="Требует сопоставления">●</span>';
-          const currentName = item.mapped_name || item.original_name;
-          const safeName = currentName.replace(/"/g, '&quot;');
+          const currentName = item.mapped_name || item.original_name || '';
+          // esc() also escapes quotes, which is what we need for value="..."
+          const safeName = App.esc(currentName);
           return `
           <tr data-item-id="${item.id}">
             <td>${i + 1}</td>
-            <td>${item.original_name}</td>
+            <td>${App.esc(item.original_name || '')}</td>
             <td>
               <div class="nom-picker">
                 ${badge}
@@ -269,7 +276,7 @@ const Invoices = {
                        value="${safeName}"
                        data-invoice-id="${data.id}"
                        data-item-id="${item.id}"
-                       data-current-guid="${item.onec_guid || ''}"
+                       data-current-guid="${App.esc(item.onec_guid || '')}"
                        oninput="Invoices.onNomInput(event)"
                        onfocus="Invoices.onNomFocus(event)"
                        onblur="Invoices.onNomBlur(event)">
@@ -277,7 +284,7 @@ const Invoices = {
               </div>
             </td>
             <td style="text-align:right">${item.quantity != null ? item.quantity : '—'}</td>
-            <td>${item.unit || '—'}</td>
+            <td>${App.esc(item.unit || '—')}</td>
             <td style="text-align:right">${App.formatMoney(item.price)}</td>
             <td style="text-align:right">${App.formatMoney(item.total)}</td>
             <td style="text-align:center">${item.vat_rate != null ? item.vat_rate + '%' : '—'}</td>

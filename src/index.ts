@@ -7,6 +7,7 @@ import { NomenclatureMapper } from './mapping/nomenclatureMapper';
 import { FileWatcher } from './watcher/fileWatcher';
 import { startServer } from './api/server';
 import { backupDatabase } from './utils/backup';
+import { cleanupOldRequestLogs } from './api/middleware/requestLog';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -49,6 +50,13 @@ async function main(): Promise<void> {
     backupDatabase();
   });
   logger.info('Daily database backup scheduled at 03:00');
+
+  // Schedule daily request log cleanup at 03:05 (after backup so the backup
+  // captures the cleaned-up state). Moves the DELETE out of the request hot path.
+  cron.schedule('5 3 * * *', () => {
+    const deleted = cleanupOldRequestLogs();
+    logger.info('API request log cleanup', { deleted });
+  });
 
   // Run one backup immediately on startup — captures current state
   // before any crash or issues happen in this session.

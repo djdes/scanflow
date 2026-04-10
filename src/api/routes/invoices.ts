@@ -38,8 +38,7 @@ router.get('/', (req: Request, res: Response) => {
 
 // GET /api/invoices/pending — invoices ready for 1C
 router.get('/pending', (_req: Request, res: Response) => {
-  const invoices = invoiceRepo.getPending();
-  const result = invoices.map(inv => invoiceRepo.getWithItems(inv.id));
+  const result = invoiceRepo.getPendingWithItems();
   res.json({ data: result, count: result.length });
 });
 

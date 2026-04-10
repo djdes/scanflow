@@ -38,16 +38,26 @@ export function apiRequestLog(req: Request, res: Response, next: NextFunction): 
         `INSERT INTO api_requests_log (method, path, remote_addr, user_agent, status_code, duration_ms)
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(capturedMethod, capturedPath, capturedRemoteAddr, capturedUserAgent, res.statusCode, duration);
-
-      // Prune old entries (>7 days). Fires on every insert which is fine at
-      // current traffic; no perf concern.
-      db.prepare(
-        `DELETE FROM api_requests_log WHERE timestamp < datetime('now', '-7 days')`
-      ).run();
     } catch {
       // Never break the request pipeline on logging failures
     }
   });
 
   next();
+}
+
+/**
+ * Delete request log entries older than 7 days.
+ * Called by a daily cron — not from every request.
+ */
+export function cleanupOldRequestLogs(): number {
+  try {
+    const db = getDb();
+    const result = db.prepare(
+      `DELETE FROM api_requests_log WHERE timestamp < datetime('now', '-7 days')`
+    ).run();
+    return result.changes;
+  } catch {
+    return 0;
+  }
 }
