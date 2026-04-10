@@ -237,7 +237,12 @@ router.post('/:id/remap', (req: Request, res: Response) => {
 
     const result = mapper.map(item.original_name);
     if (result.onec_guid) {
-      invoiceRepo.mapItem(item.id, result.onec_guid, result.mapped_name);
+      invoiceRepo.updateItemMapping(
+        item.id,
+        result.onec_guid,
+        result.mapped_name,
+        result.confidence
+      );
       remapped++;
     }
   }

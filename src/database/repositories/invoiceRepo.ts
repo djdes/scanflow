@@ -234,6 +234,17 @@ export const invoiceRepo = {
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(itemId) as InvoiceItem | undefined;
   },
 
+  /**
+   * Update mapping + confidence on an invoice item. Used by /remap endpoint
+   * so that the UI "точность" column reflects the new fuzzy score.
+   */
+  updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number): void {
+    const db = getDb();
+    db.prepare(
+      `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ? WHERE id = ?`
+    ).run(onecGuid, mappedName, confidence, itemId);
+  },
+
   getWithItems(id: number): (Invoice & { items: InvoiceItem[] }) | undefined {
     const invoice = this.getById(id);
     if (!invoice) return undefined;
