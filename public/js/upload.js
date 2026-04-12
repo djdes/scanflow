@@ -1,6 +1,9 @@
 /* global App, Upload */
 const Upload = {
   initialized: false,
+  // Carousel state: array of { file, objectUrl, status, invoiceId, error }
+  slides: [],
+  currentIndex: 0,
 
   init() {
     if (this.initialized) return;
@@ -9,7 +12,12 @@ const Upload = {
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
 
-    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('click', (e) => {
+      // Don't trigger file picker when clicking on the preview info links
+      if (e.target.closest('.upload-preview-info a')) return;
+      if (e.target.closest('button')) return;
+      fileInput.click();
+    });
 
     dropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -23,91 +31,189 @@ const Upload = {
     dropZone.addEventListener('drop', (e) => {
       e.preventDefault();
       dropZone.classList.remove('dragover');
-      if (e.dataTransfer.files.length > 0) {
-        this.uploadFile(e.dataTransfer.files[0]);
-      }
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) this.addFiles(files);
     });
 
     fileInput.addEventListener('change', () => {
-      if (fileInput.files.length > 0) {
-        this.uploadFile(fileInput.files[0]);
-        fileInput.value = '';
-      }
+      const files = Array.from(fileInput.files);
+      if (files.length > 0) this.addFiles(files);
+      fileInput.value = '';
     });
   },
 
-  uploadFile(file) {
+  addFiles(files) {
     const allowed = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'];
-    const ext = '.' + file.name.split('.').pop().toLowerCase();
-    if (!allowed.includes(ext)) {
-      App.notify('Неподдерживаемый формат: ' + ext, 'error');
+    for (const file of files) {
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      if (!allowed.includes(ext)) {
+        App.notify(`Пропущен: ${file.name} (неподдерживаемый формат)`, 'error');
+        continue;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        App.notify(`Пропущен: ${file.name} (больше 20 МБ)`, 'error');
+        continue;
+      }
+      const objectUrl = URL.createObjectURL(file);
+      this.slides.push({
+        file,
+        objectUrl,
+        status: 'pending',    // pending | uploading | done | error
+        invoiceId: null,
+        error: null,
+      });
+    }
+    // Jump to the first new file and start uploading
+    this.currentIndex = this.slides.length - files.length;
+    if (this.currentIndex < 0) this.currentIndex = 0;
+    this.renderSlide();
+    this.uploadPending();
+  },
+
+  renderSlide() {
+    const placeholder = document.getElementById('drop-placeholder');
+    const preview = document.getElementById('upload-preview');
+    const previewImg = document.getElementById('upload-preview-img');
+    const previewInfo = document.getElementById('upload-preview-info');
+    const counter = document.getElementById('upload-counter');
+    const bottomBtns = document.getElementById('upload-bottom-buttons');
+
+    if (this.slides.length === 0) {
+      placeholder.style.display = '';
+      preview.style.display = 'none';
+      counter.textContent = '';
+      bottomBtns.style.display = 'none';
       return;
     }
 
-    if (file.size > 20 * 1024 * 1024) {
-      App.notify('Файл слишком большой (макс. 20 МБ)', 'error');
-      return;
-    }
+    placeholder.style.display = 'none';
+    preview.style.display = 'flex';
 
+    const slide = this.slides[this.currentIndex];
+    previewImg.src = slide.objectUrl;
+
+    let infoHtml = `<span class="upload-filename">${this.esc(slide.file.name)}</span>`;
+    if (slide.status === 'uploading') {
+      infoHtml += ' <span class="upload-status upload-status-uploading">Обработка...</span>';
+    } else if (slide.status === 'done') {
+      infoHtml += ` <span class="upload-status upload-status-done">Готово</span>`;
+      infoHtml += ` <a href="#/invoices/${slide.invoiceId}" class="upload-link">Накладная #${slide.invoiceId}</a>`;
+    } else if (slide.status === 'error') {
+      infoHtml += ` <span class="upload-status upload-status-error">${this.esc(slide.error || 'Ошибка')}</span>`;
+    }
+    previewInfo.innerHTML = infoHtml;
+
+    counter.textContent = `${this.currentIndex + 1} / ${this.slides.length}`;
+
+    // Show "open all" if at least one is done
+    const doneCount = this.slides.filter(s => s.status === 'done').length;
+    bottomBtns.style.display = doneCount > 0 ? '' : 'none';
+
+    // Arrow visibility
+    document.querySelector('.upload-arrow-left').style.visibility =
+      this.currentIndex > 0 ? 'visible' : 'hidden';
+    document.querySelector('.upload-arrow-right').style.visibility =
+      this.currentIndex < this.slides.length - 1 ? 'visible' : 'hidden';
+  },
+
+  prevSlide() {
+    if (this.currentIndex > 0) {
+      this.currentIndex--;
+      this.renderSlide();
+    }
+  },
+
+  nextSlide() {
+    if (this.currentIndex < this.slides.length - 1) {
+      this.currentIndex++;
+      this.renderSlide();
+    }
+  },
+
+  async uploadPending() {
+    for (const slide of this.slides) {
+      if (slide.status !== 'pending') continue;
+      slide.status = 'uploading';
+      this.renderSlide();
+      await this.uploadOneFile(slide);
+      this.renderSlide();
+    }
+  },
+
+  async uploadOneFile(slide) {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', slide.file);
 
     const progressBar = document.getElementById('upload-progress');
     const progressFill = document.getElementById('upload-progress-fill');
-    const resultDiv = document.getElementById('upload-result');
 
     progressBar.style.display = 'block';
     progressFill.style.width = '0%';
-    resultDiv.style.display = 'none';
 
-    const xhr = new XMLHttpRequest();
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
 
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        progressFill.style.width = pct + '%';
-      }
-    });
-
-    xhr.addEventListener('load', () => {
-      progressFill.style.width = '100%';
-      try {
-        const resp = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resultDiv.style.display = 'block';
-          resultDiv.innerHTML = `
-            <div class="card" style="background:#f0fdf4;border-color:#bbf7d0">
-              <strong>Файл обработан!</strong><br>
-              Накладная ID: <a href="#/invoices/${resp.invoice_id}" style="color:var(--primary);font-weight:600">#${resp.invoice_id}</a>
-              <br><br>
-              <button class="btn btn-primary btn-sm" onclick="App.navigate('#/invoices/${resp.invoice_id}')">Открыть накладную</button>
-            </div>
-          `;
-          App.notify('Файл успешно обработан', 'success');
-        } else {
-          resultDiv.style.display = 'block';
-          resultDiv.innerHTML = `
-            <div class="card" style="background:#fef2f2;border-color:#fecaca">
-              <strong>Ошибка!</strong><br>${resp.error || 'Неизвестная ошибка'}
-            </div>
-          `;
-          App.notify('Ошибка обработки файла', 'error');
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          progressFill.style.width = Math.round((e.loaded / e.total) * 100) + '%';
         }
-      } catch {
-        resultDiv.style.display = 'block';
-        resultDiv.innerHTML = `<div class="card" style="background:#fef2f2;border-color:#fecaca">
-          <strong>Ошибка!</strong><br>HTTP ${xhr.status}: ${xhr.statusText}
-        </div>`;
-      }
-    });
+      });
 
-    xhr.addEventListener('error', () => {
-      App.notify('Ошибка сети', 'error');
-      progressBar.style.display = 'none';
-    });
+      xhr.addEventListener('load', () => {
+        progressFill.style.width = '100%';
+        try {
+          const resp = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            slide.status = 'done';
+            slide.invoiceId = resp.invoice_id;
+            App.notify(`${slide.file.name} обработан`, 'success');
+          } else {
+            slide.status = 'error';
+            slide.error = resp.error || `HTTP ${xhr.status}`;
+          }
+        } catch {
+          slide.status = 'error';
+          slide.error = `HTTP ${xhr.status}`;
+        }
+        progressBar.style.display = 'none';
+        resolve();
+      });
 
-    xhr.open('POST', App.baseUrl + '/upload');
-    xhr.setRequestHeader('X-API-Key', App.apiKey);
-    xhr.send(formData);
-  }
+      xhr.addEventListener('error', () => {
+        slide.status = 'error';
+        slide.error = 'Ошибка сети';
+        progressBar.style.display = 'none';
+        resolve();
+      });
+
+      xhr.open('POST', App.baseUrl + '/upload');
+      xhr.setRequestHeader('X-API-Key', App.apiKey);
+      xhr.send(formData);
+    });
+  },
+
+  clearAll() {
+    // Release object URLs
+    for (const slide of this.slides) {
+      if (slide.objectUrl) URL.revokeObjectURL(slide.objectUrl);
+    }
+    this.slides = [];
+    this.currentIndex = 0;
+    this.renderSlide();
+    document.getElementById('upload-result').innerHTML = '';
+    document.getElementById('upload-result').style.display = 'none';
+  },
+
+  openAllResults() {
+    const doneIds = this.slides
+      .filter(s => s.status === 'done' && s.invoiceId)
+      .map(s => s.invoiceId);
+    if (doneIds.length === 0) return;
+    // Navigate to the first one
+    App.navigate(`#/invoices/${doneIds[0]}`);
+  },
+
+  esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
 };

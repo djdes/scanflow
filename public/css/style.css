@@ -638,14 +638,77 @@ details[open] summary { margin-bottom: 12px; }
 }
 
 /* ========== Upload / Drop Zone ========== */
+/* ========== Upload page (carousel style) ========== */
+
+.upload-card { padding: 24px; }
+
+.upload-top-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.upload-btn-pick {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 24px;
+  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+.upload-btn-pick:hover { background: #2563eb; }
+.upload-btn-clear {
+  background: #fecdd3;
+  color: #be123c;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 24px;
+  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  border: none;
+}
+.upload-btn-clear:hover { background: #fda4af; }
+
+/* Carousel: arrows on sides, drop zone in center */
+.upload-carousel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.upload-arrow {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  opacity: 0.5;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s;
+  border-radius: 50%;
+}
+.upload-arrow:hover { opacity: 1; background: var(--primary-soft); }
+
 .drop-zone {
+  flex: 1;
+  min-height: 240px;
   border: 2px dashed var(--border);
   border-radius: var(--radius-lg);
-  padding: 56px 32px;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: all var(--transition);
   background: #fafbfd;
+  overflow: hidden;
+  position: relative;
 }
 
 .drop-zone:hover, .drop-zone.dragover {
@@ -653,20 +716,8 @@ details[open] summary { margin-bottom: 12px; }
   background: var(--primary-soft);
 }
 
-.drop-zone:hover .drop-icon,
-.drop-zone.dragover .drop-icon {
-  color: var(--primary);
-  transform: translateY(-4px);
-}
-
-.drop-zone .drop-icon {
-  color: var(--text-tertiary);
-  margin-bottom: 16px;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 .drop-zone .drop-text {
-  font-size: 15px;
+  font-size: 16px;
   color: var(--text-secondary);
   margin-bottom: 6px;
   font-weight: 500;
@@ -677,6 +728,91 @@ details[open] summary { margin-bottom: 12px; }
   color: var(--text-tertiary);
 }
 
+/* Preview inside drop zone */
+.upload-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+}
+.upload-preview img {
+  max-height: 200px;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.upload-preview-info {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+.upload-filename {
+  font-weight: 500;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.upload-status {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.upload-status-uploading {
+  background: #fef3c7;
+  color: #92400e;
+  animation: pulse-status 1.5s ease-in-out infinite;
+}
+@keyframes pulse-status {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.upload-status-done { background: #d1fae5; color: #065f46; }
+.upload-status-error { background: #fee2e2; color: #991b1b; }
+.upload-link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.upload-link:hover { text-decoration: underline; }
+
+/* Counter */
+.upload-counter {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+/* Bottom button */
+.upload-bottom-buttons {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+.upload-btn-open-all {
+  background: var(--text-muted, #94a3b8);
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 24px;
+  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+.upload-btn-open-all:hover { background: #64748b; }
+
+/* Progress bar */
 .progress-bar {
   width: 100%;
   height: 6px;

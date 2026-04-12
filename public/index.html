@@ -168,25 +168,62 @@
     <!-- Upload Section -->
     <section id="view-upload">
       <div class="section-header">
-        <h2>Загрузка накладной</h2>
-        <p class="section-subtitle">Загрузите фотографию или скан для распознавания</p>
+        <h2>Загрузка накладных</h2>
+        <p class="section-subtitle">Загрузите фотографии или сканы для распознавания</p>
       </div>
-      <div class="card">
-        <div class="drop-zone" id="drop-zone">
-          <div class="drop-icon">
-            <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-              <rect x="8" y="12" width="40" height="36" rx="4" stroke="currentColor" stroke-width="2" opacity="0.3"/>
-              <path d="M28 32V16m0 0l-6 6m6-6l6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M16 40h24" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.3"/>
-            </svg>
-          </div>
-          <div class="drop-text">Перетащите файл сюда или нажмите для выбора</div>
-          <div class="drop-hint">JPG, PNG, BMP, TIFF, WEBP (макс. 20 МБ)</div>
-          <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" style="display:none">
+      <div class="card upload-card">
+        <!-- Top buttons -->
+        <div class="upload-top-buttons">
+          <button class="btn upload-btn-pick" onclick="document.getElementById('file-input').click()">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10V2m0 0L5 5m3-3l3 3M2 10v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Загрузить файлы
+          </button>
+          <button class="btn upload-btn-clear" onclick="Upload.clearAll()">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Очистить
+          </button>
         </div>
+
+        <!-- Carousel area: arrows + drop zone / preview -->
+        <div class="upload-carousel">
+          <button class="upload-arrow upload-arrow-left" onclick="Upload.prevSlide()" title="Предыдущий">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-placeholder" id="drop-placeholder">
+              <div class="drop-text">Перетащите файлы сюда</div>
+              <div class="drop-hint">JPG, PNG, BMP, TIFF, WEBP (макс. 20 МБ)</div>
+            </div>
+            <div class="upload-preview" id="upload-preview" style="display:none">
+              <img id="upload-preview-img" alt="Превью">
+              <div class="upload-preview-info" id="upload-preview-info"></div>
+            </div>
+            <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" multiple style="display:none">
+          </div>
+
+          <button class="upload-arrow upload-arrow-right" onclick="Upload.nextSlide()" title="Следующий">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <!-- Progress bar -->
         <div class="progress-bar" id="upload-progress">
           <div class="progress-fill" id="upload-progress-fill"></div>
         </div>
+
+        <!-- Counter -->
+        <div class="upload-counter" id="upload-counter"></div>
+
+        <!-- Bottom button -->
+        <div class="upload-bottom-buttons" id="upload-bottom-buttons" style="display:none">
+          <button class="btn upload-btn-open-all" onclick="Upload.openAllResults()">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Открыть все накладные
+          </button>
+        </div>
+
+        <!-- Result cards -->
         <div class="upload-result" id="upload-result"></div>
       </div>
     </section>
