@@ -1015,7 +1015,7 @@ Invoice pages merged successfully {id: 1121, totalItemsCount: 10, addedItemsCoun
 | **Node.js на сервере** | v20.20.0 (nvm) |
 | **PM2 процесс** | scan-magday |
 | **Порт приложения** | 8899 (nginx проксирует с домена) |
-| **GitHub репозиторий** | djdes/scan_magday (private) |
+| **GitHub репозиторий** | djdes/scanflow (private) |
 
 ### Автодеплой
 
@@ -1111,8 +1111,8 @@ curl http://localhost:8899/health
 curl -H "X-API-Key: your-secret-api-key" http://localhost:8899/api/invoices/stats
 
 # GitHub Actions
-gh run list --repo djdes/scan_magday
-gh run watch <run-id> --repo djdes/scan_magday
+gh run list --repo djdes/scanflow
+gh run watch <run-id> --repo djdes/scanflow
 
 # Загрузка файлов на сервер (БД, credentials)
 # ВАЖНО: сначала остановить PM2, потом загрузить, потом запустить
@@ -1139,7 +1139,7 @@ HTTPS на scan.magday.ru показывает страницу FastPanel, а н
 
 ## Контакты и ресурсы
 
-- **GitHub:** https://github.com/djdes/scan_magday (private)
+- **GitHub:** https://github.com/djdes/scanflow (private)
 - **Production:** http://scan.magday.ru/
 - **Документация 1С:УНФ 1.6:** https://its.1c.ru/db/unf
 - **Google Vision API docs:** https://cloud.google.com/vision/docs
@@ -1157,7 +1157,7 @@ HTTPS на scan.magday.ru показывает страницу FastPanel, а н
 ### v1.5 (2026-04-03)
 - ✅ **Production деплой** на scan.magday.ru (FastPanel, Ubuntu 24.04)
 - ✅ **GitHub Actions CI/CD** — автодеплой при push в main (~25 сек)
-- ✅ GitHub repo: djdes/scan_magday (private), SSH secrets настроены
+- ✅ GitHub repo: djdes/scanflow (private), SSH secrets настроены
 - ✅ PM2 процесс `scan-magday` на порту 8899
 - ✅ **HTTP прокси для Anthropic API** — undici ProxyAgent + custom fetch
 - ✅ Google Vision credentials загружены на сервер

@@ -375,4 +375,93 @@
     });
   });
 
+  // ========== Login Modal ==========
+
+  const loginModal = document.getElementById('login-modal');
+  const loginOpenBtn = document.getElementById('btn-login-open');
+  const loginForm = document.getElementById('login-form');
+  const loginInput = document.getElementById('login-api-key');
+  const loginSubmit = document.getElementById('login-submit');
+  const loginError = document.getElementById('login-error');
+
+  function openLogin() {
+    if (!loginModal) return;
+    loginModal.classList.add('open');
+    loginModal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('login-open');
+    const saved = localStorage.getItem('apiKey');
+    if (saved) loginInput.value = saved;
+    setTimeout(() => loginInput && loginInput.focus(), 50);
+    if (loginError) {
+      loginError.hidden = true;
+      loginError.textContent = '';
+    }
+  }
+
+  function closeLogin() {
+    if (!loginModal) return;
+    loginModal.classList.remove('open');
+    loginModal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('login-open');
+  }
+
+  if (loginOpenBtn) {
+    loginOpenBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openLogin();
+    });
+  }
+
+  // Close on backdrop / close-button / hint-link click
+  document.querySelectorAll('[data-close-login]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      // Allow anchor-based hint link (#pricing) to scroll after closing
+      closeLogin();
+      if (el.tagName !== 'A') e.preventDefault();
+    });
+  });
+
+  // Escape to close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && loginModal && loginModal.classList.contains('open')) {
+      closeLogin();
+    }
+  });
+
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const key = (loginInput.value || '').trim();
+      if (!key) return;
+
+      loginSubmit.disabled = true;
+      loginSubmit.textContent = 'Проверяем…';
+      loginError.hidden = true;
+
+      try {
+        const resp = await fetch('/api/invoices/stats', {
+          headers: { 'X-API-Key': key },
+        });
+        if (resp.status === 401) {
+          loginError.textContent = 'API-ключ не принят. Проверьте значение и попробуйте снова.';
+          loginError.hidden = false;
+          return;
+        }
+        if (!resp.ok) {
+          loginError.textContent = `Сервер вернул ошибку (${resp.status}). Попробуйте позже.`;
+          loginError.hidden = false;
+          return;
+        }
+        localStorage.setItem('apiKey', key);
+        window.location.href = '/app.html';
+      } catch (err) {
+        loginError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
+        loginError.hidden = false;
+      } finally {
+        loginSubmit.disabled = false;
+        loginSubmit.textContent = 'Войти';
+      }
+    });
+  }
+
 })();

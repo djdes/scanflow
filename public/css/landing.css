@@ -1508,3 +1508,170 @@ body {
     padding: 28px;
   }
 }
+
+/* ============================================================
+   LOGIN MODAL
+   ============================================================ */
+
+.login-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.login-modal.open {
+  display: flex;
+  animation: login-fade-in 0.2s ease-out;
+}
+
+@keyframes login-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.login-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 16, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.login-modal__card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: linear-gradient(180deg, rgba(24, 30, 46, 0.95) 0%, rgba(14, 18, 28, 0.95) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 20px;
+  padding: 40px 32px 32px;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 -60px 120px rgba(59, 130, 246, 0.12) inset;
+  text-align: center;
+  animation: login-pop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes login-pop {
+  from { opacity: 0; transform: translateY(20px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.login-modal__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.login-modal__close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.login-modal__icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(6, 214, 160, 0.15));
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3b82f6;
+}
+
+.login-modal__card h3 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+
+.login-modal__card p {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0 0 24px;
+  line-height: 1.5;
+}
+
+.login-modal__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-modal__form input[type="password"] {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.5px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.login-modal__form input[type="password"]:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.05);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.login-modal__form input[type="password"]::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+  font-family: inherit;
+  letter-spacing: 0;
+}
+
+.login-modal__error {
+  color: #ef4444;
+  font-size: 13px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 10px;
+  margin-top: 4px;
+}
+
+.login-modal__hint {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 8px;
+}
+
+.login-modal__hint a {
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.login-modal__hint a:hover {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+body.login-open {
+  overflow: hidden;
+}

@@ -1,4 +1,4 @@
-name: Deploy to magday.ru
+name: Deploy to scanflow.ru
 
 on:
   push:
@@ -55,7 +55,7 @@ jobs:
             --exclude='improvements.excalidraw' \
             --exclude='improvements.png' \
             -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }}" \
-            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/www/scan.magday.ru/app/
+            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/www/scanflow.ru/app/
 
       - name: Install dependencies and restart
         run: |
@@ -63,7 +63,7 @@ jobs:
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-          cd ~/www/scan.magday.ru/app
+          cd ~/www/scanflow.ru/app
 
           # Create data dirs if missing
           mkdir -p data/inbox data/processed data/failed

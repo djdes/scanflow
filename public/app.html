@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScanFlow — Сканер накладных</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- Auth Screen -->
+<div id="auth-screen">
+  <div class="auth-backdrop"></div>
+  <div class="auth-card">
+    <div class="auth-logo">
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+        <rect x="2" y="2" width="36" height="36" rx="8" stroke="currentColor" stroke-width="2.5"/>
+        <line x1="10" y1="14" x2="30" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <line x1="10" y1="20" x2="26" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+        <line x1="10" y1="26" x2="22" y2="26" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+        <path d="M28 24l4 4m0 0l4 4m-4-4l4-4m-4 4l-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+      </svg>
+    </div>
+    <h1>ScanFlow</h1>
+    <p>Введите API-ключ для доступа</p>
+    <div class="input-group">
+      <div class="input-icon-wrap">
+        <svg class="input-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1a4 4 0 00-4 4v3H3a1 1 0 00-1 1v5a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V5a4 4 0 00-4-4zm2 7H6V5a2 2 0 114 0v3z" fill="currentColor" opacity="0.4"/></svg>
+        <label for="auth-key-input" class="sr-only">API-ключ</label>
+        <input type="password" id="auth-key-input" placeholder="API Key" aria-label="API-ключ"
+               onkeydown="if(event.key==='Enter')document.getElementById('auth-btn').click()">
+      </div>
+      <button class="btn btn-primary" id="auth-btn" onclick="App.login(document.getElementById('auth-key-input').value)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Войти
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <header>
+    <div class="header-inner">
+      <a href="#/invoices" class="logo" title="На главную">
+        <svg class="logo-icon" width="28" height="28" viewBox="0 0 40 40" fill="none">
+          <rect x="2" y="2" width="36" height="36" rx="8" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="10" y1="14" x2="30" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="10" y1="20" x2="26" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+          <line x1="10" y1="26" x2="22" y2="26" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+        </svg>
+        <span>ScanFlow</span>
+      </a>
+      <nav>
+        <a href="#/invoices" data-tab="invoices">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Накладные
+        </a>
+        <a href="#/upload" data-tab="upload">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10V2m0 0L5 5m3-3l3 3M2 10v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Загрузка
+        </a>
+        <a href="#/camera" data-tab="camera">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5a1 1 0 011-1h2l1-1.5h4L11 4h2a1 1 0 011 1v7a1 1 0 01-1 1H3a1 1 0 01-1-1V5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="8" cy="8.5" r="2.5" stroke="currentColor" stroke-width="1.5"/></svg>
+          Камера
+        </a>
+        <a href="#/mappings" data-tab="mappings">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Номенклатура
+        </a>
+        <a href="#/webhook" data-tab="webhook">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 4 6-4M2 4v8a1 1 0 001 1h10a1 1 0 001-1V4M2 4a1 1 0 011-1h10a1 1 0 011 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Webhook 1C
+        </a>
+        <a href="#/settings" data-tab="settings">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 8a5.5 5.5 0 01-.4 2l1.2 1.5-1.4 1.4L11.4 11.7a5.5 5.5 0 01-2 .4V14h-2v-1.9a5.5 5.5 0 01-2-.4L3.9 12.9 2.5 11.5 3.7 10a5.5 5.5 0 01-.4-2H1.5V6h1.8a5.5 5.5 0 01.4-2L2.5 2.5l1.4-1.4L5.4 2.3a5.5 5.5 0 012-.4V0h2v1.9a5.5 5.5 0 012 .4l1.5-1.2 1.4 1.4-1.2 1.5a5.5 5.5 0 01.4 2h1.9v2h-1.9z" stroke="currentColor" stroke-width="1" opacity="0.4"/></svg>
+          Настройки
+        </a>
+      </nav>
+      <div class="header-right">
+        <button class="btn-logout" onclick="App.logout()" title="Выйти из системы">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M11 11l3-3m0 0l-3-3m3 3H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Выйти
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Invoices Section -->
+    <section id="view-invoices">
+      <div id="invoices-stats" class="stats-bar"></div>
+      <div id="invoices-list">
+        <div class="filters" id="invoices-filters"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Файл</th>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Поставщик</th>
+                <th>Сумма</th>
+                <th>Обработка</th>
+                <th>Статус</th>
+                <th>Создан</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="invoices-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="invoices-pagination"></div>
+      </div>
+
+      <div id="invoice-detail" style="display:none">
+        <a href="#/invoices" class="back-link">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Назад к списку
+        </a>
+        <div class="card">
+          <div class="invoice-header" id="invoice-header-fields"></div>
+          <div class="invoice-actions" id="invoice-actions"></div>
+        </div>
+        <div class="card" id="invoice-supplier-details" style="display:none">
+          <h3 style="margin-bottom:12px">Реквизиты поставщика</h3>
+        </div>
+        <div class="tabs" style="margin-bottom:0">
+          <button class="tab-btn active" onclick="Invoices.switchTab('items', this)">Товары</button>
+          <button class="tab-btn" onclick="Invoices.switchTab('photos', this)">Фото</button>
+          <button class="tab-btn" onclick="Invoices.switchTab('ocr', this)">OCR-текст</button>
+        </div>
+        <div class="card" id="invoice-tab-items">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Название (скан)</th>
+                  <th>Название (1С)</th>
+                  <th>Кол-во</th>
+                  <th>Ед.</th>
+                  <th>Цена</th>
+                  <th>Сумма</th>
+                  <th>НДС%</th>
+                  <th>Точность</th>
+                </tr>
+              </thead>
+              <tbody id="invoice-items-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" id="invoice-tab-photos" style="display:none">
+          <div id="invoice-photos-container">
+            <div class="empty-state">Загрузка фото...</div>
+          </div>
+        </div>
+        <div class="card" id="invoice-tab-ocr" style="display:none">
+          <div class="ocr-text" id="invoice-ocr-text"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Upload Section -->
+    <section id="view-upload">
+      <div class="section-header">
+        <h2>Загрузка накладных</h2>
+        <p class="section-subtitle">Загрузите фотографии или сканы для распознавания</p>
+      </div>
+      <div class="card upload-card">
+        <!-- Top buttons -->
+        <div class="upload-top-buttons">
+          <button class="btn upload-btn-pick" onclick="document.getElementById('file-input').click()">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10V2m0 0L5 5m3-3l3 3M2 10v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Загрузить файлы
+          </button>
+          <button class="btn upload-btn-clear" onclick="Upload.clearAll()">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Очистить
+          </button>
+        </div>
+
+        <!-- Carousel area: arrows + drop zone / preview -->
+        <div class="upload-carousel">
+          <button class="upload-arrow upload-arrow-left" onclick="Upload.prevSlide()" title="Предыдущий">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-placeholder" id="drop-placeholder">
+              <div class="drop-text">Перетащите файлы сюда</div>
+              <div class="drop-hint">JPG, PNG, BMP, TIFF, WEBP (макс. 20 МБ)</div>
+            </div>
+            <div class="upload-preview" id="upload-preview" style="display:none">
+              <img id="upload-preview-img" alt="Превью">
+              <div class="upload-preview-info" id="upload-preview-info"></div>
+            </div>
+            <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" multiple style="display:none">
+          </div>
+
+          <button class="upload-arrow upload-arrow-right" onclick="Upload.nextSlide()" title="Следующий">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="progress-bar" id="upload-progress">
+          <div class="progress-fill" id="upload-progress-fill"></div>
+        </div>
+
+        <!-- Counter -->
+        <div class="upload-counter" id="upload-counter"></div>
+
+        <!-- Bottom button -->
+        <div class="upload-bottom-buttons" id="upload-bottom-buttons" style="display:none">
+          <button class="btn upload-btn-open-all" onclick="Upload.openAllResults()">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Открыть все накладные
+          </button>
+        </div>
+
+        <!-- Result cards -->
+        <div class="upload-result" id="upload-result"></div>
+      </div>
+    </section>
+
+    <!-- Camera Section -->
+    <section id="view-camera">
+      <div class="section-header">
+        <h2>Фото накладной</h2>
+        <p class="section-subtitle">Сфотографируйте накладную камерой телефона или выберите файл</p>
+      </div>
+      <div class="card">
+        <input type="file" id="camera-file-input" accept="image/*" capture="environment" style="display:none">
+        <button class="btn-camera-capture" id="btn-camera-capture">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <path d="M4 10a2 2 0 012-2h4l2-3h8l2 3h4a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V10z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            <circle cx="16" cy="17" r="5" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          <span>Сфотографировать</span>
+        </button>
+        <div class="camera-counter" id="camera-counter"></div>
+        <div class="camera-history" id="camera-history"></div>
+      </div>
+    </section>
+
+    <!-- Mappings Section -->
+    <section id="view-mappings">
+      <div class="section-header" style="margin-bottom:16px">
+        <div>
+          <h2>Номенклатурные соответствия</h2>
+          <div id="mappings-catalog-status" class="section-subtitle">Загрузка...</div>
+        </div>
+      </div>
+
+      <div class="tabs" style="margin-bottom:16px">
+        <button class="tab-btn active" id="mappings-mode-all" onclick="Mappings.setMode('all')">Соответствия</button>
+        <button class="tab-btn" id="mappings-mode-unmapped" onclick="Mappings.setMode('unmapped')">Не сопоставлено</button>
+        <button class="tab-btn" id="mappings-mode-catalog" onclick="Mappings.setMode('catalog')">Справочник 1С</button>
+      </div>
+
+      <!-- Add mapping form (hidden by default) -->
+      <div id="add-mapping-form" style="display:none; margin-bottom:16px" class="card">
+        <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap">
+          <div class="form-group" style="flex:1; min-width:200px; margin:0">
+            <label>Название из накладной</label>
+            <input type="text" id="add-map-scanned" placeholder="Как пишут в накладной">
+          </div>
+          <div class="form-group" style="flex:1; min-width:200px; margin:0">
+            <label>Товар 1С</label>
+            <div class="nom-picker">
+              <input type="text" class="nom-picker-input" id="add-map-nom-input" placeholder="Начните вводить..."
+                     oninput="Mappings.onAddInput()" onfocus="Mappings.onAddInput()"
+                     onblur="setTimeout(() => { const dd=document.getElementById('add-map-dd'); if(dd) dd.style.display='none'; }, 150)">
+              <div class="nom-picker-dropdown" id="add-map-dd"></div>
+            </div>
+            <input type="hidden" id="add-map-guid">
+          </div>
+          <button class="btn btn-primary" onclick="Mappings.saveNew()" style="height:38px">Добавить</button>
+          <button class="btn btn-outline" onclick="Mappings.hideAddForm()" style="height:38px">Отмена</button>
+        </div>
+      </div>
+
+      <!-- Grouped mappings -->
+      <div id="mappings-mode-all-pane">
+        <div class="filters" style="display:flex; gap:12px; align-items:center">
+          <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)" style="flex:1">
+          <button class="btn btn-primary btn-sm" onclick="Mappings.showAddForm()">+ Добавить</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:30%">Товар 1С</th>
+                <th>Варианты из накладных</th>
+                <th style="width:80px;text-align:right">Всего</th>
+                <th style="width:40px"></th>
+              </tr>
+            </thead>
+            <tbody id="mappings-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Unmapped items -->
+      <div id="mappings-mode-unmapped-pane" style="display:none">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Название из накладной</th>
+                <th>Сопоставить с 1С</th>
+                <th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody id="unmapped-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 1C Catalog -->
+      <div id="mappings-mode-catalog-pane" style="display:none">
+        <div class="filters" style="display:flex; gap:12px; align-items:center">
+          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)" style="flex:1">
+          <div class="field-hint" id="catalog-sync-info" style="white-space:nowrap"></div>
+        </div>
+        <div class="field-hint" style="margin-bottom:12px; color:var(--text-muted)">
+          Справочник обновляется автоматически при каждой загрузке накладных из 1С. Для ручного обновления: в 1С → Обработка → "Выгрузить номенклатуру".
+          <br>Товары с пометкой на удаление в 1С не выгружаются.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Код</th>
+                <th>Наименование</th>
+                <th>Полное наименование</th>
+                <th>Ед.</th>
+                <th>GUID</th>
+              </tr>
+            </thead>
+            <tbody id="catalog-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Webhook Section -->
+    <section id="view-webhook">
+      <div class="section-header">
+        <h2>Настройки Webhook 1C</h2>
+        <p class="section-subtitle">Автоматическая отправка распознанных накладных в 1С</p>
+      </div>
+      <div class="card">
+        <div class="form-group">
+          <label>URL вебхука</label>
+          <input type="url" id="wh-url" placeholder="http://server:8080/hs/invoices">
+        </div>
+        <div class="form-group">
+          <label>Токен авторизации</label>
+          <input type="text" id="wh-token" placeholder="Bearer token">
+        </div>
+        <div class="form-group">
+          <label>Статус</label>
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="wh-enabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <span id="wh-status-text">Выключен</span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" onclick="Webhook.save()">Сохранить</button>
+          <button class="btn btn-outline" onclick="Webhook.test()">Тест</button>
+        </div>
+        <div id="wh-test-result" style="margin-top:16px"></div>
+      </div>
+    </section>
+
+    <!-- Settings Section -->
+    <section id="view-settings">
+      <div class="section-header">
+        <h2>Настройки анализатора</h2>
+        <p class="section-subtitle">Выберите режим распознавания накладных</p>
+      </div>
+      <div class="card">
+        <div class="form-group">
+          <label>Режим распознавания</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="analyzer-mode" value="hybrid">
+              <div>
+                <strong>Google Vision + Claude API</strong>
+                <div class="radio-desc">Google Vision извлекает текст, Claude структурирует. Лучше для сложных/мелких накладных.</div>
+              </div>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="analyzer-mode" value="claude_api" checked>
+              <div>
+                <strong>Только Claude API</strong>
+                <div class="radio-desc">Claude сам читает фото и извлекает данные. Быстрее, один запрос.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="form-group" id="api-key-group">
+          <label>API-ключ Anthropic</label>
+          <input type="password" id="settings-api-key" placeholder="sk-ant-api03-...">
+          <div id="api-key-status" class="field-hint"></div>
+        </div>
+        <div class="form-group">
+          <label>Модель Claude</label>
+          <select id="settings-claude-model">
+            <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (быстрый, дешёвый)</option>
+            <option value="claude-opus-4-20250514">Claude Opus 4 (точный, дорогой)</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" onclick="Settings.save()">Сохранить</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:24px">
+        <div class="form-group">
+          <label>Автоотправка в 1С</label>
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="settings-auto-send">
+              <span class="toggle-slider"></span>
+            </label>
+            <span id="settings-auto-send-text">Выключена</span>
+          </div>
+          <div class="field-hint">Накладные будут автоматически отправляться в 1С сразу после распознавания (без ручного нажатия "Отправить")</div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" onclick="Settings.saveAutoSend()">Сохранить</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="top-progress" class="top-progress" aria-hidden="true"></div>
+  <div id="notifications" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- Confirm modal -->
+  <div id="confirm-modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <div class="modal-title" id="confirm-modal-title"></div>
+      <div class="modal-text" id="confirm-modal-text"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="confirm-modal-cancel">Отмена</button>
+        <button class="btn btn-danger" id="confirm-modal-ok">Удалить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
+<script src="/js/onecCatalog.js"></script>
+<script src="/js/app.js"></script>
+<script src="/js/invoices.js"></script>
+<script src="/js/upload.js"></script>
+<script src="/js/camera.js"></script>
+<script src="/js/mappings.js"></script>
+<script src="/js/webhook.js"></script>
+<script src="/js/settings.js"></script>
+</body>
+</html>
