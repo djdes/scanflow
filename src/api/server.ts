@@ -69,10 +69,12 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use(apiRequestLog);
 
   // Stricter limit specifically for uploads (expensive: disk + Claude API).
-  // Applied below on /api/upload route mount.
+  // 120/min matches the realistic upper bound for a human batch-uploading a
+  // stack of invoices sequentially (each upload takes ~5–10s). Still a hard
+  // wall against scripted abuse — legit single-user flow never hits it.
   const uploadLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 30,
+    max: 120,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many uploads, slow down' },

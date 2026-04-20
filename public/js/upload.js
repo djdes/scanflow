@@ -171,19 +171,22 @@ const Upload = {
 
       xhr.addEventListener('load', () => {
         progressFill.style.width = '100%';
-        try {
-          const resp = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300) {
-            slide.status = 'done';
-            slide.invoiceId = resp.invoice_id;
-            App.notify(`${slide.file.name} обработан`, 'success');
-          } else {
-            slide.status = 'error';
-            slide.error = resp.error || `HTTP ${xhr.status}`;
-          }
-        } catch {
+        let resp = {};
+        try { resp = JSON.parse(xhr.responseText); } catch { /* non-JSON */ }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          slide.status = 'done';
+          slide.invoiceId = resp.invoice_id;
+          App.notify(`${slide.file.name} обработан`, 'success');
+        } else if (xhr.status === 429) {
+          // Rate-limited. Honor the RateLimit-Reset header so we don't
+          // hammer the server into refusing the whole queue.
+          const retryAfter = parseInt(xhr.getResponseHeader('RateLimit-Reset') || xhr.getResponseHeader('Retry-After') || '60', 10);
           slide.status = 'error';
-          slide.error = `HTTP ${xhr.status}`;
+          slide.error = `Слишком много загрузок, подожди ${retryAfter}с`;
+          slide._retryAfterMs = Math.max(1, retryAfter) * 1000;
+        } else {
+          slide.status = 'error';
+          slide.error = resp.error || `HTTP ${xhr.status}`;
         }
         progressBar.style.display = 'none';
         resolve();
@@ -204,11 +207,16 @@ const Upload = {
 
   async retryAllErrors() {
     let found = 0;
+    let maxWaitMs = 0;
     for (const slide of this.slides) {
       if (slide.status === 'error') {
+        if (slide._retryAfterMs && slide._retryAfterMs > maxWaitMs) {
+          maxWaitMs = slide._retryAfterMs;
+        }
         slide.status = 'pending';
         slide.error = null;
         slide.invoiceId = null;
+        slide._retryAfterMs = null;
         found++;
       }
     }
@@ -217,16 +225,26 @@ const Upload = {
     const firstIdx = this.slides.findIndex(s => s.status === 'pending');
     if (firstIdx >= 0) this.currentIndex = firstIdx;
     this.renderSlide();
+    if (maxWaitMs > 0) {
+      App.notify(`Ждём ${Math.ceil(maxWaitMs / 1000)}с до сброса лимита...`, 'info');
+      await new Promise(r => setTimeout(r, maxWaitMs));
+    }
     await this.uploadPending();
   },
 
   async retrySlide(index) {
     const slide = this.slides[index];
     if (!slide || slide.status === 'uploading') return;
+    const waitMs = slide._retryAfterMs || 0;
     slide.status = 'pending';
     slide.error = null;
     slide.invoiceId = null;
+    slide._retryAfterMs = null;
     this.renderSlide();
+    if (waitMs > 0) {
+      App.notify(`Ждём ${Math.ceil(waitMs / 1000)}с до сброса лимита...`, 'info');
+      await new Promise(r => setTimeout(r, waitMs));
+    }
     await this.uploadPending();
   },
 

@@ -330,6 +330,10 @@ export function canonicalizeSupplierName(sup: string | null | undefined): string
  *   1. Normalize both via normalizeSupplierName()
  *   2. Equal after normalization → match
  *   3. One contains the other (with ≥5 char overlap) → match
+ *   4. Levenshtein similarity ≥ 0.75 on strings ≥ 10 chars → match
+ *      (catches OCR drift like "велесоф" vs "веселофф" on long names;
+ *      0.75 allows ~4 edits on an 18-char string, which is the typical
+ *      OCR error budget without being lax enough to merge different names)
  */
 export function suppliersMatch(
   a: string | null | undefined,
@@ -344,5 +348,43 @@ export function suppliersMatch(
   const shorter = na.length < nb.length ? na : nb;
   const longer = na.length < nb.length ? nb : na;
   if (shorter.length >= 5 && longer.includes(shorter)) return true;
+  // Fuzzy fallback for OCR drift. Only applied to reasonably long strings
+  // (both ≥ 10 chars normalized) so "Ромашка" and "Ромашки" can still match
+  // by containment while short random pairs don't get matched just because
+  // their Levenshtein ratio looks OK.
+  if (shorter.length >= 10 && longer.length >= 10) {
+    const dist = levenshtein(na, nb);
+    const similarity = 1 - dist / longer.length;
+    if (similarity >= 0.75) return true;
+  }
   return false;
+}
+
+/**
+ * Classic Levenshtein edit distance — number of insertions/deletions/substitutions
+ * needed to turn `a` into `b`. O(a.length * b.length) time and O(min) space.
+ * Inline so we don't pull in a dependency for a one-off utility.
+ */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  // Ensure a is the shorter — keeps the row buffer smaller.
+  if (a.length > b.length) { const t = a; a = b; b = t; }
+  const prev = new Array(a.length + 1);
+  const curr = new Array(a.length + 1);
+  for (let i = 0; i <= a.length; i++) prev[i] = i;
+  for (let j = 1; j <= b.length; j++) {
+    curr[0] = j;
+    for (let i = 1; i <= a.length; i++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[i] = Math.min(
+        curr[i - 1] + 1,       // insertion
+        prev[i] + 1,           // deletion
+        prev[i - 1] + cost,    // substitution
+      );
+    }
+    for (let i = 0; i <= a.length; i++) prev[i] = curr[i];
+  }
+  return prev[a.length];
 }
