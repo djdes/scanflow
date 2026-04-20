@@ -29,6 +29,7 @@ export interface Invoice {
   approved_for_1c: number;
   approved_at: string | null;
   file_hash: string | null;
+  items_total_mismatch: number;
 }
 
 export interface InvoiceItem {
@@ -61,6 +62,16 @@ export interface CreateInvoiceData {
   vat_sum?: number;
   raw_text?: string;
   ocr_engine?: string;
+  file_hash?: string | null;
+}
+
+// Thrown by invoiceRepo.create() when two uploads race on the same file content.
+// Carries the existing invoice row so the caller can reuse it.
+export class DuplicateFileHashError extends Error {
+  constructor(public existing: Invoice) {
+    super(`File hash already registered on invoice ${existing.id}`);
+    this.name = 'DuplicateFileHashError';
+  }
 }
 
 export interface CreateInvoiceItemData {
@@ -80,27 +91,40 @@ export const invoiceRepo = {
   create(data: CreateInvoiceData): Invoice {
     const db = getDb();
     const stmt = db.prepare(`
-      INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine)
-      VALUES (@file_name, @file_path, @invoice_number, @invoice_date, @supplier, @invoice_type, @supplier_inn, @supplier_bik, @supplier_account, @supplier_corr_account, @supplier_address, @total_sum, @vat_sum, @raw_text, @ocr_engine)
+      INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash)
+      VALUES (@file_name, @file_path, @invoice_number, @invoice_date, @supplier, @invoice_type, @supplier_inn, @supplier_bik, @supplier_account, @supplier_corr_account, @supplier_address, @total_sum, @vat_sum, @raw_text, @ocr_engine, @file_hash)
     `);
-    const result = stmt.run({
-      file_name: data.file_name,
-      file_path: data.file_path,
-      invoice_number: data.invoice_number ?? null,
-      invoice_date: data.invoice_date ?? null,
-      supplier: data.supplier ?? null,
-      invoice_type: data.invoice_type ?? null,
-      supplier_inn: data.supplier_inn ?? null,
-      supplier_bik: data.supplier_bik ?? null,
-      supplier_account: data.supplier_account ?? null,
-      supplier_corr_account: data.supplier_corr_account ?? null,
-      supplier_address: data.supplier_address ?? null,
-      total_sum: data.total_sum ?? null,
-      vat_sum: data.vat_sum ?? null,
-      raw_text: data.raw_text ?? null,
-      ocr_engine: data.ocr_engine ?? null,
-    });
-    return this.getById(Number(result.lastInsertRowid))!;
+    try {
+      const result = stmt.run({
+        file_name: data.file_name,
+        file_path: data.file_path,
+        invoice_number: data.invoice_number ?? null,
+        invoice_date: data.invoice_date ?? null,
+        supplier: data.supplier ?? null,
+        invoice_type: data.invoice_type ?? null,
+        supplier_inn: data.supplier_inn ?? null,
+        supplier_bik: data.supplier_bik ?? null,
+        supplier_account: data.supplier_account ?? null,
+        supplier_corr_account: data.supplier_corr_account ?? null,
+        supplier_address: data.supplier_address ?? null,
+        total_sum: data.total_sum ?? null,
+        vat_sum: data.vat_sum ?? null,
+        raw_text: data.raw_text ?? null,
+        ocr_engine: data.ocr_engine ?? null,
+        file_hash: data.file_hash ?? null,
+      });
+      return this.getById(Number(result.lastInsertRowid))!;
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      // Partial unique index on file_hash — triggered when another concurrent
+      // upload of the same content beat us to the INSERT. Surface the existing
+      // invoice so the caller can reuse it instead of creating a duplicate.
+      if (data.file_hash && msg.includes('UNIQUE') && msg.includes('file_hash')) {
+        const existing = this.findByFileHash(data.file_hash);
+        if (existing) throw new DuplicateFileHashError(existing);
+      }
+      throw err;
+    }
   },
 
   getById(id: number): Invoice | undefined {
@@ -137,16 +161,28 @@ export const invoiceRepo = {
    * Fetch pending invoices + their items in 2 queries instead of N+1.
    * Used by GET /api/invoices/pending which is polled by the 1C side.
    */
-  getPendingWithItems(): Array<Invoice & { items: InvoiceItem[] }> {
+  getPendingWithItems(
+    opts: { limit?: number; offset?: number } = {}
+  ): { rows: Array<Invoice & { items: InvoiceItem[] }>; total: number } {
     const db = getDb();
+    const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
+    const offset = Math.max(0, opts.offset ?? 0);
+
+    const totalRow = db.prepare(
+      `SELECT COUNT(*) as c FROM invoices
+       WHERE approved_for_1c = 1
+       AND status IN ('processed', 'parsing', 'ocr_processing')`
+    ).get() as { c: number };
+
     const invoices = db.prepare(
       `SELECT * FROM invoices
        WHERE approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')
-       ORDER BY created_at DESC`
-    ).all() as Invoice[];
+       ORDER BY created_at ASC
+       LIMIT ? OFFSET ?`
+    ).all(limit, offset) as Invoice[];
 
-    if (invoices.length === 0) return [];
+    if (invoices.length === 0) return { rows: [], total: totalRow.c };
 
     const ids = invoices.map(i => i.id);
     const placeholders = ids.map(() => '?').join(',');
@@ -162,10 +198,10 @@ export const invoiceRepo = {
       itemsByInvoice.get(item.invoice_id)!.push(item);
     }
 
-    return invoices.map(inv => ({
-      ...inv,
-      items: itemsByInvoice.get(inv.id) ?? [],
-    }));
+    return {
+      rows: invoices.map(inv => ({ ...inv, items: itemsByInvoice.get(inv.id) ?? [] })),
+      total: totalRow.c,
+    };
   },
 
   /**
@@ -466,11 +502,13 @@ export const invoiceRepo = {
    */
   markStaleAsFailed(staleMinutes: number = 5): number {
     const db = getDb();
+    // Any non-terminal status older than N minutes is a leftover from a crash.
+    // Terminal statuses that must NEVER be swept: processed, sent_to_1c, error.
     const result = db.prepare(
       `UPDATE invoices
        SET status = 'error',
-           error_message = COALESCE(error_message, 'Processing interrupted (stuck in parsing/ocr_processing)')
-       WHERE status IN ('parsing', 'ocr_processing')
+           error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)')
+       WHERE status NOT IN ('processed', 'sent_to_1c', 'error')
        AND created_at < datetime('now', '-${staleMinutes} minutes')`
     ).run();
     return result.changes;
@@ -524,14 +562,42 @@ export const invoiceRepo = {
   },
 
   /**
-   * Обновить итоговую сумму накладной (пересчитать из товаров).
+   * Пересчёт итоговой суммы + проверка расхождения с суммой позиций.
+   *
+   * Historically this method overwrote total_sum with sum(items.total). That
+   * discards information — when Claude extracts a total from the document,
+   * it's often more trustworthy than the line-by-line OCR (НДС rounding,
+   * dropped pennies, etc.). So: we preserve a document-level total if it's
+   * already set and "close enough" to the items sum; otherwise we overwrite.
+   *
+   * Mismatch rule: >1% relative difference OR >1 ruble absolute difference,
+   * whichever is larger — avoids nuisance flags on tiny totals.
+   *
+   * items_total_mismatch is set so the UI can flag the invoice for human review.
    */
   recalculateTotal(id: number): void {
     const db = getDb();
-    const result = db.prepare(
+    const { total: itemsTotal } = db.prepare(
       'SELECT COALESCE(SUM(total), 0) as total FROM invoice_items WHERE invoice_id = ?'
     ).get(id) as { total: number };
-    db.prepare('UPDATE invoices SET total_sum = ? WHERE id = ?').run(result.total, id);
+    const invoice = db.prepare('SELECT total_sum FROM invoices WHERE id = ?').get(id) as { total_sum: number | null } | undefined;
+    const documentTotal = invoice?.total_sum ?? null;
+
+    let mismatch = 0;
+    let nextTotal: number = itemsTotal;
+
+    if (documentTotal != null && documentTotal > 0 && itemsTotal > 0) {
+      const diff = Math.abs(documentTotal - itemsTotal);
+      const relative = diff / Math.max(documentTotal, itemsTotal);
+      mismatch = (diff > 1 && relative > 0.01) ? 1 : 0;
+      // Trust the document total when consistent with items — it usually
+      // includes rounding the line-by-line sum can't replicate.
+      nextTotal = mismatch ? itemsTotal : documentTotal;
+    }
+
+    db.prepare(
+      'UPDATE invoices SET total_sum = ?, items_total_mismatch = ? WHERE id = ?'
+    ).run(nextTotal, mismatch, id);
   },
 
   /**

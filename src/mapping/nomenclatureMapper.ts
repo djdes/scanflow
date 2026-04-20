@@ -1,6 +1,7 @@
 import Fuse, { IFuseOptions } from 'fuse.js';
 import { mappingRepo, NomenclatureMapping } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
+import { detectPackFromName } from './packTransform';
 import { logger } from '../utils/logger';
 
 export interface MappingResult {
@@ -143,18 +144,26 @@ export class NomenclatureMapper {
         // but not persisted — they need manual confirmation.
         if (confidence >= AUTO_SAVE_CONFIDENCE) {
           try {
+            // If the scanned name carries pack info ("Мука 50кг"), persist it on
+            // the new mapping so future runs skip the regex fallback.
+            const detected = detectPackFromName(scannedName);
+            const packFields = detected
+              ? { pack_size: detected.pack_size, pack_unit: detected.pack_unit }
+              : {};
             const existing = mappingRepo.getByScannedName(scannedName);
             if (!existing) {
               mappingRepo.create({
                 scanned_name: scannedName,
                 mapped_name_1c: best.item.name,
                 onec_guid: best.item.guid,
+                ...packFields,
               });
             }
             // Also save cleaned name variant if different
             if (cleanName !== scannedName) {
               const existingClean = mappingRepo.getByScannedName(cleanName);
               if (!existingClean) {
+                // Cleaned name has no pack suffix, so no pack fields here.
                 mappingRepo.create({
                   scanned_name: cleanName,
                   mapped_name_1c: best.item.name,

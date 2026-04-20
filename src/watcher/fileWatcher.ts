@@ -6,11 +6,12 @@ import { logger } from '../utils/logger';
 import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
-import { invoiceRepo } from '../database/repositories/invoiceRepo';
+import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/invoiceRepo';
+import { mappingRepo } from '../database/repositories/mappingRepo';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
-import { applyPackTransform } from '../mapping/packTransform';
+import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -104,30 +105,39 @@ export class FileWatcher {
     this.processing.add(path.resolve(filePath).toLowerCase());
   }
 
+  /**
+   * When a pack transform was resolved via name-based fallback (i.e. the
+   * learned mapping didn't carry pack_size / pack_unit), persist the detected
+   * values back onto the mapping row so the next run skips the regex pass.
+   */
+  private persistPackFallback(
+    mappingId: number | null,
+    resolved: { usedFallback: boolean; packSize: number | null; packUnit: string | null },
+  ): void {
+    if (!mappingId || !resolved.usedFallback) return;
+    if (!resolved.packSize || !resolved.packUnit) return;
+    try {
+      mappingRepo.update(mappingId, {
+        pack_size: resolved.packSize,
+        pack_unit: resolved.packUnit,
+      });
+    } catch (err) {
+      logger.warn('Failed to persist pack fallback to mapping', {
+        mappingId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
   async processFile(filePath: string, fileName: string, forceEngine?: string): Promise<number> {
     // 0. Content-based deduplication via SHA-256.
-    // Catches the case where the same photo is uploaded twice
-    // (same content, possibly different name). Protects against
-    // double-processing during network retries or accidental re-uploads.
+    // Hash is stored DURING the invoice INSERT under a UNIQUE partial index
+    // on file_hash, which makes the dedup atomic: two concurrent uploads of
+    // the same content race on the INSERT, and the loser gets back the winner's
+    // invoice id via DuplicateFileHashError.
     let fileHash: string | null = null;
     try {
       fileHash = sha256File(filePath);
-      const duplicate = invoiceRepo.findByFileHash(fileHash);
-      if (duplicate) {
-        logger.info('Duplicate file detected by hash, returning existing invoice', {
-          filePath,
-          hash: fileHash.substring(0, 12),
-          existingInvoiceId: duplicate.id,
-        });
-        // Clean up the duplicate file from inbox — move to processed
-        if (!config.dryRun) {
-          try {
-            const destPath = path.join(config.processedDir, fileName);
-            if (fs.existsSync(filePath)) fs.renameSync(filePath, destPath);
-          } catch { /* ignore — file may already be gone */ }
-        }
-        return duplicate.id;
-      }
     } catch (e) {
       logger.warn('Failed to compute file hash, continuing without dedup', {
         filePath,
@@ -135,15 +145,54 @@ export class FileWatcher {
       });
     }
 
-    // 1. Create invoice record
-    const invoice = invoiceRepo.create({
-      file_name: fileName,
-      file_path: filePath,
-    });
-
-    // Store hash immediately so concurrent uploads see it
+    // Cheap up-front check (cuts most obvious duplicates without hitting
+    // the INSERT path at all). The UNIQUE index still protects us from races.
     if (fileHash) {
-      invoiceRepo.setFileHash(invoice.id, fileHash);
+      const duplicate = invoiceRepo.findByFileHash(fileHash);
+      if (duplicate) {
+        logger.info('Duplicate file detected by hash, returning existing invoice', {
+          filePath,
+          hash: fileHash.substring(0, 12),
+          existingInvoiceId: duplicate.id,
+        });
+        if (!config.dryRun) {
+          try {
+            const destPath = path.join(config.processedDir, fileName);
+            if (fs.existsSync(filePath)) fs.renameSync(filePath, destPath);
+          } catch (err) {
+            logger.debug('Could not move duplicate file', { filePath, error: (err as Error).message });
+          }
+        }
+        return duplicate.id;
+      }
+    }
+
+    // 1. Create invoice record (atomic dedup via UNIQUE partial index).
+    let invoice;
+    try {
+      invoice = invoiceRepo.create({
+        file_name: fileName,
+        file_path: filePath,
+        file_hash: fileHash,
+      });
+    } catch (err) {
+      if (err instanceof DuplicateFileHashError) {
+        logger.info('Race: duplicate file hash hit on INSERT, reusing existing invoice', {
+          filePath,
+          hash: fileHash?.substring(0, 12),
+          existingInvoiceId: err.existing.id,
+        });
+        if (!config.dryRun) {
+          try {
+            const destPath = path.join(config.processedDir, fileName);
+            if (fs.existsSync(filePath)) fs.renameSync(filePath, destPath);
+          } catch (moveErr) {
+            logger.debug('Could not move racing duplicate file', { filePath, error: (moveErr as Error).message });
+          }
+        }
+        return err.existing.id;
+      }
+      throw err;
     }
 
     try {
@@ -326,21 +375,21 @@ export class FileWatcher {
               for (const item of unifiedParsed.items) {
                 if (!item.name) continue;
                 const mapping = this.mapper.map(item.name);
-                // Apply pack transform if the learned mapping specifies one
-                // ("Мука (50кг) — 1 шт" → "Мука — 50 кг"). Keeps total unchanged.
-                const transformed = applyPackTransform(
+                const resolved = resolveAndApplyPackTransform(
                   { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+                  item.name,
                   mapping.pack_size,
                   mapping.pack_unit,
                 );
+                this.persistPackFallback(mapping.mapping_id, resolved);
                 invoiceRepo.addItem({
                   invoice_id: targetInvoiceId,
                   original_name: item.name,
                   mapped_name: mapping.mapped_name,
-                  quantity: transformed.quantity,
-                  unit: transformed.unit,
-                  price: transformed.price,
-                  total: transformed.total,
+                  quantity: resolved.item.quantity,
+                  unit: resolved.item.unit,
+                  price: resolved.item.price,
+                  total: resolved.item.total,
                   vat_rate: item.vat_rate,
                   mapping_confidence: mapping.confidence,
                   onec_guid: mapping.onec_guid,
@@ -395,20 +444,21 @@ export class FileWatcher {
       for (const item of parsed.items) {
         if (!item.name) continue; // skip items without a name
         const mapping = this.mapper.map(item.name);
-        // Apply pack transform if the learned mapping specifies one.
-        const transformed = applyPackTransform(
+        const resolved = resolveAndApplyPackTransform(
           { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+          item.name,
           mapping.pack_size,
           mapping.pack_unit,
         );
+        this.persistPackFallback(mapping.mapping_id, resolved);
         invoiceRepo.addItem({
           invoice_id: targetInvoiceId,
           original_name: item.name,
           mapped_name: mapping.mapped_name,
-          quantity: transformed.quantity,
-          unit: transformed.unit,
-          price: transformed.price,
-          total: transformed.total,
+          quantity: resolved.item.quantity,
+          unit: resolved.item.unit,
+          price: resolved.item.price,
+          total: resolved.item.total,
           vat_rate: item.vat_rate,
           mapping_confidence: mapping.confidence,
           onec_guid: mapping.onec_guid,

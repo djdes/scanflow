@@ -36,10 +36,16 @@ router.get('/', (req: Request, res: Response) => {
   res.json({ data: invoices, count: invoices.length });
 });
 
-// GET /api/invoices/pending — invoices ready for 1C
-router.get('/pending', (_req: Request, res: Response) => {
-  const result = invoiceRepo.getPendingWithItems();
-  res.json({ data: result, count: result.length });
+// GET /api/invoices/pending?limit=100&offset=0 — invoices ready for 1C.
+// Default limit 100, hard max 500 (enforced in repo). 1C polls this; without
+// paging a backlog of thousands would blow up memory + response size.
+router.get('/pending', (req: Request, res: Response) => {
+  const limitRaw = parseInt(req.query.limit as string, 10);
+  const offsetRaw = parseInt(req.query.offset as string, 10);
+  const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
+  const offset = Number.isFinite(offsetRaw) ? offsetRaw : undefined;
+  const { rows, total } = invoiceRepo.getPendingWithItems({ limit, offset });
+  res.json({ data: rows, count: rows.length, total, limit: limit ?? 100, offset: offset ?? 0 });
 });
 
 // GET /api/invoices/:id/photos — list photo files for an invoice
@@ -65,7 +71,7 @@ router.get('/:id/photos', (req: Request, res: Response) => {
   res.json({ data: photos });
 });
 
-// GET /api/invoices/:id/photos/:filename — serve photo file
+// GET /api/invoices/:id/photos/:filename — serve photo file.
 router.get('/:id/photos/:filename', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = invoiceRepo.getById(id);
@@ -159,8 +165,17 @@ router.post('/:id/send', async (req: Request, res: Response) => {
 // POST /api/invoices/:id/confirm — confirm sent to 1C.
 // Called by 1C external processing after it successfully creates the document.
 // Sets status = sent_to_1c AND clears approved_for_1c (because it's now done).
+//
+// Idempotent: if the invoice is already sent_to_1c, returns 200 with
+// already_sent=true instead of mutating state. This protects against 1C
+// network-retrying the same confirmation and causing duplicate purchase docs
+// from being perceived as different invoices on the 1C side.
 router.post('/:id/confirm', (req: Request, res: Response) => {
-  const id = parseInt(req.params.id as string);
+  const id = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    res.status(400).json({ error: 'Invalid invoice id' });
+    return;
+  }
   const invoice = invoiceRepo.getById(id);
 
   if (!invoice) {
@@ -168,10 +183,15 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
     return;
   }
 
+  if (invoice.status === 'sent_to_1c') {
+    res.json({ data: { id, status: 'sent_to_1c', already_sent: true, sent_at: invoice.sent_at } });
+    return;
+  }
+
   invoiceRepo.markSent(id);
   const db = getDb();
   db.prepare('UPDATE invoices SET approved_for_1c = 0 WHERE id = ?').run(id);
-  res.json({ data: { id, status: 'sent_to_1c' } });
+  res.json({ data: { id, status: 'sent_to_1c', already_sent: false } });
 });
 
 // POST /api/invoices/:id/reset — reset from sent_to_1c back to processed.

@@ -7,7 +7,7 @@
  * that transform, and we apply it here on the server so 1С only ever sees the
  * base-unit quantities.
  *
- * Current scope: kg only. Volumes (л, мл) were out of scope per user request.
+ * Supports kg, g, l, ml — inside or without parentheses.
  */
 
 export interface PackTransformable {
@@ -17,39 +17,52 @@ export interface PackTransformable {
   total: number | null | undefined;
 }
 
-/**
- * Regex matching "... (50кг)" / "... (1.5 кг)" / "Мука (50 КГ)" — only kg.
- * Captures the numeric pack size as group 1. Accepts dot or comma decimals.
- */
-const PACK_KG_PATTERN = /\(\s*(\d+(?:[.,]\d+)?)\s*кг\s*\)/i;
+// Canonical base units we convert to.
+const UNIT_ALIASES: Record<string, string> = {
+  'кг': 'кг',
+  'г': 'г',
+  'гр': 'г',
+  'л': 'л',
+  'мл': 'мл',
+};
 
 /**
- * Try to extract a kilogram pack size from a scanned item name.
- * Returns { pack_size, pack_unit } or null if no pattern found.
+ * Matches "50кг", "1.5 кг", "(50 кг)", "25 КГ" — anywhere in the string.
+ * Captures number as group 1, unit as group 2.
+ * Uses lookahead for the trailing boundary to work with Cyrillic names.
+ */
+const PACK_PATTERN = /(?:\(|\b|\s|^)(\d+(?:[.,]\d+)?)\s*(кг|гр|г|мл|л)(?=\s|\)|$|[^а-яА-Яa-zA-Z0-9])/i;
+
+/**
+ * Extract a pack size from a scanned item name.
+ * Recognises kg / g / l / ml, with or without surrounding parentheses.
+ * Returns null if the name has no recognisable pack pattern.
  */
 export function detectPackFromName(name: string): { pack_size: number; pack_unit: string } | null {
   if (!name) return null;
-  const match = name.match(PACK_KG_PATTERN);
+  const match = name.match(PACK_PATTERN);
   if (!match) return null;
-  const raw = match[1].replace(',', '.');
-  const n = parseFloat(raw);
+  const n = parseFloat(match[1].replace(',', '.'));
   if (!isFinite(n) || n <= 0) return null;
-  return { pack_size: n, pack_unit: 'кг' };
+  const unit = UNIT_ALIASES[match[2].toLowerCase()];
+  if (!unit) return null;
+  return { pack_size: n, pack_unit: unit };
 }
 
 /**
- * Apply a pack transform to an item's quantity/unit/price in place-style
- * (pure function — returns a new object). Math:
+ * Apply a pack transform to an item's quantity/unit/price (returns a new object).
  *
  *   new_quantity = old_quantity * pack_size
  *   new_unit     = pack_unit
  *   total        = unchanged (money doesn't depend on how we count)
- *   new_price    = total / new_quantity  (per-unit price in base unit)
+ *   new_price    = total / new_quantity
  *
- * If original quantity or pack_size is missing / zero, returns the item as-is
- * (transform is a no-op rather than corrupting data). If total is missing,
- * it's computed from old price * old quantity so the recomputed new price
+ * If quantity or pack_size is missing / zero, returns the item unchanged.
+ * If total is missing, derives it from old price * old quantity so the new price
  * stays meaningful.
+ *
+ * Guard against double-transforming: if the item's current unit already equals
+ * pack_unit, the transform is skipped (it was already applied on a previous pass).
  */
 export function applyPackTransform<T extends PackTransformable>(
   item: T,
@@ -60,8 +73,11 @@ export function applyPackTransform<T extends PackTransformable>(
   const oldQty = item.quantity;
   if (oldQty == null || oldQty <= 0) return item;
 
-  // Capture the total BEFORE changing anything — prefer the stored value,
-  // fall back to old_price * old_quantity if total wasn't set.
+  // Idempotence guard: if the item is already in the target unit, assume
+  // the transform was already applied (or the parser delivered base units
+  // directly) — do not multiply again.
+  if (item.unit && item.unit.toLowerCase() === pack_unit.toLowerCase()) return item;
+
   const total = item.total != null
     ? item.total
     : (item.price != null ? item.price * oldQty : null);
@@ -74,6 +90,36 @@ export function applyPackTransform<T extends PackTransformable>(
     quantity: newQty,
     unit: pack_unit,
     price: newPrice,
-    total: total, // unchanged
+    total,
   };
+}
+
+/**
+ * Convenience: apply a transform using either the explicit pack fields from a
+ * learned mapping, or a fallback detected from the scanned name when the
+ * mapping doesn't specify one. Returns the (possibly unchanged) item and the
+ * pack fields that were actually used — callers can persist them back to the
+ * mapping so the next pass doesn't need the fallback.
+ */
+export function resolveAndApplyPackTransform<T extends PackTransformable>(
+  item: T,
+  scannedName: string,
+  mappingPackSize: number | null | undefined,
+  mappingPackUnit: string | null | undefined,
+): { item: T; packSize: number | null; packUnit: string | null; usedFallback: boolean } {
+  let packSize = mappingPackSize ?? null;
+  let packUnit = mappingPackUnit ?? null;
+  let usedFallback = false;
+
+  if (!packSize || !packUnit) {
+    const detected = detectPackFromName(scannedName);
+    if (detected) {
+      packSize = detected.pack_size;
+      packUnit = detected.pack_unit;
+      usedFallback = true;
+    }
+  }
+
+  const transformed = applyPackTransform(item, packSize, packUnit);
+  return { item: transformed, packSize, packUnit, usedFallback };
 }
