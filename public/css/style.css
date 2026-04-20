@@ -778,6 +778,19 @@ details[open] summary { margin-bottom: 12px; }
 }
 .upload-status-done { background: #d1fae5; color: #065f46; }
 .upload-status-error { background: #fee2e2; color: #991b1b; }
+.upload-retry-btn {
+  margin-left: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--primary);
+  background: #fff;
+  color: var(--primary);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.upload-retry-btn:hover { background: var(--primary); color: #fff; }
 .upload-link {
   color: var(--primary);
   font-weight: 600;
@@ -811,6 +824,17 @@ details[open] summary { margin-bottom: 12px; }
   letter-spacing: 0.5px;
 }
 .upload-btn-open-all:hover { background: #64748b; }
+.upload-btn-retry-all {
+  background: #f59e0b;
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 24px;
+  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+.upload-btn-retry-all:hover { background: #d97706; }
 
 /* Progress bar */
 .progress-bar {
@@ -1235,10 +1259,33 @@ details[open] summary { margin-bottom: 12px; }
     font-size: 11px;
   }
 
-  /* Tables — horizontal scroll on mobile */
+  /* Tables — horizontal scroll on mobile, tighter spacing */
   .table-wrap {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+  table {
+    font-size: 13px;
+  }
+  table th, table td {
+    padding: 6px 8px;
+    white-space: nowrap;
+  }
+  /* On narrow screens, collapse the "created / processing engine" columns —
+     they're diagnostic, not essential. Real content stays legible. */
+  table .col-optional {
+    display: none;
+  }
+}
+
+/* Very narrow screens (<=480px) — collapse to single-column card layout
+   for the most common table (invoices list) so it's usable on a phone. */
+@media (max-width: 480px) {
+  table {
+    font-size: 12px;
+  }
+  table th, table td {
+    padding: 4px 6px;
   }
 }
 

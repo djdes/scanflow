@@ -100,14 +100,24 @@ const Upload = {
       infoHtml += ` <a href="#/invoices/${slide.invoiceId}" class="upload-link">Накладная #${slide.invoiceId}</a>`;
     } else if (slide.status === 'error') {
       infoHtml += ` <span class="upload-status upload-status-error">${this.esc(slide.error || 'Ошибка')}</span>`;
+      infoHtml += ` <button type="button" class="upload-retry-btn" onclick="Upload.retrySlide(${this.currentIndex})">↻ Повторить</button>`;
     }
     previewInfo.innerHTML = infoHtml;
 
     counter.textContent = `${this.currentIndex + 1} / ${this.slides.length}`;
 
-    // Show "open all" if at least one is done
+    // Show bottom bar if any done or any errors
     const doneCount = this.slides.filter(s => s.status === 'done').length;
-    bottomBtns.style.display = doneCount > 0 ? '' : 'none';
+    const errorCount = this.slides.filter(s => s.status === 'error').length;
+    bottomBtns.style.display = (doneCount > 0 || errorCount > 0) ? '' : 'none';
+
+    const openAllBtn = bottomBtns.querySelector('.upload-btn-open-all');
+    if (openAllBtn) openAllBtn.style.display = doneCount > 0 ? '' : 'none';
+
+    const retryAllBtn = document.getElementById('upload-btn-retry-all');
+    const errorsCountEl = document.getElementById('upload-errors-count');
+    if (retryAllBtn) retryAllBtn.style.display = errorCount > 0 ? '' : 'none';
+    if (errorsCountEl) errorsCountEl.textContent = String(errorCount);
 
     // Arrow visibility
     document.querySelector('.upload-arrow-left').style.visibility =
@@ -190,6 +200,34 @@ const Upload = {
       xhr.setRequestHeader('X-API-Key', App.apiKey);
       xhr.send(formData);
     });
+  },
+
+  async retryAllErrors() {
+    let found = 0;
+    for (const slide of this.slides) {
+      if (slide.status === 'error') {
+        slide.status = 'pending';
+        slide.error = null;
+        slide.invoiceId = null;
+        found++;
+      }
+    }
+    if (found === 0) return;
+    // Jump to first error-turned-pending for visibility
+    const firstIdx = this.slides.findIndex(s => s.status === 'pending');
+    if (firstIdx >= 0) this.currentIndex = firstIdx;
+    this.renderSlide();
+    await this.uploadPending();
+  },
+
+  async retrySlide(index) {
+    const slide = this.slides[index];
+    if (!slide || slide.status === 'uploading') return;
+    slide.status = 'pending';
+    slide.error = null;
+    slide.invoiceId = null;
+    this.renderSlide();
+    await this.uploadPending();
   },
 
   clearAll() {

@@ -85,6 +85,40 @@ function cleanJsonString(raw: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, '');    // multi-line comments
 }
 
+/**
+ * Safely parse Claude's JSON response. Catches parse errors and enforces the
+ * minimum shape we care about (items is an array). Returns a normalised
+ * ParsedInvoiceData on success, or null with logged context on failure — the
+ * caller falls through to the regex parser.
+ */
+function safeParseClaudeJson(text: string, label: string): ParsedInvoiceData | null {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) {
+    logger.warn(`${label}: no JSON object found in Claude response`, { sample: text.slice(0, 200) });
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleanJsonString(match[0]));
+  } catch (err) {
+    logger.warn(`${label}: JSON.parse failed`, {
+      error: (err as Error).message,
+      sample: match[0].slice(0, 300),
+    });
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    logger.warn(`${label}: parsed response is not an object`);
+    return null;
+  }
+  const data = parsed as ParsedInvoiceData;
+  if (!Array.isArray(data.items)) {
+    logger.warn(`${label}: "items" is missing or not an array — coercing to []`);
+    data.items = [];
+  }
+  return data;
+}
+
 function createClient(apiKey: string): Anthropic {
   const proxyUrl = config.anthropicProxyUrl;
   if (proxyUrl) {
@@ -151,13 +185,10 @@ export async function analyzeMultiPageTextWithClaudeApi(
     const text = textBlock.text.trim();
     logger.info('Claude API Analyzer: multi-page text response received', { length: text.length });
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return { success: false, error: 'Claude API: no JSON found in response', rawText: text };
+    const parsed = safeParseClaudeJson(text, 'Claude API multi-page text');
+    if (!parsed) {
+      return { success: false, error: 'Claude API: failed to parse JSON response', rawText: text };
     }
-
-    const parsed = JSON.parse(cleanJsonString(jsonMatch[0])) as ParsedInvoiceData;
-    if (!parsed.items) parsed.items = [];
 
     logger.info('Claude API Analyzer: multi-page text parsed successfully', {
       invoiceNumber: parsed.invoice_number,
@@ -221,13 +252,10 @@ export async function analyzeMultipleImagesWithClaudeApi(
     const text = textBlock.text.trim();
     logger.info('Claude API Analyzer: multi-page response received', { length: text.length });
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return { success: false, error: 'Claude API: no JSON found in response', rawText: text };
+    const parsed = safeParseClaudeJson(text, 'Claude API multi-image');
+    if (!parsed) {
+      return { success: false, error: 'Claude API: failed to parse JSON response', rawText: text };
     }
-
-    const parsed = JSON.parse(cleanJsonString(jsonMatch[0])) as ParsedInvoiceData;
-    if (!parsed.items) parsed.items = [];
 
     logger.info('Claude API Analyzer: multi-page parsed successfully', {
       invoiceNumber: parsed.invoice_number,
@@ -296,14 +324,9 @@ export async function analyzeImageWithClaudeApi(
     const text = textBlock.text.trim();
     logger.info('Claude API Analyzer: response received', { length: text.length });
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return { success: false, error: 'Claude API: no JSON found in response', rawText: text };
-    }
-
-    const parsed = JSON.parse(cleanJsonString(jsonMatch[0])) as ParsedInvoiceData;
-    if (!parsed.items) {
-      parsed.items = [];
+    const parsed = safeParseClaudeJson(text, 'Claude API single image');
+    if (!parsed) {
+      return { success: false, error: 'Claude API: failed to parse JSON response', rawText: text };
     }
 
     logger.info('Claude API Analyzer: successfully parsed data', {

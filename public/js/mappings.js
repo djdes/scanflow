@@ -136,40 +136,44 @@ const Mappings = {
     this.renderGrouped(document.getElementById('mappings-search')?.value || '');
   },
 
+  _busy: new Set(),
+  _withGuard(token, fn) {
+    if (this._busy.has(token)) return Promise.resolve(undefined);
+    this._busy.add(token);
+    return Promise.resolve().then(fn).finally(() => this._busy.delete(token));
+  },
+
   async addVariant(guid, mappedName) {
-    const input = document.getElementById('add-variant-' + guid);
-    if (!input) return;
-    const scanned = input.value.trim();
-    if (!scanned) { App.notify('Введите название', 'error'); return; }
-    try {
-      const res = await App.api('/mappings', {
-        method: 'POST',
-        body: { scanned_name: scanned, mapped_name_1c: mappedName, onec_guid: guid },
-      });
-      if (res.ok) {
+    return this._withGuard(`add:${guid}`, async () => {
+      const input = document.getElementById('add-variant-' + guid);
+      if (!input) return;
+      const scanned = input.value.trim();
+      if (!scanned) { App.notify('Введите название', 'error'); return; }
+      try {
+        await App.apiJson('/mappings', {
+          method: 'POST',
+          body: { scanned_name: scanned, mapped_name_1c: mappedName, onec_guid: guid },
+        });
         App.notify('Вариант добавлен', 'success');
         this.loadGrouped();
-      } else {
-        const data = await res.json();
-        App.notify(data.error || 'Ошибка', 'error');
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
       }
-    } catch (e) {
-      App.notify('Ошибка: ' + e.message, 'error');
-    }
+    });
   },
 
   async removeVariant(id, event) {
     if (event) { event.stopPropagation(); event.preventDefault(); }
     if (!confirm('Удалить этот вариант сопоставления?')) return;
-    try {
-      const res = await App.api(`/mappings/${id}`, { method: 'DELETE' });
-      if (res.ok) {
+    return this._withGuard(`remove:${id}`, async () => {
+      try {
+        await App.apiJson(`/mappings/${id}`, { method: 'DELETE' });
         App.notify('Вариант удалён', 'success');
         this.loadGrouped();
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
       }
-    } catch (e) {
-      App.notify('Ошибка: ' + e.message, 'error');
-    }
+    });
   },
 
   // Edit the pack_size / pack_unit on a single mapping variant.

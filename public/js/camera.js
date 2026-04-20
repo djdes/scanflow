@@ -215,21 +215,28 @@ const Camera = {
       return;
     }
 
+    const esc = (s) => (window.App ? App.esc(s) : String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+
     const items = this.history.map((h, i) => ({ ...h, idx: i })).reverse();
     container.innerHTML = items.map(h => {
       let statusHtml = '';
       if (h.status === 'uploading') {
         statusHtml = '<span class="camera-status camera-status-loading">Загрузка...</span>';
       } else if (h.status === 'ok') {
-        statusHtml = `<a href="#/invoices/${h.invoiceId}" class="camera-status camera-status-ok">Накладная #${h.invoiceId}</a>`;
+        const id = Number(h.invoiceId);
+        const safeId = Number.isFinite(id) ? id : 0;
+        statusHtml = `<a href="#/invoices/${safeId}" class="camera-status camera-status-ok">Накладная #${safeId}</a>`;
       } else {
-        statusHtml = `<span class="camera-status camera-status-error" title="${h.error || ''}">Ошибка</span>
-          <button class="btn btn-sm btn-outline" onclick="Camera.retry(${h.idx})" style="margin-left:8px">Повторить</button>`;
+        statusHtml = `<span class="camera-status camera-status-error" title="${esc(h.error || '')}">Ошибка</span>
+          <button class="btn btn-sm btn-outline" onclick="Camera.retry(${Number(h.idx) || 0})" style="margin-left:8px">Повторить</button>`;
       }
+      // h.url is a blob: URL we created ourselves (URL.createObjectURL), but still escape defensively.
       return `<div class="camera-history-item">
-        <img src="${h.url}" alt="">
+        <img src="${esc(h.url)}" alt="">
         <div class="camera-history-info">
-          <div class="camera-history-name">${h.name}</div>
+          <div class="camera-history-name">${esc(h.name)}</div>
           ${statusHtml}
         </div>
       </div>`;

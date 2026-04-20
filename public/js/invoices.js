@@ -309,63 +309,59 @@ const Invoices = {
     }
   },
 
+  // Guard mutating actions against double-clicks / duplicate submissions.
+  // Each action claims a unique token; subsequent clicks while it's active
+  // are dropped. Public so other modules (mappings.js, etc.) can reuse.
+  _busy: new Set(),
+  _withGuard(token, fn) {
+    if (this._busy.has(token)) return Promise.resolve(undefined);
+    this._busy.add(token);
+    return Promise.resolve().then(fn).finally(() => this._busy.delete(token));
+  },
+
   async sendTo1C(id) {
-    // If there are unmapped items, confirm the user actually wants 1C to
-    // auto-create new nomenclature entries for them. This is a destructive-ish
-    // operation (creates real catalog rows in УНФ) so a one-time confirm is
-    // worth the minor friction.
-    const row = document.querySelector(`tr[data-invoice-id="${id}"]`);
-    let unmappedCount = 0;
-    try {
-      const r = await App.api(`/invoices/${id}`);
-      if (r.ok) {
-        const j = await r.json();
+    return this._withGuard(`send:${id}`, async () => {
+      // If there are unmapped items, confirm before creating catalog rows.
+      let unmappedCount = 0;
+      try {
+        const j = await App.apiJson(`/invoices/${id}`);
         unmappedCount = (j.data?.items || []).filter(it => !it.onec_guid).length;
+      } catch {}
+      if (unmappedCount > 0) {
+        const ok = confirm(
+          `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
+          `При загрузке в 1С они будут созданы как НОВЫЕ позиции в справочнике Номенклатура по их названию из скана.\n\n` +
+          `Продолжить?`
+        );
+        if (!ok) return;
       }
-    } catch {}
-    if (unmappedCount > 0) {
-      const ok = confirm(
-        `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
-        `При загрузке в 1С они будут созданы как НОВЫЕ позиции в справочнике Номенклатура по их названию из скана.\n\n` +
-        `Продолжить?`
-      );
-      if (!ok) return;
-    }
-    try {
-      const res = await App.api(`/invoices/${id}/send`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
+      try {
+        await App.apiJson(`/invoices/${id}/send`, { method: 'POST' });
         App.notify('Накладная помечена для отправки. Загрузите через обработку в 1С.', 'success');
         this.showDetail(id);
-      } else {
-        App.notify(data.error || 'Ошибка', 'error');
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
       }
-    } catch (e) {
-      App.notify('Ошибка: ' + e.message, 'error');
-    }
+    });
   },
 
   async unapproveForOneC(id) {
-    try {
-      const res = await App.api(`/invoices/${id}/unapprove`, { method: 'POST' });
-      if (res.ok) {
+    return this._withGuard(`unapprove:${id}`, async () => {
+      try {
+        await App.apiJson(`/invoices/${id}/unapprove`, { method: 'POST' });
         App.notify('Отправка отозвана', 'success');
         this.showDetail(id);
-      } else {
-        const data = await res.json();
-        App.notify(data.error || 'Ошибка', 'error');
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
       }
-    } catch (e) {
-      App.notify('Ошибка: ' + e.message, 'error');
-    }
+    });
   },
 
   async remap(id, forceAll) {
-    const url = forceAll ? `/invoices/${id}/remap?all=true` : `/invoices/${id}/remap`;
-    try {
-      const res = await App.api(url, { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
+    return this._withGuard(`remap:${id}`, async () => {
+      const url = forceAll ? `/invoices/${id}/remap?all=true` : `/invoices/${id}/remap`;
+      try {
+        const data = await App.apiJson(url, { method: 'POST' });
         const remapped = data.data?.remapped ?? 0;
         const changed = data.data?.changed ?? 0;
         if (forceAll) {
@@ -376,31 +372,25 @@ const Invoices = {
           App.notify('Новых сопоставлений не найдено', 'success');
         }
         this.showDetail(id);
-      } else {
-        const data = await res.json();
-        App.notify(data.error || 'Ошибка', 'error');
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
       }
-    } catch (e) {
-      App.notify('Ошибка: ' + e.message, 'error');
-    }
+    });
   },
 
   async resetStatus(id) {
     if (!confirm('Сбросить статус накладной? Она станет "Обработан" и исчезнет из списка готовых к 1С. Для повторной отправки нужно будет снова нажать "Отправить в 1С".')) {
       return;
     }
-    try {
-      const res = await App.api(`/invoices/${id}/reset`, { method: 'POST' });
-      if (res.ok) {
+    return this._withGuard(`reset:${id}`, async () => {
+      try {
+        await App.apiJson(`/invoices/${id}/reset`, { method: 'POST' });
         App.notify('Статус сброшен', 'success');
         this.showDetail(id);
-      } else {
-        const data = await res.json();
-        App.notify(data.error || 'Ошибка', 'error');
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
       }
-    } catch (e) {
-      App.notify('Ошибка: ' + e.message, 'error');
-    }
+    });
   },
 
   deleteInvoice(id, event) {
@@ -412,19 +402,16 @@ const Invoices = {
       'Удалить накладную?',
       `Накладная #${id} будет удалена вместе с фото. Это действие нельзя отменить.`,
       async () => {
-        try {
-          const res = await App.api(`/invoices/${id}`, { method: 'DELETE' });
-          if (res.ok) {
+        return this._withGuard(`delete:${id}`, async () => {
+          try {
+            await App.apiJson(`/invoices/${id}`, { method: 'DELETE' });
             App.notify('Накладная удалена', 'success');
             App.navigate('#/invoices');
             this.showList();
-          } else {
-            const data = await res.json();
-            App.notify(data.error || 'Ошибка удаления', 'error');
+          } catch (e) {
+            App.notify('Ошибка удаления: ' + e.message, 'error');
           }
-        } catch (e) {
-          App.notify('Ошибка удаления: ' + e.message, 'error');
-        }
+        });
       }
     );
   },
@@ -527,14 +514,19 @@ const Invoices = {
         return;
       }
 
-      container.innerHTML = data.map((photo, i) => `
+      // URL comes from the server but still passes through escape — defence in depth
+      // against a compromised backend or badly-sanitised filename returned by the API.
+      container.innerHTML = data.map((photo, i) => {
+        const safeUrl = encodeURI(String(photo.url || ''));
+        const safeName = App.esc(photo.filename);
+        return `
         <div style="margin-bottom:16px">
-          <div style="margin-bottom:4px;color:#888;font-size:13px">Лист ${i + 1}: ${photo.filename}</div>
-          <img src="${photo.url}?key=${encodeURIComponent(App.apiKey)}" alt="${photo.filename}"
+          <div style="margin-bottom:4px;color:#888;font-size:13px">Лист ${i + 1}: ${safeName}</div>
+          <img src="${safeUrl}?key=${encodeURIComponent(App.apiKey)}" alt="${safeName}"
                style="max-width:100%;border:1px solid #e0e0e0;border-radius:6px"
                onerror="this.outerHTML='<div class=\\'empty-state\\'>Файл не найден на диске</div>'">
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
       this._photosLoaded = true;
     } catch (e) {
       container.innerHTML = '<div class="empty-state">Ошибка загрузки фото</div>';

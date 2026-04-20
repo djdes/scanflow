@@ -25,7 +25,23 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use(express.static(publicDir));
 
   // Middleware
-  app.use(cors());
+  // CORS: only allow configured origins. With no CORS_ORIGINS env var the
+  // policy is "same-origin only" (no Access-Control-Allow-Origin header on
+  // cross-origin requests), which is the safe default for an internal tool.
+  const allowedOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  app.use(cors({
+    origin: (origin, cb) => {
+      // Same-origin requests (no Origin header) are always allowed.
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.length === 0) return cb(null, false);
+      if (allowedOrigins.includes('*')) return cb(null, true);
+      return cb(null, allowedOrigins.includes(origin));
+    },
+    credentials: true,
+  }));
 
   // Security headers. contentSecurityPolicy disabled because the dashboard
   // uses inline onclick handlers extensively; re-enable after refactoring to

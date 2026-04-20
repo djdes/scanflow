@@ -33,43 +33,65 @@ const Webhook = {
       App.notify('Укажите URL вебхука', 'error');
       return;
     }
+    // Reject non-http(s) URLs (javascript:, data:, file:) before the server sees them.
+    try {
+      const parsed = new URL(body.url);
+      if (!/^https?:$/.test(parsed.protocol)) {
+        App.notify('URL должен начинаться с http:// или https://', 'error');
+        return;
+      }
+    } catch {
+      App.notify('Некорректный URL', 'error');
+      return;
+    }
 
+    if (this._saving) return;
+    this._saving = true;
     try {
       const res = await App.api('/webhook/config', { method: 'PUT', body });
       if (res.ok) {
         App.notify('Настройки сохранены', 'success');
       } else {
-        const data = await res.json();
-        App.notify(data.error || 'Ошибка сохранения', 'error');
+        let msg = 'Ошибка сохранения';
+        try { const data = await res.json(); if (data && data.error) msg = data.error; } catch {}
+        App.notify(msg, 'error');
       }
     } catch (e) {
-      App.notify('Ошибка: ' + e.message, 'error');
+      App.notify('Ошибка: ' + (e && e.message || 'запрос не удался'), 'error');
+    } finally {
+      this._saving = false;
     }
   },
 
   async test() {
     const resultDiv = document.getElementById('wh-test-result');
+    if (this._testing) return;
+    this._testing = true;
     resultDiv.innerHTML = '<span style="color:var(--grey)">Отправка тестового запроса...</span>';
 
     try {
       const res = await App.api('/webhook/test', { method: 'POST' });
-      const data = await res.json();
+      let data = {};
+      try { data = await res.json(); } catch {}
       if (res.ok && data.success) {
         resultDiv.innerHTML = `
           <div class="card" style="background:#f0fdf4;border-color:#bbf7d0">
-            <strong>Успешно!</strong> HTTP ${data.status} ${data.statusText}
+            <strong>Успешно!</strong> HTTP ${App.esc(data.status)} ${App.esc(data.statusText)}
           </div>`;
       } else {
+        const msg = data.error || `HTTP ${data.status || '?'} ${data.statusText || ''}`;
         resultDiv.innerHTML = `
           <div class="card" style="background:#fef2f2;border-color:#fecaca">
-            <strong>Ошибка!</strong> ${data.error || `HTTP ${data.status} ${data.statusText}`}
+            <strong>Ошибка!</strong> ${App.esc(msg)}
           </div>`;
       }
     } catch (e) {
       resultDiv.innerHTML = `
         <div class="card" style="background:#fef2f2;border-color:#fecaca">
-          <strong>Ошибка!</strong> ${e.message}
+          <strong>Ошибка!</strong> ${App.esc(e && e.message || 'запрос не удался')}
         </div>`;
+    } finally {
+      this._testing = false;
     }
   }
 };

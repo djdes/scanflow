@@ -1,6 +1,12 @@
 /* global App */
+// API key is stored in sessionStorage (cleared on tab close) rather than
+// localStorage to reduce exposure if the machine is shared. Users who want
+// "remember me" can re-enter it — the tradeoff is acceptable for an internal
+// back-office tool. Legacy localStorage values are migrated once on load.
 const App = {
-  apiKey: localStorage.getItem('apiKey') || '',
+  apiKey: sessionStorage.getItem('apiKey')
+    || localStorage.getItem('apiKey')
+    || '',
   baseUrl: '/api',
   _activeRequests: 0,
 
@@ -69,7 +75,16 @@ const App = {
 
   async apiJson(path, options = {}) {
     const res = await this.api(path, options);
-    return res.json();
+    let body = null;
+    try { body = await res.json(); } catch { /* not JSON */ }
+    if (!res.ok) {
+      const msg = body && body.error ? body.error : `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.body = body;
+      throw err;
+    }
+    return body;
   },
 
   navigate(hash) {
@@ -87,6 +102,11 @@ const App = {
       document.getElementById('view-invoices').style.display = 'block';
       document.querySelector('nav a[data-tab="invoices"]').classList.add('active');
       const id = parseInt(hash.split('/')[2]);
+      if (!Number.isFinite(id) || id <= 0) {
+        this.notify('Некорректный ID накладной', 'error');
+        this.navigate('#/invoices');
+        return;
+      }
       Invoices.showDetail(id);
     } else if (hash === '#/invoices' || hash === '#/' || hash === '') {
       document.getElementById('view-invoices').style.display = 'block';
@@ -131,7 +151,8 @@ const App = {
   async login(key) {
     if (!key) return;
     this.apiKey = key;
-    localStorage.setItem('apiKey', key);
+    sessionStorage.setItem('apiKey', key);
+    localStorage.removeItem('apiKey'); // migrate away from persistent storage
     try {
       const res = await this.api('/invoices/stats');
       if (!res.ok) { this.logout(); return; }
@@ -146,6 +167,7 @@ const App = {
 
   logout() {
     this.apiKey = '';
+    sessionStorage.removeItem('apiKey');
     localStorage.removeItem('apiKey');
     document.getElementById('auth-screen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
