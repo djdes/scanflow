@@ -20,7 +20,8 @@
     "test:invoice-number": "ts-node src/scripts/test-invoice-number-normalization.ts",
     "test:onec-nomenclature": "ts-node src/scripts/test-onec-nomenclature.ts",
     "test:nomenclature-mapper": "ts-node src/scripts/test-nomenclature-mapper.ts",
-    "test:nomenclature-sync-api": "ts-node src/scripts/test-nomenclature-sync-api.ts"
+    "test:nomenclature-sync-api": "ts-node src/scripts/test-nomenclature-sync-api.ts",
+    "restore:db": "ts-node src/scripts/restore-backup.ts"
   },
   "keywords": [],
   "author": "",

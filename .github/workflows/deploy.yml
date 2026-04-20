@@ -33,17 +33,22 @@ jobs:
 
       - name: Deploy via rsync
         run: |
+          # Exclude ALL of data/, logs/, backups/ to avoid overwriting/ deleting
+          # server-side state. The --exclude='data/*.sqlite*' patterns catch
+          # database files that might land in the repo by accident.
           rsync -avz --delete \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='dist' \
             --exclude='.env' \
-            --exclude='data/database.sqlite' \
-            --exclude='data/inbox/*' \
-            --exclude='data/processed/*' \
-            --exclude='data/failed/*' \
+            --exclude='.env.*' \
+            --exclude='data' \
+            --exclude='logs' \
             --exclude='google-credentials.json' \
             --exclude='*.log' \
+            --exclude='*.sqlite' \
+            --exclude='*.sqlite-shm' \
+            --exclude='*.sqlite-wal' \
             --exclude='.claude' \
             --exclude='.playwright-mcp' \
             --exclude='.vscode' \
@@ -82,6 +87,27 @@ jobs:
           # Restart with PM2
           pm2 startOrRestart ecosystem.config.js 2>&1
           pm2 save 2>&1
+
+          # Give the app a moment to bind to the port, then hit /health.
+          # A 200 body with {"ok":true,...} means migrations ran, DB is good,
+          # and the static dashboard is reachable. Exit non-zero on failure so
+          # the workflow goes red and someone notices.
+          sleep 5
+          for i in 1 2 3 4 5; do
+            if curl -fsS --max-time 5 http://localhost:8899/health | grep -q '"status":"ok"'; then
+              echo "Health check passed (attempt $i)"
+              HEALTH_OK=1
+              break
+            fi
+            echo "Health check attempt $i failed, retrying in 3s..."
+            sleep 3
+          done
+
+          if [ -z "$HEALTH_OK" ]; then
+            echo "Health check FAILED after deploy. Showing last 50 PM2 log lines:"
+            pm2 logs scanflow --nostream --lines 50 2>&1 || true
+            exit 1
+          fi
 
           echo "Deploy complete!"
           ENDSSH
