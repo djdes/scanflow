@@ -84,7 +84,7 @@ const Invoices = {
           <td>${App.esc(inv.invoice_number || '—')}</td>
           <td>${App.formatDate(inv.invoice_date)}</td>
           <td>${App.esc(inv.supplier || '—')}</td>
-          <td style="text-align:right">${App.formatMoney(inv.total_sum)}</td>
+          <td style="text-align:right">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
           <td>${App.ocrEngineBadge(inv.ocr_engine)}</td>
           <td>${App.statusBadge(inv.status)}</td>
           <td>${App.formatDate(inv.created_at)}</td>
@@ -172,7 +172,10 @@ const Invoices = {
         </div>
         <div class="invoice-field">
           <div class="field-label">Сумма</div>
-          <div class="field-value">${App.formatMoney(data.total_sum)}</div>
+          <div class="field-value">
+            ${App.formatMoney(data.total_sum)}
+            ${data.items_total_mismatch ? '<span class="badge badge-error" title="Сумма в документе расходилась с суммой позиций более чем на 1%. Значение пересчитано из товаров — проверьте глазами." style="margin-left:8px">⚠ требует проверки</span>' : ''}
+          </div>
         </div>
         <div class="invoice-field">
           <div class="field-label">В т.ч. НДС</div>

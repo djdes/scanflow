@@ -478,7 +478,11 @@ export class FileWatcher {
           addedItemsCount: parsed.items.length,
         });
       } else {
-        // 7. Update status for new invoice
+        // 7. Recalculate total + flag mismatch, then mark processed.
+        // Without this, single-page invoices never got validated — a Claude
+        // OCR blunder (e.g. reading "165 229,2" as 1652292) would slip
+        // straight into total_sum with items_total_mismatch=0.
+        invoiceRepo.recalculateTotal(invoice.id);
         invoiceRepo.updateStatus(invoice.id, 'processed');
         logger.info('Invoice processed successfully', {
           id: invoice.id,
