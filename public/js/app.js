@@ -202,6 +202,15 @@ const App = {
     return Number(val).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 
+  // Quantity: up to 3 decimals, drop trailing zeros. Avoids IEEE-754 noise
+  // like "6.300000000000001" while preserving "0.125" or "1.5".
+  formatQty(val) {
+    if (val == null) return '—';
+    const n = Number(val);
+    if (!isFinite(n)) return '—';
+    return n.toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+  },
+
   statusLabel(status) {
     const map = {
       'new': 'Новый',

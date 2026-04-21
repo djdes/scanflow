@@ -287,7 +287,7 @@ const Invoices = {
                 <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
               </div>
             </td>
-            <td style="text-align:right">${item.quantity != null ? item.quantity : '—'}</td>
+            <td style="text-align:right">${App.formatQty(item.quantity)}</td>
             <td>${App.esc(item.unit || '—')}</td>
             <td style="text-align:right">${App.formatMoney(item.price)}</td>
             <td style="text-align:right">${App.formatMoney(item.total)}</td>
