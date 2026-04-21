@@ -1492,6 +1492,23 @@ details[open] summary { margin-bottom: 12px; }
   text-align: left;
   min-width: 40px;
 }
+
+/* Invoice items table: let the scanned-name column breathe and keep the
+   editable numeric columns narrow. Без этого длинные русские названия
+   переносятся на 3 строки, а пустое место "убегает" в другие столбцы. */
+#invoice-items-tbody td:nth-child(2),   /* Название (скан) */
+#invoice-items-tbody td:nth-child(3) {  /* Название (1С) */
+  min-width: 240px;
+  max-width: 360px;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+#invoice-items-tbody td:nth-child(4),   /* Кол-во */
+#invoice-items-tbody td:nth-child(5),   /* Ед. */
+#invoice-items-tbody td:nth-child(6),   /* Цена */
+#invoice-items-tbody td:nth-child(7) {  /* Сумма */
+  width: 110px;
+}
 .nom-picker-dropdown {
   display: none;
   position: absolute;

@@ -12,6 +12,7 @@ import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
+import { sanitizeItemArithmetic } from '../parser/itemSanitizer';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -381,9 +382,15 @@ export class FileWatcher {
               // Save unified items
               for (const item of unifiedParsed.items) {
                 if (!item.name) continue;
+                const sanity = sanitizeItemArithmetic({
+                  quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+                });
+                if (sanity.corrected) {
+                  logger.info('Merged-item arithmetic sanitized', { name: item.name, reason: sanity.reason });
+                }
                 const mapping = this.mapper.map(item.name);
                 const resolved = resolveAndApplyPackTransform(
-                  { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+                  sanity.item,
                   item.name,
                   mapping.pack_size,
                   mapping.pack_unit,
@@ -450,9 +457,19 @@ export class FileWatcher {
       // 5. Map nomenclature and save items (to target invoice)
       for (const item of parsed.items) {
         if (!item.name) continue; // skip items without a name
+        // First, sanity-check the arithmetic Claude returned. If qty × price
+        // doesn't match total, trust total+price and rewrite qty. This
+        // catches the "7000 шт × 959.09 = 7385" nonsense where Claude read
+        // a thousand-separator as digits.
+        const sanity = sanitizeItemArithmetic({
+          quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+        });
+        if (sanity.corrected) {
+          logger.info('Item arithmetic sanitized', { name: item.name, reason: sanity.reason });
+        }
         const mapping = this.mapper.map(item.name);
         const resolved = resolveAndApplyPackTransform(
-          { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+          sanity.item,
           item.name,
           mapping.pack_size,
           mapping.pack_unit,
