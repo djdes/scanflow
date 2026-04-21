@@ -269,16 +269,23 @@ export class FileWatcher {
         }
       }
 
-      // Strategy C: match by supplier within 2 minutes (camera rapid capture)
-      // If this page has no invoice_number but same supplier as a recent invoice — merge
-      if (!existingInvoice && parsed.supplier) {
+      // Strategy C: match by supplier within 5 minutes (camera rapid capture).
+      //
+      // Only merge if the CURRENT page lacks an invoice_number. If both pages
+      // have numbers and they differ, these are TWO separate invoices from
+      // the same supplier (common with back-to-back deliveries) — merging
+      // them would silently concatenate items from unrelated documents.
+      //
+      // If the current page has a number that DOES match a recent invoice
+      // (normalised), Strategy A above would've already caught it.
+      if (!existingInvoice && parsed.supplier && !parsed.invoice_number) {
         existingInvoice = invoiceRepo.findRecentBySupplier(
           parsed.supplier,
           invoice.id,
           5  // within last 5 minutes
         );
         if (existingInvoice && existingInvoice.id !== invoice.id) {
-          logger.info('Multi-page: matched by supplier within 2 min', {
+          logger.info('Multi-page: matched by supplier within 5 min (current page has no invoice_number)', {
             currentFile: fileName,
             existingFile: existingInvoice.file_name,
             supplier: parsed.supplier,
