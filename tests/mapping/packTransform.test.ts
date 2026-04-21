@@ -129,6 +129,51 @@ describe('applyPackTransform', () => {
     expect(applyPackTransform(already, 50, 'кг')).toEqual(already);
   });
 
+  it('is idempotent: does not re-transform when unit already matches normalised parent unit', () => {
+    // Item is already in kg (after a previous normalisation from g),
+    // mapping wants to apply "950г" again — guard should skip.
+    const already = { quantity: 22.8, unit: 'кг', price: 127.4, total: 2904.8 };
+    expect(applyPackTransform(already, 950, 'г')).toEqual(already);
+    // Same for ml → л
+    const already2 = { quantity: 25.2, unit: 'л', price: 93, total: 2341 };
+    expect(applyPackTransform(already2, 420, 'мл')).toEqual(already2);
+  });
+
+  it('normalises mл → л when resulting quantity ≥ 1000', () => {
+    const r = applyPackTransform(
+      { quantity: 60, unit: 'шт', price: 39, total: 2340 },
+      420, // 60 × 420 = 25200 мл
+      'мл',
+    );
+    expect(r.unit).toBe('л');
+    expect(r.quantity).toBe(25.2);
+    expect(r.total).toBe(2340);
+    expect(r.price).toBeCloseTo(2340 / 25.2, 4);
+  });
+
+  it('normalises г → кг when resulting quantity ≥ 1000', () => {
+    const r = applyPackTransform(
+      { quantity: 60, unit: 'шт', price: 57, total: 3420 },
+      950, // 60 × 950 = 57000 г
+      'г',
+    );
+    expect(r.unit).toBe('кг');
+    expect(r.quantity).toBe(57);
+    expect(r.total).toBe(3420);
+    expect(r.price).toBeCloseTo(3420 / 57, 4);
+  });
+
+  it('does NOT normalise г → кг when resulting quantity < 1000', () => {
+    // 1 шт × 500 г = 500 г, still reasonable to keep in grams
+    const r = applyPackTransform(
+      { quantity: 1, unit: 'шт', price: 100, total: 100 },
+      500,
+      'г',
+    );
+    expect(r.unit).toBe('г');
+    expect(r.quantity).toBe(500);
+  });
+
   it('does not mutate the input object', () => {
     const orig = { quantity: 1, unit: 'шт', price: 1500, total: 1500 };
     const frozen = Object.freeze({ ...orig });

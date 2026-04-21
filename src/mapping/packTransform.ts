@@ -73,22 +73,44 @@ export function applyPackTransform<T extends PackTransformable>(
   const oldQty = item.quantity;
   if (oldQty == null || oldQty <= 0) return item;
 
-  // Idempotence guard: if the item is already in the target unit, assume
-  // the transform was already applied (or the parser delivered base units
-  // directly) — do not multiply again.
-  if (item.unit && item.unit.toLowerCase() === pack_unit.toLowerCase()) return item;
+  // Idempotence guard: if the item is already in the target unit (or in its
+  // normalised parent unit — "кг" when pack_unit is "г", "л" when "мл"),
+  // assume the transform was already applied and skip.
+  const packU = pack_unit.toLowerCase();
+  const itemU = (item.unit || '').toLowerCase();
+  if (itemU && (
+    itemU === packU
+    || (packU === 'г' && itemU === 'кг')
+    || (packU === 'мл' && itemU === 'л')
+  )) return item;
 
   const total = item.total != null
     ? item.total
     : (item.price != null ? item.price * oldQty : null);
 
-  const newQty = oldQty * pack_size;
+  let newQty = oldQty * pack_size;
+  let newUnit = pack_unit;
+
+  // Normalise sub-units into their base when the result is large:
+  //   60 шт × 420 мл = 25200 мл → 25.2 л
+  //   60 шт × 950 г  = 57000 г  → 57 кг
+  // Rule: ≥ 1000 sub-units roll up into one base unit. Keeps totals intact
+  // since we just scale quantity and recompute price below.
+  const normUnit = pack_unit.toLowerCase();
+  if (normUnit === 'мл' && newQty >= 1000) {
+    newQty = newQty / 1000;
+    newUnit = 'л';
+  } else if (normUnit === 'г' && newQty >= 1000) {
+    newQty = newQty / 1000;
+    newUnit = 'кг';
+  }
+
   const newPrice = total != null && newQty > 0 ? total / newQty : item.price ?? null;
 
   return {
     ...item,
     quantity: newQty,
-    unit: pack_unit,
+    unit: newUnit,
     price: newPrice,
     total,
   };
