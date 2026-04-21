@@ -19,6 +19,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Secret scan — refuse to deploy if real credentials leaked in
+        run: |
+          # Anthropic live keys are at least 60 chars after the sk-ant- prefix
+          # (real ones are ~100). This regex is tight enough to ignore the
+          # "sk-ant-api03-..." placeholders used in docs and .env.example.
+          SECRETS_REGEX='sk-ant-api03-[A-Za-z0-9_-]{60,}|AIza[0-9A-Za-z_-]{35}|"private_key": ?"-----BEGIN'
+          if git grep -E "$SECRETS_REGEX" -- ':!.github/workflows/deploy.yml' ':!.gitignore'; then
+            echo "::error::Live credential pattern found in tracked files. Refusing to deploy."
+            exit 1
+          fi
+
       - name: Run tests
         run: npm test
 

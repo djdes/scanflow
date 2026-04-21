@@ -73,7 +73,7 @@ Change line 30:
 
 ```typescript
 // Before:
-anthropicApiKey: envStr('ANTHROPIC_API_KEY', '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'),
+anthropicApiKey: envStr('ANTHROPIC_API_KEY', 'sk-ant-api03-<REDACTED_LEAKED_KEY>'),
 
 // After:
 anthropicApiKey: envStr('ANTHROPIC_API_KEY', ''),

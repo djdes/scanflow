@@ -916,7 +916,7 @@ Add after `CLAUDE_CODE_GIT_BASH_PATH` line:
 
 ```env
 # Anthropic API (для режима Claude API)
-ANTHROPIC_API_KEY=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
+ANTHROPIC_API_KEY=sk-ant-api03-...  # put real key only in .env on the server, never commit
 ```
 
 **Step 2: Add to config.ts**
