@@ -51,6 +51,7 @@
     "express-rate-limit": "^8.3.2",
     "fuse.js": "^7.1.0",
     "helmet": "^8.1.0",
+    "jsonrepair": "^3.14.0",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.4",
