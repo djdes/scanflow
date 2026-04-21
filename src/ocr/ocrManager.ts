@@ -227,7 +227,9 @@ export class OcrManager {
 
   /**
    * Текстовый анализ объединённого OCR-текста нескольких страниц.
-   * Google Vision уже извлёк текст — Claude только структурирует.
+   * Источник текста зависит от режима (hybrid → Google Vision OCR,
+   * claude_api → JSON-ответы Claude с предыдущих страниц). В обоих случаях
+   * Claude получает уже-текст и собирает из него единый structured-ответ.
    */
   async analyzeMultiPageText(combinedOcrText: string, pageCount: number): Promise<OcrResult> {
     const analyzerConfig = invoiceRepo.getAnalyzerConfig();
@@ -241,9 +243,15 @@ export class OcrManager {
     const result = await analyzeMultiPageTextWithClaudeApi(combinedOcrText, apiKey, pageCount, modelId);
 
     if (result.success && result.data) {
+      // Honest engine tag: only include "google_vision" if we're actually
+      // in hybrid mode. In claude_api mode Google Vision was never called,
+      // the combined text is just the previous pages' Claude JSON outputs.
+      const engine = analyzerConfig.mode === 'claude_api'
+        ? 'claude_api_multipage'
+        : 'google_vision+claude_api_multipage';
       return {
         text: combinedOcrText,
-        engine: 'google_vision+claude_api_multipage',
+        engine,
         structured: result.data,
       };
     }
