@@ -326,6 +326,28 @@ export const invoiceRepo = {
   },
 
   /**
+   * Partial update of an invoice item's editable fields. Pass only the keys
+   * you want to change — others stay untouched. Used by inline editing in
+   * the dashboard.
+   */
+  updateItemFields(
+    itemId: number,
+    fields: { quantity?: number | null; unit?: string | null; price?: number | null; total?: number | null },
+  ): void {
+    const db = getDb();
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if ('quantity' in fields) { sets.push('quantity = ?'); vals.push(fields.quantity); }
+    if ('unit' in fields) { sets.push('unit = ?'); vals.push(fields.unit); }
+    if ('price' in fields) { sets.push('price = ?'); vals.push(fields.price); }
+    if ('total' in fields) { sets.push('total = ?'); vals.push(fields.total); }
+    if (sets.length === 0) return;
+    vals.push(itemId);
+    db.prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  },
+
+
+  /**
    * Update mapping + confidence on an invoice item. Used by /remap endpoint
    * so that the UI "точность" column reflects the new fuzzy score.
    */

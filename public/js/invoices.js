@@ -290,10 +290,30 @@ const Invoices = {
                 <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
               </div>
             </td>
-            <td style="text-align:right">${App.formatQty(item.quantity)}</td>
-            <td>${App.esc(item.unit || '—')}</td>
-            <td style="text-align:right">${App.formatMoney(item.price)}</td>
-            <td style="text-align:right">${App.formatMoney(item.total)}</td>
+            <td style="text-align:right">
+              <input type="text" inputmode="decimal" class="item-edit item-edit-qty"
+                     value="${item.quantity != null ? String(item.quantity).replace('.', ',') : ''}"
+                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="quantity"
+                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
+            </td>
+            <td>
+              <input type="text" class="item-edit item-edit-unit"
+                     value="${App.esc(item.unit || '')}"
+                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="unit"
+                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
+            </td>
+            <td style="text-align:right">
+              <input type="text" inputmode="decimal" class="item-edit item-edit-price"
+                     value="${item.price != null ? Number(item.price).toFixed(2).replace('.', ',') : ''}"
+                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="price"
+                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
+            </td>
+            <td style="text-align:right">
+              <input type="text" inputmode="decimal" class="item-edit item-edit-total"
+                     value="${item.total != null ? Number(item.total).toFixed(2).replace('.', ',') : ''}"
+                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="total"
+                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
+            </td>
             <td style="text-align:center">${item.vat_rate != null ? item.vat_rate + '%' : '—'}</td>
             <td>${App.confidenceBadge(item.mapping_confidence || 0)}</td>
           </tr>
@@ -484,6 +504,69 @@ const Invoices = {
   onNomBlur(event) {
     const dd = document.getElementById('nom-dd-' + event.target.dataset.itemId);
     setTimeout(() => { if (dd) dd.style.display = 'none'; }, 150);
+  },
+
+  // Save the editable qty/unit/price/total on blur. Only sends a PATCH if the
+  // value actually changed (to avoid spamming the server when user tabs through).
+  async onItemEdit(event) {
+    const el = event.target;
+    const { invoiceId, itemId, field } = el.dataset;
+    const raw = el.value.trim().replace(',', '.');
+    // Remember the last-saved value per input to avoid pointless PATCHes.
+    const prev = el.dataset.lastSaved ?? el.defaultValue.trim().replace(',', '.');
+    if (raw === prev) return;
+
+    let payload;
+    if (field === 'unit') {
+      payload = { unit: raw || null };
+    } else {
+      if (raw === '') {
+        payload = { [field]: null };
+      } else {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) {
+          App.notify('Некорректное число', 'error');
+          el.value = prev.replace('.', ',');
+          return;
+        }
+        payload = { [field]: n };
+      }
+    }
+
+    const guardToken = `item-edit:${itemId}:${field}`;
+    return this._withGuard(guardToken, async () => {
+      try {
+        const resp = await App.apiJson(`/invoices/${invoiceId}/items/${itemId}`, {
+          method: 'PATCH',
+          body: payload,
+        });
+        el.dataset.lastSaved = raw;
+        // Refresh sibling cells (total may have been auto-derived, plus the
+        // invoice-level total badge). Safest: reload the whole detail.
+        this.showDetail(Number(invoiceId));
+        if (resp?.data?.items_total_mismatch === 0) {
+          App.notify('Сохранено', 'success');
+        } else {
+          App.notify('Сохранено. Сумма расходится с документом — проверьте', 'info');
+        }
+      } catch (e) {
+        App.notify('Не сохранилось: ' + e.message, 'error');
+        el.value = prev.replace('.', ',');
+      }
+    });
+  },
+
+  onItemEditKey(event) {
+    // Enter commits by losing focus. Escape reverts.
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.target.blur();
+    } else if (event.key === 'Escape') {
+      const el = event.target;
+      const prev = el.dataset.lastSaved ?? el.defaultValue;
+      el.value = prev;
+      el.blur();
+    }
   },
 
   switchTab(tab, btn) {

@@ -1461,6 +1461,37 @@ details[open] summary { margin-bottom: 12px; }
   outline: none;
   border-color: var(--primary, #1a6dff);
 }
+
+/* Inline-editable numeric cells in the invoice items table.
+   Look like plain text until focused, so the table stays calm. */
+.item-edit {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  border-radius: 4px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.item-edit:hover {
+  border-color: #e2e8f0;
+}
+.item-edit:focus {
+  outline: none;
+  border-color: var(--primary, #1a6dff);
+  background: #fff;
+}
+.item-edit-qty, .item-edit-price, .item-edit-total {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.item-edit-unit {
+  text-align: left;
+  min-width: 40px;
+}
 .nom-picker-dropdown {
   display: none;
   position: absolute;

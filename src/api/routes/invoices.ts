@@ -600,4 +600,86 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
   res.json({ data: updatedItem });
 });
 
+// PATCH /api/invoices/:invoiceId/items/:itemId — inline-edit of an item's
+// numeric/text fields. Accepts any subset of {quantity, unit, price, total};
+// missing keys are left untouched. If quantity+price are both known after
+// the update, total is auto-derived unless explicitly provided.
+//
+// Always triggers recalculateTotal on the parent invoice so the sum +
+// items_total_mismatch flag stay accurate.
+router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
+  const invoiceId = parseInt(req.params.invoiceId as string, 10);
+  const itemId = parseInt(req.params.itemId as string, 10);
+  if (!Number.isFinite(invoiceId) || !Number.isFinite(itemId)) {
+    res.status(400).json({ error: 'invalid invoiceId or itemId' });
+    return;
+  }
+
+  const item = invoiceRepo.getItemById(itemId);
+  if (!item || item.invoice_id !== invoiceId) {
+    res.status(404).json({ error: 'Invoice item not found' });
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const toNumOrNull = (v: unknown): number | null | undefined => {
+    if (v === undefined) return undefined;
+    if (v === null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined; // undefined → caller passed garbage, ignore
+  };
+
+  const fields: { quantity?: number | null; unit?: string | null; price?: number | null; total?: number | null } = {};
+  if ('quantity' in body) {
+    const q = toNumOrNull(body.quantity);
+    if (q === undefined) { res.status(400).json({ error: 'invalid quantity' }); return; }
+    fields.quantity = q;
+  }
+  if ('unit' in body) {
+    const u = body.unit;
+    fields.unit = (typeof u === 'string' && u.trim() !== '') ? u.trim() : null;
+  }
+  if ('price' in body) {
+    const p = toNumOrNull(body.price);
+    if (p === undefined) { res.status(400).json({ error: 'invalid price' }); return; }
+    fields.price = p;
+  }
+  if ('total' in body) {
+    const t = toNumOrNull(body.total);
+    if (t === undefined) { res.status(400).json({ error: 'invalid total' }); return; }
+    fields.total = t;
+  }
+
+  // Auto-derive total from qty*price if both are set after this patch and
+  // caller didn't explicitly set total. This mirrors what the UI expects when
+  // user edits just qty or price.
+  const effQty = 'quantity' in fields ? fields.quantity : item.quantity;
+  const effPrice = 'price' in fields ? fields.price : item.price;
+  if (!('total' in fields) && effQty != null && effPrice != null) {
+    fields.total = Math.round(effQty * effPrice * 100) / 100;
+  }
+
+  if (Object.keys(fields).length === 0) {
+    res.status(400).json({ error: 'no editable fields provided' });
+    return;
+  }
+
+  const db = getDb();
+  db.transaction(() => {
+    invoiceRepo.updateItemFields(itemId, fields);
+    // Keep the invoice total + mismatch flag in sync with the edited items.
+    invoiceRepo.recalculateTotal(invoiceId);
+  })();
+
+  const updated = invoiceRepo.getItemById(itemId);
+  const invoice = invoiceRepo.getById(invoiceId);
+  res.json({
+    data: {
+      item: updated,
+      invoice_total_sum: invoice?.total_sum ?? null,
+      items_total_mismatch: invoice?.items_total_mismatch ?? 0,
+    },
+  });
+});
+
 export default router;
