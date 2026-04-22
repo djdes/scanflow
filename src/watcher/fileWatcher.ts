@@ -16,6 +16,23 @@ import { sanitizeItemArithmetic, sanitizeInvoiceVat } from '../parser/itemSaniti
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
+/**
+ * Extract the row_no of the FIRST item from a persisted invoice's raw_text.
+ *
+ * We never migrated row_no into the invoice_items table (it's only useful at
+ * merge-time), so we re-parse it from the JSON Claude returned and that we
+ * stored verbatim in invoices.raw_text. Tolerant to jsonrepair cases where
+ * the text contains fenced markdown — we scan for the first /"row_no":\s*(\d+)/.
+ */
+function getFirstRowNo(invoiceId: number): number | null {
+  const row = invoiceRepo.getById(invoiceId);
+  if (!row || !row.raw_text) return null;
+  const m = row.raw_text.match(/"row_no"\s*:\s*(\d+)/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export class FileWatcher {
   private watcher: FSWatcher | null = null;
   private ocrManager: OcrManager;
@@ -270,43 +287,67 @@ export class FileWatcher {
         }
       }
 
-      // Strategy B2: row-number continuation.
+      // Strategy B2: row-number continuation (works in BOTH directions).
       //
-      // Real failure from invoice 1289: page 2 of УПД №1/153468 had only one
-      // item (row_no=10). Claude read the item code "13-0659" and returned
-      // it as invoice_number — so Strategy A compared "13-0659" against the
-      // real "1/153468" and thought they were different invoices. Strategy C
-      // then refused to merge because this page HAD an invoice_number
-      // (albeit wrong).
+      // УПД pages can arrive in either order — sometimes page 2 is processed
+      // before page 1 (concurrent reprocess, network jitter, etc.). We detect
+      // continuation by checking the row_no column on both sides.
       //
-      // Fix: if the first item on the current page has row_no > 1 AND a
-      // recent invoice from the same supplier has exactly row_no-1 items,
-      // this is almost certainly a continuation — merge regardless of what
-      // invoice_number says. The row-number check is a strong signal that
-      // beats the unreliable OCR-ed number.
+      // Case A — current page is a "tail" (first row_no > 1):
+      //   existing invoice should have exactly (first_row_no − 1) items.
+      //   Example: current has row_no=10; existing has 9 items (rows 1-9).
+      //
+      // Case B — current page is a "head" (last row_no == items.length):
+      //   existing invoice's first item should have row_no = current.items.length + 1.
+      //   Example: current has 9 items with rows 1-9; existing has 1 item
+      //   with row_no=10. (This fires when reprocess ran pages out of order.)
+      //
+      // Both rely on supplier match + 5 min window, so they won't accidentally
+      // merge invoices from unrelated deliveries.
       if (!existingInvoice && parsed.supplier && parsed.items.length > 0) {
         const firstRowNo = parsed.items[0].row_no;
-        if (firstRowNo != null && firstRowNo > 1) {
-          const candidate = invoiceRepo.findRecentBySupplier(
-            parsed.supplier,
-            invoice.id,
-            5,
-          );
-          if (candidate) {
-            const existingItems = invoiceRepo.getItems(candidate.id);
-            // Typical tolerance: first item's row_no on page 2 should equal
-            // existing items count + 1. We also accept ±1 off in case Claude
-            // missed or added a row.
+        const lastRowNo = parsed.items[parsed.items.length - 1].row_no;
+        const candidate = invoiceRepo.findRecentBySupplier(
+          parsed.supplier,
+          invoice.id,
+          5,
+        );
+        if (candidate) {
+          const existingItems = invoiceRepo.getItems(candidate.id);
+
+          // Case A: current is a continuation
+          if (firstRowNo != null && firstRowNo > 1) {
             const gap = firstRowNo - (existingItems.length + 1);
             if (Math.abs(gap) <= 1) {
               existingInvoice = candidate;
-              logger.info('Multi-page: matched by row_no continuation', {
+              logger.info('Multi-page: matched by row_no continuation (current is tail)', {
                 currentFile: fileName,
                 existingFile: candidate.file_name,
                 supplier: parsed.supplier,
                 firstRowOnThisPage: firstRowNo,
                 existingItemsCount: existingItems.length,
               });
+            }
+          }
+
+          // Case B: current is the head; existing was processed first but is
+          // really the tail. Only attempt if Case A didn't already match.
+          if (!existingInvoice
+            && lastRowNo != null && lastRowNo === parsed.items.length
+            && existingItems.length > 0) {
+            const existingFirstRow = getFirstRowNo(candidate.id);
+            if (existingFirstRow != null) {
+              const gap = existingFirstRow - (lastRowNo + 1);
+              if (Math.abs(gap) <= 1) {
+                existingInvoice = candidate;
+                logger.info('Multi-page: matched by row_no continuation (current is head, existing is tail)', {
+                  currentFile: fileName,
+                  existingFile: candidate.file_name,
+                  supplier: parsed.supplier,
+                  lastRowOnThisPage: lastRowNo,
+                  existingFirstRowNo: existingFirstRow,
+                });
+              }
             }
           }
         }
