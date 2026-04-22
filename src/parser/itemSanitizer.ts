@@ -31,6 +31,89 @@ export interface SanitizeResult<T> {
 
 const TOLERANCE = 0.05; // 5% relative tolerance
 
+/**
+ * Invoice-level sanity check: does Σ(items.total) match invoice.total_sum?
+ *
+ * Claude sometimes puts the "without VAT" column into item.total but the
+ * "with VAT" column into invoice.total_sum (or vice versa). If it's off by
+ * exactly the VAT amount, we know one of the two is pre-tax and can scale.
+ *
+ * Decision rule:
+ *   - If Σ(items.total) ≈ total_sum (within 2%), do nothing.
+ *   - If Σ(items.total) ≈ total_sum − vat_sum (within 2%), items are
+ *     pre-VAT but the header is post-VAT → scale each item.total by
+ *     total_sum / Σ(items.total). Also scale item.price the same way.
+ *   - If Σ(items.total) ≈ total_sum + vat_sum (within 2%), items are
+ *     post-VAT but header is pre-VAT → leave items alone, trust them,
+ *     caller can recompute total_sum from items.
+ *
+ * Returns the new items + a report.
+ */
+export interface VatSanityReport {
+  scaled: boolean;
+  reason: string;
+  scaleFactor?: number;
+}
+
+export function sanitizeInvoiceVat<T extends SanitizableItem>(
+  items: T[],
+  totalSum: number | null | undefined,
+  vatSum: number | null | undefined,
+): { items: T[]; report: VatSanityReport } {
+  if (totalSum == null || !items.length) {
+    return { items, report: { scaled: false, reason: 'missing total_sum or no items' } };
+  }
+  const itemsSum = items.reduce((s, i) => s + (i.total ?? 0), 0);
+  if (itemsSum <= 0) {
+    return { items, report: { scaled: false, reason: 'zero items sum' } };
+  }
+
+  const tol = (a: number, b: number) => Math.abs(a - b) / Math.max(Math.abs(b), 1) <= 0.02;
+
+  if (tol(itemsSum, totalSum)) {
+    return { items, report: { scaled: false, reason: 'items sum matches total_sum' } };
+  }
+
+  // Items pre-VAT, header post-VAT → scale up.
+  if (vatSum != null && vatSum > 0 && tol(itemsSum, totalSum - vatSum)) {
+    const factor = totalSum / itemsSum;
+    const scaled = items.map(it => ({
+      ...it,
+      total: it.total != null ? Math.round(it.total * factor * 100) / 100 : it.total,
+      price: it.price != null ? Math.round(it.price * factor * 100) / 100 : it.price,
+    }));
+    return {
+      items: scaled,
+      report: {
+        scaled: true,
+        scaleFactor: factor,
+        reason: `items summed to ${itemsSum.toFixed(2)} (pre-VAT), total_sum ${totalSum} = ${(totalSum - vatSum).toFixed(2)} + VAT ${vatSum}. Scaled items by ×${factor.toFixed(4)} to put them in "with VAT" terms.`,
+      },
+    };
+  }
+
+  // Header pre-VAT, items already post-VAT → nothing to do; caller should
+  // recompute total_sum from items via invoiceRepo.recalculateTotal.
+  if (vatSum != null && vatSum > 0 && tol(itemsSum, totalSum + vatSum)) {
+    return {
+      items,
+      report: {
+        scaled: false,
+        reason: `items are post-VAT (${itemsSum.toFixed(2)}) but total_sum is pre-VAT (${totalSum}). Leaving items, caller should recompute total_sum.`,
+      },
+    };
+  }
+
+  // Doesn't match any pattern — leave everything alone, UI will flag mismatch.
+  return {
+    items,
+    report: {
+      scaled: false,
+      reason: `no recognisable VAT pattern (itemsSum=${itemsSum.toFixed(2)}, total_sum=${totalSum}, vat_sum=${vatSum ?? 'null'})`,
+    },
+  };
+}
+
 export function sanitizeItemArithmetic<T extends SanitizableItem>(item: T): SanitizeResult<T> {
   const qty = item.quantity;
   const price = item.price;

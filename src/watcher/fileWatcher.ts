@@ -12,7 +12,7 @@ import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
-import { sanitizeItemArithmetic } from '../parser/itemSanitizer';
+import { sanitizeItemArithmetic, sanitizeInvoiceVat } from '../parser/itemSanitizer';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -379,8 +379,25 @@ export class FileWatcher {
                 raw_text: combinedText,
               });
 
+              // VAT sanity on the unified (post-merge) invoice.
+              const mergedVatSanity = sanitizeInvoiceVat(
+                unifiedParsed.items.map(i => ({
+                  quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
+                })),
+                unifiedParsed.total_sum,
+                unifiedParsed.vat_sum,
+              );
+              if (mergedVatSanity.report.scaled) {
+                logger.info('Merged invoice VAT sanity: items scaled', mergedVatSanity.report);
+              }
+              const mergedItems = unifiedParsed.items.map((orig, i) => ({
+                ...orig,
+                price: mergedVatSanity.items[i]?.price ?? orig.price,
+                total: mergedVatSanity.items[i]?.total ?? orig.total,
+              }));
+
               // Save unified items
-              for (const item of unifiedParsed.items) {
+              for (const item of mergedItems) {
                 if (!item.name) continue;
                 const sanity = sanitizeItemArithmetic({
                   quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
@@ -454,13 +471,31 @@ export class FileWatcher {
         });
       }
 
-      // 5. Map nomenclature and save items (to target invoice)
-      for (const item of parsed.items) {
+      // 5. VAT sanity: if Claude put pre-VAT numbers into items but post-VAT
+      // into total_sum, scale items up to be consistent. See itemSanitizer.
+      const vatSanity = sanitizeInvoiceVat(
+        parsed.items.map(i => ({
+          quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
+        })),
+        parsed.total_sum,
+        parsed.vat_sum,
+      );
+      if (vatSanity.report.scaled) {
+        logger.info('Invoice VAT sanity: items scaled', vatSanity.report);
+      }
+      // Merge sanitised numbers back into parsed.items (preserve name, vat_rate).
+      const parsedItems = parsed.items.map((orig, i) => ({
+        ...orig,
+        price: vatSanity.items[i]?.price ?? orig.price,
+        total: vatSanity.items[i]?.total ?? orig.total,
+      }));
+
+      // 6. Map nomenclature and save items (to target invoice)
+      for (const item of parsedItems) {
         if (!item.name) continue; // skip items without a name
-        // First, sanity-check the arithmetic Claude returned. If qty × price
-        // doesn't match total, trust total+price and rewrite qty. This
-        // catches the "7000 шт × 959.09 = 7385" nonsense where Claude read
-        // a thousand-separator as digits.
+        // Per-row sanity: if qty × price still doesn't match total, trust
+        // total+price and rewrite qty. Catches cases like "7000 шт × 959.09
+        // = 7385" where Claude read a thousand-separator as digits.
         const sanity = sanitizeItemArithmetic({
           quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
         });
