@@ -25,19 +25,40 @@ const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
   minMatchCharLength: 3,
 };
 
-// Fuse options for learned-mappings lookup (Stage 1.5). We match the scanned
-// name of the INCOMING invoice against the scanned_names of previously-saved
-// learned mappings — NOT against the catalog. This catches cases where a new
-// invoice has a scan-name the catalog doesn't cover, but the user already
-// mapped a very similar name manually before (e.g. "Продукт белково-жировой
-// для лепки 45%" vs the previously-mapped "Продукт жировой для блюд 45%").
-const LEARNED_FUSE_OPTIONS: IFuseOptions<NomenclatureMapping> = {
-  keys: ['scanned_name'],
-  threshold: 0.35, // slightly stricter than onec — these must be "the same product in a different wording"
-  includeScore: true,
-  minMatchCharLength: 4,
-};
-const LEARNED_MIN_CONFIDENCE = 0.75;
+// Stage 1.5: fuzzy lookup among previously-saved learned mappings.
+// Fuse (char-level) was too strict for long Russian names like
+// "Продукт жировой йогуртовый без наполнителя 3кг" vs
+// "Продукт жировой йогуртовый 20% ведро 3л" — Fuse score stayed 0.79
+// (confidence 0.21) even though these are the same product.
+//
+// Switched to Jaccard similarity on normalised tokens. Normalisation strips
+// weight/volume suffixes and standalone digits, then we split on whitespace
+// and dashes and throw away 3-letter stop-words ("для", "без"). Similarity
+// is |A∩B| / |A∪B| — the two pairs from the failing case score 0.75 and
+// 0.67, both ≥ threshold 0.5.
+const LEARNED_TOKEN_MIN_SIMILARITY = 0.5;
+const LEARNED_STOPWORDS = new Set([
+  'для', 'без', 'из', 'от', 'при', 'на', 'по', 'со', 'до', 'и', 'в',
+  'упак', 'уп', 'шт', 'кг', 'гр', 'мл', 'короб', 'ведро', 'бут', 'пач',
+]);
+
+function tokenize(s: string): Set<string> {
+  return new Set(
+    s.toLowerCase()
+      .replace(/[^а-яёa-z0-9%\-\s]/gi, ' ')
+      .split(/[\s\-]+/)
+      .map(t => t.trim())
+      .filter(t => t.length >= 3 && !LEARNED_STOPWORDS.has(t))
+  );
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const x of a) if (b.has(x)) intersection++;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
 
 // Minimum confidence to return a fuzzy match at all (user sees it)
 const MIN_FUZZY_CONFIDENCE = 0.6;
@@ -71,9 +92,14 @@ export function normalizeName(name: string): string {
   return s;
 }
 
+interface LearnedToken {
+  row: NomenclatureMapping;
+  tokens: Set<string>;
+}
+
 export class NomenclatureMapper {
   private onecFuse: Fuse<OnecNomenclatureRow> | null = null;
-  private learnedFuse: Fuse<NomenclatureMapping> | null = null;
+  private learnedTokens: LearnedToken[] | null = null;
 
   private refreshIndex(): void {
     const items = onecNomenclatureRepo.listItems({ excludeFolders: true });
@@ -82,10 +108,13 @@ export class NomenclatureMapper {
   }
 
   private refreshLearnedIndex(): void {
-    // Only learned rows that resolve to a live onec_guid — legacy rows
-    // without guid won't help us link a new scan to 1С anyway.
+    // Only rows with a live onec_guid — legacy rows without guid can't help
+    // link a new scan to 1С.
     const all = mappingRepo.getAll().filter(m => m.onec_guid);
-    this.learnedFuse = new Fuse(all, LEARNED_FUSE_OPTIONS);
+    this.learnedTokens = all.map(row => ({
+      row,
+      tokens: tokenize(normalizeName(row.scanned_name)),
+    }));
     logger.debug('Learned mappings index refreshed', { learnedCount: all.length });
   }
 
@@ -96,16 +125,16 @@ export class NomenclatureMapper {
     return this.onecFuse!;
   }
 
-  private ensureLearnedIndex(): Fuse<NomenclatureMapping> {
-    if (!this.learnedFuse) {
+  private ensureLearnedIndex(): LearnedToken[] {
+    if (!this.learnedTokens) {
       this.refreshLearnedIndex();
     }
-    return this.learnedFuse!;
+    return this.learnedTokens!;
   }
 
   invalidateCache(): void {
     this.onecFuse = null;
-    this.learnedFuse = null;
+    this.learnedTokens = null;
     logger.info('Nomenclature mapper cache invalidated');
   }
 
@@ -162,44 +191,48 @@ export class NomenclatureMapper {
       }
     }
 
-    // 1.5 Fuzzy search against learned mappings' scanned_names.
+    // 1.5 Token-based fuzzy against previously-learned scanned names.
     //
-    // Why this exists: the catalog (onec_nomenclature) often doesn't contain
-    // the exact phrase the supplier writes on their invoice. But if the SAME
-    // product came through before with a slightly different wording and the
-    // user mapped it manually, we should reuse that mapping. Example:
+    // The catalog often lacks the exact phrase a supplier writes, but the
+    // user has usually already mapped a SIMILAR phrase before. Example:
     //   old scan:   "Продукт жировой для блюд 45%"       → Сыр Моцарелла
     //   new scan:   "Продукт белково-жировой для лепки 45%"
-    // The onec catalog doesn't have "белково-жировой для лепки"; onec fuzzy
-    // returns nothing. But learned-scanned-name fuzzy recognises the family
-    // "Продукт ... жировой ... 45%" and reuses the Моцарелла target.
-    const learnedFuse = this.ensureLearnedIndex();
-    const searchTerm = cleanName || scannedName;
-    const learnedResults = learnedFuse.search(searchTerm);
-    if (learnedResults.length > 0 && learnedResults[0].score !== undefined) {
-      const best = learnedResults[0];
-      const confidence = 1 - (best.score as number);
-      if (confidence >= LEARNED_MIN_CONFIDENCE && best.item.onec_guid) {
-        const onec = onecNomenclatureRepo.getByGuid(best.item.onec_guid);
+    // Onec fuzzy finds nothing (catalog has no "для лепки"), but the two
+    // scans share 3+ content tokens — Jaccard here gets us to Моцарелла.
+    //
+    // Jaccard is used instead of Fuse because Fuse's char-level scoring
+    // stays >0.7 even on pairs like ("…йогуртовый без наполнителя 3кг",
+    // "…йогуртовый 20% ведро 3л") that obviously refer to the same item.
+    const learnedIdx = this.ensureLearnedIndex();
+    const incomingTokens = tokenize(cleanName || scannedName);
+    if (incomingTokens.size >= 2 && learnedIdx.length > 0) {
+      let best: { row: NomenclatureMapping; sim: number } | null = null;
+      for (const entry of learnedIdx) {
+        const sim = jaccard(incomingTokens, entry.tokens);
+        if (sim >= LEARNED_TOKEN_MIN_SIMILARITY && (!best || sim > best.sim)) {
+          best = { row: entry.row, sim };
+        }
+      }
+      if (best && best.row.onec_guid) {
+        const onec = onecNomenclatureRepo.getByGuid(best.row.onec_guid);
         if (onec) {
-          logger.info('Mapping via learned-name fuzzy', {
+          logger.info('Mapping via learned-name token fuzzy', {
             scannedName,
-            matchedScanName: best.item.scanned_name,
+            matchedScanName: best.row.scanned_name,
             target: onec.name,
-            confidence: confidence.toFixed(3),
+            similarity: best.sim.toFixed(3),
           });
           return {
             original_name: scannedName,
             mapped_name: onec.name,
-            onec_guid: best.item.onec_guid,
-            confidence,
+            onec_guid: best.row.onec_guid,
+            confidence: best.sim,
             source: 'learned',
-            // Do NOT pass mapping_id of the OTHER scan's row — that row
-            // belongs to a different scanned_name. Null it out to avoid
-            // accidentally updating somebody else's pack fields.
+            // Never inherit the OTHER row's mapping_id — it belongs to a
+            // different scanned_name and shouldn't be overwritten.
             mapping_id: null,
-            pack_size: best.item.pack_size,
-            pack_unit: best.item.pack_unit,
+            pack_size: best.row.pack_size,
+            pack_unit: best.row.pack_unit,
           };
         }
       }
@@ -207,6 +240,7 @@ export class NomenclatureMapper {
 
     // 2. Fuzzy search against onec_nomenclature (use cleaned name)
     const fuse = this.ensureIndex();
+    const searchTerm = cleanName || scannedName;
     const results = fuse.search(searchTerm);
     if (results.length > 0 && results[0].score !== undefined) {
       const best = results[0];
