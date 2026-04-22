@@ -42,32 +42,66 @@ const PACK_PATTERN = /(?:\(|\b|\s|^)(\d+(?:[.,]\d+)?)\s*(кг|гр|г|мл|л)(?
  *   "Стакан 350 мл крафт..." quantity=175 шт → WITHOUT this guard, the old
  *   code would turn it into 61250 мл → 61.25 л, which is nonsense — these
  *   are physical cups, not 175 servings of a 350ml beverage.
+ *
+ * Two tiers:
+ *   - STRICT: always blocks. The product itself IS this container (disposable
+ *     cups, cutlery, bags, jars sold as empty containers, etc.).
+ *   - PACKAGING_HINTS: blocks only when it precedes the pack-size pattern.
+ *     "Ведро 5л" (ведро first) → блок. "Сельдь 3кг (ведро)" (цифра first) → pass.
+ *     Words here describe either a product-type (тара) or a packaging format
+ *     used next to a weighted/volumed food product.
  */
-const CONTAINER_WORDS = [
+const CONTAINER_STRICT = [
   'стакан', 'стаканчик',
   'контейнер',
-  'бутылка', 'бутыль', 'флакон', 'банк',      // банк = банка
+  'бутылка', 'бутыль', 'флакон',
   'крышка',
   'пакет', 'пакетик', 'мешок',
-  'коробк', 'короб',
-  'ведро',
   'лоток',
   'пробка', 'дозатор',
   'тарелк', 'миск',
   'ложка', 'вилка', 'нож',                     // одноразовые приборы
   'салфетк',
   'форма',
+];
+const PACKAGING_HINTS = [
+  'банк',                                      // банка
+  'коробк', 'короб',
+  'ведро',
   'упаковк',
 ];
 // Note: JS RegExp \b doesn't honour Cyrillic word boundaries, so we rely on
 // simple lowercase substring lookup. This is permissive (matches "стакан"
 // inside "стаканчик" — which is intended, both are containers) but won't
 // false-positive on ordinary ingredient names.
-const CONTAINER_STEMS = CONTAINER_WORDS.map(w => w.toLowerCase());
+const CONTAINER_STRICT_STEMS = CONTAINER_STRICT.map(w => w.toLowerCase());
+const PACKAGING_HINT_STEMS = PACKAGING_HINTS.map(w => w.toLowerCase());
 
+/**
+ * Returns true when the item name describes the container itself (not a food
+ * product packed in it). A name is treated as a container when:
+ *   - it contains any STRICT stem, OR
+ *   - it contains a PACKAGING_HINT stem that appears BEFORE the first pack
+ *     size pattern (e.g. "Ведро 5л" — ведро first → container).
+ * Names like "Сельдь 3 кг (ведро)" pass (цифра first → фасовка).
+ */
 function looksLikeContainer(name: string): boolean {
   const lower = name.toLowerCase();
-  return CONTAINER_STEMS.some(stem => lower.includes(stem));
+  if (CONTAINER_STRICT_STEMS.some(stem => lower.includes(stem))) return true;
+  const packMatch = lower.match(PACK_PATTERN);
+  const packIdx = packMatch?.index ?? -1;
+  for (const stem of PACKAGING_HINT_STEMS) {
+    const idx = lower.indexOf(stem);
+    if (idx === -1) continue;
+    // No pack pattern in the name — a lone "ведро" / "короб" means the product
+    // IS the container.
+    if (packIdx === -1) return true;
+    // Hint BEFORE the pack size — also container ("Ведро 5л").
+    if (idx < packIdx) return true;
+    // Hint AFTER the pack size — packaging format for a food product,
+    // pack-transform should proceed ("Сельдь 3кг (ведро)").
+  }
+  return false;
 }
 
 /**

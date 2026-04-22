@@ -69,6 +69,31 @@ describe('detectPackFromName', () => {
     expect(detectPackFromName('Мука Ржаная 50кг')).toEqual({ pack_size: 50, pack_unit: 'кг' });
     expect(detectPackFromName('Опята маринованные 3л')).toEqual({ pack_size: 3, pack_unit: 'л' });
   });
+
+  it('treats packaging hints AFTER the pack size as format, not container', () => {
+    // "Сельдь 3 кг (ведро)" — продукт упакован в ведро, qty=шт × 3 кг.
+    // Ключ: цифра+единица ИДЁТ ПЕРЕД словом ведро/банка/короб/упаковка.
+    expect(detectPackFromName('Сельдь филе "Классическая" в масле 3 кг (ведро)')).toEqual({ pack_size: 3, pack_unit: 'кг' });
+    expect(detectPackFromName('Огурцы маринованные 5л (банка)')).toEqual({ pack_size: 5, pack_unit: 'л' });
+    expect(detectPackFromName('Конфеты 2кг короб')).toEqual({ pack_size: 2, pack_unit: 'кг' });
+    expect(detectPackFromName('Печенье 1.5кг упаковка')).toEqual({ pack_size: 1.5, pack_unit: 'кг' });
+  });
+
+  it('still blocks when packaging hint precedes the pack size', () => {
+    // Product itself IS the vessel.
+    expect(detectPackFromName('Ведро 5л пластиковое')).toBeNull();
+    expect(detectPackFromName('Банка стеклянная 1л')).toBeNull();
+    expect(detectPackFromName('Короб картонный 40х30х20 5л')).toBeNull();
+    expect(detectPackFromName('Упаковка 1кг картонная')).toBeNull();
+  });
+
+  it('still blocks strict container words regardless of position', () => {
+    // "стакан" / "контейнер" / "крышка" always describe the product itself,
+    // even when a measurement appears before them.
+    expect(detectPackFromName('Крышка 115мм прозрачная')).toBeNull();
+    expect(detectPackFromName('Стакан 350 мл крафт')).toBeNull();
+    expect(detectPackFromName('Пакет 30л мусорный')).toBeNull();
+  });
 });
 
 describe('applyPackTransform', () => {

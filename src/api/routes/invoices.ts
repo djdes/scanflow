@@ -10,6 +10,7 @@ import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
@@ -254,6 +255,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   let remapped = 0;
   let changed = 0;
   let legacyMapped = 0;
+  let repacked = 0;
   for (const item of items) {
     // Skip already-mapped unless ?all=true
     if (!includeAll && item.onec_guid) continue;
@@ -277,10 +279,40 @@ router.post('/:id/remap', (req: Request, res: Response) => {
       invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
       legacyMapped++;
     }
+
+    // Re-apply pack transform using the (possibly freshly-learned) pack_size
+    // on the mapping. Watcher applies this once at ingest; without a repeat
+    // here, mappings learned AFTER the invoice was first processed never
+    // propagate. Idempotence guard inside applyPackTransform makes repeated
+    // calls safe — if unit already matches pack_unit, nothing changes.
+    const resolved = resolveAndApplyPackTransform(
+      { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+      item.original_name,
+      result.pack_size,
+      result.pack_unit,
+    );
+    const before = { qty: item.quantity, unit: item.unit, price: item.price };
+    const after = resolved.item;
+    if (
+      after.quantity !== before.qty
+      || after.unit !== before.unit
+      || after.price !== before.price
+    ) {
+      invoiceRepo.updateItemFields(item.id, {
+        quantity: after.quantity ?? null,
+        unit: after.unit ?? null,
+        price: after.price ?? null,
+      });
+      repacked++;
+    }
   }
 
-  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, total: items.length, all: includeAll });
-  res.json({ data: { id, remapped, legacyMapped, changed, total: items.length } });
+  // Totals may have shifted if pack-transform changed any prices (it shouldn't
+  // — total is preserved — but flag mismatches regardless).
+  invoiceRepo.recalculateTotal(id);
+
+  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, total: items.length, all: includeAll });
+  res.json({ data: { id, remapped, legacyMapped, changed, repacked, total: items.length } });
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files
