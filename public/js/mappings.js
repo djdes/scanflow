@@ -119,12 +119,17 @@ const Mappings = {
           </tr>`;
       }
 
+      const variantIds = g.variants.map(v => v.id).join(',');
       return `
         <tr class="clickable" onclick="Mappings.toggleExpand('${esc(g.onec_guid)}')">
           <td><strong>${esc(g.mapped_name)}</strong></td>
           <td>${chips}${moreHtml}</td>
           <td style="text-align:right">${total}×</td>
-          <td><span class="expand-arrow">${isExpanded ? '▼' : '▶'}</span></td>
+          <td style="white-space:nowrap;text-align:right">
+            <button class="btn-icon-danger" title="Удалить группу со всеми вариантами"
+                    onclick="Mappings.removeGroup('${esc(g.onec_guid)}', '${esc(g.mapped_name)}', '${variantIds}', event)">&#10005;</button>
+            <span class="expand-arrow">${isExpanded ? '▼' : '▶'}</span>
+          </td>
         </tr>
         ${expandedRows}
       `;
@@ -173,6 +178,37 @@ const Mappings = {
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
       }
+    });
+  },
+
+  // Delete a whole group: every learned variant that points at this 1C item.
+  // Backend has no bulk-delete endpoint, so we fire DELETE /mappings/:id for
+  // each variant. Ids come in as a comma-joined string from the row template.
+  async removeGroup(guid, mappedName, variantIdsStr, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    const ids = String(variantIdsStr || '').split(',').map(s => parseInt(s, 10)).filter(n => Number.isFinite(n));
+    if (ids.length === 0) return;
+    const msg = ids.length === 1
+      ? `Удалить сопоставление «${mappedName}»?`
+      : `Удалить группу «${mappedName}» и все её варианты (${ids.length} шт.)?`;
+    if (!confirm(msg)) return;
+    return this._withGuard(`removeGroup:${guid}`, async () => {
+      let ok = 0;
+      const errors = [];
+      for (const id of ids) {
+        try {
+          await App.apiJson(`/mappings/${id}`, { method: 'DELETE' });
+          ok++;
+        } catch (e) {
+          errors.push(`#${id}: ${e.message}`);
+        }
+      }
+      if (errors.length === 0) {
+        App.notify(`Удалено: ${ok}`, 'success');
+      } else {
+        App.notify(`Удалено ${ok} из ${ids.length}. Ошибки: ${errors.join('; ')}`, 'error');
+      }
+      this.loadGrouped();
     });
   },
 
