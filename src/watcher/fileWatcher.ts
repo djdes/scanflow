@@ -270,6 +270,48 @@ export class FileWatcher {
         }
       }
 
+      // Strategy B2: row-number continuation.
+      //
+      // Real failure from invoice 1289: page 2 of УПД №1/153468 had only one
+      // item (row_no=10). Claude read the item code "13-0659" and returned
+      // it as invoice_number — so Strategy A compared "13-0659" against the
+      // real "1/153468" and thought they were different invoices. Strategy C
+      // then refused to merge because this page HAD an invoice_number
+      // (albeit wrong).
+      //
+      // Fix: if the first item on the current page has row_no > 1 AND a
+      // recent invoice from the same supplier has exactly row_no-1 items,
+      // this is almost certainly a continuation — merge regardless of what
+      // invoice_number says. The row-number check is a strong signal that
+      // beats the unreliable OCR-ed number.
+      if (!existingInvoice && parsed.supplier && parsed.items.length > 0) {
+        const firstRowNo = parsed.items[0].row_no;
+        if (firstRowNo != null && firstRowNo > 1) {
+          const candidate = invoiceRepo.findRecentBySupplier(
+            parsed.supplier,
+            invoice.id,
+            5,
+          );
+          if (candidate) {
+            const existingItems = invoiceRepo.getItems(candidate.id);
+            // Typical tolerance: first item's row_no on page 2 should equal
+            // existing items count + 1. We also accept ±1 off in case Claude
+            // missed or added a row.
+            const gap = firstRowNo - (existingItems.length + 1);
+            if (Math.abs(gap) <= 1) {
+              existingInvoice = candidate;
+              logger.info('Multi-page: matched by row_no continuation', {
+                currentFile: fileName,
+                existingFile: candidate.file_name,
+                supplier: parsed.supplier,
+                firstRowOnThisPage: firstRowNo,
+                existingItemsCount: existingItems.length,
+              });
+            }
+          }
+        }
+      }
+
       // Strategy C: match by supplier within 5 minutes (camera rapid capture).
       //
       // Only merge if the CURRENT page lacks an invoice_number. If both pages

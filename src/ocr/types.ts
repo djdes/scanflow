@@ -37,6 +37,10 @@ export interface ParsedInvoiceItem {
   price?: number;
   total?: number;
   vat_rate?: number;
+  // "№ п/п" / "No" — sequential 1-based position in the items table on THIS
+  // page. Used by the watcher to detect that a new invoice starting with
+  // row_no=10 is a continuation of a previous one that ended at row_no=9.
+  row_no?: number;
 }
 
 export interface OcrEngine {
