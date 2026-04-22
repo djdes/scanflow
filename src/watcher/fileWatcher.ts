@@ -12,7 +12,7 @@ import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
-import { sanitizeItemArithmetic, sanitizeInvoiceVat } from '../parser/itemSanitizer';
+import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -473,10 +473,20 @@ export class FileWatcher {
               if (mergedVatSanity.report.scaled) {
                 logger.info('Merged invoice VAT sanity: items scaled', mergedVatSanity.report);
               }
+              const mergedPerItemVat = sanitizeItemVatPerItem(
+                mergedVatSanity.items.map((i, k) => ({
+                  quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
+                  vat_rate: unifiedParsed.items[k]?.vat_rate,
+                })),
+                unifiedParsed.total_sum,
+              );
+              if (mergedPerItemVat.report.inflated > 0) {
+                logger.info('Merged invoice per-item VAT sanity: lines inflated', mergedPerItemVat.report);
+              }
               const mergedItems = unifiedParsed.items.map((orig, i) => ({
                 ...orig,
-                price: mergedVatSanity.items[i]?.price ?? orig.price,
-                total: mergedVatSanity.items[i]?.total ?? orig.total,
+                price: mergedPerItemVat.items[i]?.price ?? orig.price,
+                total: mergedPerItemVat.items[i]?.total ?? orig.total,
               }));
 
               // Save unified items
@@ -567,11 +577,25 @@ export class FileWatcher {
       if (vatSanity.report.scaled) {
         logger.info('Invoice VAT sanity: items scaled', vatSanity.report);
       }
+      // 5b. Per-item VAT fix: Claude sometimes mixes "сумма без НДС" and
+      // "сумма с НДС" columns between rows (caught in ТОРГ-12 invoices with
+      // many items). Invoice-level sanitizer above only handles all-pre-VAT
+      // or all-post-VAT. This pass targets individual clean-pre-VAT lines.
+      const perItemVat = sanitizeItemVatPerItem(
+        vatSanity.items.map((i, k) => ({
+          quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
+          vat_rate: parsed.items[k]?.vat_rate,
+        })),
+        parsed.total_sum,
+      );
+      if (perItemVat.report.inflated > 0) {
+        logger.info('Invoice per-item VAT sanity: lines inflated', perItemVat.report);
+      }
       // Merge sanitised numbers back into parsed.items (preserve name, vat_rate).
       const parsedItems = parsed.items.map((orig, i) => ({
         ...orig,
-        price: vatSanity.items[i]?.price ?? orig.price,
-        total: vatSanity.items[i]?.total ?? orig.total,
+        price: perItemVat.items[i]?.price ?? orig.price,
+        total: perItemVat.items[i]?.total ?? orig.total,
       }));
 
       // 6. Map nomenclature and save items (to target invoice)

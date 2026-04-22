@@ -22,6 +22,10 @@ export interface SanitizableItem {
   total: number | null | undefined;
 }
 
+export interface VatAwareItem extends SanitizableItem {
+  vat_rate: number | null | undefined;
+}
+
 export interface SanitizeResult<T> {
   item: T;
   corrected: boolean;
@@ -110,6 +114,156 @@ export function sanitizeInvoiceVat<T extends SanitizableItem>(
     report: {
       scaled: false,
       reason: `no recognisable VAT pattern (itemsSum=${itemsSum.toFixed(2)}, total_sum=${totalSum}, vat_sum=${vatSum ?? 'null'})`,
+    },
+  };
+}
+
+/**
+ * Per-item VAT sanity: fix items where Claude took the "сумма БЕЗ НДС" column
+ * instead of "сумма С НДС" for some lines but not others (common failure mode
+ * in ТОРГ-12 — unlike sanitizeInvoiceVat which only catches the all-pre-VAT
+ * or all-post-VAT cases).
+ *
+ * Rule (intentionally conservative — we'd rather leave a wrong line than
+ * corrupt a right one):
+ *
+ *   For each item with a positive vat_rate and total ≈ qty × price (within
+ *   0.5% — the "clean pre-VAT" signature: all three numbers taken from the
+ *   pre-VAT side of the same row):
+ *     candidate = total × (1 + vat_rate/100)
+ *
+ *   Then we try every subset of candidates (bit-mask over the K<=20 eligible
+ *   rows) and pick the one that minimises |Σ new_totals − header_total|
+ *   WHILE staying ≤ headerTol. If no subset improves on the current error
+ *   by ≥ 50%, we back off and apply nothing.
+ *
+ * The double safety (clean arithmetic check + subset that actually closes
+ * the header gap) means we never inflate lines that Claude read from
+ * different columns (those fail the clean-arithmetic test).
+ *
+ * Inputs that are null/zero-qty/zero-price/zero-total are passed through.
+ */
+export interface VatPerItemReport {
+  inflated: number;         // how many items were scaled up
+  skipped: number;          // eligible but not chosen by the subset search
+  newItemsSum: number;
+  oldItemsSum: number;
+  headerTotal: number;
+  improvementFactor: number; // how much closer we got to the header (1.0 = nothing, higher = better)
+  reason: string;
+}
+
+export function sanitizeItemVatPerItem<T extends VatAwareItem>(
+  items: T[],
+  headerTotal: number | null | undefined,
+): { items: T[]; report: VatPerItemReport } {
+  const oldSum = items.reduce((s, i) => s + (i.total ?? 0), 0);
+  const baseReport = {
+    inflated: 0,
+    skipped: 0,
+    newItemsSum: oldSum,
+    oldItemsSum: oldSum,
+    headerTotal: headerTotal ?? 0,
+    improvementFactor: 1,
+  };
+
+  if (headerTotal == null || headerTotal <= 0 || items.length === 0) {
+    return { items, report: { ...baseReport, reason: 'no header total or empty items' } };
+  }
+
+  const oldErr = Math.abs(oldSum - headerTotal);
+  // Already close enough (≤1%)? Don't touch anything.
+  if (oldErr / headerTotal <= 0.01) {
+    return { items, report: { ...baseReport, reason: 'already within 1% of header total' } };
+  }
+
+  // Identify eligible lines: clean pre-VAT arithmetic + positive vat_rate.
+  type Eligible = { idx: number; cur: number; inflated: number; vat: number };
+  const eligible: Eligible[] = [];
+  for (let k = 0; k < items.length; k++) {
+    const it = items[k];
+    const q = it.quantity ?? 0;
+    const p = it.price ?? 0;
+    const t = it.total ?? 0;
+    const vat = it.vat_rate ?? 0;
+    if (q <= 0 || p <= 0 || t <= 0 || vat <= 0) continue;
+    // Clean pre-VAT: |q × p − t| / t ≤ 0.5%
+    const expected = q * p;
+    const rel = Math.abs(expected - t) / t;
+    if (rel > 0.005) continue;
+    const infl = Math.round(t * (1 + vat / 100) * 100) / 100;
+    eligible.push({ idx: k, cur: t, inflated: infl, vat });
+  }
+
+  // Cap subset search at 20 lines (2^20 = 1M iterations, ~50ms).
+  // Accounting invoices rarely exceed 20 items, and if they do, the
+  // risk of an over-eager fix outweighs the benefit — fall back to none.
+  if (eligible.length === 0 || eligible.length > 20) {
+    return { items, report: { ...baseReport, reason: `no eligible pre-VAT items (found ${eligible.length})` } };
+  }
+
+  // Fixed portion: items we won't touch (ineligible).
+  const nonEligibleSum = items.reduce((s, it, k) => {
+    if (eligible.some(e => e.idx === k)) return s;
+    return s + (it.total ?? 0);
+  }, 0);
+
+  // Brute-force subset selection over eligible lines.
+  const N = eligible.length;
+  let bestMask = 0;
+  let bestErr = oldErr;
+  for (let mask = 0; mask < (1 << N); mask++) {
+    let s = nonEligibleSum;
+    for (let k = 0; k < N; k++) {
+      s += (mask >> k) & 1 ? eligible[k].inflated : eligible[k].cur;
+    }
+    const err = Math.abs(s - headerTotal);
+    if (err < bestErr) {
+      bestErr = err;
+      bestMask = mask;
+    }
+  }
+
+  // Require a meaningful improvement: at least 50% smaller error than before,
+  // AND final error ≤ 1% of header total. Otherwise the "best" subset is just
+  // a coincidence that doesn't really solve the problem.
+  const finalRel = bestErr / headerTotal;
+  const improvement = oldErr / Math.max(bestErr, 0.01);
+  if (improvement < 2 || finalRel > 0.01) {
+    return {
+      items,
+      report: {
+        ...baseReport,
+        skipped: eligible.length,
+        reason: `no subset brings error within 1% (oldErr=${oldErr.toFixed(2)}, bestErr=${bestErr.toFixed(2)}, improvement=${improvement.toFixed(2)}x)`,
+      },
+    };
+  }
+
+  // Apply the chosen mask.
+  const chosenIdx = new Set<number>();
+  for (let k = 0; k < N; k++) {
+    if ((bestMask >> k) & 1) chosenIdx.add(eligible[k].idx);
+  }
+  const out: T[] = items.map((it, k) => {
+    if (!chosenIdx.has(k)) return it;
+    const q = it.quantity ?? 0;
+    const vat = it.vat_rate ?? 0;
+    const newTotal = Math.round((it.total ?? 0) * (1 + vat / 100) * 100) / 100;
+    const newPrice = q > 0 ? Math.round(newTotal / q * 100) / 100 : it.price;
+    return { ...it, total: newTotal, price: newPrice };
+  });
+  const newSum = out.reduce((s, i) => s + (i.total ?? 0), 0);
+  return {
+    items: out,
+    report: {
+      inflated: chosenIdx.size,
+      skipped: eligible.length - chosenIdx.size,
+      newItemsSum: newSum,
+      oldItemsSum: oldSum,
+      headerTotal,
+      improvementFactor: improvement,
+      reason: `inflated ${chosenIdx.size}/${eligible.length} pre-VAT items by (1+vat%), sum went from ${oldSum.toFixed(2)} to ${newSum.toFixed(2)} (header=${headerTotal}, improvement=${improvement.toFixed(1)}x)`,
     },
   };
 }

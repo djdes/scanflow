@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeItemArithmetic, sanitizeInvoiceVat } from '../../src/parser/itemSanitizer';
+import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../../src/parser/itemSanitizer';
 
 describe('sanitizeItemArithmetic', () => {
   it('leaves correct arithmetic alone', () => {
@@ -128,5 +128,108 @@ describe('sanitizeInvoiceVat', () => {
     const items = [{ quantity: 1, unit: 'шт', price: 100, total: 100 }];
     const r = sanitizeInvoiceVat(items, null, null);
     expect(r.report.scaled).toBe(false);
+  });
+});
+
+describe('sanitizeItemVatPerItem', () => {
+  const makeItem = (qty: number, price: number, total: number, vat: number) =>
+    ({ quantity: qty, unit: 'кг', price, total, vat_rate: vat });
+
+  it('leaves items alone when sum already matches header', () => {
+    const items = [makeItem(10, 100, 1000, 20), makeItem(5, 50, 250, 10)];
+    const r = sanitizeItemVatPerItem(items, 1250);
+    expect(r.report.inflated).toBe(0);
+    expect(r.items).toEqual(items);
+  });
+
+  it('inflates a single pre-VAT line to close the header gap', () => {
+    // Item 1 is pre-VAT at 20%: 10 × 100 = 1000 but true total with VAT = 1200
+    // Item 2 is already post-VAT: 5 × 50 = 250 (total matches)
+    // Header = 1450 = 1200 + 250
+    const items = [makeItem(10, 100, 1000, 20), makeItem(5, 50, 250, 10)];
+    const r = sanitizeItemVatPerItem(items, 1450);
+    expect(r.report.inflated).toBe(1);
+    expect(r.items[0].total).toBe(1200);
+    expect(r.items[0].price).toBeCloseTo(120, 2);
+    expect(r.items[1].total).toBe(250);
+  });
+
+  it('inflates multiple lines when the subset matches header exactly', () => {
+    // Items 1, 3 pre-VAT; item 2 post-VAT.
+    // Pre-VAT: 10×100=1000 (true: 1200), 8×50=400 (true: 480)
+    // Post-VAT: 5×50=250 (matches header)
+    // Correct header = 1200 + 250 + 480 = 1930
+    const items = [
+      makeItem(10, 100, 1000, 20),
+      makeItem(5, 50, 250, 10),
+      makeItem(8, 50, 400, 20),
+    ];
+    const r = sanitizeItemVatPerItem(items, 1930);
+    expect(r.report.inflated).toBe(2);
+    expect(r.items[0].total).toBe(1200);
+    expect(r.items[1].total).toBe(250);
+    expect(r.items[2].total).toBe(480);
+  });
+
+  it('does nothing when no subset gets within 1% of header', () => {
+    // Header is way off what any subset can produce — e.g. OCR misread
+    // multiple qty values. We should NOT pretend to fix it.
+    const items = [makeItem(10, 100, 1000, 20), makeItem(5, 50, 250, 10)];
+    const r = sanitizeItemVatPerItem(items, 5000); // impossible from these lines
+    expect(r.report.inflated).toBe(0);
+    expect(r.items).toEqual(items);
+  });
+
+  it('ignores lines where qty × price ≠ total (arithmetic unclean)', () => {
+    // This line has mismatch (q×p=500, total=480 — neither pre nor post-VAT).
+    // We don't know which column Claude used, so leave it.
+    const items = [{ quantity: 10, unit: 'кг', price: 50, total: 480, vat_rate: 20 }];
+    const r = sanitizeItemVatPerItem(items, 600);
+    expect(r.report.inflated).toBe(0);
+  });
+
+  it('skips items with missing qty/price/total/vat', () => {
+    const items = [
+      { quantity: null, unit: 'шт', price: 100, total: 100, vat_rate: 20 },
+      { quantity: 5, unit: 'шт', price: null, total: 100, vat_rate: 20 },
+      { quantity: 5, unit: 'шт', price: 20, total: null, vat_rate: 20 },
+      { quantity: 5, unit: 'шт', price: 20, total: 100, vat_rate: null },
+      { quantity: 5, unit: 'шт', price: 20, total: 100, vat_rate: 0 },
+    ];
+    const r = sanitizeItemVatPerItem(items, 500);
+    expect(r.report.inflated).toBe(0);
+  });
+
+  it('handles header=null gracefully', () => {
+    const items = [makeItem(10, 100, 1000, 20)];
+    const r = sanitizeItemVatPerItem(items, null);
+    expect(r.items).toEqual(items);
+    expect(r.report.inflated).toBe(0);
+  });
+
+  it('bails when there are more than 20 eligible lines (too expensive)', () => {
+    // 21 identical pre-VAT items. 2^21 = 2M iterations — we refuse.
+    const items = Array(21).fill(null).map(() => makeItem(10, 100, 1000, 20));
+    const r = sanitizeItemVatPerItem(items, 25200); // would be 21 × 1200
+    expect(r.report.inflated).toBe(0);
+    expect(r.report.reason).toContain('21');
+  });
+
+  it('does not apply when improvement is marginal (< 2x)', () => {
+    // Single pre-VAT line at 20%. Header = 1150 (between 1000 and 1200).
+    // Inflating would give err=50, not inflating gives err=150. Ratio 3x.
+    // Should inflate.
+    {
+      const items = [makeItem(10, 100, 1000, 20)];
+      const r = sanitizeItemVatPerItem(items, 1200);
+      expect(r.report.inflated).toBe(1);
+    }
+    // Now header = 1050 — err=100 vs err=50. Ratio 2x but final err is
+    // 50/1050 = 4.8% > 1%, so skip.
+    {
+      const items = [makeItem(10, 100, 1000, 20)];
+      const r = sanitizeItemVatPerItem(items, 1050);
+      expect(r.report.inflated).toBe(0);
+    }
   });
 });

@@ -618,15 +618,22 @@ export const invoiceRepo = {
     const documentTotal = invoice?.total_sum ?? null;
 
     let mismatch = 0;
-    let nextTotal: number = itemsTotal;
+    let nextTotal: number;
 
     if (documentTotal != null && documentTotal > 0 && itemsTotal > 0) {
       const diff = Math.abs(documentTotal - itemsTotal);
       const relative = diff / Math.max(documentTotal, itemsTotal);
       mismatch = (diff > 1 && relative > 0.01) ? 1 : 0;
-      // Trust the document total when consistent with items — it usually
-      // includes rounding the line-by-line sum can't replicate.
-      nextTotal = mismatch ? itemsTotal : documentTotal;
+      // Always trust the document total when it exists. Even when items
+      // disagree (OCR misread individual lines), the "Всего к оплате"
+      // footer is the source of truth the supplier signed under. Previously
+      // we overwrote total_sum with items_sum on mismatch, which silently
+      // lost the correct value (invoice 1300: 90363.82 → 58273.16).
+      // Set items_total_mismatch=1 so the UI flags the invoice for review.
+      nextTotal = documentTotal;
+    } else {
+      // No document total at all — fall back to computed items sum.
+      nextTotal = itemsTotal;
     }
 
     db.prepare(
