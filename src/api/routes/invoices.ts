@@ -254,18 +254,46 @@ router.post('/:id/remap', (req: Request, res: Response) => {
 
   const items = invoiceRepo.getItems(id);
 
+  // Header total_sum recovery: invoices processed BEFORE the recalculateTotal
+  // fix have a total_sum that was overwritten with Σ items. If raw_text is
+  // a Claude JSON response and contains a bigger total_sum, prefer that —
+  // it's the original "Всего к оплате" number the supplier signed under.
+  // Harmless when raw_text has no total_sum or it matches the DB value.
+  let restoredTotal = 0;
+  let headerTotal = invoice.total_sum;
+  if (invoice.raw_text) {
+    const match = invoice.raw_text.match(/"total_sum"\s*:\s*(\d+(?:\.\d+)?)/);
+    if (match) {
+      const rawTotal = parseFloat(match[1]);
+      if (isFinite(rawTotal) && rawTotal > 0 && (!headerTotal || rawTotal > headerTotal * 1.01)) {
+        logger.info('Remap: restoring header total_sum from raw_text', {
+          id, previous: headerTotal, restored: rawTotal,
+        });
+        // Extract vat_sum too, if present, to keep things coherent.
+        const vatMatch = invoice.raw_text.match(/"vat_sum"\s*:\s*(\d+(?:\.\d+)?)/);
+        const rawVat = vatMatch ? parseFloat(vatMatch[1]) : null;
+        invoiceRepo.updateInvoiceData(id, {
+          total_sum: rawTotal,
+          vat_sum: rawVat && isFinite(rawVat) ? rawVat : undefined,
+        });
+        headerTotal = rawTotal;
+        restoredTotal = 1;
+      }
+    }
+  }
+
   // Per-item VAT sanity check against header total_sum. This runs at ingest
   // in the watcher, but until now remap didn't retry it — so invoices stored
   // with mixed pre-VAT/post-VAT rows stayed broken forever. Do it first so
   // pack-transform below sees the corrected totals.
   let vatInflated = 0;
-  if (invoice.total_sum != null && invoice.total_sum > 0 && items.length > 0) {
+  if (headerTotal != null && headerTotal > 0 && items.length > 0) {
     const vatFix = sanitizeItemVatPerItem(
       items.map(i => ({
         quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
         vat_rate: i.vat_rate,
       })),
-      invoice.total_sum,
+      headerTotal,
     );
     if (vatFix.report.inflated > 0) {
       logger.info('Remap: per-item VAT sanity inflated lines', vatFix.report);
@@ -354,8 +382,8 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   // — total is preserved — but flag mismatches regardless).
   invoiceRepo.recalculateTotal(id);
 
-  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, vatInflated, total: items.length, all: includeAll });
-  res.json({ data: { id, remapped, legacyMapped, changed, repacked, vatInflated, total: items.length } });
+  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length, all: includeAll });
+  res.json({ data: { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length } });
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files
