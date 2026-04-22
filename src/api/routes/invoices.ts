@@ -253,15 +253,14 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   const items = invoiceRepo.getItems(id);
   let remapped = 0;
   let changed = 0;
+  let legacyMapped = 0;
   for (const item of items) {
     // Skip already-mapped unless ?all=true
     if (!includeAll && item.onec_guid) continue;
 
     const result = mapper.map(item.original_name);
     if (result.onec_guid) {
-      // Count as "changed" only if the result differs from current
       if (result.onec_guid !== item.onec_guid) changed++;
-
       invoiceRepo.updateItemMapping(
         item.id,
         result.onec_guid,
@@ -269,11 +268,19 @@ router.post('/:id/remap', (req: Request, res: Response) => {
         result.confidence
       );
       remapped++;
+    } else if (result.source === 'legacy' && result.mapped_name !== item.original_name) {
+      // Legacy mapping: no onec_guid, but we still have a known 1C name.
+      // 1C's BSL code will resolve it via "НайтиИлиСоздатьНоменклатуру" by name.
+      // Update the displayed name so the user sees the correct target even
+      // without a catalog GUID. mapping_confidence set to 0.9 to match the
+      // mapper's internal convention for legacy results.
+      invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
+      legacyMapped++;
     }
   }
 
-  logger.info('Re-mapped invoice items', { id, remapped, changed, total: items.length, all: includeAll });
-  res.json({ data: { id, remapped, changed, total: items.length } });
+  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, total: items.length, all: includeAll });
+  res.json({ data: { id, remapped, legacyMapped, changed, total: items.length } });
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files

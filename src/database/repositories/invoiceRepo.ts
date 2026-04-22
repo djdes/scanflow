@@ -358,6 +358,18 @@ export const invoiceRepo = {
     ).run(onecGuid, mappedName, confidence, itemId);
   },
 
+  /**
+   * Update only the human-readable mapped_name (used by legacy mappings that
+   * have no onec_guid — 1C's BSL still resolves by name). Leaves onec_guid
+   * untouched so a later real catalog sync can fill it in.
+   */
+  updateItemMappingName(itemId: number, mappedName: string, confidence: number): void {
+    const db = getDb();
+    db.prepare(
+      `UPDATE invoice_items SET mapped_name = ?, mapping_confidence = ? WHERE id = ?`
+    ).run(mappedName, confidence, itemId);
+  },
+
   getWithItems(id: number): (Invoice & { items: InvoiceItem[] }) | undefined {
     const invoice = this.getById(id);
     if (!invoice) return undefined;
