@@ -25,6 +25,20 @@ const ONEC_FUSE_OPTIONS: IFuseOptions<OnecNomenclatureRow> = {
   minMatchCharLength: 3,
 };
 
+// Fuse options for learned-mappings lookup (Stage 1.5). We match the scanned
+// name of the INCOMING invoice against the scanned_names of previously-saved
+// learned mappings — NOT against the catalog. This catches cases where a new
+// invoice has a scan-name the catalog doesn't cover, but the user already
+// mapped a very similar name manually before (e.g. "Продукт белково-жировой
+// для лепки 45%" vs the previously-mapped "Продукт жировой для блюд 45%").
+const LEARNED_FUSE_OPTIONS: IFuseOptions<NomenclatureMapping> = {
+  keys: ['scanned_name'],
+  threshold: 0.35, // slightly stricter than onec — these must be "the same product in a different wording"
+  includeScore: true,
+  minMatchCharLength: 4,
+};
+const LEARNED_MIN_CONFIDENCE = 0.75;
+
 // Minimum confidence to return a fuzzy match at all (user sees it)
 const MIN_FUZZY_CONFIDENCE = 0.6;
 
@@ -59,11 +73,20 @@ export function normalizeName(name: string): string {
 
 export class NomenclatureMapper {
   private onecFuse: Fuse<OnecNomenclatureRow> | null = null;
+  private learnedFuse: Fuse<NomenclatureMapping> | null = null;
 
   private refreshIndex(): void {
     const items = onecNomenclatureRepo.listItems({ excludeFolders: true });
     this.onecFuse = new Fuse(items, ONEC_FUSE_OPTIONS);
     logger.debug('Nomenclature mapper index refreshed', { onecItems: items.length });
+  }
+
+  private refreshLearnedIndex(): void {
+    // Only learned rows that resolve to a live onec_guid — legacy rows
+    // without guid won't help us link a new scan to 1С anyway.
+    const all = mappingRepo.getAll().filter(m => m.onec_guid);
+    this.learnedFuse = new Fuse(all, LEARNED_FUSE_OPTIONS);
+    logger.debug('Learned mappings index refreshed', { learnedCount: all.length });
   }
 
   private ensureIndex(): Fuse<OnecNomenclatureRow> {
@@ -73,8 +96,16 @@ export class NomenclatureMapper {
     return this.onecFuse!;
   }
 
+  private ensureLearnedIndex(): Fuse<NomenclatureMapping> {
+    if (!this.learnedFuse) {
+      this.refreshLearnedIndex();
+    }
+    return this.learnedFuse!;
+  }
+
   invalidateCache(): void {
     this.onecFuse = null;
+    this.learnedFuse = null;
     logger.info('Nomenclature mapper cache invalidated');
   }
 
@@ -131,9 +162,51 @@ export class NomenclatureMapper {
       }
     }
 
+    // 1.5 Fuzzy search against learned mappings' scanned_names.
+    //
+    // Why this exists: the catalog (onec_nomenclature) often doesn't contain
+    // the exact phrase the supplier writes on their invoice. But if the SAME
+    // product came through before with a slightly different wording and the
+    // user mapped it manually, we should reuse that mapping. Example:
+    //   old scan:   "Продукт жировой для блюд 45%"       → Сыр Моцарелла
+    //   new scan:   "Продукт белково-жировой для лепки 45%"
+    // The onec catalog doesn't have "белково-жировой для лепки"; onec fuzzy
+    // returns nothing. But learned-scanned-name fuzzy recognises the family
+    // "Продукт ... жировой ... 45%" and reuses the Моцарелла target.
+    const learnedFuse = this.ensureLearnedIndex();
+    const searchTerm = cleanName || scannedName;
+    const learnedResults = learnedFuse.search(searchTerm);
+    if (learnedResults.length > 0 && learnedResults[0].score !== undefined) {
+      const best = learnedResults[0];
+      const confidence = 1 - (best.score as number);
+      if (confidence >= LEARNED_MIN_CONFIDENCE && best.item.onec_guid) {
+        const onec = onecNomenclatureRepo.getByGuid(best.item.onec_guid);
+        if (onec) {
+          logger.info('Mapping via learned-name fuzzy', {
+            scannedName,
+            matchedScanName: best.item.scanned_name,
+            target: onec.name,
+            confidence: confidence.toFixed(3),
+          });
+          return {
+            original_name: scannedName,
+            mapped_name: onec.name,
+            onec_guid: best.item.onec_guid,
+            confidence,
+            source: 'learned',
+            // Do NOT pass mapping_id of the OTHER scan's row — that row
+            // belongs to a different scanned_name. Null it out to avoid
+            // accidentally updating somebody else's pack fields.
+            mapping_id: null,
+            pack_size: best.item.pack_size,
+            pack_unit: best.item.pack_unit,
+          };
+        }
+      }
+    }
+
     // 2. Fuzzy search against onec_nomenclature (use cleaned name)
     const fuse = this.ensureIndex();
-    const searchTerm = cleanName || scannedName;
     const results = fuse.search(searchTerm);
     if (results.length > 0 && results[0].score !== undefined) {
       const best = results[0];
