@@ -257,11 +257,14 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   let legacyMapped = 0;
   let repacked = 0;
   for (const item of items) {
-    // Skip already-mapped unless ?all=true
-    if (!includeAll && item.onec_guid) continue;
+    const alreadyMapped = !!item.onec_guid;
+    // Skip mapping lookup for already-mapped items unless ?all=true, but still
+    // run pack-transform below so a pack_size learned AFTER first ingest can
+    // retroactively convert qty/unit (e.g. 7 шт ведра → 21 кг сельди).
+    const shouldLookup = includeAll || !alreadyMapped;
+    const result = shouldLookup ? mapper.map(item.original_name) : null;
 
-    const result = mapper.map(item.original_name);
-    if (result.onec_guid) {
+    if (result?.onec_guid) {
       if (result.onec_guid !== item.onec_guid) changed++;
       invoiceRepo.updateItemMapping(
         item.id,
@@ -270,7 +273,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
         result.confidence
       );
       remapped++;
-    } else if (result.source === 'legacy' && result.mapped_name !== item.original_name) {
+    } else if (result?.source === 'legacy' && result.mapped_name !== item.original_name) {
       // Legacy mapping: no onec_guid, but we still have a known 1C name.
       // 1C's BSL code will resolve it via "НайтиИлиСоздатьНоменклатуру" by name.
       // Update the displayed name so the user sees the correct target even
@@ -285,11 +288,16 @@ router.post('/:id/remap', (req: Request, res: Response) => {
     // here, mappings learned AFTER the invoice was first processed never
     // propagate. Idempotence guard inside applyPackTransform makes repeated
     // calls safe — if unit already matches pack_unit, nothing changes.
+    //
+    // When we skipped the mapper lookup above (already-mapped item without
+    // ?all=true), fetch the current mapping directly so pack_size can still
+    // be honoured.
+    const mappingForPack = result ?? mapper.map(item.original_name);
     const resolved = resolveAndApplyPackTransform(
       { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
       item.original_name,
-      result.pack_size,
-      result.pack_unit,
+      mappingForPack.pack_size,
+      mappingForPack.pack_unit,
     );
     const before = { qty: item.quantity, unit: item.unit, price: item.price };
     const after = resolved.item;
