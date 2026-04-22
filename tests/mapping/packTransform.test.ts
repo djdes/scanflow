@@ -268,4 +268,52 @@ describe('resolveAndApplyPackTransform', () => {
     const r = resolveAndApplyPackTransform(already, 'Мука 50кг', 50, 'кг');
     expect(r.item).toEqual(already);
   });
+
+  it('skips transform when the 1C name itself carries a pack pattern', () => {
+    // Scan: "Кофе растворимый субл. 2г 100 п Триумф" qty=1 шт.
+    // 1C side: "Кофе растворимый сублимированный 2г" — the "2г" is baked into
+    // the accounting unit, so 1 шт in the invoice equals 1 шт in 1C. We must
+    // NOT turn this into 0.2 кг or 200 г.
+    const scan = { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 };
+    const r = resolveAndApplyPackTransform(
+      scan,
+      'Кофе растворимый субл. 2г 100 п Триумф',
+      null,
+      null,
+      'Кофе растворимый сублимированный 2г',
+    );
+    expect(r.item).toEqual(scan);
+    expect(r.packSize).toBeNull();
+    expect(r.packUnit).toBeNull();
+    expect(r.usedFallback).toBe(false);
+  });
+
+  it('still transforms when the 1C name has NO pack pattern', () => {
+    // Scan: "Грецкий орех 1 кг" qty=2 шт. 1C: "Грецкий орех" (no size).
+    // Pack-transform should fire: 2 шт × 1 кг = 2 кг.
+    const r = resolveAndApplyPackTransform(
+      { quantity: 2, unit: 'шт', price: 731.2, total: 1462.4 },
+      'Грецкий орех 1 кг.',
+      1,
+      'кг',
+      'Грецкий орех',
+    );
+    expect(r.item.quantity).toBe(2);
+    expect(r.item.unit).toBe('кг');
+  });
+
+  it('skips transform even when mapping explicitly has pack_size, if 1C name carries a pack pattern', () => {
+    // Defensive: if someone mistakenly set pack_size=100 on a mapping whose
+    // 1C target already has "2г" in the name, the short-circuit should still
+    // block the transform.
+    const scan = { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 };
+    const r = resolveAndApplyPackTransform(
+      scan,
+      'Кофе 2г 100п',
+      100,
+      'г',
+      'Кофе растворимый 2г',
+    );
+    expect(r.item).toEqual(scan);
+  });
 });

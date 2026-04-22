@@ -494,6 +494,7 @@ export class FileWatcher {
                   item.name,
                   mapping.pack_size,
                   mapping.pack_unit,
+                  mapping.mapped_name,
                 );
                 this.persistPackFallback(mapping.mapping_id, resolved);
                 invoiceRepo.addItem({
@@ -591,6 +592,7 @@ export class FileWatcher {
           item.name,
           mapping.pack_size,
           mapping.pack_unit,
+          mapping.mapped_name,
         );
         this.persistPackFallback(mapping.mapping_id, resolved);
         invoiceRepo.addItem({

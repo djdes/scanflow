@@ -192,18 +192,44 @@ export function applyPackTransform<T extends PackTransformable>(
 }
 
 /**
+ * When the 1C-side name itself carries a pack pattern ("Кофе растворимый
+ * сублимированный 2г"), the size is already baked into the accounting unit:
+ * 1 шт in an invoice means 1 шт in 1C, no conversion needed. Transforming
+ * a scan like "Кофе 2г 100 п" into "200 г" would double-count because the
+ * 1C item already represents one 2-gram pack.
+ *
+ * Returning true here short-circuits pack-transform for this item regardless
+ * of what the mapping or scan name suggest.
+ */
+function mappedNameCarriesPack(mappedName1c: string | null | undefined): boolean {
+  if (!mappedName1c) return false;
+  // Raw pattern — we don't want the container guard to fire here (the 1C name
+  // might be "Контейнер 350 мл", and that's still a baked-in size).
+  return PACK_PATTERN.test(mappedName1c);
+}
+
+/**
  * Convenience: apply a transform using either the explicit pack fields from a
  * learned mapping, or a fallback detected from the scanned name when the
  * mapping doesn't specify one. Returns the (possibly unchanged) item and the
  * pack fields that were actually used — callers can persist them back to the
  * mapping so the next pass doesn't need the fallback.
+ *
+ * If the resolved 1C name carries its own pack pattern (e.g. "Кофе 2г"),
+ * pack-transform is skipped: that size is already the accounting unit.
  */
 export function resolveAndApplyPackTransform<T extends PackTransformable>(
   item: T,
   scannedName: string,
   mappingPackSize: number | null | undefined,
   mappingPackUnit: string | null | undefined,
+  mappedName1c?: string | null,
 ): { item: T; packSize: number | null; packUnit: string | null; usedFallback: boolean } {
+  // Short-circuit: the 1C name encodes the pack already.
+  if (mappedNameCarriesPack(mappedName1c)) {
+    return { item, packSize: null, packUnit: null, usedFallback: false };
+  }
+
   let packSize = mappingPackSize ?? null;
   let packUnit = mappingPackUnit ?? null;
   let usedFallback = false;

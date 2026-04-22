@@ -298,6 +298,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
       item.original_name,
       mappingForPack.pack_size,
       mappingForPack.pack_unit,
+      mappingForPack.mapped_name,
     );
     const before = { qty: item.quantity, unit: item.unit, price: item.price };
     const after = resolved.item;
