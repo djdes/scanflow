@@ -34,12 +34,53 @@ const UNIT_ALIASES: Record<string, string> = {
 const PACK_PATTERN = /(?:\(|\b|\s|^)(\d+(?:[.,]\d+)?)\s*(кг|гр|г|мл|л)(?=\s|\)|$|[^а-яА-Яa-zA-Z0-9])/i;
 
 /**
+ * Container-like words. When these appear in the item name, any "350 мл" /
+ * "500 мл" / "1л" inside is the SIZE OF THE VESSEL, not the pack size of
+ * contents — so pack-transform must NOT fire.
+ *
+ * Example of what we want to block:
+ *   "Стакан 350 мл крафт..." quantity=175 шт → WITHOUT this guard, the old
+ *   code would turn it into 61250 мл → 61.25 л, which is nonsense — these
+ *   are physical cups, not 175 servings of a 350ml beverage.
+ */
+const CONTAINER_WORDS = [
+  'стакан', 'стаканчик',
+  'контейнер',
+  'бутылка', 'бутыль', 'флакон', 'банк',      // банк = банка
+  'крышка',
+  'пакет', 'пакетик', 'мешок',
+  'коробк', 'короб',
+  'ведро',
+  'лоток',
+  'пробка', 'дозатор',
+  'тарелк', 'миск',
+  'ложка', 'вилка', 'нож',                     // одноразовые приборы
+  'салфетк',
+  'форма',
+  'упаковк',
+];
+// Note: JS RegExp \b doesn't honour Cyrillic word boundaries, so we rely on
+// simple lowercase substring lookup. This is permissive (matches "стакан"
+// inside "стаканчик" — which is intended, both are containers) but won't
+// false-positive on ordinary ingredient names.
+const CONTAINER_STEMS = CONTAINER_WORDS.map(w => w.toLowerCase());
+
+function looksLikeContainer(name: string): boolean {
+  const lower = name.toLowerCase();
+  return CONTAINER_STEMS.some(stem => lower.includes(stem));
+}
+
+/**
  * Extract a pack size from a scanned item name.
  * Recognises kg / g / l / ml, with or without surrounding parentheses.
  * Returns null if the name has no recognisable pack pattern.
+ *
+ * Also returns null if the name describes a CONTAINER (stakan, konteyner,
+ * bottle, etc.) — the volume there describes the vessel, not a pack.
  */
 export function detectPackFromName(name: string): { pack_size: number; pack_unit: string } | null {
   if (!name) return null;
+  if (looksLikeContainer(name)) return null;
   const match = name.match(PACK_PATTERN);
   if (!match) return null;
   const n = parseFloat(match[1].replace(',', '.'));

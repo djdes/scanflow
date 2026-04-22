@@ -52,6 +52,23 @@ describe('detectPackFromName', () => {
     // "25лет" must not be read as "25 л"
     expect(detectPackFromName('Юбилей 25лет')).toBeNull();
   });
+
+  it('returns null when the name describes a container (the volume is the vessel size)', () => {
+    // Real failure from invoice 1288: "Стакан 350 мл" was being turned into
+    // 350 ml pack size × quantity, producing nonsense like "61.25 л of cups".
+    expect(detectPackFromName('Стакан 350 мл крафт бумажный')).toBeNull();
+    expect(detectPackFromName('Контейнер крышка круглый 350 мл')).toBeNull();
+    expect(detectPackFromName('Бутылка 300 мл без пробки прозрачная')).toBeNull();
+    expect(detectPackFromName('Ведро 5л пластиковое')).toBeNull();
+    expect(detectPackFromName('Упаковка 1кг картонная')).toBeNull();
+  });
+
+  it('still extracts pack size for real food items', () => {
+    expect(detectPackFromName('Вода питьевая 5л')).toEqual({ pack_size: 5, pack_unit: 'л' });
+    expect(detectPackFromName('Молоко 3.2% 950г')).toEqual({ pack_size: 950, pack_unit: 'г' });
+    expect(detectPackFromName('Мука Ржаная 50кг')).toEqual({ pack_size: 50, pack_unit: 'кг' });
+    expect(detectPackFromName('Опята маринованные 3л')).toEqual({ pack_size: 3, pack_unit: 'л' });
+  });
 });
 
 describe('applyPackTransform', () => {
