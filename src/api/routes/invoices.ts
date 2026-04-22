@@ -11,6 +11,7 @@ import { logger } from '../../utils/logger';
 import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
+import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
 
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
@@ -252,6 +253,39 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   mapper.invalidateCache();
 
   const items = invoiceRepo.getItems(id);
+
+  // Per-item VAT sanity check against header total_sum. This runs at ingest
+  // in the watcher, but until now remap didn't retry it — so invoices stored
+  // with mixed pre-VAT/post-VAT rows stayed broken forever. Do it first so
+  // pack-transform below sees the corrected totals.
+  let vatInflated = 0;
+  if (invoice.total_sum != null && invoice.total_sum > 0 && items.length > 0) {
+    const vatFix = sanitizeItemVatPerItem(
+      items.map(i => ({
+        quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
+        vat_rate: i.vat_rate,
+      })),
+      invoice.total_sum,
+    );
+    if (vatFix.report.inflated > 0) {
+      logger.info('Remap: per-item VAT sanity inflated lines', vatFix.report);
+      for (let k = 0; k < items.length; k++) {
+        const before = items[k];
+        const after = vatFix.items[k];
+        if (after.total !== before.total || after.price !== before.price) {
+          invoiceRepo.updateItemFields(before.id, {
+            total: after.total ?? null,
+            price: after.price ?? null,
+          });
+          // Reflect in the in-memory list so the pack-transform loop below
+          // sees the corrected numbers.
+          items[k] = { ...before, total: after.total ?? null, price: after.price ?? null };
+          vatInflated++;
+        }
+      }
+    }
+  }
+
   let remapped = 0;
   let changed = 0;
   let legacyMapped = 0;
@@ -320,8 +354,8 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   // — total is preserved — but flag mismatches regardless).
   invoiceRepo.recalculateTotal(id);
 
-  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, total: items.length, all: includeAll });
-  res.json({ data: { id, remapped, legacyMapped, changed, repacked, total: items.length } });
+  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, vatInflated, total: items.length, all: includeAll });
+  res.json({ data: { id, remapped, legacyMapped, changed, repacked, vatInflated, total: items.length } });
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files
