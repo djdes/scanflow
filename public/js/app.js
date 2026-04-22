@@ -1,11 +1,13 @@
 /* global App */
-// API key is stored in sessionStorage (cleared on tab close) rather than
-// localStorage to reduce exposure if the machine is shared. Users who want
-// "remember me" can re-enter it — the tradeoff is acceptable for an internal
-// back-office tool. Legacy localStorage values are migrated once on load.
+// API key persists in localStorage so the user doesn't have to re-enter it
+// after closing the tab (critical for mobile, where the OS regularly kills
+// background tabs). Session-scoped storage was too aggressive for an internal
+// back-office tool — users complained about having to log in each visit.
+// Previous sessionStorage values are still read as a fallback during the
+// transition period.
 const App = {
-  apiKey: sessionStorage.getItem('apiKey')
-    || localStorage.getItem('apiKey')
+  apiKey: localStorage.getItem('apiKey')
+    || sessionStorage.getItem('apiKey')
     || '',
   baseUrl: '/api',
   _activeRequests: 0,
@@ -65,6 +67,7 @@ const App = {
       const res = await fetch(this.baseUrl + path, { ...options, headers });
       if (res.status === 401) {
         this.logout();
+        this.notify('API-ключ не принят. Введите его снова.', 'error');
         throw new Error('Unauthorized');
       }
       return res;
@@ -148,27 +151,24 @@ const App = {
     setTimeout(() => { toast.remove(); }, 4000);
   },
 
+  // Show the app UI immediately (no blocking probe). If the key is bad,
+  // App.api() already handles 401 by calling logout(), so the first real
+  // request will kick the user back to the auth screen with a toast.
+  // Perceived-speed matters more than a belt-and-braces pre-check here.
   async login(key) {
     if (!key) return;
     this.apiKey = key;
-    sessionStorage.setItem('apiKey', key);
-    localStorage.removeItem('apiKey'); // migrate away from persistent storage
-    try {
-      const res = await this.api('/invoices/stats');
-      if (!res.ok) { this.logout(); return; }
-      document.getElementById('auth-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      this.route();
-    } catch {
-      this.logout();
-      this.notify('API-ключ не принят', 'error');
-    }
+    localStorage.setItem('apiKey', key);
+    sessionStorage.removeItem('apiKey'); // clear any legacy session copy
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    this.route();
   },
 
   logout() {
     this.apiKey = '';
-    sessionStorage.removeItem('apiKey');
     localStorage.removeItem('apiKey');
+    sessionStorage.removeItem('apiKey');
     document.getElementById('auth-screen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
     document.getElementById('auth-key-input').value = '';
@@ -177,15 +177,11 @@ const App = {
   init() {
     window.addEventListener('hashchange', () => this.route());
     if (this.apiKey) {
-      this.api('/invoices/stats').then(r => {
-        if (r.ok) {
-          document.getElementById('auth-screen').style.display = 'none';
-          document.getElementById('app').style.display = 'block';
-          this.route();
-        } else {
-          this.logout();
-        }
-      }).catch(() => this.logout());
+      // Optimistic: render the app immediately. If the stored key is invalid
+      // the very next API call will 401 and api() will log the user out.
+      document.getElementById('auth-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      this.route();
     }
   },
 
