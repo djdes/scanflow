@@ -269,51 +269,149 @@ describe('resolveAndApplyPackTransform', () => {
     expect(r.item).toEqual(already);
   });
 
-  it('skips transform when the 1C name itself carries a pack pattern', () => {
-    // Scan: "Кофе растворимый субл. 2г 100 п Триумф" qty=1 шт.
-    // 1C side: "Кофе растворимый сублимированный 2г" — the "2г" is baked into
-    // the accounting unit, so 1 шт in the invoice equals 1 шт in 1C. We must
-    // NOT turn this into 0.2 кг or 200 г.
-    const scan = { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 };
-    const r = resolveAndApplyPackTransform(
-      scan,
-      'Кофе растворимый субл. 2г 100 п Триумф',
-      null,
-      null,
-      'Кофе растворимый сублимированный 2г',
-    );
-    expect(r.item).toEqual(scan);
-    expect(r.packSize).toBeNull();
-    expect(r.packUnit).toBeNull();
-    expect(r.usedFallback).toBe(false);
+  describe('Mode B: 1C name carries a size — multiplier from scan', () => {
+    it('multiplies qty by "N п" after the size', () => {
+      // Scan: "Кофе 2г 100 п Триумф" qty=1 шт, 799.20 р. 1C: "Кофе ... 2г".
+      // 1C unit is one 2-gram pack; the invoice "шт" means a box of 100 packs.
+      // Expected: qty=100 шт, price = 799.20/100 = 7.992 per pack.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 },
+        'Кофе растворимый субл. 2г 100 п Триумф',
+        null, null,
+        'Кофе растворимый субл жокей 2г',
+      );
+      expect(r.item.quantity).toBe(100);
+      expect(r.item.unit).toBe('шт');
+      expect(r.item.total).toBe(799.2);
+      expect(r.item.price).toBeCloseTo(7.992, 4);
+      expect(r.packSize).toBe(100);
+      expect(r.packUnit).toBe('шт');
+    });
+
+    it('recognises variants of the multiplier unit', () => {
+      const variants = [
+        'Кофе 2г 100п',
+        'Кофе 2г 100 пак',
+        'Кофе 2г 100пак',
+        'Кофе 2г 100 пакетов',
+        'Кофе 2г 100 пакетиков',
+        'Кофе 2г 100 шт',
+        'Кофе 2г 100шт',
+        'Кофе 2г 100 штук',
+        'Кофе 2г ×100',
+        'Кофе 2г *100',
+        'Кофе 2г x100',
+        'Кофе 2г х100', // Cyrillic х
+      ];
+      for (const scan of variants) {
+        const r = resolveAndApplyPackTransform(
+          { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 },
+          scan, null, null,
+          'Кофе 2г',
+        );
+        expect(r.item.quantity, scan).toBe(100);
+        expect(r.item.unit, scan).toBe('шт');
+      }
+    });
+
+    it('leaves item unchanged when the 1C size is present but no multiplier in scan', () => {
+      // Scan describes a single pack already — invoice unit matches 1C unit.
+      const scan = { quantity: 1, unit: 'шт', price: 7.99, total: 7.99 };
+      const r = resolveAndApplyPackTransform(
+        scan,
+        'Кофе 2г одиночный пакет',
+        null, null,
+        'Кофе 2г',
+      );
+      expect(r.item).toEqual(scan);
+      expect(r.packSize).toBeNull();
+      expect(r.packUnit).toBeNull();
+    });
+
+    it('leaves item unchanged when the scan has no size anchor at all', () => {
+      // Without a size in the scan there's nothing to anchor a multiplier
+      // search to — leave qty as-is rather than guess.
+      const scan = { quantity: 3, unit: 'шт', price: 50, total: 150 };
+      const r = resolveAndApplyPackTransform(
+        scan,
+        'Кофе в стиках',
+        null, null,
+        'Кофе 2г',
+      );
+      expect(r.item).toEqual(scan);
+    });
+
+    it('ignores a number BEFORE the size (only looks AFTER)', () => {
+      // "Партия 5 коробок Кофе 2г" — the leading "5" is not the multiplier,
+      // there's nothing after "2г".
+      const scan = { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 };
+      const r = resolveAndApplyPackTransform(
+        scan,
+        'Партия 5 Кофе 2г',
+        null, null,
+        'Кофе 2г',
+      );
+      expect(r.item).toEqual(scan);
+    });
+
+    it('ignores the multiplier when qty is zero or missing (degenerate input)', () => {
+      const zeroQty = { quantity: 0, unit: 'шт', price: 0, total: 0 };
+      const r1 = resolveAndApplyPackTransform(zeroQty, 'Кофе 2г 100п', null, null, 'Кофе 2г');
+      expect(r1.item).toEqual(zeroQty);
+
+      const noQty = { quantity: null, unit: 'шт', price: null, total: null };
+      const r2 = resolveAndApplyPackTransform(noQty, 'Кофе 2г 100п', null, null, 'Кофе 2г');
+      expect(r2.item).toEqual(noQty);
+    });
+
+    it('overrides any stale mapping pack_size when the 1C name has a size', () => {
+      // Even if a leftover pack_size=50 got written onto the mapping at some
+      // point, Mode B takes precedence because the source of truth is the 1C
+      // name.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 },
+        'Кофе 2г 100 п',
+        50, 'кг',
+        'Кофе 2г',
+      );
+      // Expect multiplier behaviour, not 50 кг.
+      expect(r.item.quantity).toBe(100);
+      expect(r.item.unit).toBe('шт');
+    });
   });
 
-  it('still transforms when the 1C name has NO pack pattern', () => {
-    // Scan: "Грецкий орех 1 кг" qty=2 шт. 1C: "Грецкий орех" (no size).
-    // Pack-transform should fire: 2 шт × 1 кг = 2 кг.
-    const r = resolveAndApplyPackTransform(
-      { quantity: 2, unit: 'шт', price: 731.2, total: 1462.4 },
-      'Грецкий орех 1 кг.',
-      1,
-      'кг',
-      'Грецкий орех',
-    );
-    expect(r.item.quantity).toBe(2);
-    expect(r.item.unit).toBe('кг');
-  });
+  describe('Mode A remains: 1C name has NO size', () => {
+    it('still transforms Мука via mapping pack fields', () => {
+      const r = resolveAndApplyPackTransform(
+        { quantity: 1, unit: 'шт', price: 1500, total: 1500 },
+        'Мука 50кг',
+        50, 'кг',
+        'Мука ржаная',
+      );
+      expect(r.item.quantity).toBe(50);
+      expect(r.item.unit).toBe('кг');
+    });
 
-  it('skips transform even when mapping explicitly has pack_size, if 1C name carries a pack pattern', () => {
-    // Defensive: if someone mistakenly set pack_size=100 on a mapping whose
-    // 1C target already has "2г" in the name, the short-circuit should still
-    // block the transform.
-    const scan = { quantity: 1, unit: 'шт', price: 799.2, total: 799.2 };
-    const r = resolveAndApplyPackTransform(
-      scan,
-      'Кофе 2г 100п',
-      100,
-      'г',
-      'Кофе растворимый 2г',
-    );
-    expect(r.item).toEqual(scan);
+    it('still transforms Грецкий орех 1 кг qty=2 шт → 2 кг', () => {
+      const r = resolveAndApplyPackTransform(
+        { quantity: 2, unit: 'шт', price: 731.2, total: 1462.4 },
+        'Грецкий орех 1 кг.',
+        1, 'кг',
+        'Грецкий орех',
+      );
+      expect(r.item.quantity).toBe(2);
+      expect(r.item.unit).toBe('кг');
+    });
+
+    it('still falls back to scanned-name detection when mapping pack fields are null', () => {
+      const r = resolveAndApplyPackTransform(
+        { quantity: 7, unit: 'шт', price: 1289.2, total: 9024.4 },
+        'Сельдь филе "Классическая" в масле 3 кг (ведро)',
+        null, null,
+        'Сельдь филе',
+      );
+      expect(r.item.quantity).toBe(21);
+      expect(r.item.unit).toBe('кг');
+    });
   });
 });

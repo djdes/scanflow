@@ -193,19 +193,54 @@ export function applyPackTransform<T extends PackTransformable>(
 
 /**
  * When the 1C-side name itself carries a pack pattern ("Кофе растворимый
- * сублимированный 2г"), the size is already baked into the accounting unit:
- * 1 шт in an invoice means 1 шт in 1C, no conversion needed. Transforming
- * a scan like "Кофе 2г 100 п" into "200 г" would double-count because the
- * 1C item already represents one 2-gram pack.
+ * сублимированный 2г"), the size is the accounting unit IN 1C:
+ *   1 шт on the 1C side = 1 pack of that size.
  *
- * Returning true here short-circuits pack-transform for this item regardless
- * of what the mapping or scan name suggest.
+ * In the scan name we expect a COUNT MULTIPLIER after this size — how many
+ * such packs are in one line-item "шт" from the invoice (e.g. "2г 100 п"
+ * means 1 invoice шт = 100 packs). This helper extracts that multiplier.
+ *
+ * Recognises:
+ *   "100 п", "100п", "100 пак", "100пак", "100 пакетов", "100 пакетиков",
+ *   "100 шт", "100шт", "100 штук",
+ *   "×100", "*100", "x100", "х100" (Cyrillic 'х'),
+ * — looked for only AFTER the size-pattern position in the scan name.
+ *
+ * Returns null when no multiplier is found, which means the invoice line
+ * already uses the 1C unit (no scaling needed).
  */
-function mappedNameCarriesPack(mappedName1c: string | null | undefined): boolean {
-  if (!mappedName1c) return false;
-  // Raw pattern — we don't want the container guard to fire here (the 1C name
-  // might be "Контейнер 350 мл", and that's still a baked-in size).
-  return PACK_PATTERN.test(mappedName1c);
+// JS \b doesn't honour Cyrillic word boundaries, so we use a negative
+// lookahead for letters instead — ensures "п" isn't swallowed out of
+// "покупка" and "шт" isn't swallowed out of "штурм".
+const COUNT_MULTIPLIER_PATTERN =
+  /(?:(?:[×xх*])\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:п(?:ак(?:ет(?:ик)?(?:ов|а)?)?)?|шт(?:ук[аи]?)?)(?![а-яёa-z]))/i;
+
+function extractCountMultiplierAfterSize(
+  scannedName: string,
+  sizePatternIndex: number,
+): number | null {
+  const tail = scannedName.slice(sizePatternIndex);
+  // Skip the size token itself — find the next cursor after the first
+  // pack pattern match in the tail.
+  const sizeMatch = tail.match(PACK_PATTERN);
+  if (!sizeMatch) return null;
+  const sizeEnd = (sizeMatch.index ?? 0) + sizeMatch[0].length;
+  const afterSize = tail.slice(sizeEnd);
+  const m = afterSize.match(COUNT_MULTIPLIER_PATTERN);
+  if (!m) return null;
+  const raw = m[1] ?? m[2];
+  if (!raw) return null;
+  const n = parseFloat(raw.replace(',', '.'));
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Finds the pack pattern's start index in a string, or -1.
+ */
+function findPackPatternIndex(s: string | null | undefined): number {
+  if (!s) return -1;
+  const m = s.match(PACK_PATTERN);
+  return m?.index ?? -1;
 }
 
 /**
@@ -215,8 +250,18 @@ function mappedNameCarriesPack(mappedName1c: string | null | undefined): boolean
  * pack fields that were actually used — callers can persist them back to the
  * mapping so the next pass doesn't need the fallback.
  *
- * If the resolved 1C name carries its own pack pattern (e.g. "Кофе 2г"),
- * pack-transform is skipped: that size is already the accounting unit.
+ * Two modes depending on whether mapped_name_1c already contains a size:
+ *
+ *   A. 1C name has NO size (e.g. "Сельдь филе"): classic mode. Pull the
+ *      pack size from the mapping or from the scan name, scale quantity,
+ *      swap unit. 7 шт × 3 кг → 21 кг.
+ *
+ *   B. 1C name HAS a size (e.g. "Кофе ... 2г"): size is already the 1C
+ *      accounting unit. We DON'T convert the invoice line into grams.
+ *      Instead we look in the scan name for a COUNT MULTIPLIER after that
+ *      size ("100 п", "100 шт", "×100") and, if found, multiply qty by it
+ *      and set unit = шт. 1 шт × 100 = 100 шт. If no multiplier present,
+ *      leave the item unchanged (invoice line already uses 1C unit).
  */
 export function resolveAndApplyPackTransform<T extends PackTransformable>(
   item: T,
@@ -225,11 +270,36 @@ export function resolveAndApplyPackTransform<T extends PackTransformable>(
   mappingPackUnit: string | null | undefined,
   mappedName1c?: string | null,
 ): { item: T; packSize: number | null; packUnit: string | null; usedFallback: boolean } {
-  // Short-circuit: the 1C name encodes the pack already.
-  if (mappedNameCarriesPack(mappedName1c)) {
-    return { item, packSize: null, packUnit: null, usedFallback: false };
+  // Mode B: 1C name encodes the pack size.
+  if (mappedName1c && findPackPatternIndex(mappedName1c) !== -1) {
+    const sizeIdx = findPackPatternIndex(scannedName);
+    if (sizeIdx === -1) {
+      // No size in the scan — nothing to anchor a multiplier search to.
+      return { item, packSize: null, packUnit: null, usedFallback: false };
+    }
+    const mult = extractCountMultiplierAfterSize(scannedName, sizeIdx);
+    if (mult == null) {
+      // 1C уже использует правильную единицу, множителя нет.
+      return { item, packSize: null, packUnit: null, usedFallback: false };
+    }
+    const oldQty = item.quantity;
+    if (oldQty == null || oldQty <= 0) {
+      return { item, packSize: null, packUnit: null, usedFallback: false };
+    }
+    const total = item.total != null
+      ? item.total
+      : (item.price != null ? item.price * oldQty : null);
+    const newQty = oldQty * mult;
+    const newPrice = total != null && newQty > 0 ? total / newQty : item.price ?? null;
+    return {
+      item: { ...item, quantity: newQty, unit: 'шт', price: newPrice, total } as T,
+      packSize: mult,
+      packUnit: 'шт',
+      usedFallback: true,
+    };
   }
 
+  // Mode A (classic): pull from mapping or fall back to detectPackFromName.
   let packSize = mappingPackSize ?? null;
   let packUnit = mappingPackUnit ?? null;
   let usedFallback = false;
