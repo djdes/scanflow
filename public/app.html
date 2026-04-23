@@ -424,6 +424,21 @@
             <option value="claude-opus-4-20250514">Claude Opus 4 (точный, дорогой)</option>
           </select>
         </div>
+        <div class="form-group">
+          <label>LLM-сопоставление номенклатуры</label>
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="settings-llm-mapper" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <span>Включено</span>
+          </div>
+          <div class="field-hint">
+            Claude получает ваш справочник 1С вместе с фото накладной и сам выбирает
+            подходящий товар для каждой позиции. Точнее, чем fuzzy-поиск по буквам,
+            и не добавляет отдельных API-вызовов — всё в одном запросе OCR.
+          </div>
+        </div>
         <div class="form-actions">
           <button class="btn btn-primary" onclick="Settings.save()">Сохранить</button>
         </div>

@@ -1,14 +1,27 @@
 import { OcrEngine, OcrResult } from './types';
 import { GoogleVisionEngine } from './googleVision';
 import { TesseractEngine } from './tesseract';
-import { analyzeImageWithClaudeApi, analyzeMultipleImagesWithClaudeApi, analyzeMultiPageTextWithClaudeApi } from './claudeApiAnalyzer';
+import { analyzeImageWithClaudeApi, analyzeMultipleImagesWithClaudeApi, analyzeMultiPageTextWithClaudeApi, CatalogEntry } from './claudeApiAnalyzer';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
+import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+
+/**
+ * Fetch catalog entries to feed to the Claude prompt when LLM-mapper is on.
+ * Excludes folders. Returns an empty array if the feature is disabled in
+ * analyzer_config, so callers can blindly pass the result to the API layer.
+ */
+function getCatalogForPrompt(): CatalogEntry[] {
+  const cfg = invoiceRepo.getAnalyzerConfig();
+  if (!cfg.llm_mapper_enabled) return [];
+  const rows = onecNomenclatureRepo.listItems({ excludeFolders: true });
+  return rows.map(r => ({ guid: r.guid, name: r.name, unit: r.unit }));
+}
 
 const ENGINE_MAP: Record<string, () => OcrEngine> = {
   google_vision: () => new GoogleVisionEngine(),
@@ -177,7 +190,8 @@ export class OcrManager {
     const modelId = analyzerConfig.claude_model;
 
     if (apiKey) {
-      const apiResult = await analyzeMultiPageTextWithClaudeApi(ocrResult.text, apiKey, 1, modelId);
+      const catalog = getCatalogForPrompt();
+      const apiResult = await analyzeMultiPageTextWithClaudeApi(ocrResult.text, apiKey, 1, modelId, catalog);
       if (apiResult.success && apiResult.data) {
         logger.info('Hybrid OCR: Anthropic API text analyzer succeeded', {
           itemsCount: apiResult.data.items?.length ?? 0,
@@ -212,7 +226,8 @@ export class OcrManager {
       throw new Error('Anthropic API key not configured. Set it in Settings.');
     }
 
-    const result = await analyzeMultipleImagesWithClaudeApi(imagePaths, apiKey, modelId);
+    const catalog = getCatalogForPrompt();
+    const result = await analyzeMultipleImagesWithClaudeApi(imagePaths, apiKey, modelId, catalog);
 
     if (result.success && result.data) {
       return {
@@ -240,7 +255,8 @@ export class OcrManager {
       throw new Error('Anthropic API key not configured.');
     }
 
-    const result = await analyzeMultiPageTextWithClaudeApi(combinedOcrText, apiKey, pageCount, modelId);
+    const catalog = getCatalogForPrompt();
+    const result = await analyzeMultiPageTextWithClaudeApi(combinedOcrText, apiKey, pageCount, modelId, catalog);
 
     if (result.success && result.data) {
       // Honest engine tag: only include "google_vision" if we're actually
@@ -276,7 +292,8 @@ export class OcrManager {
     const processedPath = imagePath;
 
     try {
-      const result = await analyzeImageWithClaudeApi(processedPath, apiKey, modelId);
+      const catalog = getCatalogForPrompt();
+      const result = await analyzeImageWithClaudeApi(processedPath, apiKey, modelId, catalog);
 
       if (result.success && result.data) {
         return {

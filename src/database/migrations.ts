@@ -317,6 +317,19 @@ const MIGRATIONS: Migration[] = [
       db.exec(`ALTER TABLE invoices ADD COLUMN items_total_mismatch INTEGER NOT NULL DEFAULT 0;`);
     },
   },
+  {
+    version: 16,
+    name: 'llm_mapper_enabled flag on analyzer_config',
+    detect: (db) => hasColumn(db, 'analyzer_config', 'llm_mapper_enabled'),
+    run: (db) => {
+      // When on, the Claude OCR prompt receives the 1C catalog and is asked
+      // to return onec_guid per item. The watcher trusts those GUIDs when
+      // they exist in onec_nomenclature, skipping fuzzy matching for that
+      // line. Enabled by default — pure upside on correctness, no extra API
+      // calls (it piggybacks on the existing OCR request).
+      db.exec(`ALTER TABLE analyzer_config ADD COLUMN llm_mapper_enabled INTEGER NOT NULL DEFAULT 1;`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

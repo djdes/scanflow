@@ -8,6 +8,7 @@ import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/invoiceRepo';
 import { mappingRepo } from '../database/repositories/mappingRepo';
+import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
@@ -121,6 +122,24 @@ export class FileWatcher {
 
   markProcessing(filePath: string): void {
     this.processing.add(path.resolve(filePath).toLowerCase());
+  }
+
+  /**
+   * Resolve catalog_idx (1-based, as returned by Claude) to a real 1C GUID.
+   * MUST use the same ordering that getCatalogForPrompt used when building
+   * the prompt — both are backed by onecNomenclatureRepo.listItems() with
+   * the same options, and its ORDER BY is deterministic.
+   *
+   * Returns undefined on invalid idx / disabled LLM mapper / idx out of range.
+   */
+  private resolveCatalogIdx(
+    idx: number | null | undefined,
+    catalog: ReturnType<typeof onecNomenclatureRepo.listItems> | null,
+  ): { guid: string; name: string; unit: string | null } | undefined {
+    if (!catalog || idx == null || !Number.isFinite(idx)) return undefined;
+    const row = catalog[idx - 1];
+    if (!row) return undefined;
+    return { guid: row.guid, name: row.name, unit: row.unit };
   }
 
   /**
@@ -490,6 +509,11 @@ export class FileWatcher {
               }));
 
               // Save unified items
+              const mergedAnalyzerCfg = invoiceRepo.getAnalyzerConfig();
+              const mergedCatalog = mergedAnalyzerCfg.llm_mapper_enabled
+                ? onecNomenclatureRepo.listItems({ excludeFolders: true })
+                : null;
+
               for (const item of mergedItems) {
                 if (!item.name) continue;
                 const sanity = sanitizeItemArithmetic({
@@ -498,7 +522,38 @@ export class FileWatcher {
                 if (sanity.corrected) {
                   logger.info('Merged-item arithmetic sanitized', { name: item.name, reason: sanity.reason });
                 }
-                const mapping = this.mapper.map(item.name);
+
+                // LLM-mapper path (see normal flow below for full comment).
+                const llmPicked = this.resolveCatalogIdx(item.catalog_idx, mergedCatalog);
+                let mapping: ReturnType<typeof this.mapper.map>;
+                if (llmPicked) {
+                  mapping = {
+                    original_name: item.name,
+                    mapped_name: llmPicked.name,
+                    onec_guid: llmPicked.guid,
+                    confidence: 1,
+                    source: 'learned',
+                    mapping_id: null,
+                    pack_size: null,
+                    pack_unit: null,
+                  };
+                  try {
+                    mappingRepo.upsert({
+                      scanned_name: item.name,
+                      mapped_name_1c: llmPicked.name,
+                      onec_guid: llmPicked.guid,
+                      approved: false,
+                    });
+                  } catch (e) {
+                    logger.warn('LLM-mapper (merge): failed to persist learned mapping', {
+                      name: item.name, error: (e as Error).message,
+                    });
+                  }
+                  this.mapper.invalidateCache();
+                } else {
+                  mapping = this.mapper.map(item.name);
+                }
+
                 const resolved = resolveAndApplyPackTransform(
                   sanity.item,
                   item.name,
@@ -599,18 +654,60 @@ export class FileWatcher {
       }));
 
       // 6. Map nomenclature and save items (to target invoice)
+      // If LLM-mapper is on, Claude has already chosen catalog_idx per item.
+      // Resolve those first; fall back to fuzzy mapper only when LLM missed.
+      const analyzerCfg = invoiceRepo.getAnalyzerConfig();
+      const catalog = analyzerCfg.llm_mapper_enabled
+        ? onecNomenclatureRepo.listItems({ excludeFolders: true })
+        : null;
+
       for (const item of parsedItems) {
         if (!item.name) continue; // skip items without a name
-        // Per-row sanity: if qty × price still doesn't match total, trust
-        // total+price and rewrite qty. Catches cases like "7000 шт × 959.09
-        // = 7385" where Claude read a thousand-separator as digits.
         const sanity = sanitizeItemArithmetic({
           quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
         });
         if (sanity.corrected) {
           logger.info('Item arithmetic sanitized', { name: item.name, reason: sanity.reason });
         }
-        const mapping = this.mapper.map(item.name);
+
+        // LLM-mapper path: Claude returned a catalog_idx → use it as the
+        // source of truth. This beats fuzzy because Claude understands
+        // context (brand/OCR garbage) that Jaccard tokens can't.
+        const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
+        let mapping: ReturnType<typeof this.mapper.map>;
+        if (llmPicked) {
+          // Preserve any previously-learned pack transform on the existing
+          // mapping (if any) so pack-transform still fires even when LLM
+          // picked the GUID. Look up by scanned_name.
+          const existingMapping = mappingRepo.getByScannedName(item.name);
+          mapping = {
+            original_name: item.name,
+            mapped_name: llmPicked.name,
+            onec_guid: llmPicked.guid,
+            confidence: 1,
+            source: 'learned',
+            mapping_id: existingMapping?.id ?? null,
+            pack_size: existingMapping?.pack_size ?? null,
+            pack_unit: existingMapping?.pack_unit ?? null,
+          };
+          // Teach the fuzzy mapper for future invoices where LLM might be off.
+          try {
+            mappingRepo.upsert({
+              scanned_name: item.name,
+              mapped_name_1c: llmPicked.name,
+              onec_guid: llmPicked.guid,
+              approved: false,
+            });
+          } catch (e) {
+            logger.warn('LLM-mapper: failed to persist learned mapping', {
+              name: item.name, error: (e as Error).message,
+            });
+          }
+          this.mapper.invalidateCache();
+        } else {
+          mapping = this.mapper.map(item.name);
+        }
+
         const resolved = resolveAndApplyPackTransform(
           sanity.item,
           item.name,

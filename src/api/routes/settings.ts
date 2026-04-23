@@ -13,6 +13,7 @@ router.get('/analyzer', (_req: Request, res: Response) => {
         mode: config.mode,
         has_api_key: !!config.anthropic_api_key,
         claude_model: config.claude_model,
+        llm_mapper_enabled: config.llm_mapper_enabled,
       },
     });
   } catch (err) {
@@ -23,12 +24,14 @@ router.get('/analyzer', (_req: Request, res: Response) => {
 // PUT /api/settings/analyzer — update analyzer config
 router.put('/analyzer', (req: Request, res: Response) => {
   try {
-    const { mode, anthropic_api_key, claude_model } = req.body;
+    const { mode, anthropic_api_key, claude_model, llm_mapper_enabled } = req.body;
 
     if (!mode || !['hybrid', 'claude_api'].includes(mode)) {
       res.status(400).json({ error: 'Invalid mode. Must be "hybrid" or "claude_api"' });
       return;
     }
+
+    const llmFlag = typeof llm_mapper_enabled === 'boolean' ? llm_mapper_enabled : undefined;
 
     if (mode === 'claude_api' && !anthropic_api_key) {
       const current = invoiceRepo.getAnalyzerConfig();
@@ -36,12 +39,12 @@ router.put('/analyzer', (req: Request, res: Response) => {
         res.status(400).json({ error: 'Anthropic API key is required for Claude API mode' });
         return;
       }
-      invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model);
+      invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag);
     } else {
-      invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model);
+      invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag);
     }
 
-    logger.info('Analyzer config updated', { mode });
+    logger.info('Analyzer config updated', { mode, llmMapperEnabled: llmFlag });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

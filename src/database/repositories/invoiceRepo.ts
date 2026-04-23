@@ -675,25 +675,40 @@ export const invoiceRepo = {
     return { byStatus, total: total.count };
   },
 
-  getAnalyzerConfig(): { mode: string; anthropic_api_key: string | null; claude_model: string } {
+  getAnalyzerConfig(): { mode: string; anthropic_api_key: string | null; claude_model: string; llm_mapper_enabled: boolean } {
     const db = getDb();
-    const row = db.prepare('SELECT mode, anthropic_api_key, claude_model FROM analyzer_config WHERE id = 1').get() as
-      { mode: string; anthropic_api_key: string | null; claude_model: string | null } | undefined;
+    const row = db.prepare('SELECT mode, anthropic_api_key, claude_model, llm_mapper_enabled FROM analyzer_config WHERE id = 1').get() as
+      { mode: string; anthropic_api_key: string | null; claude_model: string | null; llm_mapper_enabled: number | null } | undefined;
     return {
       mode: row?.mode ?? 'hybrid',
       anthropic_api_key: row?.anthropic_api_key ?? null,
       claude_model: row?.claude_model ?? 'claude-sonnet-4-6',
+      llm_mapper_enabled: (row?.llm_mapper_enabled ?? 1) === 1,
     };
   },
 
-  updateAnalyzerConfig(mode: string, anthropicApiKey?: string | null, claudeModel?: string | null): void {
+  updateAnalyzerConfig(
+    mode: string,
+    anthropicApiKey?: string | null,
+    claudeModel?: string | null,
+    llmMapperEnabled?: boolean,
+  ): void {
     const db = getDb();
-    if (claudeModel) {
-      db.prepare('UPDATE analyzer_config SET mode = ?, anthropic_api_key = ?, claude_model = ? WHERE id = 1')
-        .run(mode, anthropicApiKey ?? null, claudeModel);
-    } else {
-      db.prepare('UPDATE analyzer_config SET mode = ?, anthropic_api_key = ? WHERE id = 1')
-        .run(mode, anthropicApiKey ?? null);
+    const sets: string[] = ['mode = ?'];
+    const vals: unknown[] = [mode];
+    // anthropic_api_key: undefined → skip (keep existing), null → clear, string → set
+    if (anthropicApiKey !== undefined) {
+      sets.push('anthropic_api_key = ?');
+      vals.push(anthropicApiKey);
     }
+    if (claudeModel !== undefined && claudeModel !== null) {
+      sets.push('claude_model = ?');
+      vals.push(claudeModel);
+    }
+    if (llmMapperEnabled !== undefined) {
+      sets.push('llm_mapper_enabled = ?');
+      vals.push(llmMapperEnabled ? 1 : 0);
+    }
+    db.prepare(`UPDATE analyzer_config SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
   },
 };

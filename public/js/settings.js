@@ -16,6 +16,8 @@ const Settings = {
         if (data.claude_model) {
           document.getElementById('settings-claude-model').value = data.claude_model;
         }
+        const llmCb = document.getElementById('settings-llm-mapper');
+        if (llmCb) llmCb.checked = !!data.llm_mapper_enabled;
       }
       this.loaded = true;
     } catch (e) {
@@ -42,7 +44,12 @@ const Settings = {
   async save() {
     const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value || 'claude_api';
     const claudeModel = document.getElementById('settings-claude-model').value;
-    const body = { mode, claude_model: claudeModel };
+    const llmCb = document.getElementById('settings-llm-mapper');
+    const body = {
+      mode,
+      claude_model: claudeModel,
+      llm_mapper_enabled: llmCb ? llmCb.checked : true,
+    };
     const apiKeyInput = document.getElementById('settings-api-key');
     if (apiKeyInput.value.trim()) {
       body.anthropic_api_key = apiKeyInput.value.trim();

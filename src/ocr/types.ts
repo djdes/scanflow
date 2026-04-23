@@ -41,6 +41,10 @@ export interface ParsedInvoiceItem {
   // page. Used by the watcher to detect that a new invoice starting with
   // row_no=10 is a continuation of a previous one that ended at row_no=9.
   row_no?: number;
+  // Index (1-based) into the CatalogEntry array passed to the Claude prompt
+  // when LLM-mapper mode is on. Watcher resolves it to onec_guid before
+  // saving the item. null when Claude didn't find a confident match.
+  catalog_idx?: number | null;
 }
 
 export interface OcrEngine {
