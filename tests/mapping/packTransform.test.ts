@@ -380,6 +380,59 @@ describe('resolveAndApplyPackTransform', () => {
     });
   });
 
+  describe('Countable 1C unit guard', () => {
+    it('skips transform when 1C accounting unit is шт', () => {
+      // Invoice «Геркулес 1кг» arrived as 2 упак. 1C stores «Геркулес» in
+      // шт. 1 упак of 1кг = 1 шт in 1C — do NOT multiply to 2 кг.
+      const scan = { quantity: 2, unit: 'упак', price: 1012, total: 2024 };
+      const r = resolveAndApplyPackTransform(
+        scan,
+        'Геркулес 1кг',
+        1, 'кг',
+        'Геркулес',
+        'шт', // 1C unit
+      );
+      expect(r.item).toEqual(scan);
+      expect(r.packSize).toBeNull();
+      expect(r.packUnit).toBeNull();
+    });
+
+    it('skips transform for all countable 1C units', () => {
+      const scan = { quantity: 4, unit: 'упак', price: 100, total: 400 };
+      for (const u of ['шт', 'ШТ', 'штук', 'упак', 'упаковка', 'уп', 'пач', 'бут', 'бан', 'кор', 'пак', 'рул', 'набор']) {
+        const r = resolveAndApplyPackTransform(scan, 'Товар 1кг', 1, 'кг', 'Товар', u);
+        expect(r.item, `unit=${u}`).toEqual(scan);
+      }
+    });
+
+    it('still transforms when 1C unit is kg/l/g/ml', () => {
+      // Supplier ships in шт, 1C tracks in кг — classic Mode A use case
+      // («Мука 50кг» → 1 шт = 50 кг).
+      const r = resolveAndApplyPackTransform(
+        { quantity: 1, unit: 'шт', price: 1500, total: 1500 },
+        'Мука 50кг',
+        50, 'кг',
+        'Мука ржаная',
+        'кг', // 1C unit — needs conversion
+      );
+      expect(r.item.quantity).toBe(50);
+      expect(r.item.unit).toBe('кг');
+    });
+
+    it('back-compat: when 1C unit param is undefined, old behaviour applies', () => {
+      // Callers that haven't been updated to pass the 1C unit should continue
+      // to work exactly as before.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 1, unit: 'шт', price: 1500, total: 1500 },
+        'Мука 50кг',
+        50, 'кг',
+        'Мука ржаная',
+        // no 6th arg
+      );
+      expect(r.item.quantity).toBe(50);
+    });
+  });
+
   describe('Mode A remains: 1C name has NO size', () => {
     it('still transforms Мука via mapping pack fields', () => {
       const r = resolveAndApplyPackTransform(

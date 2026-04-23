@@ -263,13 +263,44 @@ function findPackPatternIndex(s: string | null | undefined): number {
  *      and set unit = шт. 1 шт × 100 = 100 шт. If no multiplier present,
  *      leave the item unchanged (invoice line already uses 1C unit).
  */
+// Countable 1C units — when the target item is tracked in pieces, pack
+// transform must NOT convert into kg/l. Accepted 1C units that DO need
+// conversion: кг, г, гр, л, мл. Everything else is treated as countable.
+const COUNTABLE_1C_UNITS = new Set([
+  'шт', 'штук', 'штука', 'шт.', 'pcs',
+  'упак', 'упаковка', 'уп', 'уп.',
+  'пач', 'пачка', 'пач.',
+  'бут', 'бутылка',
+  'бан', 'банка',
+  'кор', 'короб', 'коробка',
+  'пак', 'пакет',
+  'рул', 'рулон',
+  'набор',
+]);
+
+function isCountable1cUnit(unit: string | null | undefined): boolean {
+  if (!unit) return false;
+  return COUNTABLE_1C_UNITS.has(unit.trim().toLowerCase());
+}
+
 export function resolveAndApplyPackTransform<T extends PackTransformable>(
   item: T,
   scannedName: string,
   mappingPackSize: number | null | undefined,
   mappingPackUnit: string | null | undefined,
   mappedName1c?: string | null,
+  onec1cUnit?: string | null,
 ): { item: T; packSize: number | null; packUnit: string | null; usedFallback: boolean } {
+  // If the 1C-side accounting unit is already countable (шт/упак/бут/etc),
+  // we MUST NOT convert "2 упак" into "2 кг" — that's double-counting.
+  // Invoice «Геркулес 1кг» shipped as 2 упак stays as 2 шт in 1C.
+  //
+  // Only kicks in when callers explicitly pass the 1C unit; undefined keeps
+  // the old behaviour for back-compat (e.g. tests that never knew about this).
+  if (onec1cUnit !== undefined && isCountable1cUnit(onec1cUnit)) {
+    return { item, packSize: null, packUnit: null, usedFallback: false };
+  }
+
   // Mode B: 1C name encodes the pack size.
   if (mappedName1c && findPackPatternIndex(mappedName1c) !== -1) {
     const sizeIdx = findPackPatternIndex(scannedName);

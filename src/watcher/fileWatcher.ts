@@ -554,12 +554,16 @@ export class FileWatcher {
                   mapping = this.mapper.map(item.name);
                 }
 
+                const mergedOnec1cUnit = mapping.onec_guid
+                  ? onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null
+                  : null;
                 const resolved = resolveAndApplyPackTransform(
                   sanity.item,
                   item.name,
                   mapping.pack_size,
                   mapping.pack_unit,
                   mapping.mapped_name,
+                  mergedOnec1cUnit,
                 );
                 this.persistPackFallback(mapping.mapping_id, resolved);
                 invoiceRepo.addItem({
@@ -708,12 +712,19 @@ export class FileWatcher {
           mapping = this.mapper.map(item.name);
         }
 
+        // Pull the 1C accounting unit — pack-transform needs it to decide
+        // whether to scale qty × pack_size (when 1C stores in kg/l) or leave
+        // the invoice line as-is (when 1C stores in шт/упак).
+        const onec1cUnit = mapping.onec_guid
+          ? onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null
+          : null;
         const resolved = resolveAndApplyPackTransform(
           sanity.item,
           item.name,
           mapping.pack_size,
           mapping.pack_unit,
           mapping.mapped_name,
+          onec1cUnit,
         );
         this.persistPackFallback(mapping.mapping_id, resolved);
         invoiceRepo.addItem({

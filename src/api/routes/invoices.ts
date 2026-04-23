@@ -355,12 +355,16 @@ router.post('/:id/remap', (req: Request, res: Response) => {
     // ?all=true), fetch the current mapping directly so pack_size can still
     // be honoured.
     const mappingForPack = result ?? mapper.map(item.original_name);
+    const remapOnec1cUnit = mappingForPack.onec_guid
+      ? onecNomenclatureRepo.getByGuid(mappingForPack.onec_guid)?.unit ?? null
+      : null;
     const resolved = resolveAndApplyPackTransform(
       { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
       item.original_name,
       mappingForPack.pack_size,
       mappingForPack.pack_unit,
       mappingForPack.mapped_name,
+      remapOnec1cUnit,
     );
     const before = { qty: item.quantity, unit: item.unit, price: item.price };
     const after = resolved.item;
