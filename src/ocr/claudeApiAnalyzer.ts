@@ -420,6 +420,73 @@ export async function analyzeMultipleImagesWithClaudeApi(
   }
 }
 
+/**
+ * Ask Claude Haiku how many degrees CLOCKWISE the given image should be
+ * rotated for the document inside it to be upright. Used by ocrManager to
+ * normalise photo orientation before the main OCR call — sideways pictures
+ * cause heavy hallucination on Sonnet/Opus vision.
+ *
+ * Returns one of 0, 90, 180, 270. On any error, returns 0 (no rotation).
+ */
+/**
+ * Detect orientation by showing Haiku all four rotations side-by-side and
+ * asking which one is upright. More reliable than "how many degrees" because
+ * the model can compare variants visually instead of doing mental rotation.
+ *
+ * previewBuffers: [rot0, rot90, rot180, rot270] — all already rotated, JPEG.
+ * Returns how many degrees CLOCKWISE the ORIGINAL needs to be rotated.
+ */
+export async function detectOrientationWithClaude(
+  previewsBase64: [string, string, string, string],
+  apiKey: string,
+): Promise<0 | 90 | 180 | 270> {
+  const client = createClient(apiKey);
+  try {
+    // Sonnet for this tiny task, not Haiku — Haiku consistently picks
+    // wrong orientation on sideways document photos in our testing. Cost is
+    // negligible because previews are 400x500 at JPEG q60 (~20KB each).
+    const response = await withRetry(
+      (signal) => client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 10,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Вариант 1:' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[0] } },
+            { type: 'text', text: 'Вариант 2:' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[1] } },
+            { type: 'text', text: 'Вариант 3:' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[2] } },
+            { type: 'text', text: 'Вариант 4:' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[3] } },
+            {
+              type: 'text',
+              text: 'Выше четыре варианта одной и той же фотографии документа, повернутых по-разному. В каком из них текст читается НОРМАЛЬНО (строки идут горизонтально слева направо, буквы вертикальные)? Ответь одной цифрой: 1, 2, 3 или 4.',
+            },
+          ],
+        }],
+      }, { signal }),
+      'Claude orientation detection'
+    );
+    const textBlock = response.content.find(b => b.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') return 0;
+    const match = textBlock.text.match(/\b([1-4])\b/);
+    if (!match) {
+      logger.warn('Orientation: unparseable response', { text: textBlock.text.slice(0, 50) });
+      return 0;
+    }
+    const variant = parseInt(match[1], 10);
+    // Variant i was made by rotating the original by (i-1)*90° CW.
+    // So the "amount to rotate original to be upright" = (variant-1)*90.
+    const rotations: [0, 90, 180, 270] = [0, 90, 180, 270];
+    return rotations[variant - 1];
+  } catch (err) {
+    logger.warn('Claude orientation detection error', { error: (err as Error).message });
+    return 0;
+  }
+}
+
 export async function analyzeImageWithClaudeApi(
   imagePath: string,
   apiKey: string,

@@ -51,6 +51,54 @@ export class OcrManager {
     }
   }
 
+  /**
+   * Ask Claude Haiku which way the document is rotated in this image.
+   * Returns one of 0, 90, 180, 270 — how many degrees the image needs to be
+   * rotated CLOCKWISE to bring the document upright.
+   *
+   * Why Claude and not Tesseract OSD: tesseract.js 7 doesn't ship the legacy
+   * traineddata OSD needs, and the ergonomics of bundling it are poor on a
+   * Node server. A single Haiku vision call on a 400px preview costs about
+   * $0.001 and returns in 1-2s — negligible vs the savings when the image
+   * is correctly oriented before the main OCR.
+   *
+   * Returns 0 on any error (never block OCR on orientation detection).
+   */
+  private async detectTextRotation(imagePath: string): Promise<0 | 90 | 180 | 270> {
+    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
+    if (!apiKey) return 0;
+
+    try {
+      // Four rotated previews — Haiku compares them side-by-side. This works
+      // more reliably than asking "how many degrees" because the model sees
+      // all variants literally and picks the upright one.
+      const rotations: [0, 90, 180, 270] = [0, 90, 180, 270];
+      const previews = await Promise.all(rotations.map(async (r) => {
+        let pipeline = sharp(imagePath).rotate(); // EXIF first
+        if (r !== 0) pipeline = pipeline.rotate(r);
+        const buf = await pipeline
+          .resize(400, 500, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 60 })
+          .toBuffer();
+        return buf.toString('base64');
+      }));
+
+      const { detectOrientationWithClaude } = await import('./claudeApiAnalyzer');
+      const rotation = await detectOrientationWithClaude(
+        previews as [string, string, string, string],
+        apiKey,
+      );
+      logger.info('Orientation detected', { imagePath, rotation });
+      return rotation;
+    } catch (err) {
+      logger.warn('Orientation detection failed, keeping as-is', {
+        error: (err as Error).message,
+      });
+      return 0;
+    }
+  }
+
   async preprocessImage(imagePath: string): Promise<string> {
     const ext = path.extname(imagePath).toLowerCase();
     if (!['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'].includes(ext)) {
@@ -60,14 +108,23 @@ export class OcrManager {
 
     const tmpPath = path.join(os.tmpdir(), `ocr_${Date.now()}${ext}`);
 
+    // Detect rotation first. Falls back to 0 on any error.
+    const rotation = await this.detectTextRotation(imagePath);
+
     try {
-      await sharp(imagePath)
+      let pipeline = sharp(imagePath).rotate(); // EXIF-based auto-rotate
+      if (rotation !== 0) {
+        pipeline = pipeline.rotate(rotation);
+      }
+      await pipeline
         .resize(2400, 3200, { fit: 'inside', withoutEnlargement: true })
         .sharpen()
         .normalise()
         .toFile(tmpPath);
 
-      logger.debug('Image preprocessed', { original: imagePath, processed: tmpPath });
+      logger.info('Image preprocessed', {
+        original: imagePath, processed: tmpPath, rotation,
+      });
       return tmpPath;
     } catch (err) {
       logger.warn('Image preprocessing failed, using original', { error: (err as Error).message });
@@ -226,8 +283,16 @@ export class OcrManager {
       throw new Error('Anthropic API key not configured. Set it in Settings.');
     }
 
+    // Preprocess every page — each can have its own rotation.
+    const processedPaths = await Promise.all(imagePaths.map(p => this.preprocessImage(p)));
     const catalog = getCatalogForPrompt();
-    const result = await analyzeMultipleImagesWithClaudeApi(imagePaths, apiKey, modelId, catalog);
+    const result = await analyzeMultipleImagesWithClaudeApi(processedPaths, apiKey, modelId, catalog);
+    // Clean up temp files
+    for (const pp of processedPaths) {
+      if (!imagePaths.includes(pp)) {
+        try { fs.unlinkSync(pp); } catch { /* ignore */ }
+      }
+    }
 
     if (result.success && result.data) {
       return {
@@ -289,7 +354,11 @@ export class OcrManager {
       throw new Error('Anthropic API key not configured. Set it in Settings.');
     }
 
-    const processedPath = imagePath;
+    // Preprocess: auto-rotate based on EXIF + detected text orientation,
+    // upscale-cap to 2400x3200, sharpen, normalise. Claude vision models
+    // hallucinate heavily on sideways text, so this one step often matters
+    // more than any prompt change.
+    const processedPath = await this.preprocessImage(imagePath);
 
     try {
       const catalog = getCatalogForPrompt();
