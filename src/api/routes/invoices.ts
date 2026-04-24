@@ -397,13 +397,19 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   res.json({ data: { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length } });
 });
 
-// POST /api/invoices/:id/llm-remap — ask Claude to map items that still have
-// onec_guid=NULL against the current 1C catalog. Useful when the catalog was
-// incomplete at ingest time, or when the regex/fuse mapper missed obvious
-// matches. Only touches unmapped items (onec_guid IS NULL) — already-mapped
-// lines are left alone regardless of their confidence.
+// POST /api/invoices/:id/llm-remap — ask Claude to map items against the
+// current 1C catalog. By default only touches items where onec_guid IS NULL
+// (fill-in-the-gaps mode). Pass ?all=true to also reconsider already-mapped
+// items — useful when the catalog grew or the existing mapping is dubious.
+//
+// When all=true and Claude returns null for an already-mapped item we LEAVE
+// the existing guid in place (Claude's null is "no better candidate", not
+// "unmap this"). pack_size / unit_override from the LLM are applied only
+// for items whose guid actually changed or that were unmapped before — we
+// don't re-repack rows that already have correct numbers.
 router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
+  const includeAll = req.query.all === 'true' || req.query.all === '1';
   const invoice = invoiceRepo.getById(id);
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -411,9 +417,14 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   }
 
   const items = invoiceRepo.getItems(id);
-  const unmapped = items.filter(it => !it.onec_guid);
-  if (unmapped.length === 0) {
-    res.json({ data: { id, requested: 0, matched: 0, total: items.length, message: 'Нет несопоставленных товаров' } });
+  const targets = includeAll ? items : items.filter(it => !it.onec_guid);
+  if (targets.length === 0) {
+    res.json({
+      data: {
+        id, requested: 0, matched: 0, changed: 0, repacked: 0, total: items.length,
+        message: includeAll ? 'В накладной нет товаров' : 'Нет несопоставленных товаров',
+      },
+    });
     return;
   }
 
@@ -435,7 +446,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   }
 
   const result = await mapItemsWithClaudeApi(
-    unmapped.map(it => ({ key: String(it.id), name: it.original_name || '', unit: it.unit })),
+    targets.map(it => ({ key: String(it.id), name: it.original_name || '', unit: it.unit })),
     catalog,
     apiKey,
     analyzerCfg.claude_model || 'claude-sonnet-4-6',
@@ -446,20 +457,28 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     return;
   }
 
-  let applied = 0;
-  let repacked = 0;
-  for (const it of unmapped) {
+  let matched = 0;   // items for which Claude returned a guid
+  let changed = 0;   // items whose guid actually changed vs DB
+  let repacked = 0;  // items on which we applied pack_size / unit_override
+  for (const it of targets) {
     const hit = result.matched.get(String(it.id));
     if (!hit) continue;
-    // confidence=1.0 — this is a direct LLM pick against the current catalog,
-    // as authoritative as the mapping we get at ingest time.
-    invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
-    applied++;
+    matched++;
+    const wasUnmapped = !it.onec_guid;
+    const guidChanged = it.onec_guid !== hit.guid;
 
-    // Two LLM-directed transforms, each opt-in:
-    //   (a) pack_size set → multiply qty, recompute price (total stays)
-    //   (b) unit_override set without pack_size → rename unit only (рул → шт,
-    //       кор → шт, etc.), leave numbers alone
+    if (guidChanged) {
+      // confidence=1.0 — direct LLM pick against the current catalog,
+      // same authority as the mapping we get at ingest time.
+      invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
+      changed++;
+    }
+
+    // Only touch qty/unit/price when this item is either NEW (was unmapped)
+    // or the guid actually switched — never re-apply pack-transforms on a
+    // row that was already mapped to the same guid (would double-count).
+    if (!wasUnmapped && !guidChanged) continue;
+
     if (hit.pack_size && hit.unit_override) {
       const qty = it.quantity;
       if (qty != null && qty > 0) {
@@ -485,14 +504,15 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   invoiceRepo.recalculateTotal(id);
 
   logger.info('LLM-remap completed', {
-    id, requested: unmapped.length, matched: result.matched.size, applied, repacked,
+    id, requested: targets.length, matched, changed, repacked, all: includeAll,
   });
 
   res.json({
     data: {
       id,
-      requested: unmapped.length,
-      matched: applied,
+      requested: targets.length,
+      matched,
+      changed,
       repacked,
       total: items.length,
     },

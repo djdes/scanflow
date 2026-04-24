@@ -256,9 +256,17 @@ const Invoices = {
       // Remap buttons — two separate buttons, planshet-friendly
       if (unmappedCount > 0) {
         actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id})" title="Сопоставить несопоставленные товары через Claude LLM (использует Anthropic API)">LLM-маппинг</button>`;
       }
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
+      // LLM button is always visible. When everything is already mapped it
+      // passes all=true so Claude can reconsider existing picks (catalog may
+      // have grown, or an old fuzzy match may be improvable).
+      const llmAll = unmappedCount === 0;
+      const llmLabel = llmAll ? 'LLM: переделать всё' : 'LLM-маппинг';
+      const llmTitle = llmAll
+        ? 'Пересобрать все маппинги через Claude LLM (Anthropic API)'
+        : 'Сопоставить несопоставленные товары через Claude LLM (Anthropic API)';
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id}, ${llmAll})" title="${llmTitle}">${llmLabel}</button>`;
       // Delete button (destructive, always visible, pushed to the right)
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
@@ -402,15 +410,20 @@ const Invoices = {
     });
   },
 
-  async llmRemap(id) {
+  async llmRemap(id, all = false) {
     return this._withGuard(`llmRemap:${id}`, async () => {
-      App.notify('Отправляем несопоставленные товары в Claude…', 'info');
+      App.notify(all ? 'Пересобираем все маппинги через Claude…' : 'Отправляем несопоставленные товары в Claude…', 'info');
       try {
-        const data = await App.apiJson(`/invoices/${id}/llm-remap`, { method: 'POST' });
+        const url = all ? `/invoices/${id}/llm-remap?all=true` : `/invoices/${id}/llm-remap`;
+        const data = await App.apiJson(url, { method: 'POST' });
         const requested = data.data?.requested ?? 0;
         const matched = data.data?.matched ?? 0;
+        const changed = data.data?.changed ?? 0;
         if (requested === 0) {
-          App.notify('Нет несопоставленных товаров', 'success');
+          App.notify(all ? 'В накладной нет товаров' : 'Нет несопоставленных товаров', 'success');
+        } else if (all) {
+          if (changed === 0) App.notify(`LLM подтвердил текущие сопоставления (${matched} из ${requested})`, 'success');
+          else App.notify(`LLM обновил ${changed} из ${requested} (подтверждено ${matched})`, 'success');
         } else if (matched === 0) {
           App.notify(`LLM не нашёл совпадений (${requested} товаров)`, 'error');
         } else {
