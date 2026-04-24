@@ -212,8 +212,15 @@ export function applyPackTransform<T extends PackTransformable>(
 // JS \b doesn't honour Cyrillic word boundaries, so we use a negative
 // lookahead for letters instead — ensures "п" isn't swallowed out of
 // "покупка" and "шт" isn't swallowed out of "штурм".
+//
+// Recognised forms:
+//   "×48", "*48", "x48", "х48"           → capture 48
+//   "100 шт" / "100 пак" / "100 пачек"   → capture 100
+//   "1/12", "1/15", "1/24"               → supplier shorthand for "1 упак = 12 банок"
+//                                          capture the SECOND number (12, 15, 24)
+//   "10/216"                             → same shape, capture 216
 const COUNT_MULTIPLIER_PATTERN =
-  /(?:(?:[×xх*])\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:п(?:ак(?:ет(?:ик)?(?:ов|а)?)?)?|шт(?:ук[аи]?)?)(?![а-яёa-z]))/i;
+  /(?:(?:[×xх*])\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:п(?:ак(?:ет(?:ик)?(?:ов|а)?)?)?|шт(?:ук[аи]?)?)(?![а-яёa-z])|\b\d+\s*\/\s*(\d+)\b)/i;
 
 function extractCountMultiplierAfterSize(
   scannedName: string,
@@ -228,7 +235,8 @@ function extractCountMultiplierAfterSize(
   const afterSize = tail.slice(sizeEnd);
   const m = afterSize.match(COUNT_MULTIPLIER_PATTERN);
   if (!m) return null;
-  const raw = m[1] ?? m[2];
+  // Group 1 = ×N / *N form; group 2 = N шт / N пак form; group 3 = N/M form (we take M).
+  const raw = m[1] ?? m[2] ?? m[3];
   if (!raw) return null;
   const n = parseFloat(raw.replace(',', '.'));
   return isFinite(n) && n > 0 ? n : null;
@@ -303,6 +311,13 @@ export function resolveAndApplyPackTransform<T extends PackTransformable>(
 
   // Mode B: 1C name encodes the pack size.
   if (mappedName1c && findPackPatternIndex(mappedName1c) !== -1) {
+    // Same container guard as Mode A — for "Контейнер 500мл (х50/500)" the
+    // 500 belongs to the vessel size, not packaging, and the (х50/500) is
+    // a logistics hint (pallets), not "шт в упак". Without this guard we
+    // would blow quantity into the millions.
+    if (looksLikeContainer(scannedName) || looksLikeContainer(mappedName1c)) {
+      return { item, packSize: null, packUnit: null, usedFallback: false };
+    }
     const sizeIdx = findPackPatternIndex(scannedName);
     if (sizeIdx === -1) {
       // No size in the scan — nothing to anchor a multiplier search to.

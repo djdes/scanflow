@@ -45,6 +45,12 @@ export interface ParsedInvoiceItem {
   // when LLM-mapper mode is on. Watcher resolves it to onec_guid before
   // saving the item. null when Claude didn't find a confident match.
   catalog_idx?: number | null;
+  // Pack coefficient extracted from the scan name ("1/12", "*48", etc.) —
+  // how many tracked-unit pieces are in one invoice-unit. Null when the
+  // scan doesn't mark packaging (already in base units, or unknown).
+  // Watcher uses this INSTEAD of regex-guessing when applying pack-transform,
+  // which makes the transform trustworthy even for unmapped rows.
+  pack_size?: number | null;
 }
 
 export interface OcrEngine {

@@ -554,26 +554,37 @@ export class FileWatcher {
                   mapping = this.mapper.map(item.name);
                 }
 
-                const mergedOnec1cUnit = mapping.onec_guid
-                  ? onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null
-                  : null;
-                const resolved = resolveAndApplyPackTransform(
-                  sanity.item,
-                  item.name,
-                  mapping.pack_size,
-                  mapping.pack_unit,
-                  mapping.mapped_name,
-                  mergedOnec1cUnit,
-                );
-                this.persistPackFallback(mapping.mapping_id, resolved);
+                // Pack-transform only runs when we KNOW where the row maps.
+                // For unmapped rows we'd be guessing at the 1C unit, which
+                // historically blew up quantities (e.g. packaging names like
+                // "К-139, 500мл 139х102х56мм (х50/500)" had "500мл" mistaken
+                // as a pack-size anchor). Better to let llm-remap handle them
+                // later with an explicit pack_size hint.
+                const mergedResolved = mapping.onec_guid
+                  ? (() => {
+                      const onec1cUnit = onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null;
+                      const hintedPackSize = item.pack_size ?? mapping.pack_size;
+                      const hintedPackUnit = item.pack_size ? 'шт' : mapping.pack_unit;
+                      const r = resolveAndApplyPackTransform(
+                        sanity.item,
+                        item.name,
+                        hintedPackSize,
+                        hintedPackUnit,
+                        mapping.mapped_name,
+                        onec1cUnit,
+                      );
+                      this.persistPackFallback(mapping.mapping_id, r);
+                      return r;
+                    })()
+                  : { item: sanity.item, packSize: null, packUnit: null, usedFallback: false };
                 invoiceRepo.addItem({
                   invoice_id: targetInvoiceId,
                   original_name: item.name,
                   mapped_name: mapping.mapped_name,
-                  quantity: resolved.item.quantity,
-                  unit: resolved.item.unit,
-                  price: resolved.item.price,
-                  total: resolved.item.total,
+                  quantity: mergedResolved.item.quantity,
+                  unit: mergedResolved.item.unit,
+                  price: mergedResolved.item.price,
+                  total: mergedResolved.item.total,
                   vat_rate: item.vat_rate,
                   mapping_confidence: mapping.confidence,
                   onec_guid: mapping.onec_guid,
@@ -712,21 +723,30 @@ export class FileWatcher {
           mapping = this.mapper.map(item.name);
         }
 
-        // Pull the 1C accounting unit — pack-transform needs it to decide
-        // whether to scale qty × pack_size (when 1C stores in kg/l) or leave
-        // the invoice line as-is (when 1C stores in шт/упак).
-        const onec1cUnit = mapping.onec_guid
-          ? onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null
-          : null;
-        const resolved = resolveAndApplyPackTransform(
-          sanity.item,
-          item.name,
-          mapping.pack_size,
-          mapping.pack_unit,
-          mapping.mapped_name,
-          onec1cUnit,
-        );
-        this.persistPackFallback(mapping.mapping_id, resolved);
+        // Pack-transform only runs when we KNOW where the row maps.
+        // Unmapped rows go in as-is — llm-remap will handle them later with
+        // an explicit pack_size hint, which is safer than regex-guessing.
+        const resolved = mapping.onec_guid
+          ? (() => {
+              const onec1cUnit = onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null;
+              // Prefer the pack_size Claude extracted from the scan name
+              // ("*48", "1/12", etc.) — it's ground-truth from the invoice,
+              // far more reliable than the legacy regex fallback inside
+              // resolveAndApplyPackTransform.
+              const hintedPackSize = item.pack_size ?? mapping.pack_size;
+              const hintedPackUnit = item.pack_size ? 'шт' : mapping.pack_unit;
+              const r = resolveAndApplyPackTransform(
+                sanity.item,
+                item.name,
+                hintedPackSize,
+                hintedPackUnit,
+                mapping.mapped_name,
+                onec1cUnit,
+              );
+              this.persistPackFallback(mapping.mapping_id, r);
+              return r;
+            })()
+          : { item: sanity.item, packSize: null, packUnit: null, usedFallback: false };
         invoiceRepo.addItem({
           invoice_id: targetInvoiceId,
           original_name: item.name,
