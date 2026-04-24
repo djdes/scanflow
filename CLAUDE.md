@@ -724,7 +724,7 @@ npm run dev
 ```
 http://localhost:8899/
 ```
-Логин в дашборд — username/password admin. На первом запуске пароль генерируется случайно и **один раз** печатается в логах (`pm2 logs scan-magday | grep -A2 "FIRST-RUN ADMIN"`). Сменить пароль: `npm run reset-admin-password [новый_пароль]`. Подробнее — [Авторизация: пользователи и API-ключи](#авторизация-пользователи-и-api-ключи).
+Логин в дашборд — username/password admin. На первом запуске пароль генерируется случайно и **один раз** печатается в логах (`pm2 logs scanflow | grep -A2 "FIRST-RUN ADMIN"`). Сменить пароль: `npm run reset-admin-password [новый_пароль]`. Подробнее — [Авторизация: пользователи и API-ключи](#авторизация-пользователи-и-api-ключи).
 
 ### Тестирование парсера
 ```bash
@@ -1064,7 +1064,7 @@ npm run reset-admin-password -- мойПароль
 Минимум 4 символа (защита от опечаток). На сервере:
 ```bash
 ssh magday@magday.ru
-cd ~/www/scan.magday.ru/app
+cd ~/www/scanflow.ru/app
 npm run reset-admin-password -- новыйПароль
 ```
 
@@ -1108,7 +1108,7 @@ userRepo.create({
 | **SSH порт (GitHub Actions)** | 50222 |
 | **SSH пользователь** | magday |
 | **Node.js на сервере** | v20.20.0 (nvm) |
-| **PM2 процесс** | scan-magday |
+| **PM2 процесс** | scanflow |
 | **Порт приложения** | 8899 (nginx проксирует с домена) |
 | **GitHub репозиторий** | djdes/scanflow (private) |
 
@@ -1139,7 +1139,7 @@ userRepo.create({
 ```
 /var/www/magday/data/                    # HOME директория
 ├── www/
-│   └── scan.magday.ru/
+│   └── scanflow.ru/
 │       ├── index.html                   # FastPanel placeholder (HTTPS)
 │       └── app/                         # Приложение
 │           ├── dist/                    # Скомпилированный JS
@@ -1156,8 +1156,8 @@ userRepo.create({
 │           ├── .env                     # Конфигурация (НЕ в git)
 │           └── package.json
 ├── logs/
-│   ├── scan-magday-out-*.log
-│   └── scan-magday-error-*.log
+│   ├── scanflow-out.log
+│   └── scanflow-error.log
 └── .pm2/
 ```
 
@@ -1195,11 +1195,11 @@ ssh magday@magday.ru
 
 # PM2 управление
 pm2 list                           # статус процессов
-pm2 logs scan-magday               # live логи
-pm2 logs scan-magday --lines 50    # последние 50 строк
-pm2 restart scan-magday            # перезапуск
-pm2 stop scan-magday               # остановка
-pm2 flush scan-magday              # очистить логи
+pm2 logs scanflow                  # live логи
+pm2 logs scanflow --lines 50       # последние 50 строк
+pm2 restart scanflow               # перезапуск
+pm2 stop scanflow                  # остановка
+pm2 flush scanflow                 # очистить логи
 
 # Проверка
 curl http://localhost:8899/health
@@ -1211,16 +1211,16 @@ gh run watch <run-id> --repo djdes/scanflow
 
 # Загрузка файлов на сервер (БД, credentials)
 # ВАЖНО: сначала остановить PM2, потом загрузить, потом запустить
-pm2 stop scan-magday
-scp -P 22 ./data/database.sqlite magday@magday.ru:~/www/scan.magday.ru/app/data/
-pm2 start scan-magday
+pm2 stop scanflow
+scp -P 22 ./data/database.sqlite magday@magday.ru:~/www/scanflow.ru/app/data/
+pm2 start scanflow
 ```
 
 ### HTTPS
 
 HTTPS на scanflow.ru показывает страницу FastPanel, а не приложение. HTTP проксирование на порт 8899 работает. Для HTTPS нужно настроить Node.js proxy в панели FastPanel (как сделано для haccp.magday.ru).
 
-> Историческая справка: до апреля 2026 проект был доступен на scan.magday.ru — серверные пути (`~/www/scan.magday.ru/app`) и SSH-доступ по-прежнему используют это имя, потому что переименование папки на сервере не делалось.
+> Историческая справка: до апреля 2026 проект был доступен на `scan.magday.ru`. В апреле 2026 мигрировали и домен, и серверные пути — сейчас приложение живёт в `~/www/scanflow.ru/app/`, PM2 процесс называется `scanflow`. Старое имя `scan.magday.ru` остаётся только в changelog v1.5 ниже. SSH-хост сервера — `magday.ru` — это имя **самого сервера**, а не проекта, оно не менялось.
 
 ### Важные заметки по деплою
 
@@ -1228,7 +1228,7 @@ HTTPS на scanflow.ru показывает страницу FastPanel, а не 
 
 13. **БД не деплоится** — она живёт только на сервере. Бэкап локальной БД — на dev-машине в `data/database.sqlite`.
 
-14. **PM2 ecosystem.config.js** — cwd указывает на серверный путь `/var/www/magday/data/www/scan.magday.ru/app`. При изменении структуры на сервере — обновить.
+14. **PM2 ecosystem.config.js** — `cwd: __dirname` (т.е. директория, откуда запускается PM2). На сервере это `/var/www/magday/data/www/scanflow.ru/app`. При изменении структуры на сервере — обновить.
 
 15. **Node.js 20 на сервере** vs 25 на dev — TypeScript компилируется в ES2022 (совместим с обоими). Нативные зависимости (better-sqlite3, sharp) пересобираются при `npm ci`.
 
@@ -1252,7 +1252,7 @@ HTTPS на scanflow.ru показывает страницу FastPanel, а не 
 ## Changelog
 
 ### v1.6 (2026-04-24)
-- ✅ **Переезд на домен scanflow.ru** — старый scan.magday.ru остался в путях на сервере, но публичный URL теперь scanflow.ru
+- ✅ **Переезд на домен scanflow.ru** — публичный URL, серверные пути (`~/www/scanflow.ru/app/`) и имя PM2-процесса (`scanflow`) — всё мигрировано. Старое имя `scan.magday.ru` остаётся только здесь в changelog v1.5.
 - ✅ **Авторизация по логину/паролю** — `POST /api/auth/login`, фронт перестал просить вставить API-ключ руками
 - ✅ **Таблица `users`** (миграция 17) — у каждого аккаунта свой `api_key`, нет глобального секрета в коде
 - ✅ **scrypt-хэширование** паролей через нодовский `crypto` — без нативных зависимостей

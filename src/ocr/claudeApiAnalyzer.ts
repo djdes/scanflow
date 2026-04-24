@@ -562,3 +562,119 @@ export async function analyzeImageWithClaudeApi(
     return { success: false, error: `Claude API error: ${msg}` };
   }
 }
+
+/**
+ * Narrow mapping-only call. Given a set of invoice items (name + unit only)
+ * and the 1C catalog, ask Claude which catalog entry each item corresponds
+ * to — or null if no match. No OCR, no re-parsing of the invoice; this is
+ * dramatically cheaper and less error-prone than re-running the full analyzer.
+ *
+ * Input:   [{ key: <opaque caller id>, name, unit? }]
+ * Output:  Map<key, { catalog_idx, guid, name }>  (only successful matches)
+ */
+export async function mapItemsWithClaudeApi(
+  items: Array<{ key: string; name: string; unit?: string | null }>,
+  catalog: CatalogEntry[],
+  apiKey: string,
+  modelId: string = 'claude-sonnet-4-6',
+): Promise<{
+  success: boolean;
+  matched?: Map<string, { catalog_idx: number; guid: string; name: string }>;
+  error?: string;
+  rawText?: string;
+}> {
+  if (!apiKey) return { success: false, error: 'Anthropic API key not configured' };
+  if (!items.length) return { success: true, matched: new Map() };
+  if (!catalog.length) return { success: false, error: 'Catalog is empty' };
+
+  const catalogLines = catalog.map((c, i) => {
+    const unit = c.unit ? ` (${c.unit})` : '';
+    return `[${i + 1}] ${c.name}${unit}`;
+  }).join('\n');
+
+  const itemLines = items.map(it => {
+    const unit = it.unit ? ` — ${it.unit}` : '';
+    return `${it.key}: ${it.name}${unit}`;
+  }).join('\n');
+
+  const prompt = `Ты сопоставляешь товары из накладной со справочником номенклатуры 1С.
+
+ПРАВИЛА:
+  • Сопоставляй по смыслу. OCR мог исказить имя — пытайся восстановить исходный смысл.
+  • Производителя/бренд/артикул игнорируй. В справочнике обобщённые названия.
+  • Размер/объём/упаковку учитывай ВНИМАТЕЛЬНО: "Молоко 1л" и "Молоко 2л" — РАЗНЫЕ позиции.
+  • Если в справочнике НЕТ подходящей позиции — верни catalog_idx: null. Лучше пусто, чем неверно.
+  • Единицы измерения ("шт/кг/л/уп") должны совпадать ИЛИ быть совместимыми (шт ↔ упак допустимо, кг ↔ шт — НЕТ).
+
+ФОРМАТ ОТВЕТА (строго этот JSON, без markdown, без комментариев):
+{"matches":[{"key":"...","catalog_idx":число_или_null},...]}
+
+ТОВАРЫ ДЛЯ СОПОСТАВЛЕНИЯ (формат "key: название — единица"):
+${itemLines}
+
+================================================================
+СПРАВОЧНИК НОМЕНКЛАТУРЫ 1С (${catalog.length} позиций, формат "[номер] имя (единица)"):
+================================================================
+${catalogLines}`;
+
+  logger.info('Claude API Mapper: start', {
+    itemsCount: items.length,
+    catalogSize: catalog.length,
+    promptBytes: prompt.length,
+  });
+
+  try {
+    const client = createClient(apiKey);
+    const response = await withRetry(
+      (signal) => client.messages.create({
+        model: modelId,
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: prompt }],
+      }, { signal }),
+      'Claude API mapper',
+    );
+
+    const textBlock = response.content.find(b => b.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      return { success: false, error: 'Claude API: no text in response' };
+    }
+    const text = textBlock.text.trim();
+
+    // Reuse the same lenient JSON pipeline as the OCR analyzer.
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) {
+      logger.warn('Claude API Mapper: no JSON object found', { sample: text.slice(0, 200) });
+      return { success: false, error: 'no JSON in response', rawText: text };
+    }
+    let parsed: { matches?: Array<{ key: string; catalog_idx: number | null }> };
+    try {
+      parsed = JSON.parse(cleanJsonString(match[0]));
+    } catch {
+      try {
+        parsed = JSON.parse(jsonrepair(cleanJsonString(match[0])));
+      } catch (err2) {
+        logger.warn('Claude API Mapper: JSON repair failed', { error: (err2 as Error).message });
+        return { success: false, error: 'json parse failed', rawText: text };
+      }
+    }
+
+    const matched = new Map<string, { catalog_idx: number; guid: string; name: string }>();
+    for (const m of parsed.matches ?? []) {
+      if (m.catalog_idx == null || !Number.isFinite(m.catalog_idx)) continue;
+      const row = catalog[m.catalog_idx - 1];
+      if (!row) continue;
+      matched.set(String(m.key), { catalog_idx: m.catalog_idx, guid: row.guid, name: row.name });
+    }
+
+    logger.info('Claude API Mapper: done', {
+      requested: items.length,
+      matched: matched.size,
+    });
+
+    return { success: true, matched, rawText: text };
+  } catch (err) {
+    const msg = (err as Error).message;
+    logger.error('Claude API Mapper: error', { error: msg });
+    return { success: false, error: `Claude API error: ${msg}` };
+  }
+}

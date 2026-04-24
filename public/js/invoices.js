@@ -256,6 +256,7 @@ const Invoices = {
       // Remap buttons — two separate buttons, planshet-friendly
       if (unmappedCount > 0) {
         actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id})" title="Сопоставить несопоставленные товары через Claude LLM (использует Anthropic API)">LLM-маппинг</button>`;
       }
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
       // Delete button (destructive, always visible, pushed to the right)
@@ -397,6 +398,27 @@ const Invoices = {
         this.showDetail(id);
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
+      }
+    });
+  },
+
+  async llmRemap(id) {
+    return this._withGuard(`llmRemap:${id}`, async () => {
+      App.notify('Отправляем несопоставленные товары в Claude…', 'info');
+      try {
+        const data = await App.apiJson(`/invoices/${id}/llm-remap`, { method: 'POST' });
+        const requested = data.data?.requested ?? 0;
+        const matched = data.data?.matched ?? 0;
+        if (requested === 0) {
+          App.notify('Нет несопоставленных товаров', 'success');
+        } else if (matched === 0) {
+          App.notify(`LLM не нашёл совпадений (${requested} товаров)`, 'error');
+        } else {
+          App.notify(`LLM сопоставил ${matched} из ${requested} товаров`, 'success');
+        }
+        this.showDetail(id);
+      } catch (e) {
+        App.notify('Ошибка LLM-маппинга: ' + e.message, 'error');
       }
     });
   },

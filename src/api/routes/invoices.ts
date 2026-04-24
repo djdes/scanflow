@@ -12,6 +12,7 @@ import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
+import { mapItemsWithClaudeApi, CatalogEntry } from '../../ocr/claudeApiAnalyzer';
 
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
@@ -388,6 +389,79 @@ router.post('/:id/remap', (req: Request, res: Response) => {
 
   logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length, all: includeAll });
   res.json({ data: { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length } });
+});
+
+// POST /api/invoices/:id/llm-remap — ask Claude to map items that still have
+// onec_guid=NULL against the current 1C catalog. Useful when the catalog was
+// incomplete at ingest time, or when the regex/fuse mapper missed obvious
+// matches. Only touches unmapped items (onec_guid IS NULL) — already-mapped
+// lines are left alone regardless of their confidence.
+router.post('/:id/llm-remap', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = invoiceRepo.getById(id);
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+
+  const items = invoiceRepo.getItems(id);
+  const unmapped = items.filter(it => !it.onec_guid);
+  if (unmapped.length === 0) {
+    res.json({ data: { id, requested: 0, matched: 0, total: items.length, message: 'Нет несопоставленных товаров' } });
+    return;
+  }
+
+  // Build the catalog snapshot ONCE — the same ordering is used both to
+  // build the prompt and to resolve catalog_idx back to a guid in the
+  // response.
+  const catalogRows = onecNomenclatureRepo.listItems({ excludeFolders: true });
+  if (catalogRows.length === 0) {
+    res.status(400).json({ error: 'Справочник 1С пуст — нечего сопоставлять. Сначала выгрузите номенклатуру из 1С.' });
+    return;
+  }
+  const catalog: CatalogEntry[] = catalogRows.map(r => ({ guid: r.guid, name: r.name, unit: r.unit }));
+
+  const analyzerCfg = invoiceRepo.getAnalyzerConfig();
+  const apiKey = analyzerCfg.anthropic_api_key || config.anthropicApiKey;
+  if (!apiKey) {
+    res.status(500).json({ error: 'Anthropic API key not configured' });
+    return;
+  }
+
+  const result = await mapItemsWithClaudeApi(
+    unmapped.map(it => ({ key: String(it.id), name: it.original_name || '', unit: it.unit })),
+    catalog,
+    apiKey,
+    analyzerCfg.claude_model || 'claude-sonnet-4-6',
+  );
+
+  if (!result.success || !result.matched) {
+    res.status(502).json({ error: result.error || 'LLM mapping failed' });
+    return;
+  }
+
+  let applied = 0;
+  for (const it of unmapped) {
+    const hit = result.matched.get(String(it.id));
+    if (!hit) continue;
+    // confidence=1.0 — this is a direct LLM pick against the current catalog,
+    // as authoritative as the mapping we get at ingest time.
+    invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
+    applied++;
+  }
+
+  logger.info('LLM-remap completed', {
+    id, requested: unmapped.length, matched: result.matched.size, applied,
+  });
+
+  res.json({
+    data: {
+      id,
+      requested: unmapped.length,
+      matched: applied,
+      total: items.length,
+    },
+  });
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files
