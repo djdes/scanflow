@@ -380,7 +380,8 @@
   const loginModal = document.getElementById('login-modal');
   const loginOpenBtn = document.getElementById('btn-login-open');
   const loginForm = document.getElementById('login-form');
-  const loginInput = document.getElementById('login-api-key');
+  const loginUsername = document.getElementById('login-username');
+  const loginPassword = document.getElementById('login-password');
   const loginSubmit = document.getElementById('login-submit');
   const loginError = document.getElementById('login-error');
 
@@ -389,9 +390,12 @@
     loginModal.classList.add('open');
     loginModal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('login-open');
-    const saved = localStorage.getItem('apiKey');
-    if (saved) loginInput.value = saved;
-    setTimeout(() => loginInput && loginInput.focus(), 50);
+    const savedUser = localStorage.getItem('adminUsername');
+    if (savedUser && loginUsername) loginUsername.value = savedUser;
+    setTimeout(() => {
+      const target = (loginUsername && !loginUsername.value) ? loginUsername : loginPassword;
+      if (target) target.focus();
+    }, 50);
     if (loginError) {
       loginError.hidden = true;
       loginError.textContent = '';
@@ -431,28 +435,33 @@
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const key = (loginInput.value || '').trim();
-      if (!key) return;
+      const username = (loginUsername.value || '').trim();
+      const password = loginPassword.value || '';
+      if (!username || !password) return;
 
       loginSubmit.disabled = true;
       loginSubmit.textContent = 'Проверяем…';
       loginError.hidden = true;
 
       try {
-        const resp = await fetch('/api/invoices/stats', {
-          headers: { 'X-API-Key': key },
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
         });
+        const data = await resp.json().catch(() => ({}));
         if (resp.status === 401) {
-          loginError.textContent = 'API-ключ не принят. Проверьте значение и попробуйте снова.';
+          loginError.textContent = data.error || 'Неверный логин или пароль.';
           loginError.hidden = false;
           return;
         }
-        if (!resp.ok) {
-          loginError.textContent = `Сервер вернул ошибку (${resp.status}). Попробуйте позже.`;
+        if (!resp.ok || !data.apiKey) {
+          loginError.textContent = data.error || `Сервер вернул ошибку (${resp.status}).`;
           loginError.hidden = false;
           return;
         }
-        localStorage.setItem('apiKey', key);
+        localStorage.setItem('apiKey', data.apiKey);
+        localStorage.setItem('adminUsername', username);
         window.location.href = '/app.html';
       } catch (err) {
         loginError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';

@@ -14,6 +14,7 @@ import webhookRouter from './routes/webhook';
 import settingsRouter from './routes/settings';
 import debugRouter from './routes/debug';
 import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes/nomenclature';
+import authRouter from './routes/auth';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -146,6 +147,17 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
       checks,
     });
   });
+
+  // Auth (no apiKeyAuth — this is how you GET the API key).
+  // Tight per-IP rate limit blunts password-guessing attacks.
+  const loginLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Слишком много попыток входа, попробуйте позже' },
+  });
+  app.use('/api/auth', loginLimiter, authRouter);
 
   // API routes (with auth)
   // NOTE: /api/errors and /api/reprocess-errors moved under /api/debug/* which

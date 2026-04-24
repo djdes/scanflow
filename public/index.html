@@ -381,14 +381,15 @@
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 1a4 4 0 00-4 4v4H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2v-9a2 2 0 00-2-2h-2V5a4 4 0 00-4-4zm2 8h-4V5a2 2 0 114 0v4z" fill="currentColor"/></svg>
       </div>
       <h3 id="login-modal-title">Вход в ScanFlow</h3>
-      <p>Введите API-ключ, который вы получили при регистрации.</p>
-      <form class="login-modal__form" id="login-form" autocomplete="off">
-        <input type="password" id="login-api-key" placeholder="API Key" autocomplete="off" required>
+      <p>Введите логин и пароль, чтобы открыть кабинет.</p>
+      <form class="login-modal__form" id="login-form" autocomplete="on">
+        <input type="text" id="login-username" placeholder="Логин" autocomplete="username" required>
+        <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password" required>
         <button type="submit" class="btn-primary btn-block" id="login-submit">
           Войти
         </button>
         <div class="login-modal__error" id="login-error" hidden></div>
-        <div class="login-modal__hint">Ещё нет ключа? <a href="#pricing" data-close-login>Выберите тариф</a></div>
+        <div class="login-modal__hint">Ещё нет доступа? <a href="#pricing" data-close-login>Выберите тариф</a></div>
       </form>
     </div>
   </div>
