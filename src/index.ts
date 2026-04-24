@@ -11,6 +11,7 @@ import { cleanupOldRequestLogs } from './api/middleware/requestLog';
 import { cleanupOldPhotos } from './utils/photoRetention';
 import { checkDiskSpace } from './utils/diskMonitor';
 import { invoiceRepo } from './database/repositories/invoiceRepo';
+import { seedAdminUser } from './auth/seedAdmin';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -30,6 +31,13 @@ async function main(): Promise<void> {
   // Initialize database
   getDb();
   logger.info('Database ready');
+
+  // Seed/sync admin user from .env. Idempotent — safe on every startup.
+  try {
+    seedAdminUser();
+  } catch (e) {
+    logger.error('Admin seed failed', { error: (e as Error).message });
+  }
 
   // Recover from crashes / interrupted deploys: mark any invoice row stuck
   // in 'parsing' or 'ocr_processing' for more than 5 minutes as 'error'.

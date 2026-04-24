@@ -330,6 +330,25 @@ const MIGRATIONS: Migration[] = [
       db.exec(`ALTER TABLE analyzer_config ADD COLUMN llm_mapper_enabled INTEGER NOT NULL DEFAULT 1;`);
     },
   },
+  {
+    version: 17,
+    name: 'users table (per-account API keys)',
+    detect: (db) => hasTable(db, 'users'),
+    run: (db) => {
+      db.exec(`
+        CREATE TABLE users (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          username        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          password_hash   TEXT NOT NULL,
+          api_key         TEXT NOT NULL UNIQUE,
+          role            TEXT NOT NULL DEFAULT 'user',
+          created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          last_login_at   TEXT
+        );
+        CREATE INDEX idx_users_api_key ON users(api_key);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

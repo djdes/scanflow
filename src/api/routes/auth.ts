@@ -1,19 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { config } from '../../config';
+import { userRepo } from '../../database/repositories/userRepo';
+import { verifyPassword } from '../../auth/password';
 import { logger } from '../../utils/logger';
 
 const router = Router();
 
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-// POST /api/auth/login — exchange username/password for the server's API key.
-// The API key is the single source of auth for all other /api/* routes; login
-// is just a UX layer so users don't have to paste a raw key.
+// POST /api/auth/login — exchange username/password for the caller's per-user
+// API key. The API key remains the real auth mechanism for /api/* routes;
+// login is a UX wrapper so users don't have to paste a raw key.
 router.post('/login', (req: Request, res: Response) => {
   const { username, password } = (req.body ?? {}) as { username?: string; password?: string };
 
@@ -22,21 +16,24 @@ router.post('/login', (req: Request, res: Response) => {
     return;
   }
 
-  if (!config.adminPassword) {
-    logger.warn('Login attempted but ADMIN_PASSWORD is not set in .env');
-    res.status(503).json({ error: 'Admin login is not configured on the server' });
-    return;
-  }
-
-  const userOk = safeEqual(username, config.adminUsername);
-  const passOk = safeEqual(password, config.adminPassword);
-
-  if (!userOk || !passOk) {
+  const user = userRepo.findByUsername(username);
+  if (!user) {
     res.status(401).json({ error: 'Неверный логин или пароль' });
     return;
   }
 
-  res.json({ apiKey: config.apiKey });
+  if (!verifyPassword(password, user.password_hash)) {
+    res.status(401).json({ error: 'Неверный логин или пароль' });
+    return;
+  }
+
+  try {
+    userRepo.touchLastLogin(user.id);
+  } catch (e) {
+    logger.warn('Failed to update last_login_at', { userId: user.id, error: (e as Error).message });
+  }
+
+  res.json({ apiKey: user.api_key, username: user.username, role: user.role });
 });
 
 export default router;
