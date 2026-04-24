@@ -1,8 +1,8 @@
 # 1C-JPGExchange — Документация для будущих доработок
 
-**Дата:** 2026-04-03
-**Версия:** 1.5 (production, deployed)
-**Статус:** Production на scan.magday.ru | GitHub Actions CI/CD
+**Дата:** 2026-04-24
+**Версия:** 1.6 (production, deployed)
+**Статус:** Production на scanflow.ru | GitHub Actions CI/CD
 
 ---
 
@@ -18,7 +18,8 @@
 8. [Примеры обработанных документов](#примеры-обработанных-документов)
 9. [Гибридный OCR (Google Vision + Claude CLI)](#гибридный-ocr-google-vision--claude-cli-) ⭐
 10. [Многостраничные накладные](#многостраничные-накладные)
-11. [Деплой и CI/CD](#деплой-и-cicd) ⭐
+11. [Авторизация: пользователи и API-ключи](#авторизация-пользователи-и-api-ключи) ⭐
+12. [Деплой и CI/CD](#деплой-и-cicd) ⭐
 
 ---
 
@@ -47,7 +48,7 @@ OCR (Google Vision → Claude CLI → Tesseract)
 - **Backend:** Node.js v25.2.1, TypeScript (strict mode)
 - **OCR:** Google Cloud Vision API (основной), Claude Code CLI (резервный), Tesseract.js (офлайн fallback)
 - **БД:** SQLite (better-sqlite3) с WAL mode
-- **API:** Express v5.2.1 с авторизацией по `X-API-Key`
+- **API:** Express v5.2.1 с авторизацией по `X-API-Key` (ключ привязан к аккаунту в таблице `users`; вход в дашборд — логин/пароль через `POST /api/auth/login`)
 - **Frontend:** Статический HTML+CSS+JS (vanilla, hash-routing)
 - **Логирование:** Winston
 
@@ -721,9 +722,9 @@ npm run dev
 
 ### Доступ к дашборду
 ```
-http://localhost:3000/
+http://localhost:8899/
 ```
-API key: `your-secret-api-key` (из .env)
+Логин в дашборд — username/password admin. На первом запуске пароль генерируется случайно и **один раз** печатается в логах (`pm2 logs scan-magday | grep -A2 "FIRST-RUN ADMIN"`). Сменить пароль: `npm run reset-admin-password [новый_пароль]`. Подробнее — [Авторизация: пользователи и API-ключи](#авторизация-пользователи-и-api-ключи).
 
 ### Тестирование парсера
 ```bash
@@ -1000,6 +1001,100 @@ Invoice pages merged successfully {id: 1121, totalItemsCount: 10, addedItemsCoun
 
 ---
 
+## Авторизация: пользователи и API-ключи
+
+**Файлы:**
+- [`src/database/migrations.ts`](src/database/migrations.ts) — миграция 17 (таблица `users`)
+- [`src/database/repositories/userRepo.ts`](src/database/repositories/userRepo.ts) — CRUD пользователей
+- [`src/auth/password.ts`](src/auth/password.ts) — хэширование scrypt (`scrypt$N$salt$hash`)
+- [`src/auth/seedAdmin.ts`](src/auth/seedAdmin.ts) — first-run сидер
+- [`src/api/middleware/auth.ts`](src/api/middleware/auth.ts) — `X-API-Key` → `users.api_key`
+- [`src/api/routes/auth.ts`](src/api/routes/auth.ts) — `POST /api/auth/login`
+- [`src/scripts/reset-admin-password.ts`](src/scripts/reset-admin-password.ts) — `npm run reset-admin-password`
+
+### Модель
+
+- **Один пользователь = один `api_key`.** Ключ — единственный механизм авторизации `/api/*`. Заголовок `X-API-Key` ищется в `users.api_key`; найденный пользователь подкладывается в `req.user = { id, username, role }`.
+- **Логин/пароль — это UX-обёртка над ключом.** `POST /api/auth/login` принимает `{username, password}`, проверяет `scryptSync` + `timingSafeEqual`, возвращает `{apiKey, username, role}`. Фронт сохраняет `apiKey` в `localStorage` и шлёт в `X-API-Key` как раньше.
+- **Никаких credentials в `.env`.** В `.env` живёт только `API_KEY` (bootstrap-секрет). Логины-пароли — только в БД (хэши).
+
+### Таблица `users`
+
+```sql
+CREATE TABLE users (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  username        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash   TEXT NOT NULL,        -- scrypt$N$saltHex$hashHex
+  api_key         TEXT NOT NULL UNIQUE,
+  role            TEXT NOT NULL DEFAULT 'user',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  last_login_at   TEXT
+);
+CREATE INDEX idx_users_api_key ON users(api_key);
+```
+
+### First-run admin
+
+При старте сервера если `users` пустая:
+1. Создаётся `admin` со случайным паролем (12 байт → 16 base64url-символов, ~96 бит энтропии).
+2. `api_key = config.apiKey` — это нужно, чтобы существующие интеграции (1С webhook, мобильная камера) продолжили работать с тем же ключом, что был в `.env`.
+3. Пароль печатается в логи **один раз** жирным баннером:
+
+```
+========================================================================
+FIRST-RUN ADMIN ACCOUNT CREATED — copy the password NOW...
+  username: admin
+  password: <случайный пароль>
+To change it later: npm run reset-admin-password
+========================================================================
+```
+
+На всех последующих стартах сидер ничего не делает — БД источник правды.
+
+### Смена пароля
+
+```bash
+# Сгенерить случайный
+npm run reset-admin-password
+
+# Установить конкретный
+npm run reset-admin-password -- мойПароль
+```
+
+Минимум 4 символа (защита от опечаток). На сервере:
+```bash
+ssh magday@magday.ru
+cd ~/www/scan.magday.ru/app
+npm run reset-admin-password -- новыйПароль
+```
+
+### Добавление новых пользователей
+
+Сейчас UI для этого нет — добавляются через ts-node:
+```typescript
+import { userRepo } from './src/database/repositories/userRepo';
+import { hashPassword, generateApiKey } from './src/auth/password';
+
+userRepo.create({
+  username: 'ivan',
+  password_hash: hashPassword('паролеВанЯ'),
+  api_key: generateApiKey(),
+  role: 'user',
+});
+```
+
+### Rate limit
+
+`POST /api/auth/login` ограничен 20 попытками / 5 мин на IP — защита от перебора пароля.
+
+### Совместимость
+
+- Старый `config.apiKey` из `.env` больше **не сравнивается напрямую** в middleware. Доступ даёт только то, что лежит в `users.api_key`.
+- Сидер на первом запуске копирует `config.apiKey` в `users.api_key` для admin'а — поэтому 1С webhook, мобильная камера и любые скрипты, использующие старый ключ, продолжают работать без изменений.
+- Если нужно ротировать `API_KEY`: поменять в `.env` → перезапустить → ключ admin **не** обновляется автоматически (это изменили намеренно: сидер не трогает существующего юзера). Обновить вручную через `userRepo.updateApiKey(id, newKey)` или прямой `UPDATE users SET api_key = ? WHERE id = ?`.
+
+---
+
 ## Деплой и CI/CD
 
 ### Инфраструктура
@@ -1008,7 +1103,7 @@ Invoice pages merged successfully {id: 1121, totalItemsCount: 10, addedItemsCoun
 |-----------|----------|
 | **Хостинг** | FastPanel, Ubuntu 24.04 LTS |
 | **Сервер** | magday.ru (79.137.237.2) |
-| **Домен** | scan.magday.ru |
+| **Домен** | scanflow.ru |
 | **SSH порт (локальный)** | 22 |
 | **SSH порт (GitHub Actions)** | 50222 |
 | **SSH пользователь** | magday |
@@ -1123,7 +1218,9 @@ pm2 start scan-magday
 
 ### HTTPS
 
-HTTPS на scan.magday.ru показывает страницу FastPanel, а не приложение. HTTP проксирование на порт 8899 работает. Для HTTPS нужно настроить Node.js proxy в панели FastPanel (как сделано для haccp.magday.ru).
+HTTPS на scanflow.ru показывает страницу FastPanel, а не приложение. HTTP проксирование на порт 8899 работает. Для HTTPS нужно настроить Node.js proxy в панели FastPanel (как сделано для haccp.magday.ru).
+
+> Историческая справка: до апреля 2026 проект был доступен на scan.magday.ru — серверные пути (`~/www/scan.magday.ru/app`) и SSH-доступ по-прежнему используют это имя, потому что переименование папки на сервере не делалось.
 
 ### Важные заметки по деплою
 
@@ -1140,19 +1237,29 @@ HTTPS на scan.magday.ru показывает страницу FastPanel, а н
 ## Контакты и ресурсы
 
 - **GitHub:** https://github.com/djdes/scanflow (private)
-- **Production:** http://scan.magday.ru/
+- **Production:** https://scanflow.ru/
 - **Документация 1С:УНФ 1.6:** https://its.1c.ru/db/unf
 - **Google Vision API docs:** https://cloud.google.com/vision/docs
 - **Claude API docs:** https://docs.anthropic.com/claude/reference
 
 ---
 
-**Последнее обновление:** 2026-04-03
+**Последнее обновление:** 2026-04-24
 **Автор:** Claude Code (совместно с разработчиком)
 
 ---
 
 ## Changelog
+
+### v1.6 (2026-04-24)
+- ✅ **Переезд на домен scanflow.ru** — старый scan.magday.ru остался в путях на сервере, но публичный URL теперь scanflow.ru
+- ✅ **Авторизация по логину/паролю** — `POST /api/auth/login`, фронт перестал просить вставить API-ключ руками
+- ✅ **Таблица `users`** (миграция 17) — у каждого аккаунта свой `api_key`, нет глобального секрета в коде
+- ✅ **scrypt-хэширование** паролей через нодовский `crypto` — без нативных зависимостей
+- ✅ **First-run сидер** генерит случайный пароль admin, печатает один раз в логи; пароль/логин **не хранится** в `.env`
+- ✅ **`npm run reset-admin-password`** — CLI для ротации пароля
+- ✅ **Rate limit 20/5min на IP** для `POST /api/auth/login`
+- ✅ Существующие интеграции (1С webhook, мобильная камера) работают без изменений: api_key admin'а = старый `API_KEY` из `.env`
 
 ### v1.5 (2026-04-03)
 - ✅ **Production деплой** на scan.magday.ru (FastPanel, Ubuntu 24.04)
