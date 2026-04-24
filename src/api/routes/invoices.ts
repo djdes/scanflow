@@ -356,8 +356,14 @@ router.post('/:id/remap', (req: Request, res: Response) => {
     // ?all=true), fetch the current mapping directly so pack_size can still
     // be honoured.
     const mappingForPack = result ?? mapper.map(item.original_name);
-    const remapOnec1cUnit = mappingForPack.onec_guid
-      ? onecNomenclatureRepo.getByGuid(mappingForPack.onec_guid)?.unit ?? null
+    // Prefer the unit from whatever catalog row this item resolves to —
+    // either the mapping's guid (learned mapping) or the item's own guid
+    // (freshly placed by LLM-remap without a mappings row yet). Without
+    // this, pack-transform runs blind and can mangle rows whose 1C side
+    // is countable (e.g. "Бутылка ПЭТ 0,3 …" → qty × 150 × 150).
+    const packGuid = mappingForPack.onec_guid || item.onec_guid;
+    const remapOnec1cUnit = packGuid
+      ? onecNomenclatureRepo.getByGuid(packGuid)?.unit ?? null
       : null;
     const resolved = resolveAndApplyPackTransform(
       { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
@@ -441,6 +447,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   }
 
   let applied = 0;
+  let repacked = 0;
   for (const it of unmapped) {
     const hit = result.matched.get(String(it.id));
     if (!hit) continue;
@@ -448,10 +455,37 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     // as authoritative as the mapping we get at ingest time.
     invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
     applied++;
+
+    // Two LLM-directed transforms, each opt-in:
+    //   (a) pack_size set → multiply qty, recompute price (total stays)
+    //   (b) unit_override set without pack_size → rename unit only (рул → шт,
+    //       кор → шт, etc.), leave numbers alone
+    if (hit.pack_size && hit.unit_override) {
+      const qty = it.quantity;
+      if (qty != null && qty > 0) {
+        const total = it.total != null
+          ? it.total
+          : (it.price != null ? it.price * qty : null);
+        const newQty = qty * hit.pack_size;
+        const newPrice = total != null && newQty > 0 ? total / newQty : it.price ?? null;
+        invoiceRepo.updateItemFields(it.id, {
+          quantity: newQty,
+          unit: hit.unit_override,
+          price: newPrice,
+          total: total ?? null,
+        });
+        repacked++;
+      }
+    } else if (hit.unit_override && hit.unit_override !== it.unit) {
+      invoiceRepo.updateItemFields(it.id, { unit: hit.unit_override });
+    }
   }
 
+  // Flags the invoice if Σ(items.total) drifts from invoice.total_sum.
+  invoiceRepo.recalculateTotal(id);
+
   logger.info('LLM-remap completed', {
-    id, requested: unmapped.length, matched: result.matched.size, applied,
+    id, requested: unmapped.length, matched: result.matched.size, applied, repacked,
   });
 
   res.json({
@@ -459,6 +493,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
       id,
       requested: unmapped.length,
       matched: applied,
+      repacked,
       total: items.length,
     },
   });

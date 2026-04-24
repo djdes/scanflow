@@ -572,6 +572,14 @@ export async function analyzeImageWithClaudeApi(
  * Input:   [{ key: <opaque caller id>, name, unit? }]
  * Output:  Map<key, { catalog_idx, guid, name }>  (only successful matches)
  */
+export interface LlmMapHit {
+  catalog_idx: number;
+  guid: string;
+  name: string;
+  pack_size: number | null;
+  unit_override: string | null;
+}
+
 export async function mapItemsWithClaudeApi(
   items: Array<{ key: string; name: string; unit?: string | null }>,
   catalog: CatalogEntry[],
@@ -579,7 +587,7 @@ export async function mapItemsWithClaudeApi(
   modelId: string = 'claude-sonnet-4-6',
 ): Promise<{
   success: boolean;
-  matched?: Map<string, { catalog_idx: number; guid: string; name: string }>;
+  matched?: Map<string, LlmMapHit>;
   error?: string;
   rawText?: string;
 }> {
@@ -599,15 +607,46 @@ export async function mapItemsWithClaudeApi(
 
   const prompt = `Ты сопоставляешь товары из накладной со справочником номенклатуры 1С.
 
-ПРАВИЛА:
+ПРАВИЛА СОПОСТАВЛЕНИЯ:
   • Сопоставляй по смыслу. OCR мог исказить имя — пытайся восстановить исходный смысл.
   • Производителя/бренд/артикул игнорируй. В справочнике обобщённые названия.
   • Размер/объём/упаковку учитывай ВНИМАТЕЛЬНО: "Молоко 1л" и "Молоко 2л" — РАЗНЫЕ позиции.
   • Если в справочнике НЕТ подходящей позиции — верни catalog_idx: null. Лучше пусто, чем неверно.
-  • Единицы измерения ("шт/кг/л/уп") должны совпадать ИЛИ быть совместимыми (шт ↔ упак допустимо, кг ↔ шт — НЕТ).
+  • Единицы измерения должны совпадать ИЛИ быть совместимыми (шт ↔ упак допустимо, кг ↔ шт — НЕТ).
+
+ПРАВИЛА ЕДИНИЦ (unit_override + pack_size):
+
+  Верни единицу так, как она учитывается в 1С для этой позиции (чаще "шт").
+
+  Если в 1С товар ведётся ПОШТУЧНО, а в накладной пришёл в упаковке — два случая:
+
+  (1) КОЭФФИЦИЕНТ ЯВНО УКАЗАН в названии ("100шт/упак", "300шт в упак") →
+      pack_size: N, unit_override: "шт"
+      Сервер сам умножит qty на N и поделит цену.
+
+  (2) КОЭФФИЦИЕНТА НЕТ, но единица просто другое слово того же смысла
+      ("рул" = 1 рулон = 1 шт; "кор" = 1 коробка = 1 шт; "бут" = 1 бутылка = 1 шт) →
+      pack_size: null, unit_override: "шт"
+      Сервер только переименует единицу, qty и цену не тронет.
+
+  (3) qty измеряется в весе/объёме ("кг", "л", "мл") а 1С тоже в весе → unit_override: null.
+
+  Примеры:
+    "Перчатки 100шт/упак", scan unit="упак", 1С="шт"       → pack_size: 100, unit_override: "шт"
+    "Подложка 300шт/упак", scan unit="упак", 1С="шт"       → pack_size: 300, unit_override: "шт"
+    "Полотенце рулон 50м",  scan unit="рул",  1С="шт"      → pack_size: null, unit_override: "шт"  (1 рул = 1 шт)
+    "Анти-Жир 0,6л триггер", scan unit="кор", 1С="шт"      → pack_size: null, unit_override: "шт"  (1 кор = 1 шт)
+    "Молоко 1л канистра",   scan unit="шт",  1С="шт"       → pack_size: null, unit_override: null (уже в шт)
+    "Золушка 5л",           scan unit="шт",  1С="шт"       → pack_size: null, unit_override: null
+    "Бутылка ПЭТ 150шт/упак", scan unit="шт" qty=150, 1С="шт" → pack_size: null, unit_override: null
+                                                              (qty в скане уже в штуках, не развораЧивай снова!)
+
+  НЕ ВЫДУМЫВАЙ pack_size — только если коэффициент ЯВНО написан в названии
+  И скан-единица это упаковка ("упак", "уп", "пач", "кор" + число в названии).
+  Если scan unit уже "шт" — pack_size ДОЛЖЕН быть null.
 
 ФОРМАТ ОТВЕТА (строго этот JSON, без markdown, без комментариев):
-{"matches":[{"key":"...","catalog_idx":число_или_null},...]}
+{"matches":[{"key":"...","catalog_idx":число_или_null,"pack_size":число_или_null,"unit_override":"шт"или_null},...]}
 
 ТОВАРЫ ДЛЯ СОПОСТАВЛЕНИЯ (формат "key: название — единица"):
 ${itemLines}
@@ -646,7 +685,7 @@ ${catalogLines}`;
       logger.warn('Claude API Mapper: no JSON object found', { sample: text.slice(0, 200) });
       return { success: false, error: 'no JSON in response', rawText: text };
     }
-    let parsed: { matches?: Array<{ key: string; catalog_idx: number | null }> };
+    let parsed: { matches?: Array<{ key: string; catalog_idx: number | null; pack_size?: number | null; unit_override?: string | null }> };
     try {
       parsed = JSON.parse(cleanJsonString(match[0]));
     } catch {
@@ -658,12 +697,27 @@ ${catalogLines}`;
       }
     }
 
-    const matched = new Map<string, { catalog_idx: number; guid: string; name: string }>();
+    const matched = new Map<string, LlmMapHit>();
     for (const m of parsed.matches ?? []) {
       if (m.catalog_idx == null || !Number.isFinite(m.catalog_idx)) continue;
       const row = catalog[m.catalog_idx - 1];
       if (!row) continue;
-      matched.set(String(m.key), { catalog_idx: m.catalog_idx, guid: row.guid, name: row.name });
+      const ps = typeof m.pack_size === 'number' && isFinite(m.pack_size) && m.pack_size > 0
+        ? m.pack_size
+        : null;
+      const uo = typeof m.unit_override === 'string' && m.unit_override.trim()
+        ? m.unit_override.trim()
+        : null;
+      matched.set(String(m.key), {
+        catalog_idx: m.catalog_idx,
+        guid: row.guid,
+        name: row.name,
+        pack_size: ps,
+        // unit_override stands on its own (rename only, no qty math) OR pairs
+        // with pack_size (rename + multiply). Default to "шт" when pack_size
+        // is set but model forgot to echo unit_override.
+        unit_override: uo || (ps ? 'шт' : null),
+      });
     }
 
     logger.info('Claude API Mapper: done', {
