@@ -1,55 +1,55 @@
+import { randomBytes } from 'crypto';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { userRepo } from '../database/repositories/userRepo';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword } from './password';
+
+const DEFAULT_ADMIN_USERNAME = 'admin';
 
 /**
- * Idempotent admin bootstrap. Runs at server startup.
+ * First-run admin bootstrap. Runs at server startup.
  *
- * - If no `admin` user exists, creates one with api_key = config.apiKey
- *   (preserves compatibility with existing webhooks/1C/mobile camera that
- *   already hold the .env API_KEY).
- * - If admin exists but ADMIN_PASSWORD in .env no longer matches the stored
- *   hash, rehashes (lets the operator reset the password by editing .env).
- * - If admin exists but config.apiKey was rotated in .env, updates the
- *   stored api_key to match — same rationale as above.
+ * - If at least one user exists, do nothing. The DB is the source of truth
+ *   for user accounts; we never overwrite from environment or config.
+ * - If the users table is empty, create `admin` with:
+ *     - a freshly generated 16-character random password (printed ONCE to
+ *       the logs — operator must capture it on first start),
+ *     - api_key = config.apiKey, so existing webhooks/1C/mobile-camera that
+ *       already hold the .env API_KEY keep working without changes.
  *
- * Skips silently when ADMIN_PASSWORD is empty (prevents accidentally creating
- * a passwordless admin during a misconfigured deploy).
+ * To rotate the admin password later, run:  npm run reset-admin-password
  */
 export function seedAdminUser(): void {
-  if (!config.adminPassword) {
-    logger.warn('seedAdminUser: ADMIN_PASSWORD is empty in .env — skipping admin seed');
-    return;
-  }
+  if (userRepo.count() > 0) return;
+
   if (!config.apiKey || config.apiKey === 'your-secret-api-key') {
-    logger.warn('seedAdminUser: API_KEY in .env looks like the default placeholder — set a real key before exposing this server');
+    logger.warn(
+      'seedAdminUser: API_KEY in .env is empty or a placeholder. Admin will be created but the api_key will be unsafe — rotate it before exposing this server.',
+    );
   }
 
-  const username = config.adminUsername || 'admin';
-  const existing = userRepo.findByUsername(username);
+  const password = generateInitialPassword();
+  userRepo.create({
+    username: DEFAULT_ADMIN_USERNAME,
+    password_hash: hashPassword(password),
+    api_key: config.apiKey,
+    role: 'admin',
+  });
 
-  if (!existing) {
-    userRepo.create({
-      username,
-      password_hash: hashPassword(config.adminPassword),
-      api_key: config.apiKey,
-      role: 'admin',
-    });
-    logger.info('seedAdminUser: admin user created', { username });
-    return;
-  }
+  // Use multiple log lines surrounded by separators so the password is easy
+  // to spot in `pm2 logs` and unmistakable. Logged ONCE — never again.
+  const banner = '='.repeat(72);
+  logger.warn(banner);
+  logger.warn('FIRST-RUN ADMIN ACCOUNT CREATED — copy the password NOW, it will not be shown again.');
+  logger.warn(`  username: ${DEFAULT_ADMIN_USERNAME}`);
+  logger.warn(`  password: ${password}`);
+  logger.warn('To change it later: npm run reset-admin-password');
+  logger.warn(banner);
+}
 
-  // Sync stored hash with .env password if it changed.
-  if (!verifyPassword(config.adminPassword, existing.password_hash)) {
-    userRepo.updatePasswordHash(existing.id, hashPassword(config.adminPassword));
-    logger.info('seedAdminUser: admin password rehashed from .env', { username });
-  }
-
-  // Sync stored api_key with .env (lets you rotate the key without losing
-  // login access). Compare by string equality — fine for opaque random tokens.
-  if (existing.api_key !== config.apiKey) {
-    userRepo.updateApiKey(existing.id, config.apiKey);
-    logger.info('seedAdminUser: admin api_key synced from .env', { username });
-  }
+function generateInitialPassword(): string {
+  // 12 bytes → 16 base64url chars, ~96 bits of entropy. Enough that a brute
+  // force is impractical even without rate limiting; short enough to copy
+  // off a terminal once.
+  return randomBytes(12).toString('base64url');
 }

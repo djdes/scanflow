@@ -39,8 +39,6 @@ export const config = {
   // API
   apiPort: envInt('API_PORT', 3000),
   apiKey: envStr('API_KEY', 'your-secret-api-key'),
-  adminUsername: envStr('ADMIN_USERNAME', 'admin'),
-  adminPassword: envStr('ADMIN_PASSWORD', ''),
 
   // Webhook 1C
   webhook1cUrl: envStr('WEBHOOK_1C_URL', ''),

@@ -21,7 +21,8 @@
     "test:onec-nomenclature": "ts-node src/scripts/test-onec-nomenclature.ts",
     "test:nomenclature-mapper": "ts-node src/scripts/test-nomenclature-mapper.ts",
     "test:nomenclature-sync-api": "ts-node src/scripts/test-nomenclature-sync-api.ts",
-    "restore:db": "ts-node src/scripts/restore-backup.ts"
+    "restore:db": "ts-node src/scripts/restore-backup.ts",
+    "reset-admin-password": "ts-node src/scripts/reset-admin-password.ts"
   },
   "keywords": [],
   "author": "",
