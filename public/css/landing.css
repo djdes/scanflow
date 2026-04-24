@@ -1396,7 +1396,10 @@ body {
     margin-left: auto;
   }
 
-  /* Mobile nav open state */
+  /* Mobile open state: one dropdown panel below the header containing nav
+     links (top) and action buttons (bottom). The JS lifts .header-actions
+     into .main-nav as a child while the menu is open, so flex layout takes
+     care of stacking — no fragile absolute-positioning calculations. */
   .main-nav.open {
     display: flex;
     flex-direction: column;
@@ -1409,18 +1412,26 @@ body {
     -webkit-backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
     padding: 16px 24px;
-    gap: 4px;
+    gap: 8px;
   }
 
-  .header-actions.open {
+  /* When .header-actions is portaled inside .main-nav.open, override its
+     desktop styles so it stacks vertically full-width. */
+  .main-nav.open .header-actions {
     display: flex;
     flex-direction: column;
-    position: absolute;
-    top: calc(100% + 120px);
-    left: 0;
-    right: 0;
-    background: rgba(6,8,13,0.95);
-    padding: 0 24px 16px;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .main-nav.open .header-actions .btn-ghost,
+  .main-nav.open .header-actions .btn-primary-sm {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
   }
 
   .hero {

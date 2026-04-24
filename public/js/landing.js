@@ -42,19 +42,55 @@
 
   const menuBtn = document.getElementById('mobile-menu-btn');
   const mainNav = document.getElementById('main-nav');
+  const headerActions = document.querySelector('.header-actions');
+  // Remember the actions' original parent + position so we can put it back
+  // when the menu closes (or when viewport widens to desktop).
+  const actionsHome = headerActions ? headerActions.parentElement : null;
+  const actionsAnchor = headerActions ? headerActions.nextElementSibling : null;
+
+  function moveActionsIntoNav() {
+    if (!headerActions || !mainNav) return;
+    if (headerActions.parentElement !== mainNav) mainNav.appendChild(headerActions);
+  }
+  function moveActionsBackToHeader() {
+    if (!headerActions || !actionsHome) return;
+    if (headerActions.parentElement !== actionsHome) {
+      if (actionsAnchor && actionsAnchor.parentElement === actionsHome) {
+        actionsHome.insertBefore(headerActions, actionsAnchor);
+      } else {
+        actionsHome.appendChild(headerActions);
+      }
+    }
+  }
+
+  function closeMobileMenu() {
+    mainNav.classList.remove('open');
+    if (menuBtn) menuBtn.classList.remove('active');
+    moveActionsBackToHeader();
+  }
 
   if (menuBtn) {
     menuBtn.addEventListener('click', () => {
+      const opening = !mainNav.classList.contains('open');
       mainNav.classList.toggle('open');
       menuBtn.classList.toggle('active');
+      if (opening) {
+        moveActionsIntoNav();
+      } else {
+        moveActionsBackToHeader();
+      }
     });
 
-    // Close on nav link click
-    mainNav.querySelectorAll('a').forEach((a) => {
-      a.addEventListener('click', () => {
-        mainNav.classList.remove('open');
-        menuBtn.classList.remove('active');
-      });
+    // Close on any link tap inside the menu (nav links + action buttons)
+    mainNav.addEventListener('click', (e) => {
+      if (e.target.closest('a')) closeMobileMenu();
+    });
+
+    // If user resizes back to desktop while menu is open, restore layout.
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 768 && mainNav.classList.contains('open')) {
+        closeMobileMenu();
+      }
     });
   }
 
@@ -367,7 +403,11 @@
 
   document.querySelectorAll('a[href^="#"]').forEach((a) => {
     a.addEventListener('click', (e) => {
-      const target = document.querySelector(a.getAttribute('href'));
+      const href = a.getAttribute('href');
+      // Bare "#" is used by interactive triggers (login button, toggles) —
+      // don't try to scroll to it (querySelector('#') throws SyntaxError).
+      if (!href || href === '#') return;
+      const target = document.querySelector(href);
       if (target) {
         e.preventDefault();
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
