@@ -87,7 +87,19 @@ const PACKAGING_HINT_STEMS = PACKAGING_HINTS.map(w => w.toLowerCase());
  */
 function looksLikeContainer(name: string): boolean {
   const lower = name.toLowerCase();
-  if (CONTAINER_STRICT_STEMS.some(stem => lower.includes(stem))) return true;
+  for (const stem of CONTAINER_STRICT_STEMS) {
+    const idx = lower.indexOf(stem);
+    if (idx === -1) continue;
+    // Distinguish "тип товара" vs "единица измерения в числительном обороте":
+    //   "Банка Плошка 360мл"              → "банка" is the product → container
+    //   "Кофе 2г 100 пакетов"              → "пакетов" is a count unit → NOT a container
+    //   "Молоко 1л, 12 бутылок в ящике"    → "бутылок" is a count unit → NOT a container
+    // Heuristic: if the stem is preceded by a number (with optional space,
+    // separator, or multiplier symbol), treat it as a measure unit.
+    const preceding = lower.slice(0, idx);
+    if (/(?:\d[.,]?\d*\s*|\d\s*[×xх*/]\s*)$/.test(preceding)) continue;
+    return true;
+  }
   const packMatch = lower.match(PACK_PATTERN);
   const packIdx = packMatch?.index ?? -1;
   for (const stem of PACKAGING_HINT_STEMS) {
