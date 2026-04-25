@@ -461,60 +461,75 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   let matched = 0;   // items for which Claude returned a guid
   let changed = 0;   // items whose guid actually changed vs DB
   let repacked = 0;  // items on which we applied pack_size / unit_override
+  let coercedCount = 0;  // items whose unit was coerced to the 1C accounting unit
   for (const it of targets) {
     const hit = result.matched.get(String(it.id));
-    if (!hit) continue;
-    matched++;
     const wasUnmapped = !it.onec_guid;
-    const guidChanged = it.onec_guid !== hit.guid;
 
-    if (guidChanged) {
-      // confidence=1.0 — direct LLM pick against the current catalog,
-      // same authority as the mapping we get at ingest time.
-      invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
-      changed++;
-    }
+    // Path A: Claude returned a hit. Apply guid + maybe pack_size / unit_override.
+    if (hit) {
+      matched++;
+      const guidChanged = it.onec_guid !== hit.guid;
+      if (guidChanged) {
+        invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
+        changed++;
+      }
+      const onec1cUnit = onecNomenclatureRepo.getByGuid(hit.guid)?.unit ?? null;
 
-    // Final 1C accounting unit for this item — drives both pack_size logic
-    // and the coerce step (1С keeps everything in шт or кг, never л/мл).
-    const onec1cUnit = onecNomenclatureRepo.getByGuid(hit.guid)?.unit ?? null;
+      // Pack-transforms multiply qty — so we only run them when this row is
+      // either NEW (was unmapped) or the guid switched. Otherwise we'd double-
+      // count on every re-run.
+      const canRepack = wasUnmapped || guidChanged;
 
-    // Pack-transforms multiply qty — so we only run them when this row is
-    // either NEW (was unmapped) or the guid switched. Otherwise we'd double-
-    // count on every re-run.
-    const canRepack = wasUnmapped || guidChanged;
-
-    if (canRepack && hit.pack_size && hit.unit_override) {
-      const qty = it.quantity;
-      if (qty != null && qty > 0) {
-        const total = it.total != null
-          ? it.total
-          : (it.price != null ? it.price * qty : null);
-        const newQty = qty * hit.pack_size;
-        const newPrice = total != null && newQty > 0 ? total / newQty : it.price ?? null;
+      if (canRepack && hit.pack_size && hit.unit_override) {
+        const qty = it.quantity;
+        if (qty != null && qty > 0) {
+          const total = it.total != null
+            ? it.total
+            : (it.price != null ? it.price * qty : null);
+          const newQty = qty * hit.pack_size;
+          const newPrice = total != null && newQty > 0 ? total / newQty : it.price ?? null;
+          const coerced = coerceToOnec1cUnit(
+            { quantity: newQty, unit: hit.unit_override, price: newPrice, total: total ?? null },
+            onec1cUnit,
+          );
+          invoiceRepo.updateItemFields(it.id, coerced);
+          repacked++;
+        }
+      } else if (canRepack && hit.unit_override && hit.unit_override !== it.unit) {
         const coerced = coerceToOnec1cUnit(
-          { quantity: newQty, unit: hit.unit_override, price: newPrice, total: total ?? null },
+          { quantity: it.quantity, unit: hit.unit_override, price: it.price, total: it.total },
           onec1cUnit,
         );
         invoiceRepo.updateItemFields(it.id, coerced);
-        repacked++;
+      } else {
+        // Coerce-only path. Idempotent: even already-mapped rows whose unit
+        // doesn't match the 1C accounting unit (e.g. stored as "л" while 1C
+        // tracks in "кг") get fixed here. Safe to run on every llm-remap call.
+        const coerced = coerceToOnec1cUnit(
+          { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
+          onec1cUnit,
+        );
+        if (coerced.unit !== it.unit || coerced.quantity !== it.quantity) {
+          invoiceRepo.updateItemFields(it.id, coerced);
+          coercedCount++;
+        }
       }
-    } else if (canRepack && hit.unit_override && hit.unit_override !== it.unit) {
-      const coerced = coerceToOnec1cUnit(
-        { quantity: it.quantity, unit: hit.unit_override, price: it.price, total: it.total },
-        onec1cUnit,
-      );
-      invoiceRepo.updateItemFields(it.id, coerced);
-    } else {
-      // Coerce-only path. Idempotent: even already-mapped rows whose unit
-      // doesn't match the 1C accounting unit (e.g. stored as "л" while 1C
-      // tracks in "кг") get fixed here. Safe to run on every llm-remap call.
+      continue;
+    }
+
+    // Path B: Claude returned no hit. We can't re-map but we CAN still
+    // coerce the unit if the row was already mapped previously and is
+    // sitting in a non-1C unit (e.g. "л" while 1C tracks in "кг").
+    if (!wasUnmapped) {
+      const onec1cUnit = onecNomenclatureRepo.getByGuid(it.onec_guid as string)?.unit ?? null;
       const coerced = coerceToOnec1cUnit(
         { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
         onec1cUnit,
       );
       if (coerced.unit !== it.unit || coerced.quantity !== it.quantity) {
         invoiceRepo.updateItemFields(it.id, coerced);
+        coercedCount++;
       }
     }
   }
@@ -523,7 +538,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   invoiceRepo.recalculateTotal(id);
 
   logger.info('LLM-remap completed', {
-    id, requested: targets.length, matched, changed, repacked, all: includeAll,
+    id, requested: targets.length, matched, changed, repacked, coerced: coercedCount, all: includeAll,
   });
 
   res.json({
@@ -533,6 +548,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
       matched,
       changed,
       repacked,
+      coerced: coercedCount,
       total: items.length,
     },
   });
