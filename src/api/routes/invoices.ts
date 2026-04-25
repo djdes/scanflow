@@ -475,16 +475,16 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
       changed++;
     }
 
-    // Only touch qty/unit/price when this item is either NEW (was unmapped)
-    // or the guid actually switched — never re-apply pack-transforms on a
-    // row that was already mapped to the same guid (would double-count).
-    if (!wasUnmapped && !guidChanged) continue;
-
     // Final 1C accounting unit for this item — drives both pack_size logic
     // and the coerce step (1С keeps everything in шт or кг, never л/мл).
     const onec1cUnit = onecNomenclatureRepo.getByGuid(hit.guid)?.unit ?? null;
 
-    if (hit.pack_size && hit.unit_override) {
+    // Pack-transforms multiply qty — so we only run them when this row is
+    // either NEW (was unmapped) or the guid switched. Otherwise we'd double-
+    // count on every re-run.
+    const canRepack = wasUnmapped || guidChanged;
+
+    if (canRepack && hit.pack_size && hit.unit_override) {
       const qty = it.quantity;
       if (qty != null && qty > 0) {
         const total = it.total != null
@@ -499,15 +499,16 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
         invoiceRepo.updateItemFields(it.id, coerced);
         repacked++;
       }
-    } else if (hit.unit_override && hit.unit_override !== it.unit) {
+    } else if (canRepack && hit.unit_override && hit.unit_override !== it.unit) {
       const coerced = coerceToOnec1cUnit(
         { quantity: it.quantity, unit: hit.unit_override, price: it.price, total: it.total },
         onec1cUnit,
       );
       invoiceRepo.updateItemFields(it.id, coerced);
     } else {
-      // Even when LLM didn't ask for unit_override, the existing item may
-      // still be in a non-1C unit (e.g. "л" while 1C tracks in "кг"). Coerce.
+      // Coerce-only path. Idempotent: even already-mapped rows whose unit
+      // doesn't match the 1C accounting unit (e.g. stored as "л" while 1C
+      // tracks in "кг") get fixed here. Safe to run on every llm-remap call.
       const coerced = coerceToOnec1cUnit(
         { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
         onec1cUnit,
