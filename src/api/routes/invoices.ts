@@ -13,6 +13,7 @@ import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
 import { mapItemsWithClaudeApi, CatalogEntry } from '../../ocr/claudeApiAnalyzer';
+import { coerceToOnec1cUnit } from '../../mapping/packTransform';
 
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
@@ -479,6 +480,10 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     // row that was already mapped to the same guid (would double-count).
     if (!wasUnmapped && !guidChanged) continue;
 
+    // Final 1C accounting unit for this item — drives both pack_size logic
+    // and the coerce step (1С keeps everything in шт or кг, never л/мл).
+    const onec1cUnit = onecNomenclatureRepo.getByGuid(hit.guid)?.unit ?? null;
+
     if (hit.pack_size && hit.unit_override) {
       const qty = it.quantity;
       if (qty != null && qty > 0) {
@@ -487,16 +492,29 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
           : (it.price != null ? it.price * qty : null);
         const newQty = qty * hit.pack_size;
         const newPrice = total != null && newQty > 0 ? total / newQty : it.price ?? null;
-        invoiceRepo.updateItemFields(it.id, {
-          quantity: newQty,
-          unit: hit.unit_override,
-          price: newPrice,
-          total: total ?? null,
-        });
+        const coerced = coerceToOnec1cUnit(
+          { quantity: newQty, unit: hit.unit_override, price: newPrice, total: total ?? null },
+          onec1cUnit,
+        );
+        invoiceRepo.updateItemFields(it.id, coerced);
         repacked++;
       }
     } else if (hit.unit_override && hit.unit_override !== it.unit) {
-      invoiceRepo.updateItemFields(it.id, { unit: hit.unit_override });
+      const coerced = coerceToOnec1cUnit(
+        { quantity: it.quantity, unit: hit.unit_override, price: it.price, total: it.total },
+        onec1cUnit,
+      );
+      invoiceRepo.updateItemFields(it.id, coerced);
+    } else {
+      // Even when LLM didn't ask for unit_override, the existing item may
+      // still be in a non-1C unit (e.g. "л" while 1C tracks in "кг"). Coerce.
+      const coerced = coerceToOnec1cUnit(
+        { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
+        onec1cUnit,
+      );
+      if (coerced.unit !== it.unit || coerced.quantity !== it.quantity) {
+        invoiceRepo.updateItemFields(it.id, coerced);
+      }
     }
   }
 

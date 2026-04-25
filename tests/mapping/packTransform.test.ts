@@ -467,4 +467,118 @@ describe('resolveAndApplyPackTransform', () => {
       expect(r.item.unit).toBe('кг');
     });
   });
+
+  // 1С учётные единицы — только "шт" или "кг". Любые "л" / "мл" / "г" в
+  // итоговом item.unit должны быть приведены к 1С-единице на финальном шаге.
+  describe('coerce to 1C accounting unit', () => {
+    it('coerces л → кг (density 1.0) when 1C unit is кг', () => {
+      // Уксус 9 л in scan, "Уксус 1л" in 1C with unit "кг" — common case.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 9, unit: 'л', price: 53.66, total: 482.94 },
+        'Уксус Столовый Румянка Пищевой 9% 1л пэт',
+        null, null,
+        'Уксус 1л',
+        'кг',
+      );
+      expect(r.item.unit).toBe('кг');
+      expect(r.item.quantity).toBe(9);
+      expect(r.item.total).toBe(482.94);
+    });
+
+    it('coerces мл → кг (density 1.0, ÷1000) when 1C unit is кг', () => {
+      const r = resolveAndApplyPackTransform(
+        { quantity: 500, unit: 'мл', price: 0.5, total: 250 },
+        'Какой-то товар 500мл',
+        null, null,
+        'Товар 500мл',
+        'кг',
+      );
+      expect(r.item.unit).toBe('кг');
+      expect(r.item.quantity).toBe(0.5);
+      expect(r.item.total).toBe(250);
+    });
+
+    it('coerces г → кг (÷1000) when 1C unit is кг', () => {
+      const r = resolveAndApplyPackTransform(
+        { quantity: 750, unit: 'г', price: 0.4, total: 300 },
+        'Сахар 750г',
+        null, null,
+        'Сахар',
+        'кг',
+      );
+      expect(r.item.unit).toBe('кг');
+      expect(r.item.quantity).toBe(0.75);
+      expect(r.item.total).toBe(300);
+    });
+
+    it('does NOT coerce шт → кг without weight in name (no pack hint)', () => {
+      // 1C unit "кг" but invoice says 15 шт and the name has no weight hint —
+      // we have no way to convert. Leave it for the user to fix manually.
+      const item = { quantity: 15, unit: 'шт', price: 194, total: 2910 };
+      const r = resolveAndApplyPackTransform(
+        item,
+        'Сиртаки рассольный',
+        null, null,
+        'Сиртаки',
+        'кг',
+      );
+      expect(r.item).toEqual(item);
+    });
+
+    it('uses weight from name as pack hint when 1C unit is кг (15 шт × 330г → 4.95 кг)', () => {
+      // When the scan name carries a weight ("330г") and 1C tracks in kg,
+      // pack-transform Mode A turns 15 шт × 330 г → 4950 г, then coerce
+      // collapses to 4.95 kg. This IS the right answer for accounting in kg.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 15, unit: 'шт', price: 194, total: 2910 },
+        'Сиртаки 330г',
+        null, null,
+        'Сиртаки',
+        'кг',
+      );
+      expect(r.item.unit).toBe('кг');
+      expect(r.item.quantity).toBeCloseTo(4.95, 3);
+      expect(r.item.total).toBe(2910);
+    });
+
+    it('coerce is a no-op when current unit already matches 1C unit', () => {
+      const item = { quantity: 12, unit: 'кг', price: 280, total: 3360 };
+      const r = resolveAndApplyPackTransform(
+        item,
+        'Колбаса вареная',
+        null, null,
+        'Колбаса',
+        'кг',
+      );
+      expect(r.item).toEqual(item);
+    });
+
+    it('coerce is a no-op when 1C unit is unknown (back-compat)', () => {
+      const item = { quantity: 9, unit: 'л', price: 53.66, total: 482.94 };
+      const r = resolveAndApplyPackTransform(
+        item,
+        'Уксус 1л',
+        null, null,
+        'Уксус 1л',
+        // no onec1cUnit
+      );
+      expect(r.item).toEqual(item);
+    });
+
+    it('Mode A pack-transform output is also coerced (мл → л → кг path)', () => {
+      // Мadeup case: scan has "Опята 3.1л", invoice unit "шт" qty=2,
+      // 1C тоже "кг". Pack-transform Mode A normally turns 2 шт × 3.1 л → 6.2 л.
+      // Final coerce should convert 6.2 л → 6.2 кг.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 2, unit: 'шт', price: 650, total: 1300 },
+        'Опята Smart Chef Консервированные 3.1л',
+        null, null,
+        'Опята маринованные',
+        'кг',
+      );
+      expect(r.item.unit).toBe('кг');
+      expect(r.item.quantity).toBeCloseTo(6.2, 5);
+      expect(r.item.total).toBe(1300);
+    });
+  });
 });

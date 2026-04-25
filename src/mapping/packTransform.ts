@@ -303,6 +303,71 @@ function isCountable1cUnit(unit: string | null | undefined): boolean {
   return COUNTABLE_1C_UNITS.has(unit.trim().toLowerCase());
 }
 
+/**
+ * 1C only tracks goods in `шт` or `кг`. Force the item's unit to match the
+ * 1C accounting unit when a SAFE numeric conversion exists:
+ *   - г  → кг   (÷1000)
+ *   - мл → кг   (÷1000, density 1.0)
+ *   - л  → кг   (×1.0,  density 1.0 — accurate for water/vinegar/brines,
+ *                       slightly off for oils/mayo at ~0.9 — accepted)
+ *   - шт → шт already
+ *   - кг → кг already
+ *
+ * No conversion possible (шт↔кг without per-piece weight, упак↔кг, etc.)
+ *  → return item unchanged. Caller can flag for manual review.
+ *
+ * `total` (money) is preserved across the conversion; `price` is recomputed
+ * from total / new_quantity so it stays meaningful per new unit.
+ */
+export function coerceToOnec1cUnit<T extends PackTransformable>(item: T, onec1cUnit: string | null | undefined): T {
+  if (!onec1cUnit) return item;
+  const target = onec1cUnit.trim().toLowerCase();
+  const current = (item.unit || '').trim().toLowerCase();
+  if (!current || current === target) return item;
+
+  const qty = item.quantity;
+  if (qty == null || qty <= 0) return item;
+
+  // Conversion factor maps current → target. null = unsupported, do nothing.
+  const factor = (() => {
+    if (target === 'кг') {
+      if (current === 'г' || current === 'гр') return 1 / 1000;
+      if (current === 'мл') return 1 / 1000;
+      if (current === 'л') return 1.0; // density assumption
+      return null;
+    }
+    if (target === 'г') {
+      if (current === 'кг') return 1000;
+      if (current === 'мл') return 1.0;
+      if (current === 'л') return 1000;
+      return null;
+    }
+    if (target === 'л') {
+      if (current === 'мл') return 1 / 1000;
+      if (current === 'кг') return 1.0;
+      if (current === 'г') return 1 / 1000;
+      return null;
+    }
+    if (target === 'мл') {
+      if (current === 'л') return 1000;
+      if (current === 'кг') return 1000;
+      if (current === 'г') return 1.0;
+      return null;
+    }
+    return null;
+  })();
+
+  if (factor == null) return item;
+
+  const newQty = qty * factor;
+  const total = item.total != null
+    ? item.total
+    : (item.price != null ? item.price * qty : null);
+  const newPrice = total != null && newQty > 0 ? total / newQty : item.price ?? null;
+
+  return { ...item, quantity: newQty, unit: target, price: newPrice, total } as T;
+}
+
 export function resolveAndApplyPackTransform<T extends PackTransformable>(
   item: T,
   scannedName: string,
@@ -311,6 +376,12 @@ export function resolveAndApplyPackTransform<T extends PackTransformable>(
   mappedName1c?: string | null,
   onec1cUnit?: string | null,
 ): { item: T; packSize: number | null; packUnit: string | null; usedFallback: boolean } {
+  // Final invariant: if we know the 1C accounting unit, the resulting item
+  // must be in THAT unit. 1C only tracks "шт" or "кг" — никогда "л". So even
+  // when the rest of the function decides to skip pack-transform, we still
+  // need a chance to coerce the unit (e.g. "9 л уксуса" → "9 кг" when 1С=кг).
+  const coerce = (it: T): T => coerceToOnec1cUnit(it, onec1cUnit);
+
   // If the 1C-side accounting unit is already countable (шт/упак/бут/etc),
   // we MUST NOT convert "2 упак" into "2 кг" — that's double-counting.
   // Invoice «Геркулес 1кг» shipped as 2 упак stays as 2 шт in 1C.
@@ -318,7 +389,7 @@ export function resolveAndApplyPackTransform<T extends PackTransformable>(
   // Only kicks in when callers explicitly pass the 1C unit; undefined keeps
   // the old behaviour for back-compat (e.g. tests that never knew about this).
   if (onec1cUnit !== undefined && isCountable1cUnit(onec1cUnit)) {
-    return { item, packSize: null, packUnit: null, usedFallback: false };
+    return { item: coerce(item), packSize: null, packUnit: null, usedFallback: false };
   }
 
   // Mode B: 1C name encodes the pack size.
@@ -328,29 +399,30 @@ export function resolveAndApplyPackTransform<T extends PackTransformable>(
     // a logistics hint (pallets), not "шт в упак". Without this guard we
     // would blow quantity into the millions.
     if (looksLikeContainer(scannedName) || looksLikeContainer(mappedName1c)) {
-      return { item, packSize: null, packUnit: null, usedFallback: false };
+      return { item: coerce(item), packSize: null, packUnit: null, usedFallback: false };
     }
     const sizeIdx = findPackPatternIndex(scannedName);
     if (sizeIdx === -1) {
       // No size in the scan — nothing to anchor a multiplier search to.
-      return { item, packSize: null, packUnit: null, usedFallback: false };
+      return { item: coerce(item), packSize: null, packUnit: null, usedFallback: false };
     }
     const mult = extractCountMultiplierAfterSize(scannedName, sizeIdx);
     if (mult == null) {
       // 1C уже использует правильную единицу, множителя нет.
-      return { item, packSize: null, packUnit: null, usedFallback: false };
+      return { item: coerce(item), packSize: null, packUnit: null, usedFallback: false };
     }
     const oldQty = item.quantity;
     if (oldQty == null || oldQty <= 0) {
-      return { item, packSize: null, packUnit: null, usedFallback: false };
+      return { item: coerce(item), packSize: null, packUnit: null, usedFallback: false };
     }
     const total = item.total != null
       ? item.total
       : (item.price != null ? item.price * oldQty : null);
     const newQty = oldQty * mult;
     const newPrice = total != null && newQty > 0 ? total / newQty : item.price ?? null;
+    const result = { ...item, quantity: newQty, unit: 'шт', price: newPrice, total } as T;
     return {
-      item: { ...item, quantity: newQty, unit: 'шт', price: newPrice, total } as T,
+      item: coerce(result),
       packSize: mult,
       packUnit: 'шт',
       usedFallback: true,
@@ -372,5 +444,5 @@ export function resolveAndApplyPackTransform<T extends PackTransformable>(
   }
 
   const transformed = applyPackTransform(item, packSize, packUnit);
-  return { item: transformed, packSize, packUnit, usedFallback };
+  return { item: coerce(transformed), packSize, packUnit, usedFallback };
 }
