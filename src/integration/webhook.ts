@@ -1,6 +1,7 @@
 import { getDb } from '../database/db';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { logger } from '../utils/logger';
+import { emit as emitNotification } from '../notifications/events';
 
 interface WebhookConfig {
   url: string;
@@ -76,6 +77,15 @@ export async function sendToWebhook(invoiceId: number): Promise<boolean> {
 
       if (response.ok) {
         invoiceRepo.markSent(invoiceId);
+        const sent = invoiceRepo.getById(invoiceId);
+        if (sent) {
+          emitNotification('sent_to_1c', {
+            invoice_id: sent.id,
+            invoice_number: sent.invoice_number,
+            supplier: sent.supplier,
+            total_sum: sent.total_sum,
+          }, null).catch(() => {});
+        }
         logger.info('Invoice sent to 1C successfully', { invoiceId, attempt });
         return true;
       }
