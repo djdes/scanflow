@@ -620,12 +620,15 @@ export class FileWatcher {
                   total_sum: finalInvoice.total_sum,
                 }, null).catch(() => {});
                 if (finalInvoice.items_total_mismatch === 1) {
+                  const itemsTotal = invoiceRepo
+                    .getItems(finalInvoice.id)
+                    .reduce((sum, it) => sum + (it.total ?? 0), 0);
                   emitNotification('suspicious_total', {
                     invoice_id: finalInvoice.id,
                     invoice_number: finalInvoice.invoice_number,
                     supplier: finalInvoice.supplier,
                     total_sum: finalInvoice.total_sum,
-                    items_total: null,
+                    items_total: itemsTotal,
                   }, null).catch(() => {});
                 }
               }
@@ -826,12 +829,15 @@ export class FileWatcher {
             total_sum: finalInvoice.total_sum,
           }, null).catch(() => {});
           if (finalInvoice.items_total_mismatch === 1) {
+            const itemsTotal = invoiceRepo
+              .getItems(finalInvoice.id)
+              .reduce((sum, it) => sum + (it.total ?? 0), 0);
             emitNotification('suspicious_total', {
               invoice_id: finalInvoice.id,
               invoice_number: finalInvoice.invoice_number,
               supplier: finalInvoice.supplier,
               total_sum: finalInvoice.total_sum,
-              items_total: null,
+              items_total: itemsTotal,
             }, null).catch(() => {});
           }
         }
