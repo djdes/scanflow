@@ -354,16 +354,6 @@ const MIGRATIONS: Migration[] = [
     name: 'user notification settings',
     detect: (db) => hasColumn(db, 'users', 'email') && hasTable(db, 'notification_events'),
     run: (db) => {
-      const defaultEvents = JSON.stringify([
-        'photo_uploaded',
-        'invoice_recognized',
-        'recognition_error',
-        'suspicious_total',
-        'invoice_edited',
-        'approved_for_1c',
-        'sent_to_1c',
-      ]);
-
       if (!hasColumn(db, 'users', 'email')) {
         db.exec(`ALTER TABLE users ADD COLUMN email TEXT;`);
       }
@@ -371,6 +361,15 @@ const MIGRATIONS: Migration[] = [
         db.exec(`ALTER TABLE users ADD COLUMN notify_mode TEXT NOT NULL DEFAULT 'digest_hourly';`);
       }
       if (!hasColumn(db, 'users', 'notify_events')) {
+        const defaultEvents = JSON.stringify([
+          'photo_uploaded',
+          'invoice_recognized',
+          'recognition_error',
+          'suspicious_total',
+          'invoice_edited',
+          'approved_for_1c',
+          'sent_to_1c',
+        ]);
         db.exec(`ALTER TABLE users ADD COLUMN notify_events TEXT NOT NULL DEFAULT '${defaultEvents.replace(/'/g, "''")}';`);
       }
 
@@ -385,7 +384,7 @@ const MIGRATIONS: Migration[] = [
         db.exec(`
           CREATE TABLE notification_events (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id      INTEGER NOT NULL REFERENCES users(id),
+            user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             event_type   TEXT NOT NULL,
             payload_json TEXT NOT NULL,
             created_at   TEXT NOT NULL DEFAULT (datetime('now')),
