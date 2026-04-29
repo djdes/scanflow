@@ -30,3 +30,16 @@ data/backups/
 datainbox.gitkeep
 architecture.excalidraw
 improvements.excalidraw
+
+# SQLite WAL/SHM files
+data/database.sqlite-wal
+data/database.sqlite-shm
+
+# Tesseract trained data
+osd.traineddata
+
+# Local Obsidian / generated views
+_view/
+
+# Git worktrees (used by subagent-driven development)
+.worktrees/
