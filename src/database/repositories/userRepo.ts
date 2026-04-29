@@ -1,4 +1,5 @@
 import { getDb } from '../db';
+import type { NotifyConfig, NotifyMode, EventType } from '../../notifications/types';
 
 export interface User {
   id: number;
@@ -8,6 +9,9 @@ export interface User {
   role: string;
   created_at: string;
   last_login_at: string | null;
+  email: string | null;
+  notify_mode: string; // narrowed when read via getNotifyConfig
+  notify_events: string; // JSON-encoded array; parsed by getNotifyConfig
 }
 
 export const userRepo = {
@@ -53,5 +57,54 @@ export const userRepo = {
   count(): number {
     const row = getDb().prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
     return row.cnt;
+  },
+
+  getNotifyConfig(id: number): NotifyConfig | null {
+    const row = getDb()
+      .prepare('SELECT email, notify_mode, notify_events FROM users WHERE id = ?')
+      .get(id) as { email: string | null; notify_mode: string; notify_events: string } | undefined;
+    if (!row) return null;
+    let events: EventType[];
+    try {
+      const parsed = JSON.parse(row.notify_events);
+      events = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      events = [];
+    }
+    return {
+      email: row.email,
+      notify_mode: row.notify_mode as NotifyMode,
+      notify_events: events,
+    };
+  },
+
+  setNotifyConfig(id: number, cfg: Partial<NotifyConfig>): void {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (cfg.email !== undefined) {
+      fields.push('email = ?');
+      values.push(cfg.email);
+    }
+    if (cfg.notify_mode !== undefined) {
+      fields.push('notify_mode = ?');
+      values.push(cfg.notify_mode);
+    }
+    if (cfg.notify_events !== undefined) {
+      fields.push('notify_events = ?');
+      values.push(JSON.stringify(cfg.notify_events));
+    }
+    if (fields.length === 0) return;
+    values.push(id);
+    getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  },
+
+  // Returns the row id of the first user (lowest id). Used by emit() when no
+  // HTTP-context user is available (e.g. fileWatcher background events).
+  // For the current single-user setup this is the owner.
+  firstUserId(): number | null {
+    const row = getDb()
+      .prepare('SELECT id FROM users ORDER BY id LIMIT 1')
+      .get() as { id: number } | undefined;
+    return row?.id ?? null;
   },
 };
