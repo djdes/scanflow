@@ -128,10 +128,21 @@
         hint.style.color = 'var(--success)';
       } catch (err) {
         if (err.body && err.body.error === 'no_updates' && err.body.bot_username) {
-          const u = err.body.bot_username;
-          hint.innerHTML = ' Напишите боту <a href="https://t.me/' + u +
-            '" target="_blank" rel="noopener noreferrer">@' + u + '</a> ' +
-            'команду <code>/start</code> и нажмите «Найти» снова.';
+          // Build DOM via createElement so bot_username is text content, not HTML.
+          // Telegram bot usernames are constrained but this is defense-in-depth
+          // (and matches how textContent is used elsewhere in the codebase).
+          hint.textContent = ' Напишите боту ';
+          const a = document.createElement('a');
+          a.href = 'https://t.me/' + err.body.bot_username;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = '@' + err.body.bot_username;
+          hint.appendChild(a);
+          hint.appendChild(document.createTextNode(' команду '));
+          const code = document.createElement('code');
+          code.textContent = '/start';
+          hint.appendChild(code);
+          hint.appendChild(document.createTextNode(' и нажмите «Найти» снова.'));
           hint.style.color = 'var(--error)';
         } else {
           hint.textContent = ' ' + (err.message || 'Ошибка');
