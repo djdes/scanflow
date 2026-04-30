@@ -30,6 +30,7 @@ export interface Invoice {
   approved_at: string | null;
   file_hash: string | null;
   items_total_mismatch: number;
+  telegram_message_id: number | null;
 }
 
 export interface InvoiceItem {
@@ -710,5 +711,18 @@ export const invoiceRepo = {
       vals.push(llmMapperEnabled ? 1 : 0);
     }
     db.prepare(`UPDATE analyzer_config SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
+  },
+
+  getTelegramMessageId(id: number): number | null {
+    const row = getDb()
+      .prepare('SELECT telegram_message_id FROM invoices WHERE id = ?')
+      .get(id) as { telegram_message_id: number | null } | undefined;
+    return row?.telegram_message_id ?? null;
+  },
+
+  setTelegramMessageId(id: number, messageId: number): void {
+    getDb()
+      .prepare('UPDATE invoices SET telegram_message_id = ? WHERE id = ?')
+      .run(messageId, id);
   },
 };
