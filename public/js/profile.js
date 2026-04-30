@@ -105,6 +105,55 @@
       }
     },
 
+    async lookupChatId() {
+      const hint = document.getElementById('profile-tg-lookup-hint');
+      const btn = document.getElementById('profile-tg-lookup');
+      const tokenInputEl = document.getElementById('profile-tg-token');
+      const tokenInput = tokenInputEl.value;
+      const tokenChanged = tokenInput && tokenInput !== TOKEN_PLACEHOLDER;
+
+      hint.innerHTML = '';
+      hint.style.color = '';
+      btn.disabled = true;
+      btn.textContent = 'Ищем…';
+
+      try {
+        const body = tokenChanged ? { telegram_bot_token: tokenInput } : {};
+        const r = await App.apiJson('/profile/lookup-telegram-chat-id', { method: 'POST', body });
+        document.getElementById('profile-tg-chat').value = r.data.chat_id;
+        const sentNote = r.data.confirmation_sent
+          ? ' Проверьте Telegram и нажмите «Сохранить».'
+          : ' Не удалось отправить подтверждение в Telegram, но Chat ID найден.';
+        hint.textContent = ` Найдено: ${r.data.chat_id}.${sentNote}`;
+        hint.style.color = 'var(--success)';
+      } catch (err) {
+        if (err.body && err.body.error === 'no_updates' && err.body.bot_username) {
+          // Build DOM via createElement so bot_username is text content, not HTML.
+          // Telegram bot usernames are constrained but this is defense-in-depth
+          // (and matches how textContent is used elsewhere in the codebase).
+          hint.textContent = ' Напишите боту ';
+          const a = document.createElement('a');
+          a.href = 'https://t.me/' + err.body.bot_username;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = '@' + err.body.bot_username;
+          hint.appendChild(a);
+          hint.appendChild(document.createTextNode(' команду '));
+          const code = document.createElement('code');
+          code.textContent = '/start';
+          hint.appendChild(code);
+          hint.appendChild(document.createTextNode(' и нажмите «Найти» снова.'));
+          hint.style.color = 'var(--error)';
+        } else {
+          hint.textContent = ' ' + (err.message || 'Ошибка');
+          hint.style.color = 'var(--error)';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Найти';
+      }
+    },
+
     init() {
       if (this._wired) {
         this.load();
@@ -116,6 +165,9 @@
       document
         .getElementById('profile-tg-token-toggle')
         .addEventListener('click', () => this.toggleTokenVisibility());
+      document
+        .getElementById('profile-tg-lookup')
+        .addEventListener('click', () => this.lookupChatId());
       this.load();
     },
   };

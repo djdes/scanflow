@@ -114,6 +114,7 @@ First start with empty `users` table prints a one-time random admin password to 
 | `POST /api/upload` | `X-API-Key` | dashboard photo upload (rate-limited) |
 | `GET/PATCH /api/profile` | `X-API-Key` | user notification config |
 | `POST /api/profile/test-telegram` | `X-API-Key` | sends a test message |
+| `POST /api/profile/lookup-telegram-chat-id` | `X-API-Key` | finds chat_id via Bot API (after user wrote /start), DMs it back |
 | `GET/PATCH /api/settings/analyzer` | `X-API-Key` | OCR mode + Claude key + LLM mapper toggle |
 | `GET/PUT /api/webhook/config` | `X-API-Key` | legacy webhook config |
 | `GET/POST /api/nomenclature/*` | `X-API-Key` | 1C catalog sync from UNF |

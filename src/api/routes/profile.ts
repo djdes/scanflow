@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { userRepo } from '../../database/repositories/userRepo';
 import { sendNotification, smtpConfigured } from '../../utils/mailer';
-import { sendMessage } from '../../notifications/telegram/telegramClient';
+import { sendMessage, getMe, getUpdates } from '../../notifications/telegram/telegramClient';
 import { ALL_NOTIFY_MODES, ALL_EVENT_TYPES, type NotifyMode, type EventType } from '../../notifications/types';
 import { logger } from '../../utils/logger';
 
@@ -146,6 +146,118 @@ router.post('/test-telegram', async (req: Request, res: Response) => {
     logger.warn('test-telegram failed', { error: (err as Error).message });
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// Confirmation message sent to the chat after we successfully find chat_id.
+// Plain text — no parse_mode (matches telegramClient convention).
+const CHAT_ID_CONFIRMATION_TEMPLATE =
+  '✅ Готово!\n\n' +
+  'Ваш Chat ID: {chatId}\n\n' +
+  'Скопируйте это число и вставьте в поле «Chat ID» в дашборде ScanFlow, ' +
+  'затем нажмите «Сохранить».\n\n' +
+  'После этого вы будете получать уведомления о накладных прямо в этот чат.';
+
+// POST /api/profile/lookup-telegram-chat-id
+//
+// Helper for users who don't want to dig through raw getUpdates JSON. The flow is:
+//   1. User types Bot Token (or has it saved in DB).
+//   2. User opens their bot in Telegram and writes /start (sends any message).
+//   3. User clicks "Найти" in the dashboard.
+//   4. We call getMe to validate token + get bot's @username (for the t.me link).
+//   5. We call getUpdates and pick the most recent private chat.
+//   6. We send the confirmation message containing chat_id to that chat.
+//   7. Frontend receives chat_id and pre-fills the Chat ID input.
+//
+// The user still has to click "Сохранить" — we don't auto-persist. That keeps the
+// click-Save habit consistent with the rest of the form.
+router.post('/lookup-telegram-chat-id', async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+
+  // Token may come from request body (user just typed it but hasn't saved yet)
+  // or from DB (already saved). Body takes precedence.
+  const tokenFromBody = req.body?.telegram_bot_token;
+  if (tokenFromBody !== undefined && tokenFromBody !== null) {
+    if (typeof tokenFromBody !== 'string' || !BOT_TOKEN_RX.test(tokenFromBody)) {
+      res.status(400).json({ error: 'telegram_bot_token must match bot id:secret format' });
+      return;
+    }
+  }
+  const tg = userRepo.getTelegramConfig(req.user.id);
+  const token = (tokenFromBody as string | undefined) || tg?.bot_token || null;
+  if (!token) {
+    res.status(400).json({ error: 'Telegram bot token is not set' });
+    return;
+  }
+
+  // Step 1: getMe validates the token and gives us the bot's @username
+  // (we use it for the t.me deep-link in error responses).
+  let botUsername: string;
+  try {
+    const me = await getMe(token);
+    botUsername = me.username;
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes('401') && msg.includes('Unauthorized')) {
+      res.status(401).json({ error: 'Invalid bot token: Unauthorized' });
+      return;
+    }
+    logger.warn('lookup: getMe failed', { error: msg });
+    res.status(500).json({ error: `Telegram API failed: ${msg}` });
+    return;
+  }
+
+  // Step 2: getUpdates and find the most recent private chat
+  let updates;
+  try {
+    updates = await getUpdates(token);
+  } catch (err) {
+    const msg = (err as Error).message;
+    logger.warn('lookup: getUpdates failed', { error: msg });
+    res.status(500).json({ error: `Telegram API failed: ${msg}` });
+    return;
+  }
+
+  const privateChats = updates
+    .filter(u => u.message?.chat?.type === 'private' && u.message.chat.id != null)
+    .map(u => ({ chat_id: String(u.message!.chat.id), update_id: u.update_id }))
+    .sort((a, b) => b.update_id - a.update_id);
+
+  if (privateChats.length === 0) {
+    res.status(404).json({
+      error: 'no_updates',
+      bot_username: botUsername,
+      message: 'Напишите боту /start и попробуйте снова',
+    });
+    return;
+  }
+
+  const chatId = privateChats[0].chat_id;
+
+  // Step 3: send the confirmation message. If this fails, the user still has the
+  // chat_id in our response — don't fail the whole call.
+  let confirmationSent = false;
+  try {
+    await sendMessage(
+      token,
+      chatId,
+      CHAT_ID_CONFIRMATION_TEMPLATE.replace('{chatId}', chatId),
+    );
+    confirmationSent = true;
+  } catch (err) {
+    logger.warn('lookup: confirmation send failed', {
+      chatId,
+      botUsername,
+      error: (err as Error).message,
+    });
+  }
+
+  res.json({
+    data: {
+      chat_id: chatId,
+      bot_username: botUsername,
+      confirmation_sent: confirmationSent,
+    },
+  });
 });
 
 export default router;

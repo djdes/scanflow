@@ -37,10 +37,12 @@ vi.mock('../../src/notifications/telegram/telegramClient', () => ({
   sendMessage: vi.fn(async () => 999),
   editMessageText: vi.fn(async () => {}),
   MessageGoneError: class MessageGoneError extends Error {},
+  getMe: vi.fn(async () => ({ id: 1, username: 'test_bot' })),
+  getUpdates: vi.fn(async () => []),
 }));
 
 import profileRouter from '../../src/api/routes/profile';
-import { sendMessage } from '../../src/notifications/telegram/telegramClient';
+import { sendMessage, getMe, getUpdates } from '../../src/notifications/telegram/telegramClient';
 
 function makeApp(): express.Express {
   const app = express();
@@ -168,5 +170,107 @@ describe('POST /api/profile/test-email (legacy)', () => {
   it('still sends email when SMTP configured', async () => {
     const res = await request(makeApp()).post('/api/profile/test-email');
     expect(res.status).toBe(200);
+  });
+});
+
+describe('POST /api/profile/lookup-telegram-chat-id', () => {
+  beforeEach(() => {
+    memTgChat = null;
+    memTgToken = VALID_TOKEN;
+    vi.clearAllMocks();
+    (getMe as any).mockResolvedValue({ id: 1, username: 'test_bot' });
+    (getUpdates as any).mockResolvedValue([]);
+    (sendMessage as any).mockResolvedValue(999);
+  });
+
+  it('returns 400 if no token is set anywhere', async () => {
+    memTgToken = null;
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('not set');
+  });
+
+  it('returns 400 if body token has wrong shape', async () => {
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({
+      telegram_bot_token: 'garbage',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 if Telegram says token is invalid', async () => {
+    (getMe as any).mockRejectedValueOnce(new Error('Telegram API getMe failed: 401 Unauthorized'));
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
+    expect(res.status).toBe(401);
+    expect(res.body.error).toContain('Invalid bot token');
+  });
+
+  it('returns 404 with bot_username when no updates exist', async () => {
+    (getUpdates as any).mockResolvedValueOnce([]);
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('no_updates');
+    expect(res.body.bot_username).toBe('test_bot');
+  });
+
+  it('returns chat_id from the most recent private update', async () => {
+    (getUpdates as any).mockResolvedValueOnce([
+      { update_id: 1, message: { chat: { id: 100, type: 'private' } } },
+      { update_id: 5, message: { chat: { id: 500, type: 'private' } } },
+      { update_id: 3, message: { chat: { id: 300, type: 'private' } } },
+    ]);
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.chat_id).toBe('500');
+    expect(res.body.data.bot_username).toBe('test_bot');
+    expect(res.body.data.confirmation_sent).toBe(true);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    const sendArgs = (sendMessage as any).mock.calls[0];
+    expect(sendArgs[1]).toBe('500');
+    expect(sendArgs[2]).toContain('Ваш Chat ID: 500');
+  });
+
+  it('skips group/supergroup/channel updates, returns private only', async () => {
+    (getUpdates as any).mockResolvedValueOnce([
+      { update_id: 1, message: { chat: { id: -100, type: 'group' } } },
+      { update_id: 2, message: { chat: { id: -200, type: 'supergroup' } } },
+      { update_id: 3, message: { chat: { id: 777, type: 'private' } } },
+    ]);
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.chat_id).toBe('777');
+  });
+
+  it('skips updates without message field', async () => {
+    (getUpdates as any).mockResolvedValueOnce([
+      { update_id: 1 },
+      { update_id: 2, message: { chat: { id: 42, type: 'private' } } },
+    ]);
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.chat_id).toBe('42');
+  });
+
+  it('returns 200 with confirmation_sent=false if sendMessage fails', async () => {
+    (getUpdates as any).mockResolvedValueOnce([
+      { update_id: 1, message: { chat: { id: 555, type: 'private' } } },
+    ]);
+    (sendMessage as any).mockRejectedValueOnce(new Error('Telegram down'));
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.chat_id).toBe('555');
+    expect(res.body.data.confirmation_sent).toBe(false);
+  });
+
+  it('uses token from body when provided (overrides DB)', async () => {
+    memTgToken = VALID_TOKEN; // DB has one
+    const otherToken = '99999:OtherTokenXyzAbcdefghijklmnopqrstuv';
+    (getUpdates as any).mockResolvedValueOnce([
+      { update_id: 1, message: { chat: { id: 88, type: 'private' } } },
+    ]);
+    const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({
+      telegram_bot_token: otherToken,
+    });
+    expect(res.status).toBe(200);
+    expect((getMe as any).mock.calls[0][0]).toBe(otherToken);
   });
 });

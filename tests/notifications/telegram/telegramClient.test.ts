@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { sendMessage, editMessageText, MessageGoneError } from '../../../src/notifications/telegram/telegramClient';
+import { sendMessage, editMessageText, MessageGoneError, getMe, getUpdates } from '../../../src/notifications/telegram/telegramClient';
 
 const TOKEN = 'test:bot-token';
 const CHAT = '123456';
@@ -80,6 +80,46 @@ describe('telegramClient', () => {
       const err = await editMessageText(TOKEN, CHAT, 42, 'x').catch(e => e);
       expect(err).toBeInstanceOf(Error);
       expect(err).not.toBeInstanceOf(MessageGoneError);
+    });
+  });
+
+  describe('getMe', () => {
+    it('returns id and username on success', async () => {
+      mockFetchResponse({ ok: true, result: { id: 12345, username: 'scanflow_bot', is_bot: true } });
+      const me = await getMe(TOKEN);
+      expect(me).toEqual({ id: 12345, username: 'scanflow_bot' });
+    });
+
+    it('throws "Unauthorized" on 401 (bad token)', async () => {
+      mockFetchResponse({ ok: false, error_code: 401, description: 'Unauthorized' });
+      await expect(getMe(TOKEN)).rejects.toThrow(/401 Unauthorized/);
+    });
+  });
+
+  describe('getUpdates', () => {
+    it('returns empty array when bot has no updates', async () => {
+      mockFetchResponse({ ok: true, result: [] });
+      const updates = await getUpdates(TOKEN);
+      expect(updates).toEqual([]);
+    });
+
+    it('returns parsed updates with chat info', async () => {
+      mockFetchResponse({
+        ok: true,
+        result: [
+          { update_id: 1, message: { chat: { id: 111, type: 'private' } } },
+          { update_id: 2, message: { chat: { id: -200, type: 'group' } } },
+        ],
+      });
+      const updates = await getUpdates(TOKEN);
+      expect(updates).toHaveLength(2);
+      expect(updates[0].message?.chat.id).toBe(111);
+      expect(updates[1].message?.chat.type).toBe('group');
+    });
+
+    it('throws on Telegram API error', async () => {
+      mockFetchResponse({ ok: false, error_code: 401, description: 'Unauthorized' });
+      await expect(getUpdates(TOKEN)).rejects.toThrow(/401 Unauthorized/);
     });
   });
 });
