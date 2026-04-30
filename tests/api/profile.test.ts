@@ -5,6 +5,8 @@ import request from 'supertest';
 let memEmail: string | null = 'test@example.com';
 let memMode = 'digest_hourly';
 let memEvents = ['photo_uploaded'];
+let memTgChat: string | null = null;
+let memTgToken: string | null = null;
 
 vi.mock('../../src/database/repositories/userRepo', () => ({
   userRepo: {
@@ -18,6 +20,11 @@ vi.mock('../../src/database/repositories/userRepo', () => ({
       if ('notify_mode' in cfg) memMode = cfg.notify_mode;
       if ('notify_events' in cfg) memEvents = cfg.notify_events;
     }),
+    getTelegramConfig: vi.fn(() => ({ chat_id: memTgChat, bot_token: memTgToken })),
+    setTelegramConfig: vi.fn((_id, cfg) => {
+      if ('chat_id' in cfg) memTgChat = cfg.chat_id;
+      if ('bot_token' in cfg) memTgToken = cfg.bot_token;
+    }),
   },
 }));
 
@@ -26,8 +33,14 @@ vi.mock('../../src/utils/mailer', () => ({
   smtpConfigured: vi.fn(() => true),
 }));
 
+vi.mock('../../src/notifications/telegram/telegramClient', () => ({
+  sendMessage: vi.fn(async () => 999),
+  editMessageText: vi.fn(async () => {}),
+  MessageGoneError: class MessageGoneError extends Error {},
+}));
+
 import profileRouter from '../../src/api/routes/profile';
-import { sendNotification, smtpConfigured } from '../../src/utils/mailer';
+import { sendMessage } from '../../src/notifications/telegram/telegramClient';
 
 function makeApp(): express.Express {
   const app = express();
@@ -40,90 +53,120 @@ function makeApp(): express.Express {
   return app;
 }
 
+const VALID_TOKEN = '12345:ABCDEFGHIJKLMNOPQRSTUVWXYZ_-abcdef123';
+
 describe('GET /api/profile', () => {
   beforeEach(() => {
     memEmail = 'test@example.com';
     memMode = 'digest_hourly';
     memEvents = ['photo_uploaded'];
+    memTgChat = '111';
+    memTgToken = VALID_TOKEN;
     vi.clearAllMocks();
-    (smtpConfigured as any).mockReturnValue(true);
   });
 
-  it('returns current config', async () => {
+  it('returns telegram fields without exposing the bot token', async () => {
     const res = await request(makeApp()).get('/api/profile');
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({
-      email: 'test@example.com',
-      notify_mode: 'digest_hourly',
-      notify_events: ['photo_uploaded'],
-      smtp_configured: true,
+      telegram_chat_id: '111',
+      telegram_bot_token_set: true,
     });
+    expect(res.body.data.telegram_bot_token).toBeUndefined();
+  });
+
+  it('reports telegram_bot_token_set: false when token absent', async () => {
+    memTgToken = null;
+    const res = await request(makeApp()).get('/api/profile');
+    expect(res.body.data.telegram_bot_token_set).toBe(false);
   });
 });
 
-describe('PATCH /api/profile', () => {
+describe('PATCH /api/profile (Telegram fields)', () => {
   beforeEach(() => {
-    memEmail = 'test@example.com';
-    memMode = 'digest_hourly';
-    memEvents = ['photo_uploaded'];
+    memTgChat = null;
+    memTgToken = null;
     vi.clearAllMocks();
   });
 
-  it('updates email when valid', async () => {
-    const res = await request(makeApp()).patch('/api/profile').send({ email: 'new@x.com' });
+  it('saves valid chat_id and token', async () => {
+    const res = await request(makeApp())
+      .patch('/api/profile')
+      .send({ telegram_chat_id: '123456', telegram_bot_token: VALID_TOKEN });
     expect(res.status).toBe(200);
-    expect(memEmail).toBe('new@x.com');
+    expect(memTgChat).toBe('123456');
+    expect(memTgToken).toBe(VALID_TOKEN);
   });
 
-  it('rejects invalid email', async () => {
-    const res = await request(makeApp()).patch('/api/profile').send({ email: 'not-an-email' });
-    expect(res.status).toBe(400);
-  });
-
-  it('allows clearing email with null', async () => {
-    const res = await request(makeApp()).patch('/api/profile').send({ email: null });
+  it('accepts negative chat_id (group chat shape)', async () => {
+    const res = await request(makeApp()).patch('/api/profile').send({ telegram_chat_id: '-1001234567' });
     expect(res.status).toBe(200);
-    expect(memEmail).toBeNull();
   });
 
-  it('rejects invalid notify_mode', async () => {
-    const res = await request(makeApp()).patch('/api/profile').send({ notify_mode: 'fake_mode' });
+  it('rejects non-numeric chat_id', async () => {
+    const res = await request(makeApp()).patch('/api/profile').send({ telegram_chat_id: 'not-a-number' });
     expect(res.status).toBe(400);
   });
 
-  it('rejects unknown event types', async () => {
-    const res = await request(makeApp()).patch('/api/profile').send({ notify_events: ['photo_uploaded', 'fake_event'] });
+  it('rejects malformed bot token', async () => {
+    const res = await request(makeApp()).patch('/api/profile').send({ telegram_bot_token: 'garbage' });
     expect(res.status).toBe(400);
   });
 
-  it('rejects empty body', async () => {
-    const res = await request(makeApp()).patch('/api/profile').send({});
-    expect(res.status).toBe(400);
+  it('allows clearing telegram fields with null', async () => {
+    memTgChat = '111';
+    memTgToken = VALID_TOKEN;
+    const res = await request(makeApp()).patch('/api/profile').send({
+      telegram_chat_id: null,
+      telegram_bot_token: null,
+    });
+    expect(res.status).toBe(200);
+    expect(memTgChat).toBeNull();
+    expect(memTgToken).toBeNull();
   });
 });
 
-describe('POST /api/profile/test-email', () => {
+describe('POST /api/profile/test-telegram', () => {
   beforeEach(() => {
-    memEmail = 'test@example.com';
+    memTgChat = '111';
+    memTgToken = VALID_TOKEN;
     vi.clearAllMocks();
-    (smtpConfigured as any).mockReturnValue(true);
   });
 
-  it('sends a test email when email + smtp configured', async () => {
-    const res = await request(makeApp()).post('/api/profile/test-email');
+  it('sends test message when configured', async () => {
+    const res = await request(makeApp()).post('/api/profile/test-telegram');
     expect(res.status).toBe(200);
-    expect(sendNotification).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
   });
 
-  it('refuses if no email', async () => {
-    memEmail = null;
-    const res = await request(makeApp()).post('/api/profile/test-email');
+  it('refuses if chat_id missing', async () => {
+    memTgChat = null;
+    const res = await request(makeApp()).post('/api/profile/test-telegram');
     expect(res.status).toBe(400);
   });
 
-  it('refuses if SMTP not configured', async () => {
-    (smtpConfigured as any).mockReturnValue(false);
+  it('refuses if bot_token missing', async () => {
+    memTgToken = null;
+    const res = await request(makeApp()).post('/api/profile/test-telegram');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 500 with details when Telegram rejects token', async () => {
+    (sendMessage as any).mockRejectedValueOnce(new Error('Telegram API: 401 Unauthorized'));
+    const res = await request(makeApp()).post('/api/profile/test-telegram');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toContain('Unauthorized');
+  });
+});
+
+// Sanity check: the legacy /test-email endpoint still works (back-compat).
+describe('POST /api/profile/test-email (legacy)', () => {
+  beforeEach(() => {
+    memEmail = 'test@example.com';
+    vi.clearAllMocks();
+  });
+  it('still sends email when SMTP configured', async () => {
     const res = await request(makeApp()).post('/api/profile/test-email');
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(200);
   });
 });
