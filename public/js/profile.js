@@ -1,5 +1,23 @@
 (function () {
-  const TOKEN_PLACEHOLDER = '••••••••';
+  const TOKEN_PLACEHOLDER = '••••••••••••••••••••••••••••••';
+
+  const ICON_EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const ICON_EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
+
+  function renderStatus(connected) {
+    const el = document.getElementById('profile-tg-status');
+    if (!el) return;
+    const text = el.querySelector('.tg-status-text');
+    if (connected) {
+      el.classList.add('tg-status--online');
+      el.classList.remove('tg-status--offline');
+      if (text) text.textContent = 'подключён';
+    } else {
+      el.classList.remove('tg-status--online');
+      el.classList.add('tg-status--offline');
+      if (text) text.textContent = 'не подключён';
+    }
+  }
 
   const Profile = {
     async load() {
@@ -12,12 +30,18 @@
       const tokenEl = document.getElementById('profile-tg-token');
       tokenEl.value = tokenSetOnServer ? TOKEN_PLACEHOLDER : '';
       tokenEl.type = 'password';
-      document.getElementById('profile-tg-token-toggle').textContent = 'Показать';
+      const toggleBtn = document.getElementById('profile-tg-token-toggle');
+      if (toggleBtn) {
+        toggleBtn.innerHTML = ICON_EYE;
+        toggleBtn.setAttribute('title', 'Показать');
+      }
 
       const enabled = new Set(data.notify_events || []);
       document.querySelectorAll('input[type=checkbox][data-event]').forEach(cb => {
         cb.checked = enabled.has(cb.dataset.event);
       });
+
+      renderStatus(!!data.telegram_chat_id && tokenSetOnServer);
     },
 
     collect() {
@@ -35,32 +59,35 @@
       return body;
     },
 
+    setStatus(text, kind) {
+      const el = document.getElementById('profile-status');
+      if (!el) return;
+      el.textContent = text;
+      el.style.color =
+        kind === 'success' ? 'var(--success)' :
+        kind === 'error'   ? 'var(--error)' :
+        'var(--text-secondary)';
+    },
+
     async save() {
-      const status = document.getElementById('profile-status');
       try {
         await App.apiJson('/profile', { method: 'PATCH', body: this.collect() });
-        status.textContent = 'Сохранено';
-        status.style.color = '#16a34a';
+        this.setStatus('Сохранено', 'success');
         // Re-load so token UI returns to placeholder
         await this.load();
       } catch (err) {
-        status.textContent = 'Ошибка: ' + (err.message || err);
-        status.style.color = '#b91c1c';
+        this.setStatus('Ошибка: ' + (err.message || err), 'error');
       }
-      setTimeout(() => { status.textContent = ''; }, 3000);
+      setTimeout(() => this.setStatus('', ''), 3000);
     },
 
     async test() {
-      const status = document.getElementById('profile-status');
-      status.textContent = 'Отправляем тестовое сообщение…';
-      status.style.color = '';
+      this.setStatus('Отправляем тестовое сообщение…', 'muted');
       try {
         await App.apiJson('/profile/test-telegram', { method: 'POST' });
-        status.textContent = 'Тестовое сообщение отправлено — проверьте Telegram';
-        status.style.color = '#16a34a';
+        this.setStatus('Тестовое сообщение отправлено — проверьте Telegram', 'success');
       } catch (err) {
-        status.textContent = 'Не удалось: ' + (err.message || err);
-        status.style.color = '#b91c1c';
+        this.setStatus('Не удалось: ' + (err.message || err), 'error');
       }
     },
 
@@ -69,10 +96,12 @@
       const btn = document.getElementById('profile-tg-token-toggle');
       if (tokenEl.type === 'password') {
         tokenEl.type = 'text';
-        btn.textContent = 'Скрыть';
+        btn.innerHTML = ICON_EYE_OFF;
+        btn.setAttribute('title', 'Скрыть');
       } else {
         tokenEl.type = 'password';
-        btn.textContent = 'Показать';
+        btn.innerHTML = ICON_EYE;
+        btn.setAttribute('title', 'Показать');
       }
     },
 
