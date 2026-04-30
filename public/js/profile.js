@@ -3,7 +3,7 @@
 
   const Profile = {
     async load() {
-      const r = await App.api('GET', '/api/profile');
+      const r = await App.apiJson('/profile');
       const data = r.data || {};
 
       document.getElementById('profile-tg-chat').value = data.telegram_chat_id || '';
@@ -38,7 +38,7 @@
     async save() {
       const status = document.getElementById('profile-status');
       try {
-        await App.api('PATCH', '/api/profile', this.collect());
+        await App.apiJson('/profile', { method: 'PATCH', body: this.collect() });
         status.textContent = 'Сохранено';
         status.style.color = '#16a34a';
         // Re-load so token UI returns to placeholder
@@ -55,7 +55,7 @@
       status.textContent = 'Отправляем тестовое сообщение…';
       status.style.color = '';
       try {
-        await App.api('POST', '/api/profile/test-telegram');
+        await App.apiJson('/profile/test-telegram', { method: 'POST' });
         status.textContent = 'Тестовое сообщение отправлено — проверьте Telegram';
         status.style.color = '#16a34a';
       } catch (err) {
