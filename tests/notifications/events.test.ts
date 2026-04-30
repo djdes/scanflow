@@ -1,29 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Mock the modules events.ts depends on. We're unit-testing the routing
-// logic, not the SMTP transport or the DB.
 vi.mock('../../src/database/repositories/userRepo', () => ({
   userRepo: {
     firstUserId: vi.fn(() => 1),
     getNotifyConfig: vi.fn(),
+    getTelegramConfig: vi.fn(),
   },
 }));
 
-vi.mock('../../src/database/repositories/notificationRepo', () => ({
-  notificationRepo: {
-    enqueue: vi.fn(),
+vi.mock('../../src/database/repositories/invoiceRepo', () => ({
+  invoiceRepo: {
+    getById: vi.fn(),
   },
 }));
 
-vi.mock('../../src/utils/mailer', () => ({
-  sendNotification: vi.fn(async () => {}),
-  smtpConfigured: vi.fn(() => true),
+vi.mock('../../src/notifications/telegram/telegramNotifier', () => ({
+  sendInvoiceNotification: vi.fn(async () => {}),
 }));
 
 import { emit } from '../../src/notifications/events';
 import { userRepo } from '../../src/database/repositories/userRepo';
-import { notificationRepo } from '../../src/database/repositories/notificationRepo';
-import { sendNotification } from '../../src/utils/mailer';
+import { invoiceRepo } from '../../src/database/repositories/invoiceRepo';
+import { sendInvoiceNotification } from '../../src/notifications/telegram/telegramNotifier';
 
 const ALL_EVENTS = [
   'photo_uploaded',
@@ -36,84 +34,91 @@ const ALL_EVENTS = [
 ] as const;
 
 const samplePayload = { invoice_id: 1, invoice_number: '85', supplier: 'X', total_sum: 1000 };
+const sampleInvoice = { id: 1, status: 'processed', telegram_message_id: null } as any;
 
 describe('emit()', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('does nothing if user has no email', async () => {
+  it('skips when event is disabled in notify_events', async () => {
+    (userRepo.getNotifyConfig as any).mockReturnValue({
+      email: null, notify_mode: 'realtime',
+      notify_events: ['sent_to_1c'],
+    });
+    (userRepo.getTelegramConfig as any).mockReturnValue({ chat_id: 'c', bot_token: 't' });
+    (invoiceRepo.getById as any).mockReturnValue(sampleInvoice);
+
+    await emit('photo_uploaded', samplePayload, 1);
+    expect(sendInvoiceNotification).not.toHaveBeenCalled();
+  });
+
+  it('skips when telegram not configured (no chat_id)', async () => {
     (userRepo.getNotifyConfig as any).mockReturnValue({
       email: null, notify_mode: 'realtime', notify_events: ALL_EVENTS,
     });
+    (userRepo.getTelegramConfig as any).mockReturnValue({ chat_id: null, bot_token: 't' });
     await emit('photo_uploaded', samplePayload, 1);
-    expect(sendNotification).not.toHaveBeenCalled();
-    expect(notificationRepo.enqueue).not.toHaveBeenCalled();
+    expect(sendInvoiceNotification).not.toHaveBeenCalled();
   });
 
-  it('does nothing if event is disabled in config', async () => {
+  it('skips when telegram not configured (no bot_token)', async () => {
     (userRepo.getNotifyConfig as any).mockReturnValue({
-      email: 'a@b.c', notify_mode: 'realtime',
-      notify_events: ['sent_to_1c'], // photo_uploaded NOT in the list
+      email: null, notify_mode: 'realtime', notify_events: ALL_EVENTS,
     });
+    (userRepo.getTelegramConfig as any).mockReturnValue({ chat_id: 'c', bot_token: null });
     await emit('photo_uploaded', samplePayload, 1);
-    expect(sendNotification).not.toHaveBeenCalled();
-    expect(notificationRepo.enqueue).not.toHaveBeenCalled();
+    expect(sendInvoiceNotification).not.toHaveBeenCalled();
   });
 
-  it('sends immediately in realtime mode for non-urgent event', async () => {
+  it('skips when invoice not found in DB', async () => {
     (userRepo.getNotifyConfig as any).mockReturnValue({
-      email: 'a@b.c', notify_mode: 'realtime', notify_events: ALL_EVENTS,
+      email: null, notify_mode: 'realtime', notify_events: ALL_EVENTS,
     });
+    (userRepo.getTelegramConfig as any).mockReturnValue({ chat_id: 'c', bot_token: 't' });
+    (invoiceRepo.getById as any).mockReturnValue(undefined);
+
     await emit('photo_uploaded', samplePayload, 1);
-    expect(sendNotification).toHaveBeenCalledOnce();
-    expect(notificationRepo.enqueue).not.toHaveBeenCalled();
+    expect(sendInvoiceNotification).not.toHaveBeenCalled();
   });
 
-  it('queues non-urgent event in digest mode', async () => {
+  it('routes to Telegram when fully configured', async () => {
     (userRepo.getNotifyConfig as any).mockReturnValue({
-      email: 'a@b.c', notify_mode: 'digest_hourly', notify_events: ALL_EVENTS,
+      email: null, notify_mode: 'realtime', notify_events: ALL_EVENTS,
     });
-    await emit('photo_uploaded', samplePayload, 1);
-    expect(sendNotification).not.toHaveBeenCalled();
-    expect(notificationRepo.enqueue).toHaveBeenCalledOnce();
-    expect(notificationRepo.enqueue).toHaveBeenCalledWith(1, 'photo_uploaded', samplePayload);
-  });
+    (userRepo.getTelegramConfig as any).mockReturnValue({ chat_id: 'c', bot_token: 't' });
+    (invoiceRepo.getById as any).mockReturnValue(sampleInvoice);
 
-  it('sends urgent event immediately even in digest_daily mode', async () => {
-    (userRepo.getNotifyConfig as any).mockReturnValue({
-      email: 'a@b.c', notify_mode: 'digest_daily', notify_events: ALL_EVENTS,
-    });
-    await emit('recognition_error', { ...samplePayload, error_message: 'oops' }, 1);
-    expect(sendNotification).toHaveBeenCalledOnce();
-    expect(notificationRepo.enqueue).not.toHaveBeenCalled();
-  });
-
-  it('sends suspicious_total urgently even in digest_hourly mode', async () => {
-    (userRepo.getNotifyConfig as any).mockReturnValue({
-      email: 'a@b.c', notify_mode: 'digest_hourly', notify_events: ALL_EVENTS,
-    });
-    await emit('suspicious_total', samplePayload, 1);
-    expect(sendNotification).toHaveBeenCalledOnce();
-    expect(notificationRepo.enqueue).not.toHaveBeenCalled();
+    await emit('invoice_recognized', samplePayload, 1);
+    expect(sendInvoiceNotification).toHaveBeenCalledOnce();
+    const callArgs = (sendInvoiceNotification as any).mock.calls[0];
+    expect(callArgs[0]).toEqual({ token: 't', chat_id: 'c' });
+    expect(callArgs[1]).toBe(sampleInvoice);
+    expect(callArgs[2]).toBe('invoice_recognized');
   });
 
   it('falls back to firstUserId when triggeredByUserId is null', async () => {
     (userRepo.firstUserId as any).mockReturnValue(42);
     (userRepo.getNotifyConfig as any).mockReturnValue({
-      email: 'a@b.c', notify_mode: 'realtime', notify_events: ALL_EVENTS,
+      email: null, notify_mode: 'realtime', notify_events: ALL_EVENTS,
     });
+    (userRepo.getTelegramConfig as any).mockReturnValue({ chat_id: 'c', bot_token: 't' });
+    (invoiceRepo.getById as any).mockReturnValue(sampleInvoice);
+
     await emit('photo_uploaded', samplePayload, null);
     expect(userRepo.firstUserId).toHaveBeenCalled();
     expect(userRepo.getNotifyConfig).toHaveBeenCalledWith(42);
+    expect(userRepo.getTelegramConfig).toHaveBeenCalledWith(42);
   });
 
-  it('does not throw when sendNotification rejects', async () => {
+  it('does not throw if telegramNotifier rejects', async () => {
     (userRepo.getNotifyConfig as any).mockReturnValue({
-      email: 'a@b.c', notify_mode: 'realtime', notify_events: ALL_EVENTS,
+      email: null, notify_mode: 'realtime', notify_events: ALL_EVENTS,
     });
-    (sendNotification as any).mockRejectedValueOnce(new Error('SMTP down'));
-    // Must not throw
+    (userRepo.getTelegramConfig as any).mockReturnValue({ chat_id: 'c', bot_token: 't' });
+    (invoiceRepo.getById as any).mockReturnValue(sampleInvoice);
+    (sendInvoiceNotification as any).mockRejectedValueOnce(new Error('boom'));
+
     await expect(emit('photo_uploaded', samplePayload, 1)).resolves.toBeUndefined();
   });
 });
