@@ -77,3 +77,38 @@ export async function editMessageText(
   });
   logger.debug('Telegram editMessageText ok', { chatId, messageId });
 }
+
+// Узкий type под наши нужды — Telegram Update имеет много полей,
+// но для поиска chat_id нам нужно только это.
+export interface TelegramUpdate {
+  update_id: number;
+  message?: {
+    chat: {
+      id: number;
+      type: 'private' | 'group' | 'supergroup' | 'channel';
+    };
+  };
+}
+
+interface GetMeResult {
+  id: number;
+  username: string;
+  is_bot: boolean;
+}
+
+// Returns the bot's identity. Used to validate the token (401 = bad token)
+// and surface the bot's @username to the UI so we can deep-link to t.me.
+export async function getMe(token: string): Promise<{ id: number; username: string }> {
+  const result = await callTelegram<GetMeResult>(token, 'getMe', {});
+  logger.debug('Telegram getMe ok', { username: result.username });
+  return { id: result.id, username: result.username };
+}
+
+// Returns recent updates for the bot. Telegram retains them for 24 hours
+// and only as long as no webhook is configured. Empty array is normal —
+// the user simply hasn't written anything to the bot yet.
+export async function getUpdates(token: string): Promise<TelegramUpdate[]> {
+  const result = await callTelegram<TelegramUpdate[]>(token, 'getUpdates', {});
+  logger.debug('Telegram getUpdates ok', { count: result.length });
+  return result;
+}
