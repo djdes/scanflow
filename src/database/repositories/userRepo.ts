@@ -12,6 +12,8 @@ export interface User {
   email: string | null;
   notify_mode: string; // narrowed when read via getNotifyConfig
   notify_events: string; // JSON-encoded array; parsed by getNotifyConfig
+  telegram_chat_id: string | null;
+  telegram_bot_token: string | null;
 }
 
 export const userRepo = {
@@ -106,5 +108,29 @@ export const userRepo = {
       .prepare('SELECT id FROM users ORDER BY id LIMIT 1')
       .get() as { id: number } | undefined;
     return row?.id ?? null;
+  },
+
+  getTelegramConfig(id: number): { chat_id: string | null; bot_token: string | null } | null {
+    const row = getDb()
+      .prepare('SELECT telegram_chat_id, telegram_bot_token FROM users WHERE id = ?')
+      .get(id) as { telegram_chat_id: string | null; telegram_bot_token: string | null } | undefined;
+    if (!row) return null;
+    return { chat_id: row.telegram_chat_id, bot_token: row.telegram_bot_token };
+  },
+
+  setTelegramConfig(id: number, cfg: Partial<{ chat_id: string | null; bot_token: string | null }>): void {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (cfg.chat_id !== undefined) {
+      fields.push('telegram_chat_id = ?');
+      values.push(cfg.chat_id);
+    }
+    if (cfg.bot_token !== undefined) {
+      fields.push('telegram_bot_token = ?');
+      values.push(cfg.bot_token);
+    }
+    if (fields.length === 0) return;
+    values.push(id);
+    getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   },
 };

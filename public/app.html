@@ -475,75 +475,48 @@
     <section id="view-profile">
       <div class="section-header">
         <h2>Профиль</h2>
-        <p class="section-subtitle">Email и уведомления о событиях</p>
       </div>
 
-      <div class="card">
-        <fieldset class="form-group" style="border:none;padding:0;margin:0 0 20px 0">
-          <legend style="font-weight:600;margin-bottom:8px">Email для уведомлений</legend>
-          <input type="email" id="profile-email" placeholder="you@example.com" autocomplete="email">
-          <div id="smtp-hint" class="field-hint" style="color:var(--warning)"></div>
-        </fieldset>
+      <fieldset class="profile-fieldset">
+        <legend>Telegram-уведомления</legend>
 
-        <fieldset class="form-group" style="border:none;padding:0;margin:0 0 20px 0">
-          <legend style="font-weight:600;margin-bottom:8px">Режим уведомлений</legend>
-          <div class="radio-group">
-            <label class="radio-label">
-              <input type="radio" name="profile-notify-mode" value="realtime">
-              <div>
-                <strong>Сразу</strong>
-                <div class="radio-desc">Письмо на каждое событие</div>
-              </div>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="profile-notify-mode" value="digest_hourly" checked>
-              <div>
-                <strong>Раз в час (рекомендуется)</strong>
-                <div class="radio-desc">Дайджест за последний час</div>
-              </div>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="profile-notify-mode" value="digest_daily">
-              <div>
-                <strong>Раз в день</strong>
-                <div class="radio-desc">Сводка за сутки</div>
-              </div>
-            </label>
-          </div>
-        </fieldset>
-
-        <fieldset class="form-group" style="border:none;padding:0;margin:0 0 20px 0">
-          <legend style="font-weight:600;margin-bottom:8px">События</legend>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-event="photo_uploaded"> Фото загружено
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-event="invoice_recognized"> Накладная распознана
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-event="recognition_error"> Ошибка распознавания (срочно)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-event="suspicious_total"> Подозрительная сумма (срочно)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-event="invoice_edited"> Правка в дашборде
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-event="approved_for_1c"> Утверждена для 1С
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-event="sent_to_1c"> Отправлена в 1С
-            </label>
-          </div>
-        </fieldset>
-
-        <div class="form-actions">
-          <button class="btn btn-primary" id="profile-save-btn">Сохранить</button>
-          <button class="btn btn-outline" id="profile-test-btn">Отправить тестовое письмо</button>
-          <span id="profile-status" class="field-hint" style="margin-left:8px"></span>
+        <div class="profile-field">
+          <label for="profile-tg-chat">Chat ID</label>
+          <input type="text" id="profile-tg-chat" placeholder="123456789">
         </div>
+
+        <div class="profile-field">
+          <label for="profile-tg-token">Bot Token</label>
+          <input type="password" id="profile-tg-token" placeholder="••••••••">
+          <button type="button" id="profile-tg-token-toggle" class="btn btn-small">Показать</button>
+        </div>
+
+        <details class="profile-help">
+          <summary>Как получить Chat ID и Bot Token</summary>
+          <ol>
+            <li>В Telegram найди бота <b>@BotFather</b>, напиши <code>/newbot</code>, дай имя боту → получишь токен вида <code>123456789:ABC...</code>.</li>
+            <li>Найди своего бота по имени, напиши ему любое сообщение «привет».</li>
+            <li>Открой в браузере <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> (заменив <code>&lt;TOKEN&gt;</code>) — найди в JSON поле <code>"chat":{"id":123456789}</code>.</li>
+            <li>Вставь токен и chat ID сюда, нажми «Сохранить», затем «Отправить тестовое сообщение».</li>
+          </ol>
+        </details>
+      </fieldset>
+
+      <fieldset class="profile-fieldset">
+        <legend>Какие события присылать</legend>
+        <label><input type="checkbox" data-event="photo_uploaded"> Фото загружено</label>
+        <label><input type="checkbox" data-event="invoice_recognized"> Накладная распознана</label>
+        <label><input type="checkbox" data-event="recognition_error"> Ошибка распознавания (срочно)</label>
+        <label><input type="checkbox" data-event="suspicious_total"> Подозрительная сумма (срочно)</label>
+        <label><input type="checkbox" data-event="invoice_edited"> Правка в дашборде</label>
+        <label><input type="checkbox" data-event="approved_for_1c"> Утверждена для 1С</label>
+        <label><input type="checkbox" data-event="sent_to_1c"> Отправлена в 1С</label>
+      </fieldset>
+
+      <div class="profile-actions">
+        <button type="button" id="profile-save" class="btn btn-primary">Сохранить</button>
+        <button type="button" id="profile-test" class="btn">Отправить тестовое сообщение</button>
+        <span id="profile-status"></span>
       </div>
     </section>
   </main>

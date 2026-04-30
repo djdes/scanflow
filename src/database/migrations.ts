@@ -395,6 +395,25 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 19,
+    name: 'telegram notification fields',
+    detect: (db) =>
+      hasColumn(db, 'users', 'telegram_chat_id') &&
+      hasColumn(db, 'users', 'telegram_bot_token') &&
+      hasColumn(db, 'invoices', 'telegram_message_id'),
+    run: (db) => {
+      if (!hasColumn(db, 'users', 'telegram_chat_id')) {
+        db.exec(`ALTER TABLE users ADD COLUMN telegram_chat_id TEXT;`);
+      }
+      if (!hasColumn(db, 'users', 'telegram_bot_token')) {
+        db.exec(`ALTER TABLE users ADD COLUMN telegram_bot_token TEXT;`);
+      }
+      if (!hasColumn(db, 'invoices', 'telegram_message_id')) {
+        db.exec(`ALTER TABLE invoices ADD COLUMN telegram_message_id INTEGER;`);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

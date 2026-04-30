@@ -1095,41 +1095,53 @@ userRepo.create({
 
 ---
 
-## Уведомления пользователю на email
+## Уведомления пользователю в Telegram
 
 **Файлы:**
 - [`src/notifications/events.ts`](src/notifications/events.ts) — `emit(eventType, payload, userId)` точка эмиссии
-- [`src/notifications/digestWorker.ts`](src/notifications/digestWorker.ts) — cron 9-18 MSK почасовой, 19 MSK дневной, 03:30 чистка > 7 дней
-- [`src/notifications/templates.ts`](src/notifications/templates.ts) — HTML рендер (realtime + digest)
-- [`src/notifications/types.ts`](src/notifications/types.ts) — `EventType`, `NotifyMode`, `URGENT_EVENT_TYPES`
-- [`src/api/routes/profile.ts`](src/api/routes/profile.ts) — `GET/PATCH /api/profile`, `POST /api/profile/test-email`
-- В дашборде: вкладка «Профиль» (inline-section в `public/app.html` + `public/js/profile.js`)
+- [`src/notifications/telegram/telegramClient.ts`](src/notifications/telegram/telegramClient.ts) — wrapper над Telegram Bot API (`sendMessage`, `editMessageText`)
+- [`src/notifications/telegram/telegramFormatter.ts`](src/notifications/telegram/telegramFormatter.ts) — форматирование текста (thread + urgent)
+- [`src/notifications/telegram/telegramNotifier.ts`](src/notifications/telegram/telegramNotifier.ts) — высокоуровневый эмиттер (thread edit + fallback)
+- [`src/api/routes/profile.ts`](src/api/routes/profile.ts) — `GET/PATCH /api/profile`, `POST /api/profile/test-telegram`
+- В дашборде: вкладка «Профиль» → секция «Telegram-уведомления»
 
 ### Модель
 
-- 7 событий: `photo_uploaded`, `invoice_recognized`, `recognition_error`, `suspicious_total`, `invoice_edited`, `approved_for_1c`, `sent_to_1c`
-- 2 события — срочные (`recognition_error`, `suspicious_total`), всегда шлются мгновенно
-- 3 режима: `realtime` / `digest_hourly` (default) / `digest_daily`
-- Email и режим хранятся в `users` (миграция 18: колонки `email`, `notify_mode`, `notify_events`)
-- Очередь дайджеста — таблица `notification_events`, чистится раз в сутки
+- **Канал:** Telegram (private chat между ботом и пользователем).
+- **Один thread на накладную:** при первом эвенте отправляется новое сообщение, его `message_id` сохраняется в `invoices.telegram_message_id` (миграция 19). Все последующие эвенты этой накладной — `editMessageText` того же сообщения. Сообщение растёт чек-листом: загружена → распознана → утверждена → отправлена в 1С.
+- **Срочные эвенты** (`recognition_error`, `suspicious_total`) — отдельные standalone-сообщения, не редактируют thread (чтобы push-нотификация Telegram сработала).
+- **Конфигурация:** в `users.telegram_chat_id` и `users.telegram_bot_token` (миграция 19), плюс `users.notify_events` (включённые типы эвентов).
 
 ### emit()
 
-`emit(eventType, payload, triggeredByUserId)` никогда не бросает исключение — failure логируется и глотается. Если `triggeredByUserId === null`, берётся `userRepo.firstUserId()` (для текущего single-user сетапа это владелец). Если у юзера нет `email` или событие выключено в `notify_events` — return без сайд-эффекта.
+`emit(eventType, payload, triggeredByUserId)` никогда не бросает. Если `triggeredByUserId` null — берётся `userRepo.firstUserId()`. Если у юзера нет `telegram_chat_id` или `telegram_bot_token`, или эвент не в `notify_events`, или накладная по `payload.invoice_id` не найдена — return без сайд-эффекта.
 
 ### Точки эмиссии
 
 - `fileWatcher.ts` → `photo_uploaded`, `invoice_recognized`, `recognition_error`, `suspicious_total`
-- `api/routes/invoices.ts` → `invoice_edited` (PATCH item), `approved_for_1c` (POST send), `sent_to_1c` (POST confirm)
-- `integration/webhook.ts` → `sent_to_1c` (после `markSent`)
+- `api/routes/invoices.ts` → `invoice_edited`, `approved_for_1c`, `sent_to_1c`
+- `integration/webhook.ts` → `sent_to_1c`
 
-### Существующие системные письма не трогаем
+### Email — dead code
 
-`sendErrorEmail` (uncaughtException, диск-монитор) продолжает слаться через `MAIL_TO` из `.env`. Это сделано специально — системные письма должны работать даже когда БД недоступна.
+Email-инфраструктура осталась в репо как dead code на случай возврата:
+- `src/utils/mailer.ts` (sendNotification, smtpConfigured) — работает, но никем не вызывается из эмиттера.
+- `src/notifications/templates.ts` (HTML email-шаблоны) — не вызывается.
+- `src/notifications/digestWorker.ts` — cron жив, но `notification_events` пуста, и tick'и завершаются мгновенно.
+- Таблица `notification_events` остаётся.
+- Endpoint `POST /api/profile/test-email` остаётся для back-compat.
 
-### Конфигурация SMTP
+`SMTP_*` env-переменные больше не нужны для пользовательских уведомлений. Они всё ещё используются для системных писем (`uncaughtException`, `diskMonitor`) — это оставлено как было.
 
-`SMTP_HOST/PORT/USER/PASS` в `.env`. Если не заданы — `smtpConfigured()` возвращает `false`, в UI видна плашка «SMTP не настроен на сервере», тестовое письмо отдаёт 503.
+### Edge case: thread message gone
+
+Если Telegram возвращает на `editMessageText` 400 «message to edit not found» — клиент кидает `MessageGoneError`. Notifier ловит → шлёт `sendMessage` → обновляет `telegram_message_id`. Старое сообщение — потеряно. Не критично.
+
+### Безопасность
+
+- `bot_token` хранится в БД в открытом виде (как `users.api_key`). Шифровать не будем.
+- `GET /api/profile` возвращает только `telegram_bot_token_set: boolean`, не сам токен. UI заполняет поле плейсхолдером.
+- При `PATCH /api/profile` если поле `telegram_bot_token` совпадает с плейсхолдером (фронт это делает не отправляя ключ при не-измененном поле) — `bot_token` в БД не трогается.
 
 ---
 

@@ -1,43 +1,60 @@
 import { Router, Request, Response } from 'express';
 import { userRepo } from '../../database/repositories/userRepo';
 import { sendNotification, smtpConfigured } from '../../utils/mailer';
+import { sendMessage } from '../../notifications/telegram/telegramClient';
 import { ALL_NOTIFY_MODES, ALL_EVENT_TYPES, type NotifyMode, type EventType } from '../../notifications/types';
 import { logger } from '../../utils/logger';
 
 const router = Router();
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Telegram chat_id: digits, possibly negative (group chats); for our private
+// chat usage it's a positive integer string. Accept either form to be lenient.
+const CHAT_ID_RX = /^-?\d+$/;
+// Telegram bot token shape: <bot_id>:<35-char-secret>. Examples differ in
+// length, so we just check the basic shape <digits>:<at-least-30-chars>.
+const BOT_TOKEN_RX = /^\d+:[A-Za-z0-9_-]{30,}$/;
 
 router.get('/', (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+
   const cfg = userRepo.getNotifyConfig(req.user.id);
   if (!cfg) { res.status(404).json({ error: 'User config not found' }); return; }
+
+  const tg = userRepo.getTelegramConfig(req.user.id);
+
   res.json({
     data: {
+      // Legacy email fields — kept in API for back-compat. UI ignores them.
       email: cfg.email,
       notify_mode: cfg.notify_mode,
-      notify_events: cfg.notify_events,
       smtp_configured: smtpConfigured(),
+      // Active fields
+      notify_events: cfg.notify_events,
+      telegram_chat_id: tg?.chat_id ?? null,
+      telegram_bot_token_set: !!tg?.bot_token,
     },
   });
 });
 
 router.patch('/', (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const { email, notify_mode, notify_events } = req.body ?? {};
-  const update: Record<string, unknown> = {};
+  const { email, notify_mode, notify_events, telegram_chat_id, telegram_bot_token } = req.body ?? {};
+
+  const userUpdate: Record<string, unknown> = {};
+  const tgUpdate: { chat_id?: string | null; bot_token?: string | null } = {};
 
   if (email !== undefined) {
     if (email !== null && (typeof email !== 'string' || !EMAIL_RX.test(email))) {
       res.status(400).json({ error: 'Invalid email' }); return;
     }
-    update.email = email; // null clears
+    userUpdate.email = email;
   }
   if (notify_mode !== undefined) {
     if (!ALL_NOTIFY_MODES.includes(notify_mode as NotifyMode)) {
       res.status(400).json({ error: `notify_mode must be one of: ${ALL_NOTIFY_MODES.join(', ')}` }); return;
     }
-    update.notify_mode = notify_mode;
+    userUpdate.notify_mode = notify_mode;
   }
   if (notify_events !== undefined) {
     if (!Array.isArray(notify_events)) { res.status(400).json({ error: 'notify_events must be an array' }); return; }
@@ -46,18 +63,53 @@ router.patch('/', (req: Request, res: Response) => {
         res.status(400).json({ error: `Unknown event type: ${e}` }); return;
       }
     }
-    update.notify_events = notify_events;
+    userUpdate.notify_events = notify_events;
+  }
+  if (telegram_chat_id !== undefined) {
+    if (telegram_chat_id !== null && (typeof telegram_chat_id !== 'string' || !CHAT_ID_RX.test(telegram_chat_id))) {
+      res.status(400).json({ error: 'telegram_chat_id must be a numeric string or null' }); return;
+    }
+    tgUpdate.chat_id = telegram_chat_id;
+  }
+  if (telegram_bot_token !== undefined) {
+    if (telegram_bot_token !== null && (typeof telegram_bot_token !== 'string' || !BOT_TOKEN_RX.test(telegram_bot_token))) {
+      res.status(400).json({ error: 'telegram_bot_token must match bot id:secret format' }); return;
+    }
+    tgUpdate.bot_token = telegram_bot_token;
   }
 
-  if (Object.keys(update).length === 0) {
+  const hasUserUpdates = Object.keys(userUpdate).length > 0;
+  const hasTgUpdates = Object.keys(tgUpdate).length > 0;
+
+  if (!hasUserUpdates && !hasTgUpdates) {
     res.status(400).json({ error: 'No fields to update' }); return;
   }
 
-  userRepo.setNotifyConfig(req.user.id, update);
-  const fresh = userRepo.getNotifyConfig(req.user.id);
-  res.json({ data: { ...fresh, smtp_configured: smtpConfigured() } });
+  if (hasUserUpdates) {
+    userRepo.setNotifyConfig(req.user.id, userUpdate);
+  }
+  if (hasTgUpdates) {
+    userRepo.setTelegramConfig(req.user.id, tgUpdate);
+  }
+
+  // Return fresh state (same shape as GET)
+  const cfg = userRepo.getNotifyConfig(req.user.id);
+  const tg = userRepo.getTelegramConfig(req.user.id);
+  res.json({
+    data: {
+      email: cfg?.email ?? null,
+      notify_mode: cfg?.notify_mode ?? 'digest_hourly',
+      notify_events: cfg?.notify_events ?? [],
+      smtp_configured: smtpConfigured(),
+      telegram_chat_id: tg?.chat_id ?? null,
+      telegram_bot_token_set: !!tg?.bot_token,
+    },
+  });
 });
 
+// Legacy: kept for back-compat. Sends a test email if SMTP is set up. UI no
+// longer surfaces this — Telegram replaced email — but the endpoint stays
+// alive so older bookmarks / scripts don't 404.
 router.post('/test-email', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
   const cfg = userRepo.getNotifyConfig(req.user.id);
@@ -67,11 +119,31 @@ router.post('/test-email', async (req: Request, res: Response) => {
     await sendNotification(
       cfg.email,
       'Тестовое письмо',
-      `<p>Это тестовое письмо от ScanFlow на адрес <b>${cfg.email}</b>.</p><p>Если вы получили это письмо — настройка уведомлений работает.</p>`,
+      `<p>Это тестовое письмо от ScanFlow на адрес <b>${cfg.email}</b>.</p>`,
     );
     res.json({ data: { ok: true } });
   } catch (err) {
     logger.warn('test-email failed', { error: (err as Error).message });
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post('/test-telegram', async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  const tg = userRepo.getTelegramConfig(req.user.id);
+  if (!tg?.chat_id || !tg?.bot_token) {
+    res.status(400).json({ error: 'Telegram not configured (chat_id and bot_token required)' });
+    return;
+  }
+  try {
+    await sendMessage(
+      tg.bot_token,
+      tg.chat_id,
+      '🧪 Тестовое сообщение от ScanFlow.\n\nЕсли вы это видите — настройка Telegram-уведомлений работает.',
+    );
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    logger.warn('test-telegram failed', { error: (err as Error).message });
     res.status(500).json({ error: (err as Error).message });
   }
 });
