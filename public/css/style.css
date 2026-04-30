@@ -1864,6 +1864,44 @@ details[open] summary { margin-bottom: 12px; }
   justify-content: center;
 }
 
+/* Input with an action button on the right (e.g. Chat ID + "Найти") */
+.input-with-action {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.input-with-action input { flex: 1; }
+
+.input-with-action .btn-sm {
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+#profile-tg-lookup-hint {
+  display: inline;
+  margin-left: 4px;
+}
+
+#profile-tg-lookup-hint a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+#profile-tg-lookup-hint a:hover {
+  text-decoration: underline;
+}
+
+#profile-tg-lookup-hint code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
 /* Help block (instruction) — collapsible, visually distinct from form fields */
 .help-block {
   margin-top: 20px;
