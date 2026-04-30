@@ -135,6 +135,10 @@ const App = {
       document.getElementById('view-settings').style.display = 'block';
       document.querySelector('nav a[data-tab="settings"]').classList.add('active');
       Settings.load();
+    } else if (hash === '#/profile') {
+      document.getElementById('view-profile').style.display = 'block';
+      document.querySelector('nav a[data-tab="profile"]').classList.add('active');
+      Profile.init();
     } else {
       document.getElementById('view-invoices').style.display = 'block';
       document.querySelector('nav a[data-tab="invoices"]').classList.add('active');

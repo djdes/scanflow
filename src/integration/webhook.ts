@@ -1,6 +1,7 @@
 import { getDb } from '../database/db';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { logger } from '../utils/logger';
+import { emit as emitNotification } from '../notifications/events';
 
 interface WebhookConfig {
   url: string;
@@ -75,7 +76,22 @@ export async function sendToWebhook(invoiceId: number): Promise<boolean> {
       });
 
       if (response.ok) {
+        // Capture pre-state BEFORE markSent so we can suppress the notification
+        // when the invoice was already sent (otherwise a webhook retry, OR a
+        // webhook + 1С /confirm racing on the same invoice, fires two emails).
+        const before = invoiceRepo.getById(invoiceId);
+        const wasAlreadySent = before?.sent_at != null;
+
         invoiceRepo.markSent(invoiceId);
+
+        if (!wasAlreadySent && before) {
+          emitNotification('sent_to_1c', {
+            invoice_id: before.id,
+            invoice_number: before.invoice_number,
+            supplier: before.supplier,
+            total_sum: before.total_sum,
+          }, null).catch(() => {});
+        }
         logger.info('Invoice sent to 1C successfully', { invoiceId, attempt });
         return true;
       }

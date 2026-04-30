@@ -1095,6 +1095,44 @@ userRepo.create({
 
 ---
 
+## Уведомления пользователю на email
+
+**Файлы:**
+- [`src/notifications/events.ts`](src/notifications/events.ts) — `emit(eventType, payload, userId)` точка эмиссии
+- [`src/notifications/digestWorker.ts`](src/notifications/digestWorker.ts) — cron 9-18 MSK почасовой, 19 MSK дневной, 03:30 чистка > 7 дней
+- [`src/notifications/templates.ts`](src/notifications/templates.ts) — HTML рендер (realtime + digest)
+- [`src/notifications/types.ts`](src/notifications/types.ts) — `EventType`, `NotifyMode`, `URGENT_EVENT_TYPES`
+- [`src/api/routes/profile.ts`](src/api/routes/profile.ts) — `GET/PATCH /api/profile`, `POST /api/profile/test-email`
+- В дашборде: вкладка «Профиль» (inline-section в `public/app.html` + `public/js/profile.js`)
+
+### Модель
+
+- 7 событий: `photo_uploaded`, `invoice_recognized`, `recognition_error`, `suspicious_total`, `invoice_edited`, `approved_for_1c`, `sent_to_1c`
+- 2 события — срочные (`recognition_error`, `suspicious_total`), всегда шлются мгновенно
+- 3 режима: `realtime` / `digest_hourly` (default) / `digest_daily`
+- Email и режим хранятся в `users` (миграция 18: колонки `email`, `notify_mode`, `notify_events`)
+- Очередь дайджеста — таблица `notification_events`, чистится раз в сутки
+
+### emit()
+
+`emit(eventType, payload, triggeredByUserId)` никогда не бросает исключение — failure логируется и глотается. Если `triggeredByUserId === null`, берётся `userRepo.firstUserId()` (для текущего single-user сетапа это владелец). Если у юзера нет `email` или событие выключено в `notify_events` — return без сайд-эффекта.
+
+### Точки эмиссии
+
+- `fileWatcher.ts` → `photo_uploaded`, `invoice_recognized`, `recognition_error`, `suspicious_total`
+- `api/routes/invoices.ts` → `invoice_edited` (PATCH item), `approved_for_1c` (POST send), `sent_to_1c` (POST confirm)
+- `integration/webhook.ts` → `sent_to_1c` (после `markSent`)
+
+### Существующие системные письма не трогаем
+
+`sendErrorEmail` (uncaughtException, диск-монитор) продолжает слаться через `MAIL_TO` из `.env`. Это сделано специально — системные письма должны работать даже когда БД недоступна.
+
+### Конфигурация SMTP
+
+`SMTP_HOST/PORT/USER/PASS` в `.env`. Если не заданы — `smtpConfigured()` возвращает `false`, в UI видна плашка «SMTP не настроен на сервере», тестовое письмо отдаёт 503.
+
+---
+
 ## Деплой и CI/CD
 
 ### Инфраструктура

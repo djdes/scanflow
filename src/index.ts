@@ -12,6 +12,7 @@ import { cleanupOldPhotos } from './utils/photoRetention';
 import { checkDiskSpace } from './utils/diskMonitor';
 import { invoiceRepo } from './database/repositories/invoiceRepo';
 import { seedAdminUser } from './auth/seedAdmin';
+import { startDigestWorker } from './notifications/digestWorker';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -100,6 +101,9 @@ async function main(): Promise<void> {
   // Run one backup immediately on startup — captures current state
   // before any crash or issues happen in this session.
   backupDatabase();
+
+  // Start user notification digest worker (cron: hourly 9-18 MSK + daily 19 MSK + cleanup 03:30 MSK)
+  startDigestWorker();
 
   logger.info('=== 1C-JPGExchange is running ===');
 }

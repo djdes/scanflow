@@ -84,6 +84,10 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 8a5.5 5.5 0 01-.4 2l1.2 1.5-1.4 1.4L11.4 11.7a5.5 5.5 0 01-2 .4V14h-2v-1.9a5.5 5.5 0 01-2-.4L3.9 12.9 2.5 11.5 3.7 10a5.5 5.5 0 01-.4-2H1.5V6h1.8a5.5 5.5 0 01.4-2L2.5 2.5l1.4-1.4L5.4 2.3a5.5 5.5 0 012-.4V0h2v1.9a5.5 5.5 0 012 .4l1.5-1.2 1.4 1.4-1.2 1.5a5.5 5.5 0 01.4 2h1.9v2h-1.9z" stroke="currentColor" stroke-width="1" opacity="0.4"/></svg>
           Настройки
         </a>
+        <a href="#/profile" data-tab="profile" data-route="profile">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 14a5.5 5.5 0 0111 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Профиль
+        </a>
       </nav>
       <div class="header-right">
         <button class="btn-logout" onclick="App.logout()" title="Выйти из системы">
@@ -466,6 +470,82 @@
         </div>
       </div>
     </section>
+
+    <!-- Profile Section -->
+    <section id="view-profile">
+      <div class="section-header">
+        <h2>Профиль</h2>
+        <p class="section-subtitle">Email и уведомления о событиях</p>
+      </div>
+
+      <div class="card">
+        <fieldset class="form-group" style="border:none;padding:0;margin:0 0 20px 0">
+          <legend style="font-weight:600;margin-bottom:8px">Email для уведомлений</legend>
+          <input type="email" id="profile-email" placeholder="you@example.com" autocomplete="email">
+          <div id="smtp-hint" class="field-hint" style="color:var(--warning)"></div>
+        </fieldset>
+
+        <fieldset class="form-group" style="border:none;padding:0;margin:0 0 20px 0">
+          <legend style="font-weight:600;margin-bottom:8px">Режим уведомлений</legend>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="profile-notify-mode" value="realtime">
+              <div>
+                <strong>Сразу</strong>
+                <div class="radio-desc">Письмо на каждое событие</div>
+              </div>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="profile-notify-mode" value="digest_hourly" checked>
+              <div>
+                <strong>Раз в час (рекомендуется)</strong>
+                <div class="radio-desc">Дайджест за последний час</div>
+              </div>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="profile-notify-mode" value="digest_daily">
+              <div>
+                <strong>Раз в день</strong>
+                <div class="radio-desc">Сводка за сутки</div>
+              </div>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-group" style="border:none;padding:0;margin:0 0 20px 0">
+          <legend style="font-weight:600;margin-bottom:8px">События</legend>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-event="photo_uploaded"> Фото загружено
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-event="invoice_recognized"> Накладная распознана
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-event="recognition_error"> Ошибка распознавания (срочно)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-event="suspicious_total"> Подозрительная сумма (срочно)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-event="invoice_edited"> Правка в дашборде
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-event="approved_for_1c"> Утверждена для 1С
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-event="sent_to_1c"> Отправлена в 1С
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" id="profile-save-btn">Сохранить</button>
+          <button class="btn btn-outline" id="profile-test-btn">Отправить тестовое письмо</button>
+          <span id="profile-status" class="field-hint" style="margin-left:8px"></span>
+        </div>
+      </div>
+    </section>
   </main>
 
   <div id="top-progress" class="top-progress" aria-hidden="true"></div>
@@ -493,5 +573,6 @@
 <script src="/js/mappings.js"></script>
 <script src="/js/webhook.js"></script>
 <script src="/js/settings.js"></script>
+<script src="/js/profile.js"></script>
 </body>
 </html>

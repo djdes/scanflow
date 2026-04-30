@@ -14,6 +14,7 @@ import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
 import { mapItemsWithClaudeApi, CatalogEntry } from '../../ocr/claudeApiAnalyzer';
 import { coerceToOnec1cUnit } from '../../mapping/packTransform';
+import { emit as emitNotification } from '../../notifications/events';
 
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
@@ -160,6 +161,16 @@ router.post('/:id/send', async (req: Request, res: Response) => {
   // Primary flow: mark as approved so 1C picks it up on next /pending call
   invoiceRepo.approveForOneC(id);
 
+  const invForNotif = invoiceRepo.getById(id);
+  if (invForNotif) {
+    emitNotification('approved_for_1c', {
+      invoice_id: invForNotif.id,
+      invoice_number: invForNotif.invoice_number,
+      supplier: invForNotif.supplier,
+      total_sum: invForNotif.total_sum,
+    }, req.user?.id ?? null).catch(() => {});
+  }
+
   res.json({
     data: { id, approved_for_1c: true },
     message: 'Накладная помечена для отправки в 1С. Загрузите через обработку в 1С.'
@@ -195,6 +206,17 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
   invoiceRepo.markSent(id);
   const db = getDb();
   db.prepare('UPDATE invoices SET approved_for_1c = 0 WHERE id = ?').run(id);
+
+  const invConfirmed = invoiceRepo.getById(id);
+  if (invConfirmed) {
+    emitNotification('sent_to_1c', {
+      invoice_id: invConfirmed.id,
+      invoice_number: invConfirmed.invoice_number,
+      supplier: invConfirmed.supplier,
+      total_sum: invConfirmed.total_sum,
+    }, req.user?.id ?? null).catch(() => {});
+  }
+
   res.json({ data: { id, status: 'sent_to_1c', already_sent: false } });
 });
 
@@ -951,6 +973,16 @@ router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
 
   const updated = invoiceRepo.getItemById(itemId);
   const invoice = invoiceRepo.getById(invoiceId);
+
+  if (invoice) {
+    emitNotification('invoice_edited', {
+      invoice_id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      supplier: invoice.supplier,
+      total_sum: invoice.total_sum,
+    }, req.user?.id ?? null).catch(() => {});
+  }
+
   res.json({
     data: {
       item: updated,

@@ -349,6 +349,52 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 18,
+    name: 'user notification settings',
+    detect: (db) => hasColumn(db, 'users', 'email') && hasTable(db, 'notification_events'),
+    run: (db) => {
+      if (!hasColumn(db, 'users', 'email')) {
+        db.exec(`ALTER TABLE users ADD COLUMN email TEXT;`);
+      }
+      if (!hasColumn(db, 'users', 'notify_mode')) {
+        db.exec(`ALTER TABLE users ADD COLUMN notify_mode TEXT NOT NULL DEFAULT 'digest_hourly';`);
+      }
+      if (!hasColumn(db, 'users', 'notify_events')) {
+        const defaultEvents = JSON.stringify([
+          'photo_uploaded',
+          'invoice_recognized',
+          'recognition_error',
+          'suspicious_total',
+          'invoice_edited',
+          'approved_for_1c',
+          'sent_to_1c',
+        ]);
+        db.exec(`ALTER TABLE users ADD COLUMN notify_events TEXT NOT NULL DEFAULT '${defaultEvents.replace(/'/g, "''")}';`);
+      }
+
+      // One-shot: pre-fill email from MAIL_TO env for existing users.
+      // After migration, user can change via profile UI.
+      const mailTo = (process.env.MAIL_TO || '').trim();
+      if (mailTo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailTo)) {
+        db.prepare('UPDATE users SET email = ? WHERE email IS NULL').run(mailTo);
+      }
+
+      if (!hasTable(db, 'notification_events')) {
+        db.exec(`
+          CREATE TABLE notification_events (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            event_type   TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            sent_at      TEXT
+          );
+          CREATE INDEX idx_notif_pending ON notification_events(user_id, sent_at);
+        `);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

@@ -14,6 +14,7 @@ import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
+import { emit as emitNotification } from '../notifications/events';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -231,6 +232,14 @@ export class FileWatcher {
       }
       throw err;
     }
+
+    // Fire-and-forget: notify that a new invoice row was created.
+    emitNotification('photo_uploaded', {
+      invoice_id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      supplier: invoice.supplier,
+      total_sum: invoice.total_sum,
+    }, null).catch(() => {});
 
     try {
       // 2. OCR (hybrid mode: Google Vision + Claude analyzer if enabled)
@@ -601,6 +610,29 @@ export class FileWatcher {
                 totalSum: unifiedParsed.total_sum,
               });
 
+              // Fire-and-forget notifications for recognised invoice.
+              const finalInvoice = invoiceRepo.getById(targetInvoiceId);
+              if (finalInvoice) {
+                emitNotification('invoice_recognized', {
+                  invoice_id: finalInvoice.id,
+                  invoice_number: finalInvoice.invoice_number,
+                  supplier: finalInvoice.supplier,
+                  total_sum: finalInvoice.total_sum,
+                }, null).catch(() => {});
+                if (finalInvoice.items_total_mismatch === 1) {
+                  const itemsTotal = invoiceRepo
+                    .getItems(finalInvoice.id)
+                    .reduce((sum, it) => sum + (it.total ?? 0), 0);
+                  emitNotification('suspicious_total', {
+                    invoice_id: finalInvoice.id,
+                    invoice_number: finalInvoice.invoice_number,
+                    supplier: finalInvoice.supplier,
+                    total_sum: finalInvoice.total_sum,
+                    items_total: itemsTotal,
+                  }, null).catch(() => {});
+                }
+              }
+
               // Move file to processed
               if (!config.dryRun) {
                 try {
@@ -786,6 +818,29 @@ export class FileWatcher {
           itemsCount: parsed.items.length,
           engine: ocrResult.engine,
         });
+
+        // Fire-and-forget notifications for recognised invoice.
+        const finalInvoice = invoiceRepo.getById(invoice.id);
+        if (finalInvoice) {
+          emitNotification('invoice_recognized', {
+            invoice_id: finalInvoice.id,
+            invoice_number: finalInvoice.invoice_number,
+            supplier: finalInvoice.supplier,
+            total_sum: finalInvoice.total_sum,
+          }, null).catch(() => {});
+          if (finalInvoice.items_total_mismatch === 1) {
+            const itemsTotal = invoiceRepo
+              .getItems(finalInvoice.id)
+              .reduce((sum, it) => sum + (it.total ?? 0), 0);
+            emitNotification('suspicious_total', {
+              invoice_id: finalInvoice.id,
+              invoice_number: finalInvoice.invoice_number,
+              supplier: finalInvoice.supplier,
+              total_sum: finalInvoice.total_sum,
+              items_total: itemsTotal,
+            }, null).catch(() => {});
+          }
+        }
       }
 
       // 8. Auto-send to 1C if enabled
@@ -818,6 +873,15 @@ export class FileWatcher {
       const errorMsg = (err as Error).message;
       invoiceRepo.updateStatus(invoice.id, 'error', errorMsg);
       logger.error('Invoice processing failed', { id: invoice.id, fileName, error: errorMsg });
+
+      // Fire-and-forget notification for recognition failure.
+      emitNotification('recognition_error', {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        supplier: invoice.supplier,
+        total_sum: invoice.total_sum,
+        error_message: errorMsg,
+      }, null).catch(() => {});
 
       // Email notification
       sendErrorEmail(

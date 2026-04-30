@@ -48,3 +48,32 @@ export async function sendErrorEmail(subject: string, details: string): Promise<
     logger.error('Failed to send error email', { error: (err as Error).message, subject });
   }
 }
+
+// Send a domain-event notification to a specific recipient. Unlike
+// sendErrorEmail, this:
+//   - takes the `to` address explicitly (per-user, not global MAIL_TO)
+//   - has no rate limit (digest mode handles regulation)
+// SMTP must be configured in env. Returns void on success, throws on
+// failure so the caller can decide whether to retry/log.
+export async function sendNotification(to: string, subject: string, html: string): Promise<void> {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+    throw new Error('SMTP not configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)');
+  }
+  if (!to) {
+    throw new Error('sendNotification: empty `to` address');
+  }
+  await transporter.sendMail({
+    from: `"ScanFlow" <${SMTP_USER}>`,
+    to,
+    subject: `[ScanFlow] ${subject}`,
+    html,
+  });
+  logger.info('Notification email sent', { subject, to });
+}
+
+// True if the runtime has the SMTP env vars filled in. Used by
+// /api/profile to surface an "SMTP not configured on server" hint
+// in the UI.
+export function smtpConfigured(): boolean {
+  return !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
+}
