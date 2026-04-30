@@ -1,4 +1,5 @@
 import { logger } from '../../utils/logger';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
 // Thrown by editMessageText when Telegram says the message is gone
 // (deleted by user, or doesn't exist). Caller should fall back to sendMessage.
@@ -7,6 +8,33 @@ export class MessageGoneError extends Error {
     super(`Telegram message gone: ${telegramDescription}`);
     this.name = 'MessageGoneError';
   }
+}
+
+// Russian hosters often block outbound HTTPS to api.telegram.org. We reuse
+// the same HTTP proxy that's set up for Anthropic — if none is configured,
+// fall back to native fetch (works on machines with direct egress).
+//
+// Order of resolution:
+//   1. TELEGRAM_PROXY_URL — explicit override (highest priority)
+//   2. ANTHROPIC_PROXY_URL — same proxy as Claude
+//   3. none — direct fetch (global.fetch resolved lazily so test mocks work)
+let proxiedDispatcher: ProxyAgent | null = null;
+let proxiedDispatcherLogged = false;
+function getFetch(): typeof globalThis.fetch {
+  const proxyUrl = (process.env.TELEGRAM_PROXY_URL || process.env.ANTHROPIC_PROXY_URL || '').trim();
+  if (!proxyUrl) {
+    // Resolve fresh from globalThis each call so vi.fn() mocks installed
+    // after module load still take effect.
+    return globalThis.fetch;
+  }
+  if (!proxiedDispatcher) {
+    proxiedDispatcher = new ProxyAgent(proxyUrl);
+  }
+  if (!proxiedDispatcherLogged) {
+    logger.info('Telegram client: using HTTP proxy', { proxy: proxyUrl.replace(/\/\/.*@/, '//*:*@') });
+    proxiedDispatcherLogged = true;
+  }
+  return ((url: any, init: any) => undiciFetch(url, { ...init, dispatcher: proxiedDispatcher })) as typeof globalThis.fetch;
 }
 
 interface TelegramOk<T> {
@@ -46,7 +74,7 @@ async function callTelegram<T>(token: string, method: string, params: Record<str
   const url = `https://api.telegram.org/bot${token}/${method}`;
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await getFetch()(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
