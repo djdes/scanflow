@@ -120,12 +120,15 @@
       try {
         const body = tokenChanged ? { telegram_bot_token: tokenInput } : {};
         const r = await App.apiJson('/profile/lookup-telegram-chat-id', { method: 'POST', body });
-        document.getElementById('profile-tg-chat').value = r.data.chat_id;
-        const sentNote = r.data.confirmation_sent
-          ? ' Проверьте Telegram и нажмите «Сохранить».'
-          : ' Не удалось отправить подтверждение в Telegram, но Chat ID найден.';
-        hint.textContent = ` Найдено: ${r.data.chat_id}.${sentNote}`;
-        hint.style.color = 'var(--success)';
+        if (r.data.confirmation_sent) {
+          hint.textContent = ` Бот написал вам в Telegram — скопируйте Chat ID оттуда и вставьте в поле выше, затем «Сохранить».`;
+          hint.style.color = 'var(--success)';
+        } else {
+          // Fallback: server found the chat_id but couldn't DM it. Show it in the hint
+          // since otherwise the user has no way to learn it.
+          hint.textContent = ` Найдено: ${r.data.chat_id}. Не удалось отправить в Telegram — скопируйте отсюда вручную.`;
+          hint.style.color = 'var(--warning)';
+        }
       } catch (err) {
         if (err.body && err.body.error === 'no_updates' && err.body.bot_username) {
           // Build DOM via createElement so bot_username is text content, not HTML.

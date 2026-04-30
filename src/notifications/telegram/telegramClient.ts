@@ -19,14 +19,43 @@ interface TelegramErr {
   error_code: number;
 }
 
+// Extracts a useful description from native fetch failures. undici (Node 18+
+// native fetch) throws plain `Error('fetch failed')` and stuffs the actual
+// reason — DNS, ETIMEDOUT, ECONNREFUSED, TLS — into `err.cause`. Without this
+// helper logs only show "fetch failed" with zero info to act on.
+function describeFetchError(err: unknown): string {
+  const e = err as { message?: string; cause?: { code?: string; message?: string; errors?: Array<{ code?: string; message?: string }> } };
+  const baseMsg = e?.message ?? String(err);
+  const cause = e?.cause;
+  if (!cause) return baseMsg;
+
+  // AggregateError-like (multiple addrs tried, all failed)
+  if (Array.isArray(cause.errors) && cause.errors.length > 0) {
+    const causes = cause.errors
+      .map((c) => `${c?.code ?? '?'} ${c?.message ?? ''}`.trim())
+      .join('; ');
+    return `${baseMsg} (${causes})`;
+  }
+
+  const code = cause.code ? `${cause.code} ` : '';
+  const causeMsg = cause.message ?? '';
+  return `${baseMsg} (${code}${causeMsg})`.trim();
+}
+
 async function callTelegram<T>(token: string, method: string, params: Record<string, unknown>): Promise<T> {
   const url = `https://api.telegram.org/bot${token}/${method}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-    signal: AbortSignal.timeout(15_000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    // Surface the real cause (DNS, firewall, TLS) instead of opaque "fetch failed".
+    throw new Error(`Telegram API ${method} network error: ${describeFetchError(err)}`);
+  }
   const data = (await res.json()) as TelegramOk<T> | TelegramErr;
   if (!data.ok) {
     const errData = data as TelegramErr;
