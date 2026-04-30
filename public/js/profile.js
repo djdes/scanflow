@@ -105,6 +105,44 @@
       }
     },
 
+    async lookupChatId() {
+      const hint = document.getElementById('profile-tg-lookup-hint');
+      const btn = document.getElementById('profile-tg-lookup');
+      const tokenInputEl = document.getElementById('profile-tg-token');
+      const tokenInput = tokenInputEl.value;
+      const tokenChanged = tokenInput && tokenInput !== TOKEN_PLACEHOLDER;
+
+      hint.innerHTML = '';
+      hint.style.color = '';
+      btn.disabled = true;
+      btn.textContent = 'Ищем…';
+
+      try {
+        const body = tokenChanged ? { telegram_bot_token: tokenInput } : {};
+        const r = await App.apiJson('/profile/lookup-telegram-chat-id', { method: 'POST', body });
+        document.getElementById('profile-tg-chat').value = r.data.chat_id;
+        const sentNote = r.data.confirmation_sent
+          ? ' Проверьте Telegram и нажмите «Сохранить».'
+          : ' Не удалось отправить подтверждение в Telegram, но Chat ID найден.';
+        hint.textContent = ` Найдено: ${r.data.chat_id}.${sentNote}`;
+        hint.style.color = 'var(--success)';
+      } catch (err) {
+        if (err.body && err.body.error === 'no_updates' && err.body.bot_username) {
+          const u = err.body.bot_username;
+          hint.innerHTML = ' Напишите боту <a href="https://t.me/' + u +
+            '" target="_blank" rel="noopener noreferrer">@' + u + '</a> ' +
+            'команду <code>/start</code> и нажмите «Найти» снова.';
+          hint.style.color = 'var(--error)';
+        } else {
+          hint.textContent = ' ' + (err.message || 'Ошибка');
+          hint.style.color = 'var(--error)';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Найти';
+      }
+    },
+
     init() {
       if (this._wired) {
         this.load();
@@ -116,6 +154,9 @@
       document
         .getElementById('profile-tg-token-toggle')
         .addEventListener('click', () => this.toggleTokenVisibility());
+      document
+        .getElementById('profile-tg-lookup')
+        .addEventListener('click', () => this.lookupChatId());
       this.load();
     },
   };
