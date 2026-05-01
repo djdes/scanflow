@@ -165,11 +165,22 @@ const Camera = {
     const h = this.history[idx];
     if (!h || h.status !== 'error') return;
 
-    // Try to get blob from IndexedDB if file is gone from memory
+    // Mark as uploading so the user sees immediate feedback (status pill changes,
+    // Retry/Delete buttons disappear). Then either replay from IndexedDB or surface
+    // a "lost" state if the blob is gone.
     h.status = 'uploading';
     h.error = null;
     this.renderHistory();
     this.updateCounter();
+
+    if (App && App.notify) App.notify('Повторяем загрузку…', 'info');
+
+    const giveUp = (msg) => {
+      h.status = 'lost';
+      h.error = msg;
+      this.renderHistory();
+      this.updateCounter();
+    };
 
     if (h.id && this.db) {
       const tx = this.db.transaction(this.STORE_NAME, 'readonly');
@@ -178,29 +189,42 @@ const Camera = {
         if (req.result?.blob) {
           this.doUpload(req.result.blob, idx, h.id);
         } else {
-          h.status = 'error';
-          h.error = 'Фото утеряно, сделайте заново';
-          this.renderHistory();
+          giveUp('Фото утеряно, сделайте заново');
         }
       };
-      req.onerror = () => {
-        h.status = 'error';
-        h.error = 'Не удалось прочитать фото';
-        this.renderHistory();
-      };
+      req.onerror = () => giveUp('Не удалось прочитать фото из браузера');
     } else {
-      h.status = 'error';
-      h.error = 'Фото утеряно, сделайте заново';
-      this.renderHistory();
+      giveUp('Фото утеряно, сделайте заново');
     }
+  },
+
+  // Removes an item from the visible list AND from IndexedDB. Used for both
+  // failed uploads (user wants to dismiss the error) and successful ones
+  // (user wants to clear the screen). Server-side invoice is NOT touched —
+  // the dashboard has its own delete button for that.
+  async remove(idx) {
+    const h = this.history[idx];
+    if (!h) return;
+    // Mark removed so renderHistory drops it. We don't splice the array
+    // because indexes are baked into onclick handlers.
+    h.status = 'removed';
+    if (h.url) {
+      try { URL.revokeObjectURL(h.url); } catch {}
+    }
+    if (h.id && this.db) {
+      try { await this.dbDelete(h.id); } catch {}
+    }
+    this.renderHistory();
+    this.updateCounter();
   },
 
   // --- UI ---
 
   updateCounter() {
     const el = document.getElementById('camera-counter');
-    const uploading = this.history.filter(h => h.status === 'uploading').length;
-    const errors = this.history.filter(h => h.status === 'error').length;
+    const visible = this.history.filter(h => h.status !== 'removed');
+    const uploading = visible.filter(h => h.status === 'uploading').length;
+    const errors = visible.filter(h => h.status === 'error' || h.status === 'lost').length;
     const parts = [];
     if (this.totalUploaded > 0) parts.push(`Загружено: ${this.totalUploaded}`);
     if (uploading > 0) parts.push(`В очереди: ${uploading}`);
@@ -210,34 +234,58 @@ const Camera = {
 
   renderHistory() {
     const container = document.getElementById('camera-history');
-    if (this.history.length === 0) {
-      container.innerHTML = '';
-      return;
-    }
 
     const esc = (s) => (window.App ? App.esc(s) : String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
 
-    const items = this.history.map((h, i) => ({ ...h, idx: i })).reverse();
+    // Build with index baked in so dismissed items don't shift indexes
+    // for surviving rows (we never splice the array).
+    const items = this.history
+      .map((h, i) => ({ ...h, idx: i }))
+      .filter(h => h.status !== 'removed')
+      .reverse();
+
+    if (items.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
     container.innerHTML = items.map(h => {
       let statusHtml = '';
+      let actionsHtml = '';
+
       if (h.status === 'uploading') {
-        statusHtml = '<span class="camera-status camera-status-loading">Загрузка...</span>';
+        statusHtml = '<span class="camera-status camera-status-loading">Загрузка…</span>';
       } else if (h.status === 'ok') {
         const id = Number(h.invoiceId);
         const safeId = Number.isFinite(id) ? id : 0;
         statusHtml = `<a href="#/invoices/${safeId}" class="camera-status camera-status-ok">Накладная #${safeId}</a>`;
+        actionsHtml = `<button class="btn btn-sm btn-outline camera-action-btn" onclick="Camera.remove(${h.idx})">Убрать</button>`;
+      } else if (h.status === 'lost') {
+        statusHtml = `<span class="camera-status camera-status-error">Фото утеряно</span>`;
+        const errMsg = esc(h.error || 'Файл больше не доступен в браузере');
+        statusHtml += `<div class="camera-error-detail">${errMsg}. Сделайте фото заново.</div>`;
+        actionsHtml = `<button class="btn btn-sm btn-outline camera-action-btn" onclick="Camera.remove(${h.idx})">Удалить</button>`;
       } else {
-        statusHtml = `<span class="camera-status camera-status-error" title="${esc(h.error || '')}">Ошибка</span>
-          <button class="btn btn-sm btn-outline" onclick="Camera.retry(${Number(h.idx) || 0})" style="margin-left:8px">Повторить</button>`;
+        // status === 'error'
+        statusHtml = `<span class="camera-status camera-status-error">Ошибка загрузки</span>`;
+        if (h.error) {
+          statusHtml += `<div class="camera-error-detail">${esc(h.error)}</div>`;
+        }
+        actionsHtml = `
+          <button class="btn btn-sm btn-primary camera-action-btn" onclick="Camera.retry(${h.idx})">Повторить</button>
+          <button class="btn btn-sm btn-outline camera-action-btn" onclick="Camera.remove(${h.idx})">Удалить</button>
+        `;
       }
+
       // h.url is a blob: URL we created ourselves (URL.createObjectURL), but still escape defensively.
       return `<div class="camera-history-item">
         <img src="${esc(h.url)}" alt="">
         <div class="camera-history-info">
           <div class="camera-history-name">${esc(h.name)}</div>
           ${statusHtml}
+          ${actionsHtml ? `<div class="camera-actions">${actionsHtml}</div>` : ''}
         </div>
       </div>`;
     }).join('');

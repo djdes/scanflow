@@ -1050,6 +1050,32 @@ details[open] summary { margin-bottom: 12px; }
   color: #991b1b;
 }
 
+/* Detailed error message under the status pill — visible on phones where
+   `title` tooltips don't render. */
+.camera-error-detail {
+  font-size: 12px;
+  color: var(--error, #991b1b);
+  line-height: 1.4;
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+/* Action buttons row (Retry / Delete / Dismiss) under the camera item.
+   Spacing tuned for tap-friendly mobile use. */
+.camera-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.camera-action-btn {
+  /* Ensure tap targets are at least ~36px tall on mobile */
+  min-height: 32px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
 /* ========== Toggle Switch ========== */
 .toggle-wrap {
   display: flex;
