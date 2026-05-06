@@ -33,7 +33,7 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 router.get('/:inn', (req: Request, res: Response) => {
-  const supplier = supplierRepo.findByInn(req.params.inn);
+  const supplier = supplierRepo.findByInn((req.params.inn as string));
   if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
   return res.json({ supplier });
 });
@@ -58,18 +58,18 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 router.patch('/:inn', (req: Request, res: Response) => {
-  const existing = supplierRepo.findByInn(req.params.inn);
+  const existing = supplierRepo.findByInn((req.params.inn as string));
   if (!existing) return res.status(404).json({ error: 'Supplier not found' });
   const body = req.body as SupplierBody;
   if (body.bank_bic && !BIC_RE.test(body.bank_bic)) return res.status(400).json({ error: 'bank_bic must be 9 digits' });
   if (body.account && !ACC_RE.test(body.account)) return res.status(400).json({ error: 'account must be 20 digits' });
   if (body.bank_corr_account && !ACC_RE.test(body.bank_corr_account)) return res.status(400).json({ error: 'bank_corr_account must be 20 digits' });
-  supplierRepo.update(req.params.inn, body);
-  return res.json({ supplier: supplierRepo.findByInn(req.params.inn) });
+  supplierRepo.update((req.params.inn as string), body);
+  return res.json({ supplier: supplierRepo.findByInn((req.params.inn as string)) });
 });
 
 router.delete('/:inn', (req: Request, res: Response) => {
-  supplierRepo.delete(req.params.inn);
+  supplierRepo.delete((req.params.inn as string));
   return res.json({ success: true });
 });
 

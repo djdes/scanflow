@@ -1003,7 +1003,7 @@ router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
 
 // GET /api/invoices/:id/sber-status — текущее состояние платежа в Сбере
 router.get('/:id/sber-status', (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const payment = sberPaymentRepo.findByInvoiceId(id);
   return res.json({ payment });
@@ -1011,7 +1011,7 @@ router.get('/:id/sber-status', (req: Request, res: Response) => {
 
 // POST /api/invoices/:id/send-sber — создать черновик платежа в СберБизнес
 router.post('/:id/send-sber', async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
