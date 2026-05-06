@@ -271,6 +271,11 @@ const Invoices = {
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
 
+      // Sber section (button + status)
+      if (window.Sber) {
+        Sber.renderInvoiceSection(data).catch(err => console.error('[sber] render section', err));
+      }
+
       // Items table
       const itemsTbody = document.getElementById('invoice-items-tbody');
       if (data.items && data.items.length > 0) {

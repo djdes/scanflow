@@ -127,6 +127,14 @@ const App = {
       document.getElementById('view-mappings').style.display = 'block';
       document.querySelector('nav a[data-tab="mappings"]').classList.add('active');
       Mappings.load();
+    } else if (hash === '#/suppliers') {
+      document.getElementById('view-suppliers').style.display = 'block';
+      document.querySelector('nav a[data-tab="suppliers"]').classList.add('active');
+      Suppliers.load();
+    } else if (hash.startsWith('#/sber')) {
+      document.getElementById('view-sber').style.display = 'block';
+      document.querySelector('nav a[data-tab="sber"]').classList.add('active');
+      Sber.load();
     } else if (hash === '#/webhook') {
       document.getElementById('view-webhook').style.display = 'block';
       document.querySelector('nav a[data-tab="webhook"]').classList.add('active');

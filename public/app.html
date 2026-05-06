@@ -76,6 +76,14 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           Номенклатура
         </a>
+        <a href="#/suppliers" data-tab="suppliers">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Поставщики
+        </a>
+        <a href="#/sber" data-tab="sber">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Сбербанк
+        </a>
         <a href="#/webhook" data-tab="webhook">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 4 6-4M2 4v8a1 1 0 001 1h10a1 1 0 001-1V4M2 4a1 1 0 011-1h10a1 1 0 011 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           Webhook 1C
@@ -135,6 +143,7 @@
           <div class="invoice-header" id="invoice-header-fields"></div>
           <div class="invoice-actions" id="invoice-actions"></div>
         </div>
+        <div class="card" id="invoice-sber-section" style="display:none"></div>
         <div class="card" id="invoice-supplier-details" style="display:none">
           <h3 style="margin-bottom:12px">Реквизиты поставщика</h3>
         </div>
@@ -679,6 +688,23 @@
         </aside>
       </div>
     </section>
+
+    <!-- Suppliers Section -->
+    <section id="view-suppliers">
+      <h2>Поставщики</h2>
+      <div class="actions-bar" style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
+        <input type="search" id="suppliers-search" placeholder="Поиск по ИНН или названию" style="flex:1">
+        <button class="btn btn-primary" id="supplier-add-btn">+ Добавить поставщика</button>
+      </div>
+      <div id="suppliers-table-wrap"></div>
+    </section>
+
+    <!-- Sber Section -->
+    <section id="view-sber">
+      <h2>Сбербанк Бизнес</h2>
+      <div id="sber-status-card" class="card"><p>Загрузка...</p></div>
+      <div id="sber-actions" style="margin-top:16px"></div>
+    </section>
   </main>
 
   <div id="top-progress" class="top-progress" aria-hidden="true"></div>
@@ -707,5 +733,8 @@
 <script src="/js/webhook.js"></script>
 <script src="/js/settings.js"></script>
 <script src="/js/profile.js"></script>
+<script src="/js/sber-modal.js"></script>
+<script src="/js/sber.js"></script>
+<script src="/js/suppliers.js"></script>
 </body>
 </html>
