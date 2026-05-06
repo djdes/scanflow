@@ -15,6 +15,7 @@ export interface Invoice {
   total_sum: number | null;
   invoice_type: string | null;
   supplier_inn: string | null;
+  supplier_kpp: string | null;
   supplier_bik: string | null;
   supplier_account: string | null;
   supplier_corr_account: string | null;
@@ -55,6 +56,7 @@ export interface CreateInvoiceData {
   supplier?: string;
   invoice_type?: string;
   supplier_inn?: string;
+  supplier_kpp?: string;
   supplier_bik?: string;
   supplier_account?: string;
   supplier_corr_account?: string;
@@ -92,8 +94,8 @@ export const invoiceRepo = {
   create(data: CreateInvoiceData): Invoice {
     const db = getDb();
     const stmt = db.prepare(`
-      INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash)
-      VALUES (@file_name, @file_path, @invoice_number, @invoice_date, @supplier, @invoice_type, @supplier_inn, @supplier_bik, @supplier_account, @supplier_corr_account, @supplier_address, @total_sum, @vat_sum, @raw_text, @ocr_engine, @file_hash)
+      INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_kpp, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash)
+      VALUES (@file_name, @file_path, @invoice_number, @invoice_date, @supplier, @invoice_type, @supplier_inn, @supplier_kpp, @supplier_bik, @supplier_account, @supplier_corr_account, @supplier_address, @total_sum, @vat_sum, @raw_text, @ocr_engine, @file_hash)
     `);
     try {
       const result = stmt.run({
@@ -104,6 +106,7 @@ export const invoiceRepo = {
         supplier: data.supplier ?? null,
         invoice_type: data.invoice_type ?? null,
         supplier_inn: data.supplier_inn ?? null,
+        supplier_kpp: data.supplier_kpp ?? null,
         supplier_bik: data.supplier_bik ?? null,
         supplier_account: data.supplier_account ?? null,
         supplier_corr_account: data.supplier_corr_account ?? null,
