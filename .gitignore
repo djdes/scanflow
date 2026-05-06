@@ -9,6 +9,12 @@ data/failed/*
 !data/failed/.gitkeep
 .env
 google-credentials.json
+
+# Sber TLS certificates (server-only)
+certs/*
+!certs/.gitkeep
+DocsApiSber/
+
 *.log
 logs/
 logs/.*-audit.json
