@@ -15,6 +15,15 @@ import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
 import { mapItemsWithClaudeApi, CatalogEntry } from '../../ocr/claudeApiAnalyzer';
 import { coerceToOnec1cUnit } from '../../mapping/packTransform';
 import { emit as emitNotification } from '../../notifications/events';
+import { randomUUID } from 'node:crypto';
+import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
+import { supplierRepo } from '../../database/repositories/supplierRepo';
+import { sberPaymentRepo } from '../../database/repositories/sberPaymentRepo';
+import { userRepo } from '../../database/repositories/userRepo';
+import { getValidAccessToken } from '../../sber/oauth';
+import { createPaymentOrder, SberApiError } from '../../sber/payments';
+import { renderPurpose } from '../../sber/purposeTemplate';
+import { redact } from '../../sber/redact';
 
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
@@ -990,6 +999,173 @@ router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
       items_total_mismatch: invoice?.items_total_mismatch ?? 0,
     },
   });
+});
+
+// GET /api/invoices/:id/sber-status — текущее состояние платежа в Сбере
+router.get('/:id/sber-status', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const payment = sberPaymentRepo.findByInvoiceId(id);
+  return res.json({ payment });
+});
+
+// POST /api/invoices/:id/send-sber — создать черновик платежа в СберБизнес
+router.post('/:id/send-sber', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = invoiceRepo.getById(id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  if (sberPaymentRepo.findByInvoiceId(id)) {
+    return res.status(409).json({ error: 'Payment already created for this invoice' });
+  }
+  if (!invoice.total_sum || invoice.total_sum <= 0) {
+    return res.status(400).json({ error: 'invoice has no total_sum' });
+  }
+  if (!invoice.supplier_inn) {
+    return res.status(400).json({ error: 'invoice has no supplier_inn' });
+  }
+
+  const tokenRow = sberTokenRepo.get();
+  if (!tokenRow) return res.status(400).json({ error: 'Sber not connected' });
+  if (!tokenRow.account_number || !tokenRow.org_name || !tokenRow.payer_inn ||
+      !tokenRow.payer_bank_bic || !tokenRow.payer_bank_corr_account) {
+    return res.status(400).json({ error: 'payer details incomplete (settings → Сбербанк)' });
+  }
+
+  // Resolve supplier
+  const overrides = (req.body as { supplier_overrides?: Record<string, unknown> }).supplier_overrides;
+  let supplier = supplierRepo.findByInn(invoice.supplier_inn);
+  if (overrides) {
+    const o = overrides as {
+      inn?: string; name?: string; kpp?: string;
+      account?: string; bank_bic?: string; bank_corr_account?: string;
+      bank_name?: string; address?: string;
+    };
+    if (!o.inn || !o.name || !o.bank_bic) {
+      return res.status(400).json({ error: 'supplier_overrides missing required fields (inn, name, bank_bic)' });
+    }
+    supplier = supplierRepo.upsert({
+      inn: o.inn, name: o.name, kpp: o.kpp ?? null,
+      account: o.account ?? null, bank_bic: o.bank_bic,
+      bank_corr_account: o.bank_corr_account ?? null,
+      bank_name: o.bank_name ?? null, address: o.address ?? null,
+      verified: 1, source: 'invoice',
+    });
+  }
+  if (!supplier || !supplier.verified) {
+    return res.status(409).json({
+      needs_supplier_confirmation: true,
+      prefilled: {
+        inn: invoice.supplier_inn,
+        name: invoice.supplier ?? '',
+        kpp: invoice.supplier_kpp ?? null,
+        bank_bic: invoice.supplier_bik ?? null,
+        account: invoice.supplier_account ?? null,
+        bank_corr_account: invoice.supplier_corr_account ?? null,
+        address: invoice.supplier_address ?? null,
+      },
+    });
+  }
+
+  // Get token (auto-refresh)
+  let accessToken: string;
+  try {
+    accessToken = await getValidAccessToken();
+  } catch (err) {
+    return res.status(401).json({ error: `Sber auth failed: ${(err as Error).message}` });
+  }
+
+  // Render purpose
+  const purposeOverride = (req.body as { purpose_override?: string }).purpose_override;
+  const userId = userRepo.firstUserId() ?? 1;
+  const tpl =
+    purposeOverride ??
+    userRepo.getPurposeTemplate(userId) ??
+    'Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}';
+  const items = invoiceRepo.getItems(id);
+  const firstVatRate = items[0]?.vat_rate ?? null;
+  const purpose = renderPurpose(tpl, {
+    invoice_number: invoice.invoice_number,
+    invoice_date: invoice.invoice_date,
+    total_sum: invoice.total_sum,
+    vat_sum: invoice.vat_sum,
+    vat_rate: firstVatRate,
+    supplier: supplier.name,
+  });
+
+  const externalId = randomUUID();
+  const today = new Date().toISOString().slice(0, 10);
+
+  // INSERT pending row first — UNIQUE invoice_id защищает от двойного клика
+  try {
+    sberPaymentRepo.create({
+      invoice_id: id,
+      external_id: externalId,
+      status: 'pending',
+      payment_purpose: purpose,
+      amount: invoice.total_sum,
+      payer_account: tokenRow.account_number,
+      payee_inn: invoice.supplier_inn,
+    });
+  } catch (err) {
+    if ((err as Error).message.includes('UNIQUE')) {
+      return res.status(409).json({ error: 'Payment already created for this invoice' });
+    }
+    throw err;
+  }
+
+  // Build payload
+  const payload = {
+    date: today,
+    externalId,
+    amount: invoice.total_sum,
+    purpose,
+    payerName: tokenRow.org_name,
+    payerInn: tokenRow.payer_inn,
+    payerKpp: tokenRow.payer_kpp ?? undefined,
+    payerAccount: tokenRow.account_number,
+    payerBankBic: tokenRow.payer_bank_bic,
+    payerBankCorrAccount: tokenRow.payer_bank_corr_account,
+    payeeName: supplier.name,
+    payeeInn: supplier.inn,
+    payeeKpp: supplier.kpp ?? undefined,
+    payeeAccount: supplier.account ?? undefined,
+    payeeBankBic: supplier.bank_bic,
+    payeeBankCorrAccount: supplier.bank_corr_account ?? undefined,
+  };
+
+  try {
+    const result = await createPaymentOrder(accessToken, payload);
+    sberPaymentRepo.updateStatus(id, {
+      status: 'created',
+      sber_payment_number: result.number ?? null,
+      response_body: JSON.stringify(redact(result)),
+    });
+    supplierRepo.touchLastUsed(supplier.inn);
+    logger.info('[sber] payment created', { invoice_id: id, number: result.number, externalId });
+    return res.json({
+      success: true,
+      payment_number: result.number ?? null,
+      external_id: externalId,
+    });
+  } catch (err) {
+    if (err instanceof SberApiError) {
+      sberPaymentRepo.updateStatus(id, {
+        status: 'failed',
+        response_body: err.body,
+        error_message: `${err.status}: ${err.body.slice(0, 500)}`,
+      });
+      logger.error('[sber] payment failed', { invoice_id: id, status: err.status });
+      return res.status(502).json({ error: 'Sber API error', sber_status: err.status, sber_body: err.body });
+    }
+    sberPaymentRepo.updateStatus(id, {
+      status: 'failed',
+      error_message: (err as Error).message.slice(0, 500),
+    });
+    logger.error('[sber] payment send error', { invoice_id: id, err: (err as Error).message });
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 export default router;
