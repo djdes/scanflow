@@ -248,17 +248,27 @@ export class FileWatcher {
       if (forceEngine) {
         ocrResult = await this.ocrManager.recognizeWithEngine(filePath, forceEngine);
       } else {
-        // Check analyzer mode from DB config
+        // Check analyzer mode from DB config. Known values: 'claude_api', 'hybrid'.
+        // Anything else is a misconfig — log loudly and fall back to hybrid so
+        // we never silently downgrade to regex parsing without visibility.
         const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+        const KNOWN_MODES = ['claude_api', 'hybrid'] as const;
+        if (!KNOWN_MODES.includes(analyzerConfig.mode as typeof KNOWN_MODES[number])) {
+          logger.error('Unknown analyzer_config.mode — falling back to hybrid', {
+            mode: analyzerConfig.mode,
+            knownModes: KNOWN_MODES,
+            invoiceId: invoice.id,
+          });
+        }
 
         if (analyzerConfig.mode === 'claude_api') {
           // Claude API mode: send image directly to Anthropic API
           ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
         } else if (config.useClaudeAnalyzer) {
-          // Hybrid mode: Google Vision OCR + Claude CLI text analysis
+          // Hybrid mode: Google Vision OCR + Claude API text analyzer
           ocrResult = await this.ocrManager.recognizeHybrid(filePath, true);
         } else {
-          // Fallback: Google Vision only + regex parser
+          // Last-resort fallback: Google Vision only + regex parser
           ocrResult = await this.ocrManager.recognize(filePath);
         }
       }
@@ -486,6 +496,7 @@ export class FileWatcher {
                 vat_sum: unifiedParsed.vat_sum,
                 invoice_type: unifiedParsed.invoice_type,
                 supplier_inn: unifiedParsed.supplier_inn,
+                supplier_kpp: unifiedParsed.supplier_kpp,
                 ocr_engine: multiResult.engine,
                 raw_text: combinedText,
               });
@@ -660,6 +671,7 @@ export class FileWatcher {
           vat_sum: parsed.vat_sum,
           invoice_type: parsed.invoice_type,
           supplier_inn: parsed.supplier_inn,
+          supplier_kpp: parsed.supplier_kpp,
           supplier_bik: parsed.supplier_bik,
           supplier_account: parsed.supplier_account,
           supplier_corr_account: parsed.supplier_corr_account,

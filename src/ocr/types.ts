@@ -21,6 +21,7 @@ export interface ParsedInvoiceData {
   invoice_type?: 'счет_на_оплату' | 'торг_12' | 'упд' | 'счет_фактура';
   supplier?: string;
   supplier_inn?: string;
+  supplier_kpp?: string;
   supplier_bik?: string;
   supplier_account?: string;
   supplier_corr_account?: string;

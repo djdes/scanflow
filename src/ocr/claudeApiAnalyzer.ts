@@ -25,12 +25,16 @@ export interface CatalogEntry {
   unit?: string | null;
 }
 
-// 90s per Claude API request. Single-image accounting scans can legitimately
-// take 30-60s on Opus; 90s gives us headroom before failing over to retry.
-const CLAUDE_API_TIMEOUT_MS = 90_000;
+// Per-call Claude API timeouts. Single-page invoice scans on Opus take 30-60s
+// real-world; multi-page (image OR text) routinely run 60-120s on long invoices.
+// Bumped from a flat 90s after observing genuine 65s+ runs being killed by the
+// old timeout. Worst-case wall time per invoice = timeout × 3 attempts + 3s
+// of backoff, so single = 363s, multi = 543s. Acceptable since user only sees
+// status updates, not blocking response.
+const CLAUDE_API_TIMEOUT_SINGLE_MS = 120_000;
+const CLAUDE_API_TIMEOUT_MULTIPAGE_MS = 180_000;
 
-// Total retries = 2 (3 attempts). Backoff: 1s, 2s. Total worst-case wall time
-// ~ 90 + 1 + 90 + 2 + 90 = 273s per invoice if Claude is consistently slow.
+// Total retries = 2 (3 attempts). Backoff: 1s, 2s.
 const CLAUDE_API_MAX_RETRIES = 2;
 
 /**
@@ -38,12 +42,19 @@ const CLAUDE_API_MAX_RETRIES = 2;
  * - Retries on 5xx and 429 (rate limit)
  * - Does NOT retry on 4xx auth/bad-request errors (they're not transient)
  * - Each attempt gets its own timeout signal
+ *
+ * `timeoutMs` defaults to single-page; pass CLAUDE_API_TIMEOUT_MULTIPAGE_MS
+ * for multi-page invoice analysis.
  */
-async function withRetry<T>(fn: (signal: AbortSignal) => Promise<T>, label: string): Promise<T> {
+async function withRetry<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  label: string,
+  timeoutMs: number = CLAUDE_API_TIMEOUT_SINGLE_MS,
+): Promise<T> {
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= CLAUDE_API_MAX_RETRIES; attempt++) {
     try {
-      const signal = AbortSignal.timeout(CLAUDE_API_TIMEOUT_MS);
+      const signal = AbortSignal.timeout(timeoutMs);
       return await fn(signal);
     } catch (e) {
       lastError = e as Error;
@@ -117,6 +128,7 @@ ${lines}`;
    • "Продавец"/"Поставщик"/"Грузоотправитель" → supplier
      (ищи форму "ООО/АО/ИП ..."). Покупателя (обычно ООО "БФС") игнорируй.
    • "ИНН/КПП продавца", "ИНН поставщика" → supplier_inn (первые 10 или 12 цифр до "/")
+   • После "/" в "ИНН/КПП продавца" → supplier_kpp (9 цифр; у ИП КПП отсутствует — оставь null)
    • Для "счёт на оплату": ищи также БИК банка, р/сч, к/сч, адрес поставщика.
 
 2) ТАБЛИЦА ТОВАРОВ. Структура колонок для ТОРГ-12/УПД (слева-направо):
@@ -189,7 +201,7 @@ ${lines}`;
 ФОРМАТ ОТВЕТА (строго этот JSON, никаких markdown-ограждений)
 ================================================================
 
-{"invoice_type":"счет_на_оплату|торг_12|упд|счет_фактура","invoice_number":"...","invoice_date":"YYYY-MM-DD","supplier":"...","supplier_inn":"...","supplier_bik":"...","supplier_account":"...","supplier_corr_account":"...","supplier_address":"...","total_sum":число,"vat_sum":число,"items":[{"name":"...","quantity":число,"unit":"шт|кг|л|уп","price":число,"total":число,"vat_rate":число,"row_no":число,"pack_size":число_или_null${catalogBlock ? ',"catalog_idx":номер_или_null' : ''}}]}
+{"invoice_type":"счет_на_оплату|торг_12|упд|счет_фактура","invoice_number":"...","invoice_date":"YYYY-MM-DD","supplier":"...","supplier_inn":"...","supplier_kpp":"...","supplier_bik":"...","supplier_account":"...","supplier_corr_account":"...","supplier_address":"...","total_sum":число,"vat_sum":число,"items":[{"name":"...","quantity":число,"unit":"шт|кг|л|уп","price":число,"total":число,"vat_rate":число,"row_no":число,"pack_size":число_или_null${catalogBlock ? ',"catalog_idx":номер_или_null' : ''}}]}
 
 Все незаполненные поля ставь null. Числа — с точкой (30.60). Никогда не оборачивай JSON в три обратные кавычки.${catalogBlock}`;
 }
@@ -318,7 +330,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
               + `\n`
               + `ЗАДАЧА: собрать из них ОДИН итоговый JSON. Правила:\n`
               + `  1. items = КОНКАТЕНАЦИЯ items со всех страниц в порядке row_no. НИ ОДНА ПОЗИЦИЯ не должна быть потеряна. Если на странице 1 items имели row_no 1..9, а на странице 2 — row_no 10, итоговый items должен содержать ВСЕ 10 позиций.\n`
-              + `  2. invoice_number/invoice_date/supplier/supplier_inn — бери из той страницы, где они не null (обычно первая).\n`
+              + `  2. invoice_number/invoice_date/supplier/supplier_inn/supplier_kpp — бери из той страницы, где они не null (обычно первая).\n`
               + `  3. total_sum — возьми из ПОСЛЕДНЕЙ страницы, где есть значение (обычно последняя страница содержит строку "Всего к оплате"). Это ОБЩИЙ итог документа, НЕ сумма страниц.\n`
               + `  4. vat_sum — аналогично, из страницы с "В том числе НДС" (обычно последняя).\n`
               + `  5. ПРОВЕРКА: Σ(items[i].total) ≈ total_sum (±1 руб). Если не совпадает — значит при чтении страниц какая-то позиция пропущена, ПЕРЕЧИТАЙ обе страницы (OCR-текст ниже).\n`
@@ -329,7 +341,8 @@ export async function analyzeMultiPageTextWithClaudeApi(
           },
         ],
       }, { signal }),
-      'Claude API multi-page text'
+      'Claude API multi-page text',
+      CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
     );
 
     const textBlock = response.content.find(b => b.type === 'text');
@@ -398,7 +411,8 @@ export async function analyzeMultipleImagesWithClaudeApi(
         max_tokens: 8192,
         messages: [{ role: 'user', content }],
       }, { signal }),
-      'Claude API multi-image'
+      'Claude API multi-image',
+      CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
     );
 
     const textBlock = response.content.find(b => b.type === 'text');

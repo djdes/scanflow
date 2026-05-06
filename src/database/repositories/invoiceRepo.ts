@@ -246,6 +246,7 @@ export const invoiceRepo = {
     if (data.supplier !== undefined) { fields.push('supplier = @supplier'); values.supplier = data.supplier; }
     if (data.invoice_type !== undefined) { fields.push('invoice_type = @invoice_type'); values.invoice_type = data.invoice_type; }
     if (data.supplier_inn !== undefined) { fields.push('supplier_inn = @supplier_inn'); values.supplier_inn = data.supplier_inn; }
+    if (data.supplier_kpp !== undefined) { fields.push('supplier_kpp = @supplier_kpp'); values.supplier_kpp = data.supplier_kpp; }
     if (data.supplier_bik !== undefined) { fields.push('supplier_bik = @supplier_bik'); values.supplier_bik = data.supplier_bik; }
     if (data.supplier_account !== undefined) { fields.push('supplier_account = @supplier_account'); values.supplier_account = data.supplier_account; }
     if (data.supplier_corr_account !== undefined) { fields.push('supplier_corr_account = @supplier_corr_account'); values.supplier_corr_account = data.supplier_corr_account; }
