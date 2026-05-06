@@ -57,4 +57,8 @@ export const sberPaymentRepo = {
   listRecent(limit = 50): SberPayment[] {
     return getDb().prepare('SELECT * FROM sber_payments ORDER BY created_at DESC LIMIT ?').all(limit) as SberPayment[];
   },
+
+  deleteByInvoiceId(invoiceId: number): void {
+    getDb().prepare('DELETE FROM sber_payments WHERE invoice_id = ?').run(invoiceId);
+  },
 };

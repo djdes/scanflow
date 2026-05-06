@@ -1016,8 +1016,20 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   const invoice = invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-  if (sberPaymentRepo.findByInvoiceId(id)) {
-    return res.status(409).json({ error: 'Payment already created for this invoice' });
+  const existingPayment = sberPaymentRepo.findByInvoiceId(id);
+  if (existingPayment) {
+    if (existingPayment.status === 'failed') {
+      // Предыдущая попытка упала — разрешаем retry (юзер явно нажал кнопку
+      // ещё раз). Удаляем старую строку, дальше идёт обычный create.
+      sberPaymentRepo.deleteByInvoiceId(id);
+    } else {
+      // status === 'created' | 'pending' — реальный конфликт.
+      return res.status(409).json({
+        error: 'Payment already created for this invoice',
+        existing_status: existingPayment.status,
+        existing_payment_number: existingPayment.sber_payment_number,
+      });
+    }
   }
   if (!invoice.total_sum || invoice.total_sum <= 0) {
     return res.status(400).json({ error: 'invoice has no total_sum' });
