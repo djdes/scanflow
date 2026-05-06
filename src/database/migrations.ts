@@ -414,6 +414,87 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 20,
+    name: 'Sber Business payments',
+    detect: (db) =>
+      hasTable(db, 'sber_tokens') &&
+      hasTable(db, 'suppliers') &&
+      hasTable(db, 'sber_payments') &&
+      hasColumn(db, 'invoices', 'supplier_kpp') &&
+      hasColumn(db, 'users', 'sber_purpose_template'),
+    run: (db) => {
+      if (!hasTable(db, 'sber_tokens')) {
+        db.exec(`
+          CREATE TABLE sber_tokens (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            access_token TEXT NOT NULL,
+            refresh_token TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            account_number TEXT,
+            org_name TEXT,
+            payer_inn TEXT,
+            payer_kpp TEXT,
+            payer_bank_bic TEXT,
+            payer_bank_corr_account TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+        `);
+      }
+      if (!hasTable(db, 'suppliers')) {
+        db.exec(`
+          CREATE TABLE suppliers (
+            inn TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kpp TEXT,
+            account TEXT,
+            bank_bic TEXT NOT NULL,
+            bank_corr_account TEXT,
+            bank_name TEXT,
+            address TEXT,
+            verified INTEGER NOT NULL DEFAULT 0,
+            source TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_used_at TEXT
+          );
+          CREATE INDEX idx_suppliers_name ON suppliers(name COLLATE NOCASE);
+        `);
+      }
+      if (!hasTable(db, 'sber_payments')) {
+        db.exec(`
+          CREATE TABLE sber_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL UNIQUE,
+            external_id TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            payment_purpose TEXT NOT NULL,
+            amount REAL NOT NULL,
+            payer_account TEXT NOT NULL,
+            payee_inn TEXT NOT NULL,
+            request_payload TEXT,
+            response_body TEXT,
+            sber_payment_number TEXT,
+            error_message TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+          );
+          CREATE INDEX idx_sber_payments_invoice_id ON sber_payments(invoice_id);
+        `);
+      }
+      if (!hasColumn(db, 'invoices', 'supplier_kpp')) {
+        db.exec(`ALTER TABLE invoices ADD COLUMN supplier_kpp TEXT`);
+      }
+      if (!hasColumn(db, 'users', 'sber_purpose_template')) {
+        db.exec(`
+          ALTER TABLE users ADD COLUMN sber_purpose_template TEXT
+            DEFAULT 'Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}'
+        `);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {
