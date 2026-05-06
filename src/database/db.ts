@@ -40,3 +40,8 @@ export function closeDb(): void {
     logger.info('Database connection closed');
   }
 }
+
+// Test-only: inject an in-memory DB. Production code never calls this.
+export function setDb(d: Database.Database): void {
+  db = d;
+}
