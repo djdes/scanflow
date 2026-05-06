@@ -260,4 +260,23 @@ router.post('/lookup-telegram-chat-id', async (req: Request, res: Response) => {
   });
 });
 
+// GET /api/profile/sber-template — текущий шаблон назначения платежа
+router.get('/sber-template', (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  const template = userRepo.getPurposeTemplate(req.user.id);
+  res.json({ template });
+});
+
+// PATCH /api/profile/sber-template — обновить шаблон
+router.patch('/sber-template', (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  const template = (req.body as { template?: string }).template;
+  if (typeof template !== 'string' || template.length === 0 || template.length > 400) {
+    res.status(400).json({ error: 'template must be a non-empty string up to 400 chars' });
+    return;
+  }
+  userRepo.setPurposeTemplate(req.user.id, template);
+  res.json({ success: true, template });
+});
+
 export default router;

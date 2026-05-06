@@ -132,7 +132,16 @@ const Sber = {
     if (payment && payment.status === 'created') {
       wrap.innerHTML = `
         <h3 style="margin-bottom:8px">Сбербанк</h3>
-        <div class="badge badge-sent" style="padding:8px 16px">✓ Платёж создан в Сбере (черновик № ${App.esc(payment.sber_payment_number || '?')}). Подпишите в Сбер.Бизнес.</div>
+        <div class="badge badge-sent" style="padding:8px 16px;display:inline-block">✓ Платёж создан в Сбере (черновик № ${App.esc(payment.sber_payment_number || '?')}). Подпишите в Сбер.Бизнес.</div>
+        <div style="margin-top:12px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Назначение платежа:</div>
+          <div style="font-family:var(--font-mono,monospace);font-size:13px;background:var(--code-bg,rgba(0,0,0,0.04));padding:8px 12px;border-radius:6px;border:1px solid var(--border,rgba(0,0,0,0.08))">${App.esc(payment.payment_purpose || '')}</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
+          <button class="btn btn-outline" onclick="Sber.resend(${invoice.id})">⟳ Отправить повторно</button>
+          <button class="btn btn-danger" onclick="Sber.deletePayment(${invoice.id})">🗑 Удалить черновик</button>
+        </div>
       `;
       return;
     }
@@ -141,13 +150,77 @@ const Sber = {
         <h3 style="margin-bottom:8px">Сбербанк</h3>
         <p style="color:#dc2626">Ошибка предыдущей отправки: ${App.esc(payment.error_message || 'unknown')}</p>
         <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Попробовать снова</button>
+        <button class="btn btn-outline" onclick="Sber.editTemplate()" style="margin-left:8px">⚙ Шаблон назначения</button>
       `;
       return;
     }
     wrap.innerHTML = `
       <h3 style="margin-bottom:8px">Сбербанк</h3>
-      <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Отправить в Сбербанк →</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Отправить в Сбербанк →</button>
+        <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
+      </div>
     `;
+  },
+
+  async editTemplate() {
+    const res = await App.api('/profile/sber-template');
+    const { template } = await res.json();
+    const PLACEHOLDERS = '{invoice_number} {invoice_date_dot} {invoice_date_iso} {total} {vat_amount} {vat_rate} {supplier} {vat_clause}';
+    const newTpl = window.prompt(
+      'Шаблон назначения платежа (≤210 символов после подстановки).\n\n' +
+      'Доступные плейсхолдеры:\n' + PLACEHOLDERS + '\n\n' +
+      'Дефолт: Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}',
+      template || ''
+    );
+    if (newTpl === null) return; // отмена
+    if (newTpl.trim() === (template || '').trim()) {
+      App.notify('Шаблон не изменён', 'info');
+      return;
+    }
+    const saveRes = await App.api('/profile/sber-template', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template: newTpl }),
+    });
+    if (!saveRes.ok) {
+      const err = await saveRes.json().catch(() => ({}));
+      App.notify(err.error || 'Ошибка сохранения шаблона', 'error');
+      return;
+    }
+    App.notify('Шаблон сохранён. Применится к следующему платежу.', 'success');
+  },
+
+  async deletePayment(invoiceId) {
+    if (!window.confirm(
+      'Удалить запись о платеже из ScanFlow?\n\n' +
+      'ВАЖНО: реальный черновик платёжки В САМОМ Сбер.Бизнес НЕ будет удалён ' +
+      '(API не позволяет). Если черновик там не нужен — удали его вручную ' +
+      'в личном кабинете Сбер.Бизнес перед нажатием.'
+    )) return;
+    const res = await App.api(`/invoices/${invoiceId}/sber-payment`, { method: 'DELETE' });
+    if (!res.ok) {
+      App.notify('Ошибка удаления', 'error');
+      return;
+    }
+    App.notify('Запись удалена. Кнопка «Отправить в Сбербанк» снова доступна.', 'success');
+    Invoices.showDetail(invoiceId);
+  },
+
+  async resend(invoiceId) {
+    if (!window.confirm(
+      'Создать ЕЩЁ ОДИН платёж в Сбер.Бизнес?\n\n' +
+      'ВНИМАНИЕ: предыдущий черновик НЕ удалится автоматически — он останется ' +
+      'в банке как отдельная платёжка. Если предыдущий не нужен, сначала ' +
+      'удали его вручную в Сбер.Бизнес, потом нажми «Отправить повторно».'
+    )) return;
+    // Удаляем нашу запись и сразу отправляем заново
+    const delRes = await App.api(`/invoices/${invoiceId}/sber-payment`, { method: 'DELETE' });
+    if (!delRes.ok) {
+      App.notify('Не удалось очистить запись', 'error');
+      return;
+    }
+    await Sber.sendToSber(invoiceId);
   },
 
   async sendToSber(invoiceId, supplierOverrides) {

@@ -1009,6 +1009,18 @@ router.get('/:id/sber-status', (req: Request, res: Response) => {
   return res.json({ payment });
 });
 
+// DELETE /api/invoices/:id/sber-payment — удалить запись о платеже из БД ScanFlow.
+// Реальный черновик в СберБизнес НЕ удаляется (Sber API в нашем scope такое не
+// позволяет). Юзер должен открыть свой банк и удалить вручную. Этот endpoint
+// нужен для retry-сценария и для очистки записей, которые юзер уже разрулил
+// в банке.
+router.delete('/:id/sber-payment', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  sberPaymentRepo.deleteByInvoiceId(id);
+  return res.json({ success: true });
+});
+
 // POST /api/invoices/:id/send-sber — создать черновик платежа в СберБизнес
 router.post('/:id/send-sber', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
