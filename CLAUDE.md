@@ -44,7 +44,7 @@ data/inbox|processed|failed/     watcher pipeline directories (gitignored except
 
 ## Database (high level)
 
-Main tables: `invoices`, `invoice_items`, `nomenclature_mappings`, `onec_nomenclature` (1C catalog cache), `webhook_config`, `analyzer_config`, `users`, `notification_events`. See `src/database/migrations.ts` for exact columns. Notable per-feature columns:
+Main tables: `invoices`, `invoice_items`, `nomenclature_mappings`, `onec_nomenclature` (1C catalog cache), `webhook_config`, `analyzer_config`, `users`, `notification_events`, `sber_tokens` (single-tenant OAuth + payer details), `suppliers` (payee directory, PK=ИНН), `sber_payments` (1:1 invoice → payment log). See `src/database/migrations.ts` for exact columns. Notable per-feature columns:
 
 - `invoices.approved_for_1c`, `approved_at`, `sent_at` — 1C upload workflow.
 - `invoices.items_total_mismatch` — 1 when sum(items.total) diverges from `total_sum` by >1%.
@@ -60,6 +60,21 @@ Main tables: `invoices`, `invoice_items`, `nomenclature_mappings`, `onec_nomencl
 - Photo attachment: use `РаботаСФайлами.ДобавитьФайл(параметры, адресВовременном)` — writing directly to the deprecated `ФайлХранилище` field gives a "binary data was deleted" error when the user tries to view it.
 
 Russian-language UNF source dump (when you need to look up metadata or canonical helper functions): `C:\www\1CУНФ1.6 от 02.04\`.
+
+## Sber Business integration
+
+- Кнопка «Отправить в Сбербанк» на странице деталей накладной создаёт **черновик** платёжного поручения через `POST https://fintech.sberbank.ru:9443/fintech/api/v1/payments` (scope `PAY_DOC_RU`). Без `digestSignatures` документ ложится в черновики СберБизнес — пользователь подписывает токеном вручную. ЭП на стороне ScanFlow не реализуем.
+- mTLS: PFX + passphrase (`./certs/sber.p12`, env `SBER_TLS_PFX_PASSWORD`). CA — `./certs/sber-ca.pem`. Папка `certs/` в gitignore.
+- Подключение: `/#/sber` страница — OAuth (`GET /api/sber/authorize` → callback) или manual seed-token (вставить access/refresh из dev-портала + реквизиты плательщика).
+- Поставщики хранятся в локальной таблице `suppliers` (PK = ИНН). Auto-create при первой отправке (через модалку подтверждения, prefill из OCR-данных накладной + опциональный DaData lookup по `DADATA_API_KEY`). Отдельная страница `/#/suppliers` для CRUD.
+- Лог отправок — `sber_payments` (UNIQUE по `invoice_id` = один платёж на накладную). Дебаг: `SELECT * FROM sber_payments WHERE invoice_id = ?`.
+
+Файлы:
+- `src/sber/` — sberClient (mTLS), oauth, payments, purposeTemplate, dadata, clientInfo, redact
+- `src/api/routes/sber.ts` — `/api/sber/*` (authorize, callback, seed-token, payer, status, disconnect)
+- `src/api/routes/suppliers.ts` — `/api/suppliers/*` CRUD + lookup-dadata
+- `src/api/routes/invoices.ts` — `POST /:id/send-sber`, `GET /:id/sber-status`
+- `public/js/sber.js`, `public/js/suppliers.js`, `public/js/sber-modal.js`
 
 ## Deploy
 
@@ -101,6 +116,9 @@ First start with empty `users` table prints a one-time random admin password to 
 9. **`emit()` in `src/notifications/events.ts` must never throw.** All errors are logged and swallowed — notifications must not break the OCR pipeline.
 10. **Don't write Telegram bot tokens or 1C details into a plan file.** Bot tokens live in `users.telegram_bot_token`, not env.
 11. **Windows shell escaping for the legacy Claude CLI:** prompts with Russian text must be written to a temp file and piped (`type file | claude -p -`). Direct argv passing breaks. (Only relevant when working on the `hybrid` legacy OCR path.)
+12. **Sber `/v1/payments` Authorization header is bare token, NOT `Bearer`.** Sber Business API expects `Authorization: <access_token>` directly. Adding `Bearer ` prefix returns 401. See `src/sber/payments.ts` and `src/sber/clientInfo.ts`.
+13. **Sber `purpose` field max 210 chars + ASCII-friendly punctuation.** Server returns 400 on ёлочки/em-dash/non-breaking space. `renderPurpose()` truncates and `sanitizePurpose()` normalises — don't bypass either.
+14. **`sber_payments.invoice_id` UNIQUE = one payment per invoice.** This is intentional double-click protection. If частичные оплаты понадобятся — это отдельная фича с миграцией, не «ослабить constraint».
 
 ## API surface (mounted in `src/api/server.ts`)
 
