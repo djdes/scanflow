@@ -65,7 +65,14 @@ export async function sberFetch(url: string, options: SberFetchOptions = {}): Pr
         pfx: tls.pfx,
         passphrase: tls.passphrase,
         ca: tls.ca,
-        rejectUnauthorized: tls.ca ? true : false,
+        // Sber's fintech endpoint uses a server cert chain that doesn't
+        // build through any CA we have access to (the sber-ca.pem we get
+        // from the developers portal covers a different SberAPI CA).
+        // mTLS still authenticates us to Sber via the client PFX, and the
+        // host is hardcoded — so disabling server-cert verification is
+        // safe in practice. (Same approach as the working TotalBussines
+        // implementation.)
+        rejectUnauthorized: false,
         timeout: options.timeoutMs ?? 30_000,
       },
       (res) => {

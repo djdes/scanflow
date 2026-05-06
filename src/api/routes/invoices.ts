@@ -1097,25 +1097,9 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   const externalId = randomUUID();
   const today = new Date().toISOString().slice(0, 10);
 
-  // INSERT pending row first — UNIQUE invoice_id защищает от двойного клика
-  try {
-    sberPaymentRepo.create({
-      invoice_id: id,
-      external_id: externalId,
-      status: 'pending',
-      payment_purpose: purpose,
-      amount: invoice.total_sum,
-      payer_account: tokenRow.account_number,
-      payee_inn: invoice.supplier_inn,
-    });
-  } catch (err) {
-    if ((err as Error).message.includes('UNIQUE')) {
-      return res.status(409).json({ error: 'Payment already created for this invoice' });
-    }
-    throw err;
-  }
-
-  // Build payload
+  // Build payload first so we can persist it BEFORE the request — that way
+  // if Sber API/TLS errors out, the row in sber_payments still has the
+  // request_payload for debugging.
   const payload = {
     date: today,
     externalId,
@@ -1134,6 +1118,25 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     payeeBankBic: supplier.bank_bic,
     payeeBankCorrAccount: supplier.bank_corr_account ?? undefined,
   };
+
+  // INSERT pending row — UNIQUE invoice_id защищает от двойного клика
+  try {
+    sberPaymentRepo.create({
+      invoice_id: id,
+      external_id: externalId,
+      status: 'pending',
+      payment_purpose: purpose,
+      amount: invoice.total_sum,
+      payer_account: tokenRow.account_number,
+      payee_inn: invoice.supplier_inn,
+      request_payload: JSON.stringify(redact(payload)),
+    });
+  } catch (err) {
+    if ((err as Error).message.includes('UNIQUE')) {
+      return res.status(409).json({ error: 'Payment already created for this invoice' });
+    }
+    throw err;
+  }
 
   try {
     const result = await createPaymentOrder(accessToken, payload);
