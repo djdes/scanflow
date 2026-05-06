@@ -14,6 +14,7 @@ export interface User {
   notify_events: string; // JSON-encoded array; parsed by getNotifyConfig
   telegram_chat_id: string | null;
   telegram_bot_token: string | null;
+  sber_purpose_template: string;
 }
 
 export const userRepo = {
@@ -132,5 +133,18 @@ export const userRepo = {
     if (fields.length === 0) return;
     values.push(id);
     getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  },
+
+  getPurposeTemplate(id: number): string | null {
+    const row = getDb()
+      .prepare('SELECT sber_purpose_template FROM users WHERE id = ?')
+      .get(id) as { sber_purpose_template: string } | undefined;
+    return row?.sber_purpose_template ?? null;
+  },
+
+  setPurposeTemplate(id: number, template: string): void {
+    getDb()
+      .prepare('UPDATE users SET sber_purpose_template = ? WHERE id = ?')
+      .run(template, id);
   },
 };
