@@ -342,11 +342,25 @@ const Upload = {
         try { data = JSON.parse(xhr.responseText); } catch {}
         if (xhr.status >= 200 && xhr.status < 300) {
           this.totalUploaded++;
-          this.history[idx].status = 'ok';
-          this.history[idx].invoiceId = data.invoice_id;
           this.history[idx].progress = 100;
-          App.notify(`Накладная #${data.invoice_id} загружена`, 'success');
           if (dbId) this.dbDelete(dbId).catch(() => {});
+
+          if (data.invoice_id) {
+            // Sync upload (legacy path) — invoice_id уже есть.
+            this.history[idx].status = 'ok';
+            this.history[idx].invoiceId = data.invoice_id;
+            App.notify(`Накладная #${data.invoice_id} загружена`, 'success');
+          } else if (data.file_name) {
+            // Async upload — polling до появления накладной.
+            this.history[idx].status = 'processing';
+            this.history[idx].fileName_serverside = data.file_name;
+            App.notify(`«${this.history[idx].name}» в очереди на обработку`, 'info');
+            this._pollForInvoiceId(idx, data.file_name);
+          } else {
+            // Неожиданный response — считаем успехом без ID.
+            this.history[idx].status = 'ok';
+            App.notify(`«${this.history[idx].name}» загружено`, 'success');
+          }
         } else if (xhr.status === 429) {
           const retryAfter = parseInt(
             xhr.getResponseHeader('RateLimit-Reset') ||
@@ -376,6 +390,62 @@ const Upload = {
       xhr.setRequestHeader('X-API-Key', App.apiKey);
       xhr.send(formData);
     });
+  },
+
+  async _pollForInvoiceId(idx, serverFileName) {
+    // Polls GET /api/invoices?file_name=X every 2s until the watcher INSERTs
+    // the invoice row (status='ocr_processing'/'parsing'/'processed') or a
+    // hard timeout fires. Если не дождались — оставляем status='processing',
+    // юзер сможет найти запись в списке вручную.
+    const POLL_INTERVAL_MS = 2000;
+    const TIMEOUT_MS = 5 * 60 * 1000; // 5 минут на multi-page scenarios
+    const start = Date.now();
+    while (Date.now() - start < TIMEOUT_MS) {
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      const h = this.history[idx];
+      if (!h || h.status !== 'processing') return; // юзер удалил/что-то ещё
+      try {
+        const res = await fetch(App.baseUrl + '/invoices?file_name=' + encodeURIComponent(serverFileName), {
+          headers: { 'X-API-Key': App.apiKey },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const invoice = json.data?.[0];
+          if (invoice) {
+            // Финал: invoice появился в БД. Если status уже 'processed' —
+            // показываем как ok; иначе оставляем processing с подсказкой.
+            if (invoice.status === 'processed') {
+              this.history[idx].status = 'ok';
+              this.history[idx].invoiceId = invoice.id;
+              this.renderHistory();
+              this.updateCounter();
+              App.notify(`Накладная #${invoice.id} обработана`, 'success');
+              return;
+            }
+            if (invoice.status === 'duplicate') {
+              this.history[idx].status = 'ok';
+              this.history[idx].invoiceId = invoice.id;
+              this.renderHistory();
+              this.updateCounter();
+              App.notify(`Накладная #${invoice.id} — дубликат №${invoice.duplicate_of}`, 'warn');
+              return;
+            }
+            if (invoice.status === 'error') {
+              this.history[idx].status = 'error';
+              this.history[idx].error = invoice.error_message || 'Не удалось распознать';
+              this.renderHistory();
+              this.updateCounter();
+              App.notify(`«${this.history[idx].name}»: ошибка распознавания`, 'error');
+              return;
+            }
+            // ocr_processing / parsing — продолжаем poll, но обновим статус
+            this.history[idx].invoiceId = invoice.id;  // уже есть ID, можно показать
+          }
+        }
+      } catch { /* network blip — try again */ }
+    }
+    // Timeout — оставим status=processing, пусть юзер найдёт в списке
+    App.notify(`«${this.history[idx].name}»: всё ещё обрабатывается, проверь список накладных`, 'warn');
   },
 
   async retry(idx) {
@@ -477,6 +547,13 @@ const Upload = {
       let actionsHtml = '';
       if (h.status === 'queued') {
         statusHtml = '<span class="upload-status upload-status-queued">В очереди…</span>';
+      } else if (h.status === 'processing') {
+        // Файл загружен на сервер, watcher распознаёт (Claude API ~10-30 сек,
+        // multi-page до минуты). При наличии invoiceId показываем линк сразу.
+        const idTag = h.invoiceId
+          ? ` <a href="#/invoices/${h.invoiceId}" class="upload-status upload-status-ok">Накладная #${h.invoiceId}</a>`
+          : '';
+        statusHtml = `<span class="upload-status upload-status-loading">Распознаётся…</span>${idTag}`;
       } else if (h.status === 'uploading') {
         const pct = Math.max(0, Math.min(100, h.progress || 0));
         statusHtml = `

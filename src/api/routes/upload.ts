@@ -60,12 +60,25 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   // Prevent file watcher from also processing this file
   fileWatcher.markProcessing(filePath);
 
-  try {
-    const invoiceId = await fileWatcher.processFile(filePath, fileName, forceEngine);
-    res.json({ message: 'Invoice processed', invoice_id: invoiceId });
-  } catch (err) {
-    res.status(500).json({ error: 'Processing failed', details: (err as Error).message });
-  }
+  // Fire-and-forget: client gets a fast 202 with the file_name and polls
+  // GET /api/invoices?file_name=X until the invoice row appears (watcher
+  // INSERTs it within 1-2s of starting). Synchronous await on processFile
+  // would block for OCR+Claude+possible multi-page merge (60s+), causing
+  // nginx upstream timeout → 502 на клиенте при загрузке нескольких подряд.
+  void (async () => {
+    try {
+      await fileWatcher.processFile(filePath, fileName, forceEngine);
+    } catch (err) {
+      logger.error('Background processFile failed', {
+        fileName, error: (err as Error).message,
+      });
+    }
+  })();
+
+  res.status(202).json({
+    message: 'Invoice queued for processing',
+    file_name: fileName,
+  });
 });
 
 export default router;

@@ -50,6 +50,14 @@ router.get('/stats', (_req: Request, res: Response) => {
 
 // GET /api/invoices — list all invoices
 router.get('/', (req: Request, res: Response) => {
+  // По имени файла — для async upload polling.
+  const fileName = req.query.file_name as string | undefined;
+  if (fileName) {
+    const invoice = invoiceRepo.findByFileName(fileName);
+    res.json({ data: invoice ? [invoice] : [], count: invoice ? 1 : 0 });
+    return;
+  }
+
   const status = req.query.status as string | undefined;
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;

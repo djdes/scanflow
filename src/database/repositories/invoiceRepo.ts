@@ -402,6 +402,30 @@ export const invoiceRepo = {
    * Используется для защиты от дублирующих загрузок одного и того же фото
    * (даже если оно переименовано).
    */
+  /**
+   * Найти накладную по имени файла. Используется async upload-flow для polling
+   * статуса со стороны клиента — клиент знает только file_name (он сгенерён
+   * multer'ом и возвращён в синхронном response), но не знает invoice_id
+   * до тех пор, пока watcher не закончит INSERT.
+   *
+   * file_name в БД может быть запятой-разделённым списком при multi-page
+   * merge — поэтому сравниваем через LIKE.
+   */
+  findByFileName(fileName: string): Invoice | undefined {
+    const db = getDb();
+    return db.prepare(
+      `SELECT * FROM invoices
+       WHERE file_name = ? OR file_name LIKE ? OR file_name LIKE ? OR file_name LIKE ?
+       ORDER BY created_at DESC
+       LIMIT 1`
+    ).get(
+      fileName,
+      `${fileName},%`,
+      `%, ${fileName}`,
+      `%, ${fileName},%`,
+    ) as Invoice | undefined;
+  },
+
   findByFileHash(fileHash: string): Invoice | undefined {
     const db = getDb();
     return db.prepare(
