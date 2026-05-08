@@ -9,9 +9,9 @@ import { logger } from '../../utils/logger';
 const router = Router();
 
 // GET /api/debug/errors — last 10 invoices with status='error' (diagnostic)
-router.get('/errors', (_req: Request, res: Response) => {
+router.get('/errors', async (_req: Request, res: Response) => {
   const db = getDb();
-  const rows = db.prepare(
+  const rows = await db.prepare(
     `SELECT id, file_name, error_message, created_at
      FROM invoices WHERE status = 'error'
      ORDER BY id DESC LIMIT 10`
@@ -20,11 +20,11 @@ router.get('/errors', (_req: Request, res: Response) => {
 });
 
 // POST /api/debug/reprocess-errors — move failed files back to inbox for re-processing
-router.post('/reprocess-errors', (_req: Request, res: Response) => {
+router.post('/reprocess-errors', async (_req: Request, res: Response) => {
   const db = getDb();
-  const rows = db.prepare(
+  const rows = await db.prepare(
     `SELECT id, file_name FROM invoices WHERE status = 'error' ORDER BY id DESC LIMIT 10`
-  ).all() as Array<{ id: number; file_name: string }>;
+  ).all<{ id: number; file_name: string }>();
 
   const results: Array<{ id: number; file: string; status: string }> = [];
   for (const row of rows) {
@@ -43,8 +43,8 @@ router.post('/reprocess-errors', (_req: Request, res: Response) => {
     }
 
     try {
-      db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(row.id);
-      db.prepare('DELETE FROM invoices WHERE id = ?').run(row.id);
+      await db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(row.id);
+      await db.prepare('DELETE FROM invoices WHERE id = ?').run(row.id);
       fs.renameSync(source, inboxPath);
       results.push({ id: row.id, file: fileName, status: 'moved_to_inbox' });
     } catch (e) {
@@ -56,8 +56,8 @@ router.post('/reprocess-errors', (_req: Request, res: Response) => {
 });
 
 // POST /api/debug/backup — trigger manual database backup
-router.post('/backup', (_req: Request, res: Response) => {
-  const backupPath = backupDatabase();
+router.post('/backup', async (_req: Request, res: Response) => {
+  const backupPath = await backupDatabase();
   if (backupPath) {
     res.json({ success: true, path: backupPath });
   } else {
@@ -68,7 +68,7 @@ router.post('/backup', (_req: Request, res: Response) => {
 // GET /api/debug/requests-log?limit=50&path_like=%invoices%
 // Returns recent API request log entries (most recent first).
 // Used for diagnosing connectivity issues with 1C and other clients.
-router.get('/requests-log', (req: Request, res: Response) => {
+router.get('/requests-log', async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 500);
   const pathLike = req.query.path_like as string | undefined;
   const sinceMinutes = req.query.since_minutes ? parseInt(req.query.since_minutes as string) : null;
@@ -82,12 +82,12 @@ router.get('/requests-log', (req: Request, res: Response) => {
     params.push(pathLike);
   }
   if (sinceMinutes !== null && !isNaN(sinceMinutes)) {
-    conditions.push(`timestamp > datetime('now', '-${sinceMinutes} minutes')`);
+    conditions.push(`timestamp > (NOW() - INTERVAL ${sinceMinutes} MINUTE)`);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const rows = db.prepare(
+  const rows = await db.prepare(
     `SELECT id, timestamp, method, path, remote_addr, user_agent, status_code, duration_ms
      FROM api_requests_log
      ${where}

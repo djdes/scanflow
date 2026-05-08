@@ -18,23 +18,21 @@ export interface User {
 }
 
 export const userRepo = {
-  findByUsername(username: string): User | undefined {
-    const db = getDb();
-    return db
-      .prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE')
-      .get(username) as User | undefined;
+  // utf8mb4_unicode_ci is case-insensitive by default — no COLLATE NOCASE needed.
+  async findByUsername(username: string): Promise<User | undefined> {
+    return getDb()
+      .prepare('SELECT * FROM users WHERE username = ?')
+      .get<User>(username);
   },
 
-  findByApiKey(apiKey: string): User | undefined {
-    const db = getDb();
-    return db
+  async findByApiKey(apiKey: string): Promise<User | undefined> {
+    return getDb()
       .prepare('SELECT * FROM users WHERE api_key = ?')
-      .get(apiKey) as User | undefined;
+      .get<User>(apiKey);
   },
 
-  create(data: { username: string; password_hash: string; api_key: string; role?: string }): number {
-    const db = getDb();
-    const result = db
+  async create(data: { username: string; password_hash: string; api_key: string; role?: string }): Promise<number> {
+    const result = await getDb()
       .prepare(
         `INSERT INTO users (username, password_hash, api_key, role)
          VALUES (?, ?, ?, ?)`
@@ -43,29 +41,31 @@ export const userRepo = {
     return Number(result.lastInsertRowid);
   },
 
-  updatePasswordHash(id: number, password_hash: string): void {
-    getDb().prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, id);
+  async updatePasswordHash(id: number, password_hash: string): Promise<void> {
+    await getDb().prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, id);
   },
 
-  updateApiKey(id: number, api_key: string): void {
-    getDb().prepare('UPDATE users SET api_key = ? WHERE id = ?').run(api_key, id);
+  async updateApiKey(id: number, api_key: string): Promise<void> {
+    await getDb().prepare('UPDATE users SET api_key = ? WHERE id = ?').run(api_key, id);
   },
 
-  touchLastLogin(id: number): void {
-    getDb()
-      .prepare(`UPDATE users SET last_login_at = datetime('now') WHERE id = ?`)
+  async touchLastLogin(id: number): Promise<void> {
+    await getDb()
+      .prepare(`UPDATE users SET last_login_at = NOW() WHERE id = ?`)
       .run(id);
   },
 
-  count(): number {
-    const row = getDb().prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
-    return row.cnt;
+  async count(): Promise<number> {
+    const row = await getDb()
+      .prepare('SELECT COUNT(*) as cnt FROM users')
+      .get<{ cnt: number }>();
+    return row?.cnt ?? 0;
   },
 
-  getNotifyConfig(id: number): NotifyConfig | null {
-    const row = getDb()
+  async getNotifyConfig(id: number): Promise<NotifyConfig | null> {
+    const row = await getDb()
       .prepare('SELECT email, notify_mode, notify_events FROM users WHERE id = ?')
-      .get(id) as { email: string | null; notify_mode: string; notify_events: string } | undefined;
+      .get<{ email: string | null; notify_mode: string; notify_events: string }>(id);
     if (!row) return null;
     let events: EventType[];
     try {
@@ -81,7 +81,7 @@ export const userRepo = {
     };
   },
 
-  setNotifyConfig(id: number, cfg: Partial<NotifyConfig>): void {
+  async setNotifyConfig(id: number, cfg: Partial<NotifyConfig>): Promise<void> {
     const fields: string[] = [];
     const values: unknown[] = [];
     if (cfg.email !== undefined) {
@@ -98,28 +98,28 @@ export const userRepo = {
     }
     if (fields.length === 0) return;
     values.push(id);
-    getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    await getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   },
 
   // Returns the row id of the first user (lowest id). Used by emit() when no
   // HTTP-context user is available (e.g. fileWatcher background events).
   // For the current single-user setup this is the owner.
-  firstUserId(): number | null {
-    const row = getDb()
+  async firstUserId(): Promise<number | null> {
+    const row = await getDb()
       .prepare('SELECT id FROM users ORDER BY id LIMIT 1')
-      .get() as { id: number } | undefined;
+      .get<{ id: number }>();
     return row?.id ?? null;
   },
 
-  getTelegramConfig(id: number): { chat_id: string | null; bot_token: string | null } | null {
-    const row = getDb()
+  async getTelegramConfig(id: number): Promise<{ chat_id: string | null; bot_token: string | null } | null> {
+    const row = await getDb()
       .prepare('SELECT telegram_chat_id, telegram_bot_token FROM users WHERE id = ?')
-      .get(id) as { telegram_chat_id: string | null; telegram_bot_token: string | null } | undefined;
+      .get<{ telegram_chat_id: string | null; telegram_bot_token: string | null }>(id);
     if (!row) return null;
     return { chat_id: row.telegram_chat_id, bot_token: row.telegram_bot_token };
   },
 
-  setTelegramConfig(id: number, cfg: Partial<{ chat_id: string | null; bot_token: string | null }>): void {
+  async setTelegramConfig(id: number, cfg: Partial<{ chat_id: string | null; bot_token: string | null }>): Promise<void> {
     const fields: string[] = [];
     const values: unknown[] = [];
     if (cfg.chat_id !== undefined) {
@@ -132,18 +132,18 @@ export const userRepo = {
     }
     if (fields.length === 0) return;
     values.push(id);
-    getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    await getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   },
 
-  getPurposeTemplate(id: number): string | null {
-    const row = getDb()
+  async getPurposeTemplate(id: number): Promise<string | null> {
+    const row = await getDb()
       .prepare('SELECT sber_purpose_template FROM users WHERE id = ?')
-      .get(id) as { sber_purpose_template: string } | undefined;
+      .get<{ sber_purpose_template: string }>(id);
     return row?.sber_purpose_template ?? null;
   },
 
-  setPurposeTemplate(id: number, template: string): void {
-    getDb()
+  async setPurposeTemplate(id: number, template: string): Promise<void> {
+    await getDb()
       .prepare('UPDATE users SET sber_purpose_template = ? WHERE id = ?')
       .run(template, id);
   },

@@ -10,9 +10,9 @@ export function setMapper(m: NomenclatureMapper): void {
 }
 
 // GET /api/mappings — grouped by 1C item
-router.get('/', (_req: Request, res: Response) => {
-  const grouped = mappingRepo.getAllGrouped();
-  const unmapped = mappingRepo.getUnmapped();
+router.get('/', async (_req: Request, res: Response) => {
+  const grouped = await mappingRepo.getAllGrouped();
+  const unmapped = await mappingRepo.getUnmapped();
   res.json({ data: { grouped, unmapped } });
 });
 
@@ -42,7 +42,7 @@ function parsePackFields(body: unknown): { pack_size?: number | null; pack_unit?
 }
 
 // POST /api/mappings — create mapping
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   const { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid } = req.body;
 
   if (!scanned_name || !mapped_name_1c) {
@@ -51,7 +51,7 @@ router.post('/', (req: Request, res: Response) => {
   }
 
   const pack = parsePackFields(req.body);
-  const mapping = mappingRepo.upsert({
+  const mapping = await mappingRepo.upsert({
     scanned_name,
     mapped_name_1c,
     category,
@@ -66,9 +66,9 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 // PUT /api/mappings/:id — update mapping
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const existing = mappingRepo.getById(id);
+  const existing = await mappingRepo.getById(id);
 
   if (!existing) {
     res.status(404).json({ error: 'Mapping not found' });
@@ -77,30 +77,30 @@ router.put('/:id', (req: Request, res: Response) => {
 
   const { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid } = req.body;
   const pack = parsePackFields(req.body);
-  mappingRepo.update(id, { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, ...pack });
+  await mappingRepo.update(id, { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, ...pack });
   if (mapper) mapper.invalidateCache();
 
-  const updated = mappingRepo.getById(id);
+  const updated = await mappingRepo.getById(id);
   res.json({ data: updated });
 });
 
 // DELETE /api/mappings/:id
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const existing = mappingRepo.getById(id);
+  const existing = await mappingRepo.getById(id);
 
   if (!existing) {
     res.status(404).json({ error: 'Mapping not found' });
     return;
   }
 
-  mappingRepo.delete(id);
+  await mappingRepo.delete(id);
   if (mapper) mapper.invalidateCache();
   res.json({ message: 'Deleted' });
 });
 
 // POST /api/mappings/import — bulk import
-router.post('/import', (req: Request, res: Response) => {
+router.post('/import', async (req: Request, res: Response) => {
   const { items } = req.body;
 
   if (!Array.isArray(items)) {
@@ -108,20 +108,20 @@ router.post('/import', (req: Request, res: Response) => {
     return;
   }
 
-  const count = mappingRepo.importBulk(items);
+  const count = await mappingRepo.importBulk(items);
   if (mapper) mapper.invalidateCache();
   res.json({ message: `Imported ${count} mappings`, count });
 });
 
 // GET /api/mappings/suggest?name=... — suggest mappings for a name
-router.get('/suggest', (req: Request, res: Response) => {
+router.get('/suggest', async (req: Request, res: Response) => {
   const name = req.query.name as string;
   if (!name) {
     res.status(400).json({ error: 'name query parameter is required' });
     return;
   }
 
-  const suggestions = mapper ? mapper.getSuggestions(name) : [];
+  const suggestions = mapper ? await mapper.getSuggestions(name) : [];
   res.json({ data: suggestions });
 });
 

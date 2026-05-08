@@ -15,13 +15,13 @@ const CHAT_ID_RX = /^-?\d+$/;
 // length, so we just check the basic shape <digits>:<at-least-30-chars>.
 const BOT_TOKEN_RX = /^\d+:[A-Za-z0-9_-]{30,}$/;
 
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
 
-  const cfg = userRepo.getNotifyConfig(req.user.id);
+  const cfg = await userRepo.getNotifyConfig(req.user.id);
   if (!cfg) { res.status(404).json({ error: 'User config not found' }); return; }
 
-  const tg = userRepo.getTelegramConfig(req.user.id);
+  const tg = await userRepo.getTelegramConfig(req.user.id);
 
   res.json({
     data: {
@@ -37,7 +37,7 @@ router.get('/', (req: Request, res: Response) => {
   });
 });
 
-router.patch('/', (req: Request, res: Response) => {
+router.patch('/', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
   const { email, notify_mode, notify_events, telegram_chat_id, telegram_bot_token } = req.body ?? {};
 
@@ -86,15 +86,15 @@ router.patch('/', (req: Request, res: Response) => {
   }
 
   if (hasUserUpdates) {
-    userRepo.setNotifyConfig(req.user.id, userUpdate);
+    await userRepo.setNotifyConfig(req.user.id, userUpdate);
   }
   if (hasTgUpdates) {
-    userRepo.setTelegramConfig(req.user.id, tgUpdate);
+    await userRepo.setTelegramConfig(req.user.id, tgUpdate);
   }
 
   // Return fresh state (same shape as GET)
-  const cfg = userRepo.getNotifyConfig(req.user.id);
-  const tg = userRepo.getTelegramConfig(req.user.id);
+  const cfg = await userRepo.getNotifyConfig(req.user.id);
+  const tg = await userRepo.getTelegramConfig(req.user.id);
   res.json({
     data: {
       email: cfg?.email ?? null,
@@ -112,7 +112,7 @@ router.patch('/', (req: Request, res: Response) => {
 // alive so older bookmarks / scripts don't 404.
 router.post('/test-email', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const cfg = userRepo.getNotifyConfig(req.user.id);
+  const cfg = await userRepo.getNotifyConfig(req.user.id);
   if (!cfg?.email) { res.status(400).json({ error: 'No email configured' }); return; }
   if (!smtpConfigured()) { res.status(503).json({ error: 'SMTP not configured on server' }); return; }
   try {
@@ -130,7 +130,7 @@ router.post('/test-email', async (req: Request, res: Response) => {
 
 router.post('/test-telegram', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const tg = userRepo.getTelegramConfig(req.user.id);
+  const tg = await userRepo.getTelegramConfig(req.user.id);
   if (!tg?.chat_id || !tg?.bot_token) {
     res.status(400).json({ error: 'Telegram not configured (chat_id and bot_token required)' });
     return;
@@ -182,7 +182,7 @@ router.post('/lookup-telegram-chat-id', async (req: Request, res: Response) => {
       return;
     }
   }
-  const tg = userRepo.getTelegramConfig(req.user.id);
+  const tg = await userRepo.getTelegramConfig(req.user.id);
   const token = (tokenFromBody as string | undefined) || tg?.bot_token || null;
   if (!token) {
     res.status(400).json({ error: 'Telegram bot token is not set' });
@@ -261,21 +261,21 @@ router.post('/lookup-telegram-chat-id', async (req: Request, res: Response) => {
 });
 
 // GET /api/profile/sber-template — текущий шаблон назначения платежа
-router.get('/sber-template', (req: Request, res: Response) => {
+router.get('/sber-template', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const template = userRepo.getPurposeTemplate(req.user.id);
+  const template = await userRepo.getPurposeTemplate(req.user.id);
   res.json({ template });
 });
 
 // PATCH /api/profile/sber-template — обновить шаблон
-router.patch('/sber-template', (req: Request, res: Response) => {
+router.patch('/sber-template', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
   const template = (req.body as { template?: string }).template;
   if (typeof template !== 'string' || template.length === 0 || template.length > 400) {
     res.status(400).json({ error: 'template must be a non-empty string up to 400 chars' });
     return;
   }
-  userRepo.setPurposeTemplate(req.user.id, template);
+  await userRepo.setPurposeTemplate(req.user.id, template);
   res.json({ success: true, template });
 });
 

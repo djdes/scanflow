@@ -1,5 +1,7 @@
-import Database from 'better-sqlite3';
+import { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { logger } from '../utils/logger';
+
+type Executor = Pool | PoolConnection;
 
 /**
  * Each migration has:
@@ -9,358 +11,386 @@ import { logger } from '../utils/logger';
  *              in the schema (lets us mark already-applied migrations on DBs
  *              that predate migration_history). May be null for migrations
  *              added after migration_history existed — they just run.
- *   - run:     performs the actual schema change. Called inside a transaction.
+ *   - run:     performs the actual schema change. MySQL DDL is not
+ *              transactional, so each ALTER/CREATE is idempotent (uses
+ *              IF NOT EXISTS guards or the hasColumn/hasTable helpers).
  */
 interface Migration {
   version: number;
   name: string;
-  detect: ((db: Database.Database) => boolean) | null;
-  run: (db: Database.Database) => void;
+  detect: ((exec: Executor) => Promise<boolean>) | null;
+  run: (exec: Executor) => Promise<void>;
 }
 
-const hasColumn = (db: Database.Database, table: string, column: string): boolean => {
-  const row = db.prepare(
-    `SELECT COUNT(*) as cnt FROM pragma_table_info(?) WHERE name = ?`
-  ).get(table, column) as { cnt: number };
-  return row.cnt > 0;
-};
+async function hasColumn(exec: Executor, table: string, column: string): Promise<boolean> {
+  const [rows] = await exec.query<RowDataPacket[]>(
+    `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column]
+  );
+  return rows.length > 0;
+}
 
-const hasTable = (db: Database.Database, table: string): boolean => {
-  const row = db.prepare(
-    `SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table' AND name = ?`
-  ).get(table) as { cnt: number };
-  return row.cnt > 0;
-};
+async function hasTable(exec: Executor, table: string): Promise<boolean> {
+  const [rows] = await exec.query<RowDataPacket[]>(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+    [table]
+  );
+  return rows.length > 0;
+}
+
+async function hasIndex(exec: Executor, table: string, index: string): Promise<boolean> {
+  const [rows] = await exec.query<RowDataPacket[]>(
+    `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?
+       LIMIT 1`,
+    [table, index]
+  );
+  return rows.length > 0;
+}
 
 const MIGRATIONS: Migration[] = [
   {
     version: 1,
     name: 'initial schema',
-    detect: (db) => hasTable(db, 'invoices'),
-    run: (db) => {
-      db.exec(`
+    detect: (exec) => hasTable(exec, 'invoices'),
+    run: async (exec) => {
+      await exec.query(`
         CREATE TABLE IF NOT EXISTS invoices (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          file_name TEXT NOT NULL,
-          file_path TEXT NOT NULL,
-          invoice_number TEXT,
-          invoice_date TEXT,
-          supplier TEXT,
-          total_sum REAL,
-          raw_text TEXT,
-          status TEXT NOT NULL DEFAULT 'new',
-          ocr_engine TEXT,
-          error_message TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          sent_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
-        CREATE INDEX IF NOT EXISTS idx_invoices_created_at ON invoices(created_at);
-
+          id              INT AUTO_INCREMENT PRIMARY KEY,
+          file_name       VARCHAR(512) NOT NULL,
+          file_path       VARCHAR(1024) NOT NULL,
+          invoice_number  VARCHAR(255) NULL,
+          invoice_date    VARCHAR(32) NULL,
+          supplier        VARCHAR(512) NULL,
+          total_sum       DOUBLE NULL,
+          raw_text        MEDIUMTEXT NULL,
+          status          VARCHAR(32) NOT NULL DEFAULT 'new',
+          ocr_engine      VARCHAR(64) NULL,
+          error_message   TEXT NULL,
+          created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          sent_at         DATETIME NULL,
+          INDEX idx_invoices_status (status),
+          INDEX idx_invoices_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      await exec.query(`
         CREATE TABLE IF NOT EXISTS invoice_items (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          invoice_id INTEGER NOT NULL,
-          original_name TEXT NOT NULL,
-          mapped_name TEXT,
-          quantity REAL,
-          unit TEXT,
-          price REAL,
-          total REAL,
-          mapping_confidence REAL DEFAULT 0,
-          FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
-
+          id                  INT AUTO_INCREMENT PRIMARY KEY,
+          invoice_id          INT NOT NULL,
+          original_name       VARCHAR(1024) NOT NULL,
+          mapped_name         VARCHAR(1024) NULL,
+          quantity            DOUBLE NULL,
+          unit                VARCHAR(64) NULL,
+          price               DOUBLE NULL,
+          total               DOUBLE NULL,
+          mapping_confidence  DOUBLE DEFAULT 0,
+          INDEX idx_invoice_items_invoice_id (invoice_id),
+          CONSTRAINT fk_invoice_items_invoice
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      await exec.query(`
         CREATE TABLE IF NOT EXISTS nomenclature_mappings (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          scanned_name TEXT NOT NULL UNIQUE,
-          mapped_name_1c TEXT NOT NULL,
-          category TEXT,
-          default_unit TEXT,
-          approved INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_mappings_scanned_name ON nomenclature_mappings(scanned_name);
-
+          id              INT AUTO_INCREMENT PRIMARY KEY,
+          scanned_name    VARCHAR(512) NOT NULL UNIQUE,
+          mapped_name_1c  VARCHAR(512) NOT NULL,
+          category        VARCHAR(255) NULL,
+          default_unit    VARCHAR(64) NULL,
+          approved        TINYINT(1) NOT NULL DEFAULT 0,
+          created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_mappings_scanned_name (scanned_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      await exec.query(`
         CREATE TABLE IF NOT EXISTS webhook_config (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          url TEXT NOT NULL,
-          enabled INTEGER NOT NULL DEFAULT 0,
-          auth_token TEXT
-        );
+          id          INT AUTO_INCREMENT PRIMARY KEY,
+          url         VARCHAR(1024) NOT NULL,
+          enabled     TINYINT(1) NOT NULL DEFAULT 0,
+          auth_token  VARCHAR(255) NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
     },
   },
   {
     version: 2,
     name: 'supplier details + analyzer_config',
-    detect: (db) => hasColumn(db, 'invoices', 'invoice_type') && hasTable(db, 'analyzer_config'),
-    run: (db) => {
-      if (!hasColumn(db, 'invoices', 'invoice_type')) {
-        db.exec(`
-          ALTER TABLE invoices ADD COLUMN invoice_type TEXT;
-          ALTER TABLE invoices ADD COLUMN supplier_inn TEXT;
-          ALTER TABLE invoices ADD COLUMN supplier_bik TEXT;
-          ALTER TABLE invoices ADD COLUMN supplier_account TEXT;
-          ALTER TABLE invoices ADD COLUMN supplier_corr_account TEXT;
-          ALTER TABLE invoices ADD COLUMN supplier_address TEXT;
-        `);
+    detect: async (exec) => (await hasColumn(exec, 'invoices', 'invoice_type')) && (await hasTable(exec, 'analyzer_config')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'invoice_type'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN invoice_type VARCHAR(32) NULL`);
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_inn VARCHAR(32) NULL`);
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_bik VARCHAR(32) NULL`);
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_account VARCHAR(64) NULL`);
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_corr_account VARCHAR(64) NULL`);
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_address VARCHAR(1024) NULL`);
       }
-      if (!hasTable(db, 'analyzer_config')) {
-        db.exec(`
+      if (!(await hasTable(exec, 'analyzer_config'))) {
+        await exec.query(`
           CREATE TABLE analyzer_config (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            mode TEXT NOT NULL DEFAULT 'hybrid',
-            anthropic_api_key TEXT
-          );
-          INSERT INTO analyzer_config (id, mode, anthropic_api_key) VALUES (1, 'hybrid', null);
+            id                INT PRIMARY KEY,
+            mode              VARCHAR(32) NOT NULL DEFAULT 'hybrid',
+            anthropic_api_key TEXT NULL,
+            CHECK (id = 1)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
+        await exec.query(
+          `INSERT INTO analyzer_config (id, mode, anthropic_api_key) VALUES (1, 'hybrid', NULL)`
+        );
       }
     },
   },
   {
     version: 3,
     name: 'VAT columns',
-    detect: (db) => hasColumn(db, 'invoice_items', 'vat_rate'),
-    run: (db) => {
-      db.exec(`
-        ALTER TABLE invoice_items ADD COLUMN vat_rate REAL;
-        ALTER TABLE invoices ADD COLUMN vat_sum REAL;
-      `);
+    detect: (exec) => hasColumn(exec, 'invoice_items', 'vat_rate'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoice_items', 'vat_rate'))) {
+        await exec.query(`ALTER TABLE invoice_items ADD COLUMN vat_rate DOUBLE NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'vat_sum'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN vat_sum DOUBLE NULL`);
+      }
     },
   },
   {
     version: 4,
     name: 'approved_for_1c workflow',
-    detect: (db) => hasColumn(db, 'invoices', 'approved_for_1c'),
-    run: (db) => {
-      db.exec(`
-        ALTER TABLE invoices ADD COLUMN approved_for_1c INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE invoices ADD COLUMN approved_at TEXT;
-      `);
+    detect: (exec) => hasColumn(exec, 'invoices', 'approved_for_1c'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'approved_for_1c'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN approved_for_1c TINYINT(1) NOT NULL DEFAULT 0`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'approved_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN approved_at DATETIME NULL`);
+      }
     },
   },
   {
     version: 5,
     name: 'api_requests_log',
-    detect: (db) => hasTable(db, 'api_requests_log'),
-    run: (db) => {
-      db.exec(`
-        CREATE TABLE api_requests_log (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-          method TEXT NOT NULL,
-          path TEXT NOT NULL,
-          remote_addr TEXT,
-          user_agent TEXT,
-          status_code INTEGER,
-          duration_ms INTEGER
-        );
-        CREATE INDEX idx_api_requests_log_timestamp ON api_requests_log(timestamp);
+    detect: (exec) => hasTable(exec, 'api_requests_log'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS api_requests_log (
+          id          INT AUTO_INCREMENT PRIMARY KEY,
+          timestamp   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          method      VARCHAR(10) NOT NULL,
+          path        VARCHAR(1024) NOT NULL,
+          remote_addr VARCHAR(64) NULL,
+          user_agent  VARCHAR(512) NULL,
+          status_code INT NULL,
+          duration_ms INT NULL,
+          INDEX idx_api_requests_log_timestamp (timestamp)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
     },
   },
   {
     version: 6,
     name: 'onec_nomenclature catalog',
-    detect: (db) => hasTable(db, 'onec_nomenclature'),
-    run: (db) => {
-      db.exec(`
-        CREATE TABLE onec_nomenclature (
-          guid        TEXT PRIMARY KEY,
-          code        TEXT,
-          name        TEXT NOT NULL,
-          full_name   TEXT,
-          unit        TEXT,
-          parent_guid TEXT,
-          is_folder   INTEGER NOT NULL DEFAULT 0,
-          is_weighted INTEGER NOT NULL DEFAULT 0,
-          synced_at   TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX idx_onec_nomenclature_name ON onec_nomenclature(name COLLATE NOCASE);
-        CREATE INDEX idx_onec_nomenclature_parent ON onec_nomenclature(parent_guid);
+    detect: (exec) => hasTable(exec, 'onec_nomenclature'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS onec_nomenclature (
+          guid         VARCHAR(64) PRIMARY KEY,
+          code         VARCHAR(64) NULL,
+          name         VARCHAR(512) NOT NULL,
+          full_name    VARCHAR(1024) NULL,
+          unit         VARCHAR(32) NULL,
+          parent_guid  VARCHAR(64) NULL,
+          is_folder    TINYINT(1) NOT NULL DEFAULT 0,
+          is_weighted  TINYINT(1) NOT NULL DEFAULT 0,
+          synced_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_onec_nomenclature_name (name),
+          INDEX idx_onec_nomenclature_parent (parent_guid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
     },
   },
   {
     version: 7,
     name: 'onec_guid on mappings + invoice_items',
-    detect: (db) => hasColumn(db, 'nomenclature_mappings', 'onec_guid') && hasColumn(db, 'invoice_items', 'onec_guid'),
-    run: (db) => {
-      if (!hasColumn(db, 'nomenclature_mappings', 'onec_guid')) {
-        db.exec(`
-          ALTER TABLE nomenclature_mappings ADD COLUMN onec_guid TEXT;
-          ALTER TABLE nomenclature_mappings ADD COLUMN times_seen INTEGER NOT NULL DEFAULT 0;
-          ALTER TABLE nomenclature_mappings ADD COLUMN last_seen_supplier TEXT;
-          ALTER TABLE nomenclature_mappings ADD COLUMN last_seen_at TEXT;
-          CREATE INDEX IF NOT EXISTS idx_nomenclature_mappings_onec_guid
-            ON nomenclature_mappings(onec_guid);
-        `);
+    detect: async (exec) =>
+      (await hasColumn(exec, 'nomenclature_mappings', 'onec_guid')) &&
+      (await hasColumn(exec, 'invoice_items', 'onec_guid')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'nomenclature_mappings', 'onec_guid'))) {
+        await exec.query(`ALTER TABLE nomenclature_mappings ADD COLUMN onec_guid VARCHAR(64) NULL`);
+        await exec.query(`ALTER TABLE nomenclature_mappings ADD COLUMN times_seen INT NOT NULL DEFAULT 0`);
+        await exec.query(`ALTER TABLE nomenclature_mappings ADD COLUMN last_seen_supplier VARCHAR(512) NULL`);
+        await exec.query(`ALTER TABLE nomenclature_mappings ADD COLUMN last_seen_at DATETIME NULL`);
+        if (!(await hasIndex(exec, 'nomenclature_mappings', 'idx_nomenclature_mappings_onec_guid'))) {
+          await exec.query(`CREATE INDEX idx_nomenclature_mappings_onec_guid ON nomenclature_mappings(onec_guid)`);
+        }
       }
-      if (!hasColumn(db, 'invoice_items', 'onec_guid')) {
-        db.exec(`ALTER TABLE invoice_items ADD COLUMN onec_guid TEXT;`);
+      if (!(await hasColumn(exec, 'invoice_items', 'onec_guid'))) {
+        await exec.query(`ALTER TABLE invoice_items ADD COLUMN onec_guid VARCHAR(64) NULL`);
       }
     },
   },
   {
     version: 8,
     name: 'mapping_supplier_usage',
-    detect: (db) => hasTable(db, 'mapping_supplier_usage'),
-    run: (db) => {
-      db.exec(`
-        CREATE TABLE mapping_supplier_usage (
-          mapping_id    INTEGER NOT NULL,
-          supplier      TEXT NOT NULL,
-          first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-          last_seen_at  TEXT NOT NULL DEFAULT (datetime('now')),
-          times_seen    INTEGER NOT NULL DEFAULT 1,
+    detect: (exec) => hasTable(exec, 'mapping_supplier_usage'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS mapping_supplier_usage (
+          mapping_id    INT NOT NULL,
+          supplier      VARCHAR(512) NOT NULL,
+          first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          times_seen    INT NOT NULL DEFAULT 1,
           PRIMARY KEY (mapping_id, supplier),
-          FOREIGN KEY (mapping_id) REFERENCES nomenclature_mappings(id) ON DELETE CASCADE
-        );
-        CREATE INDEX idx_mapping_supplier_usage_supplier ON mapping_supplier_usage(supplier);
+          INDEX idx_mapping_supplier_usage_supplier (supplier),
+          CONSTRAINT fk_mapping_supplier_usage_mapping
+            FOREIGN KEY (mapping_id) REFERENCES nomenclature_mappings(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
     },
   },
   {
     version: 9,
     name: 'auto_send_1c flag',
-    detect: (db) => hasColumn(db, 'webhook_config', 'auto_send_1c'),
-    run: (db) => {
-      db.exec(`ALTER TABLE webhook_config ADD COLUMN auto_send_1c INTEGER NOT NULL DEFAULT 0;`);
+    detect: (exec) => hasColumn(exec, 'webhook_config', 'auto_send_1c'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'webhook_config', 'auto_send_1c'))) {
+        await exec.query(`ALTER TABLE webhook_config ADD COLUMN auto_send_1c TINYINT(1) NOT NULL DEFAULT 0`);
+      }
     },
   },
   {
     version: 10,
     name: 'claude_model in analyzer_config',
-    detect: (db) => hasColumn(db, 'analyzer_config', 'claude_model'),
-    run: (db) => {
-      db.exec(`ALTER TABLE analyzer_config ADD COLUMN claude_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6';`);
+    detect: (exec) => hasColumn(exec, 'analyzer_config', 'claude_model'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'claude_model'))) {
+        await exec.query(
+          `ALTER TABLE analyzer_config ADD COLUMN claude_model VARCHAR(64) NOT NULL DEFAULT 'claude-sonnet-4-6'`
+        );
+      }
     },
   },
   {
     version: 11,
     name: 'fix stale dated model id',
-    // Data-only migration: can be detected only by absence of affected rows.
-    // If any row still uses the old dated id, re-running is safe (idempotent UPDATE).
-    detect: (db) => {
-      const row = db.prepare(
-        `SELECT COUNT(*) as cnt FROM analyzer_config WHERE claude_model LIKE '%20250627%'`
-      ).get() as { cnt: number };
-      return row.cnt === 0;
+    // Data-only migration: idempotent UPDATE.
+    detect: async (exec) => {
+      const [rows] = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM analyzer_config WHERE claude_model LIKE '%20250627%'`
+      );
+      return rows[0].cnt === 0;
     },
-    run: (db) => {
-      db.exec(`UPDATE analyzer_config SET claude_model = 'claude-sonnet-4-6' WHERE claude_model LIKE '%20250627%';`);
+    run: async (exec) => {
+      await exec.query(
+        `UPDATE analyzer_config SET claude_model = 'claude-sonnet-4-6' WHERE claude_model LIKE '%20250627%'`
+      );
     },
   },
   {
     version: 12,
     name: 'file_hash on invoices',
-    detect: (db) => hasColumn(db, 'invoices', 'file_hash'),
-    run: (db) => {
-      db.exec(`
-        ALTER TABLE invoices ADD COLUMN file_hash TEXT;
-        CREATE INDEX IF NOT EXISTS idx_invoices_file_hash ON invoices(file_hash);
-      `);
+    detect: (exec) => hasColumn(exec, 'invoices', 'file_hash'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'file_hash'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN file_hash VARCHAR(64) NULL`);
+        if (!(await hasIndex(exec, 'invoices', 'idx_invoices_file_hash'))) {
+          await exec.query(`CREATE INDEX idx_invoices_file_hash ON invoices(file_hash)`);
+        }
+      }
     },
   },
   {
     version: 13,
     name: 'pack_size / pack_unit on nomenclature_mappings',
-    detect: (db) => hasColumn(db, 'nomenclature_mappings', 'pack_size'),
-    run: (db) => {
-      db.exec(`
-        ALTER TABLE nomenclature_mappings ADD COLUMN pack_size REAL;
-        ALTER TABLE nomenclature_mappings ADD COLUMN pack_unit TEXT;
-      `);
+    detect: (exec) => hasColumn(exec, 'nomenclature_mappings', 'pack_size'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'nomenclature_mappings', 'pack_size'))) {
+        await exec.query(`ALTER TABLE nomenclature_mappings ADD COLUMN pack_size DOUBLE NULL`);
+        await exec.query(`ALTER TABLE nomenclature_mappings ADD COLUMN pack_unit VARCHAR(32) NULL`);
+      }
     },
   },
   {
     version: 14,
-    name: 'UNIQUE partial index on file_hash (atomic dedup)',
-    // Replaces the old non-unique idx_invoices_file_hash with a partial UNIQUE
-    // index (only when file_hash IS NOT NULL). This makes INSERT race-safe:
-    // two concurrent uploads of the same content will no longer both create
-    // invoice rows — the second one gets a SQLITE_CONSTRAINT_UNIQUE error
-    // and the caller falls back to the existing row.
-    detect: (db) => {
-      const row = db.prepare(
-        `SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'index' AND name = 'idx_invoices_file_hash_unique'`
-      ).get() as { cnt: number };
-      return row.cnt > 0;
-    },
-    run: (db) => {
-      // First clean up ANY duplicates that slipped in before the constraint.
-      // Keep the lowest id, delete the rest (cascade removes their items).
-      db.exec(`
+    name: 'UNIQUE index on file_hash (atomic dedup)',
+    // MySQL UNIQUE allows multiple NULLs, so a regular UNIQUE index has the
+    // same semantic as SQLite's `WHERE file_hash IS NOT NULL` partial index:
+    // two invoices with the same non-null hash collide; rows without a hash
+    // don't.
+    detect: (exec) => hasIndex(exec, 'invoices', 'idx_invoices_file_hash_unique'),
+    run: async (exec) => {
+      // Clean up duplicates first (cascade removes their items).
+      await exec.query(`
         DELETE FROM invoices
-        WHERE file_hash IS NOT NULL
-          AND id NOT IN (
-            SELECT MIN(id) FROM invoices
-            WHERE file_hash IS NOT NULL
-            GROUP BY file_hash
-          );
-        DROP INDEX IF EXISTS idx_invoices_file_hash;
-        CREATE UNIQUE INDEX idx_invoices_file_hash_unique
-          ON invoices(file_hash) WHERE file_hash IS NOT NULL;
+         WHERE file_hash IS NOT NULL
+           AND id NOT IN (
+             SELECT min_id FROM (
+               SELECT MIN(id) AS min_id FROM invoices WHERE file_hash IS NOT NULL GROUP BY file_hash
+             ) AS keepers
+           )
       `);
+      if (await hasIndex(exec, 'invoices', 'idx_invoices_file_hash')) {
+        await exec.query(`DROP INDEX idx_invoices_file_hash ON invoices`);
+      }
+      if (!(await hasIndex(exec, 'invoices', 'idx_invoices_file_hash_unique'))) {
+        await exec.query(`CREATE UNIQUE INDEX idx_invoices_file_hash_unique ON invoices(file_hash)`);
+      }
     },
   },
   {
     version: 15,
     name: 'items_total_mismatch flag on invoices',
-    detect: (db) => hasColumn(db, 'invoices', 'items_total_mismatch'),
-    run: (db) => {
-      // Populated by invoiceRepo.recalculateTotal: 1 when sum(items.total)
-      // diverges from invoices.total_sum by > 1% (with a 1 ruble floor).
-      // UI surfaces this as a warning badge so a human can review before
-      // the invoice goes to 1С.
-      db.exec(`ALTER TABLE invoices ADD COLUMN items_total_mismatch INTEGER NOT NULL DEFAULT 0;`);
+    detect: (exec) => hasColumn(exec, 'invoices', 'items_total_mismatch'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'items_total_mismatch'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN items_total_mismatch TINYINT(1) NOT NULL DEFAULT 0`);
+      }
     },
   },
   {
     version: 16,
     name: 'llm_mapper_enabled flag on analyzer_config',
-    detect: (db) => hasColumn(db, 'analyzer_config', 'llm_mapper_enabled'),
-    run: (db) => {
-      // When on, the Claude OCR prompt receives the 1C catalog and is asked
-      // to return onec_guid per item. The watcher trusts those GUIDs when
-      // they exist in onec_nomenclature, skipping fuzzy matching for that
-      // line. Enabled by default — pure upside on correctness, no extra API
-      // calls (it piggybacks on the existing OCR request).
-      db.exec(`ALTER TABLE analyzer_config ADD COLUMN llm_mapper_enabled INTEGER NOT NULL DEFAULT 1;`);
+    detect: (exec) => hasColumn(exec, 'analyzer_config', 'llm_mapper_enabled'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'llm_mapper_enabled'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN llm_mapper_enabled TINYINT(1) NOT NULL DEFAULT 1`);
+      }
     },
   },
   {
     version: 17,
     name: 'users table (per-account API keys)',
-    detect: (db) => hasTable(db, 'users'),
-    run: (db) => {
-      db.exec(`
-        CREATE TABLE users (
-          id              INTEGER PRIMARY KEY AUTOINCREMENT,
-          username        TEXT NOT NULL UNIQUE COLLATE NOCASE,
-          password_hash   TEXT NOT NULL,
-          api_key         TEXT NOT NULL UNIQUE,
-          role            TEXT NOT NULL DEFAULT 'user',
-          created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-          last_login_at   TEXT
-        );
-        CREATE INDEX idx_users_api_key ON users(api_key);
+    detect: (exec) => hasTable(exec, 'users'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id              INT AUTO_INCREMENT PRIMARY KEY,
+          username        VARCHAR(255) NOT NULL UNIQUE,
+          password_hash   VARCHAR(512) NOT NULL,
+          api_key         VARCHAR(128) NOT NULL UNIQUE,
+          role            VARCHAR(32) NOT NULL DEFAULT 'user',
+          created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_login_at   DATETIME NULL,
+          INDEX idx_users_api_key (api_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
     },
   },
   {
     version: 18,
     name: 'user notification settings',
-    detect: (db) => hasColumn(db, 'users', 'email') && hasTable(db, 'notification_events'),
-    run: (db) => {
-      if (!hasColumn(db, 'users', 'email')) {
-        db.exec(`ALTER TABLE users ADD COLUMN email TEXT;`);
+    detect: async (exec) =>
+      (await hasColumn(exec, 'users', 'email')) && (await hasTable(exec, 'notification_events')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'users', 'email'))) {
+        await exec.query(`ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL`);
       }
-      if (!hasColumn(db, 'users', 'notify_mode')) {
-        db.exec(`ALTER TABLE users ADD COLUMN notify_mode TEXT NOT NULL DEFAULT 'digest_hourly';`);
+      if (!(await hasColumn(exec, 'users', 'notify_mode'))) {
+        await exec.query(`ALTER TABLE users ADD COLUMN notify_mode VARCHAR(32) NOT NULL DEFAULT 'digest_hourly'`);
       }
-      if (!hasColumn(db, 'users', 'notify_events')) {
+      if (!(await hasColumn(exec, 'users', 'notify_events'))) {
         const defaultEvents = JSON.stringify([
           'photo_uploaded',
           'invoice_recognized',
@@ -370,27 +400,33 @@ const MIGRATIONS: Migration[] = [
           'approved_for_1c',
           'sent_to_1c',
         ]);
-        db.exec(`ALTER TABLE users ADD COLUMN notify_events TEXT NOT NULL DEFAULT '${defaultEvents.replace(/'/g, "''")}';`);
+        // ALTER TABLE doesn't accept ? bindings; the JSON output here contains
+        // only ASCII identifiers and brackets — no single quotes — so inlining
+        // is safe. Keep the defensive replace just in case the list grows.
+        const safe = defaultEvents.replace(/'/g, "''");
+        await exec.query(
+          `ALTER TABLE users ADD COLUMN notify_events TEXT NOT NULL DEFAULT '${safe}'`
+        );
       }
 
-      // One-shot: pre-fill email from MAIL_TO env for existing users.
-      // After migration, user can change via profile UI.
       const mailTo = (process.env.MAIL_TO || '').trim();
       if (mailTo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailTo)) {
-        db.prepare('UPDATE users SET email = ? WHERE email IS NULL').run(mailTo);
+        await exec.query('UPDATE users SET email = ? WHERE email IS NULL', [mailTo]);
       }
 
-      if (!hasTable(db, 'notification_events')) {
-        db.exec(`
+      if (!(await hasTable(exec, 'notification_events'))) {
+        await exec.query(`
           CREATE TABLE notification_events (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            event_type   TEXT NOT NULL,
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            user_id      INT NOT NULL,
+            event_type   VARCHAR(64) NOT NULL,
             payload_json TEXT NOT NULL,
-            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-            sent_at      TEXT
-          );
-          CREATE INDEX idx_notif_pending ON notification_events(user_id, sent_at);
+            created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            sent_at      DATETIME NULL,
+            INDEX idx_notif_pending (user_id, sent_at),
+            CONSTRAINT fk_notif_events_user
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
       }
     },
@@ -398,98 +434,100 @@ const MIGRATIONS: Migration[] = [
   {
     version: 19,
     name: 'telegram notification fields',
-    detect: (db) =>
-      hasColumn(db, 'users', 'telegram_chat_id') &&
-      hasColumn(db, 'users', 'telegram_bot_token') &&
-      hasColumn(db, 'invoices', 'telegram_message_id'),
-    run: (db) => {
-      if (!hasColumn(db, 'users', 'telegram_chat_id')) {
-        db.exec(`ALTER TABLE users ADD COLUMN telegram_chat_id TEXT;`);
+    detect: async (exec) =>
+      (await hasColumn(exec, 'users', 'telegram_chat_id')) &&
+      (await hasColumn(exec, 'users', 'telegram_bot_token')) &&
+      (await hasColumn(exec, 'invoices', 'telegram_message_id')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'users', 'telegram_chat_id'))) {
+        await exec.query(`ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR(64) NULL`);
       }
-      if (!hasColumn(db, 'users', 'telegram_bot_token')) {
-        db.exec(`ALTER TABLE users ADD COLUMN telegram_bot_token TEXT;`);
+      if (!(await hasColumn(exec, 'users', 'telegram_bot_token'))) {
+        await exec.query(`ALTER TABLE users ADD COLUMN telegram_bot_token VARCHAR(255) NULL`);
       }
-      if (!hasColumn(db, 'invoices', 'telegram_message_id')) {
-        db.exec(`ALTER TABLE invoices ADD COLUMN telegram_message_id INTEGER;`);
+      if (!(await hasColumn(exec, 'invoices', 'telegram_message_id'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN telegram_message_id BIGINT NULL`);
       }
     },
   },
   {
     version: 20,
     name: 'Sber Business payments',
-    detect: (db) =>
-      hasTable(db, 'sber_tokens') &&
-      hasTable(db, 'suppliers') &&
-      hasTable(db, 'sber_payments') &&
-      hasColumn(db, 'invoices', 'supplier_kpp') &&
-      hasColumn(db, 'users', 'sber_purpose_template'),
-    run: (db) => {
-      if (!hasTable(db, 'sber_tokens')) {
-        db.exec(`
+    detect: async (exec) =>
+      (await hasTable(exec, 'sber_tokens')) &&
+      (await hasTable(exec, 'suppliers')) &&
+      (await hasTable(exec, 'sber_payments')) &&
+      (await hasColumn(exec, 'invoices', 'supplier_kpp')) &&
+      (await hasColumn(exec, 'users', 'sber_purpose_template')),
+    run: async (exec) => {
+      if (!(await hasTable(exec, 'sber_tokens'))) {
+        await exec.query(`
           CREATE TABLE sber_tokens (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            access_token TEXT NOT NULL,
-            refresh_token TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            account_number TEXT,
-            org_name TEXT,
-            payer_inn TEXT,
-            payer_kpp TEXT,
-            payer_bank_bic TEXT,
-            payer_bank_corr_account TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-          );
+            id                       INT PRIMARY KEY,
+            access_token             TEXT NOT NULL,
+            refresh_token            TEXT NOT NULL,
+            expires_at               DATETIME NOT NULL,
+            account_number           VARCHAR(64) NULL,
+            org_name                 VARCHAR(512) NULL,
+            payer_inn                VARCHAR(32) NULL,
+            payer_kpp                VARCHAR(32) NULL,
+            payer_bank_bic           VARCHAR(32) NULL,
+            payer_bank_corr_account  VARCHAR(64) NULL,
+            created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (id = 1)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
       }
-      if (!hasTable(db, 'suppliers')) {
-        db.exec(`
+      if (!(await hasTable(exec, 'suppliers'))) {
+        await exec.query(`
           CREATE TABLE suppliers (
-            inn TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            kpp TEXT,
-            account TEXT,
-            bank_bic TEXT NOT NULL,
-            bank_corr_account TEXT,
-            bank_name TEXT,
-            address TEXT,
-            verified INTEGER NOT NULL DEFAULT 0,
-            source TEXT,
-            notes TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-            last_used_at TEXT
-          );
-          CREATE INDEX idx_suppliers_name ON suppliers(name COLLATE NOCASE);
+            inn                VARCHAR(32) PRIMARY KEY,
+            name               VARCHAR(512) NOT NULL,
+            kpp                VARCHAR(32) NULL,
+            account            VARCHAR(64) NULL,
+            bank_bic           VARCHAR(32) NOT NULL,
+            bank_corr_account  VARCHAR(64) NULL,
+            bank_name          VARCHAR(512) NULL,
+            address            VARCHAR(1024) NULL,
+            verified           TINYINT(1) NOT NULL DEFAULT 0,
+            source             VARCHAR(64) NULL,
+            notes              TEXT NULL,
+            created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at       DATETIME NULL,
+            INDEX idx_suppliers_name (name)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
       }
-      if (!hasTable(db, 'sber_payments')) {
-        db.exec(`
+      if (!(await hasTable(exec, 'sber_payments'))) {
+        await exec.query(`
           CREATE TABLE sber_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            invoice_id INTEGER NOT NULL UNIQUE,
-            external_id TEXT NOT NULL UNIQUE,
-            status TEXT NOT NULL,
-            payment_purpose TEXT NOT NULL,
-            amount REAL NOT NULL,
-            payer_account TEXT NOT NULL,
-            payee_inn TEXT NOT NULL,
-            request_payload TEXT,
-            response_body TEXT,
-            sber_payment_number TEXT,
-            error_message TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
-          );
-          CREATE INDEX idx_sber_payments_invoice_id ON sber_payments(invoice_id);
+            id                  INT AUTO_INCREMENT PRIMARY KEY,
+            invoice_id          INT NOT NULL UNIQUE,
+            external_id         VARCHAR(64) NOT NULL UNIQUE,
+            status              VARCHAR(32) NOT NULL,
+            payment_purpose     VARCHAR(512) NOT NULL,
+            amount              DOUBLE NOT NULL,
+            payer_account       VARCHAR(64) NOT NULL,
+            payee_inn           VARCHAR(32) NOT NULL,
+            request_payload     TEXT NULL,
+            response_body       TEXT NULL,
+            sber_payment_number VARCHAR(64) NULL,
+            error_message       TEXT NULL,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_sber_payments_invoice_id (invoice_id),
+            CONSTRAINT fk_sber_payments_invoice
+              FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
       }
-      if (!hasColumn(db, 'invoices', 'supplier_kpp')) {
-        db.exec(`ALTER TABLE invoices ADD COLUMN supplier_kpp TEXT`);
+      if (!(await hasColumn(exec, 'invoices', 'supplier_kpp'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_kpp VARCHAR(32) NULL`);
       }
-      if (!hasColumn(db, 'users', 'sber_purpose_template')) {
-        db.exec(`
-          ALTER TABLE users ADD COLUMN sber_purpose_template TEXT
+      if (!(await hasColumn(exec, 'users', 'sber_purpose_template'))) {
+        await exec.query(`
+          ALTER TABLE users ADD COLUMN sber_purpose_template VARCHAR(512)
             DEFAULT 'Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}'
         `);
       }
@@ -498,82 +536,79 @@ const MIGRATIONS: Migration[] = [
   {
     version: 21,
     name: 'duplicate invoice detection',
-    detect: (db) => hasColumn(db, 'invoices', 'duplicate_of'),
-    run: (db) => {
-      if (!hasColumn(db, 'invoices', 'duplicate_of')) {
-        // Самовзвязь: указывает на оригинал, который текущая накладная
-        // дублирует (по совпадению invoice_number + supplier + invoice_date
-        // + total_sum в окне 30 дней). NULL = не дубликат. SQLite не умеет
-        // ALTER ADD COLUMN ... REFERENCES, поэтому FK не декларирован.
-        db.exec(`ALTER TABLE invoices ADD COLUMN duplicate_of INTEGER`);
-        db.exec(`CREATE INDEX IF NOT EXISTS idx_invoices_duplicate_of ON invoices(duplicate_of)`);
+    detect: (exec) => hasColumn(exec, 'invoices', 'duplicate_of'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'duplicate_of'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN duplicate_of INT NULL`);
+        if (!(await hasIndex(exec, 'invoices', 'idx_invoices_duplicate_of'))) {
+          await exec.query(`CREATE INDEX idx_invoices_duplicate_of ON invoices(duplicate_of)`);
+        }
       }
     },
   },
   {
     version: 22,
     name: 'auto-send flags in analyzer_config',
-    detect: (db) =>
-      hasColumn(db, 'analyzer_config', 'auto_send_1c') &&
-      hasColumn(db, 'analyzer_config', 'auto_send_sber'),
-    run: (db) => {
-      if (!hasColumn(db, 'analyzer_config', 'auto_send_1c')) {
-        db.exec(`ALTER TABLE analyzer_config ADD COLUMN auto_send_1c INTEGER NOT NULL DEFAULT 0`);
+    detect: async (exec) =>
+      (await hasColumn(exec, 'analyzer_config', 'auto_send_1c')) &&
+      (await hasColumn(exec, 'analyzer_config', 'auto_send_sber')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'auto_send_1c'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN auto_send_1c TINYINT(1) NOT NULL DEFAULT 0`);
       }
-      if (!hasColumn(db, 'analyzer_config', 'auto_send_sber')) {
-        db.exec(`ALTER TABLE analyzer_config ADD COLUMN auto_send_sber INTEGER NOT NULL DEFAULT 0`);
+      if (!(await hasColumn(exec, 'analyzer_config', 'auto_send_sber'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN auto_send_sber TINYINT(1) NOT NULL DEFAULT 0`);
       }
     },
   },
 ];
 
-export function runMigrations(db: Database.Database): void {
+export async function runMigrations(pool: Pool): Promise<void> {
   logger.info('Running database migrations...');
 
-  // Bootstrap the history table itself. Always idempotent.
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS migration_history (
-      version     INTEGER PRIMARY KEY,
-      name        TEXT NOT NULL,
-      applied_at  TEXT NOT NULL DEFAULT (datetime('now')),
-      duration_ms INTEGER
-    );
+      version     INT PRIMARY KEY,
+      name        VARCHAR(255) NOT NULL,
+      applied_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      duration_ms INT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
-  const appliedRows = db.prepare('SELECT version FROM migration_history').all() as { version: number }[];
-  const applied = new Set<number>(appliedRows.map(r => r.version));
-
-  const insertHistory = db.prepare(
-    'INSERT OR IGNORE INTO migration_history (version, name, applied_at, duration_ms) VALUES (?, ?, datetime(\'now\'), ?)'
-  );
+  const [appliedRows] = await pool.query<RowDataPacket[]>('SELECT version FROM migration_history');
+  const applied = new Set(appliedRows.map((r) => r.version as number));
 
   for (const mig of MIGRATIONS) {
     if (applied.has(mig.version)) continue;
 
-    // Backfill case: the DB predates migration_history but already has the
-    // changes from this migration. Record it without running.
-    if (mig.detect && mig.detect(db)) {
-      insertHistory.run(mig.version, mig.name, 0);
+    if (mig.detect && (await mig.detect(pool))) {
+      await pool.query(
+        'INSERT IGNORE INTO migration_history (version, name, applied_at, duration_ms) VALUES (?, ?, NOW(), 0)',
+        [mig.version, mig.name]
+      );
       logger.info('Migration already present, backfilled history', { version: mig.version, name: mig.name });
       continue;
     }
 
     const t0 = Date.now();
     logger.info('Applying migration', { version: mig.version, name: mig.name });
-    const tx = db.transaction(() => {
-      mig.run(db);
-      insertHistory.run(mig.version, mig.name, Date.now() - t0);
-    });
     try {
-      tx();
+      // MySQL DDL is NOT transactional — each ALTER/CREATE auto-commits.
+      // Migrations themselves are written to be idempotent (IF NOT EXISTS,
+      // hasColumn/hasTable guards) so a partial failure can be safely retried.
+      await mig.run(pool);
+      await pool.query(
+        'INSERT INTO migration_history (version, name, applied_at, duration_ms) VALUES (?, ?, NOW(), ?)',
+        [mig.version, mig.name, Date.now() - t0]
+      );
       logger.info('Migration applied', { version: mig.version, name: mig.name, durationMs: Date.now() - t0 });
     } catch (err) {
-      logger.error('Migration failed — transaction rolled back', {
+      logger.error('Migration failed', {
         version: mig.version,
         name: mig.name,
         error: (err as Error).message,
       });
-      throw err; // fail-fast: do not continue with a partially-migrated schema
+      throw err;
     }
   }
 

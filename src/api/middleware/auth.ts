@@ -19,8 +19,8 @@ declare module 'express-serve-static-core' {
   }
 }
 
-function lookupUserByKey(apiKey: string): { id: number; username: string; role: string } | null {
-  const user = userRepo.findByApiKey(apiKey);
+async function lookupUserByKey(apiKey: string): Promise<{ id: number; username: string; role: string } | null> {
+  const user = await userRepo.findByApiKey(apiKey);
   if (!user) return null;
   return { id: user.id, username: user.username, role: user.role };
 }
@@ -29,7 +29,7 @@ function lookupUserByKey(apiKey: string): { id: number; username: string; role: 
 // the X-API-Key header so the secret never lands in nginx access logs,
 // referrers, or browser history. A small whitelist of image-serving endpoints
 // also accepts ?key=... for <img> compatibility.
-export function apiKeyAuth(req: Request, res: Response, next: NextFunction): void {
+export async function apiKeyAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const headerKey = req.headers['x-api-key'] as string | undefined;
   const queryKey = typeof req.query.key === 'string' ? req.query.key : undefined;
   const isWhitelisted = QUERY_KEY_WHITELIST.some(rx => rx.test(req.baseUrl + req.path));
@@ -40,7 +40,7 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
     return;
   }
 
-  const user = lookupUserByKey(apiKey);
+  const user = await lookupUserByKey(apiKey);
   if (!user) {
     res.status(401).json({ error: 'Unauthorized: invalid or missing API key (use X-API-Key header)' });
     return;
@@ -54,7 +54,7 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
  * Variant of apiKeyAuth that also accepts ?key=... — use ONLY for routes that
  * serve binary content to <img>/<a> tags where custom headers can't be added.
  */
-export function apiKeyAuthQueryAllowed(req: Request, res: Response, next: NextFunction): void {
+export async function apiKeyAuthQueryAllowed(req: Request, res: Response, next: NextFunction): Promise<void> {
   const apiKey = (req.headers['x-api-key'] as string) || (req.query.key as string);
 
   if (!apiKey) {
@@ -62,7 +62,7 @@ export function apiKeyAuthQueryAllowed(req: Request, res: Response, next: NextFu
     return;
   }
 
-  const user = lookupUserByKey(apiKey);
+  const user = await lookupUserByKey(apiKey);
   if (!user) {
     res.status(401).json({ error: 'Unauthorized: invalid or missing API key' });
     return;

@@ -6,7 +6,7 @@
  */
 import '../config';
 import path from 'path';
-import { getDb } from '../database/db';
+import { initDb, closeDb } from '../database/db';
 import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
@@ -19,7 +19,6 @@ async function main(): Promise<void> {
     console.log('');
     console.log('Force specific OCR engine:');
     console.log('  OCR_FORCE_ENGINE=tesseract npm run test:pipeline -- ./test.jpg');
-    console.log('  OCR_FORCE_ENGINE=claude_cli npm run test:pipeline -- ./test.jpg');
     console.log('  OCR_FORCE_ENGINE=google_vision npm run test:pipeline -- ./test.jpg');
     process.exit(1);
   }
@@ -30,7 +29,7 @@ async function main(): Promise<void> {
   console.log(`OCR engine: ${process.env.OCR_FORCE_ENGINE || 'auto (chain)'}\n`);
 
   // Init
-  getDb();
+  await initDb();
   const ocrManager = new OcrManager();
   const mapper = new NomenclatureMapper();
 
@@ -52,8 +51,8 @@ async function main(): Promise<void> {
 
   // Step 3: Mapping
   console.log('[3/3] Mapping nomenclature...');
-  const mappedItems = parsed.items.map(item => {
-    const mapping = mapper.map(item.name);
+  const mappedItems = await Promise.all(parsed.items.map(async item => {
+    const mapping = await mapper.map(item.name);
     return {
       original_name: item.name,
       mapped_name: mapping.mapped_name,
@@ -64,7 +63,7 @@ async function main(): Promise<void> {
       price: item.price,
       total: item.total,
     };
-  });
+  }));
 
   // Final JSON
   const result = {
@@ -80,6 +79,7 @@ async function main(): Promise<void> {
   console.log(JSON.stringify(result, null, 2));
 
   await ocrManager.terminate();
+  await closeDb();
 }
 
-main().catch(console.error);
+main().catch(err => { console.error(err); process.exit(1); });

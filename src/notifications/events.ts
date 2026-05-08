@@ -20,13 +20,13 @@ export async function emit(
   triggeredByUserId: number | null,
 ): Promise<void> {
   try {
-    const userId = triggeredByUserId ?? userRepo.firstUserId();
+    const userId = triggeredByUserId ?? (await userRepo.firstUserId());
     if (userId == null) {
       logger.debug('notifications.emit: no user, skipping', { eventType });
       return;
     }
 
-    const cfg = userRepo.getNotifyConfig(userId);
+    const cfg = await userRepo.getNotifyConfig(userId);
     if (!cfg) {
       logger.debug('notifications.emit: no config row', { eventType, userId });
       return;
@@ -36,13 +36,13 @@ export async function emit(
       return;
     }
 
-    const tg = userRepo.getTelegramConfig(userId);
+    const tg = await userRepo.getTelegramConfig(userId);
     if (!tg || !tg.chat_id || !tg.bot_token) {
       logger.debug('notifications.emit: telegram not configured', { eventType, userId });
       return;
     }
 
-    const invoice = invoiceRepo.getById(payload.invoice_id);
+    const invoice = await invoiceRepo.getById(payload.invoice_id);
     if (!invoice) {
       logger.debug('notifications.emit: invoice not found', { invoiceId: payload.invoice_id });
       return;

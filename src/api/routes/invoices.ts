@@ -34,14 +34,14 @@ import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
  * `sber_payment_number` so the frontend can render a status icon next to
  * each row without opening the invoice.
  */
-function attachSberStatus<T extends { id: number }>(invoices: T[]): (T & { sber_payment_status: string | null; sber_payment_number: string | null })[] {
+async function attachSberStatus<T extends { id: number }>(invoices: T[]): Promise<(T & { sber_payment_status: string | null; sber_payment_number: string | null })[]> {
   if (invoices.length === 0) return [] as (T & { sber_payment_status: string | null; sber_payment_number: string | null })[];
   const ids = invoices.map(i => i.id);
   const placeholders = ids.map(() => '?').join(',');
-  const rows = getDb().prepare(
+  const rows = await getDb().prepare(
     `SELECT invoice_id, status, sber_payment_number
      FROM sber_payments WHERE invoice_id IN (${placeholders})`
-  ).all(...ids) as Array<{ invoice_id: number; status: string; sber_payment_number: string | null }>;
+  ).all<{ invoice_id: number; status: string; sber_payment_number: string | null }>(...ids);
   const map = new Map(rows.map(r => [r.invoice_id, r]));
   return invoices.map(inv => {
     const p = map.get(inv.id);
@@ -69,20 +69,20 @@ export function setFileWatcher(fw: import('../../watcher/fileWatcher').FileWatch
 const router = Router();
 
 // GET /api/invoices/stats — dashboard statistics (must be before /:id)
-router.get('/stats', (_req: Request, res: Response) => {
+router.get('/stats', async (_req: Request, res: Response) => {
   const db = getDb();
-  const byStatus = db.prepare('SELECT status, COUNT(*) as count FROM invoices GROUP BY status').all();
-  const totalRow = db.prepare('SELECT COUNT(*) as count FROM invoices').get() as { count: number };
-  res.json({ data: { byStatus, total: totalRow.count } });
+  const byStatus = await db.prepare('SELECT status, COUNT(*) as count FROM invoices GROUP BY status').all();
+  const totalRow = await db.prepare('SELECT COUNT(*) as count FROM invoices').get<{ count: number }>();
+  res.json({ data: { byStatus, total: totalRow?.count ?? 0 } });
 });
 
 // GET /api/invoices — list all invoices
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   // По имени файла — для async upload polling.
   const fileName = req.query.file_name as string | undefined;
   if (fileName) {
-    const invoice = invoiceRepo.findByFileName(fileName);
-    const enriched = invoice ? [enrichInvoiceWithSupplier(invoice)] : [];
+    const invoice = await invoiceRepo.findByFileName(fileName);
+    const enriched = invoice ? [await enrichInvoiceWithSupplier(invoice)] : [];
     res.json({ data: enriched, count: enriched.length });
     return;
   }
@@ -91,29 +91,31 @@ router.get('/', (req: Request, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;
 
-  const invoices = attachSberStatus(invoiceRepo.getAll(status, limit, offset).map(enrichInvoiceWithSupplier));
+  const rawInvoices = await invoiceRepo.getAll(status, limit, offset);
+  const enriched = await Promise.all(rawInvoices.map(enrichInvoiceWithSupplier));
+  const invoices = await attachSberStatus(enriched);
   res.json({ data: invoices, count: invoices.length });
 });
 
 // GET /api/invoices/pending?limit=100&offset=0 — invoices ready for 1C.
 // Default limit 100, hard max 500 (enforced in repo). 1C polls this; without
 // paging a backlog of thousands would blow up memory + response size.
-router.get('/pending', (req: Request, res: Response) => {
+router.get('/pending', async (req: Request, res: Response) => {
   const limitRaw = parseInt(req.query.limit as string, 10);
   const offsetRaw = parseInt(req.query.offset as string, 10);
   const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
   const offset = Number.isFinite(offsetRaw) ? offsetRaw : undefined;
-  const { rows, total } = invoiceRepo.getPendingWithItems({ limit, offset });
+  const { rows, total } = await invoiceRepo.getPendingWithItems({ limit, offset });
   // Enrich each invoice's supplier fields from the verified suppliers table —
   // this is what 1С actually receives and uses to find/create контрагент.
-  const enriched = rows.map(r => ({ ...enrichInvoiceWithSupplier(r), items: r.items }));
+  const enriched = await Promise.all(rows.map(async r => ({ ...(await enrichInvoiceWithSupplier(r)), items: r.items })));
   res.json({ data: enriched, count: enriched.length, total, limit: limit ?? 100, offset: offset ?? 0 });
 });
 
 // GET /api/invoices/:id/photos — list photo files for an invoice
-router.get('/:id/photos', (req: Request, res: Response) => {
+router.get('/:id/photos', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -134,9 +136,9 @@ router.get('/:id/photos', (req: Request, res: Response) => {
 });
 
 // GET /api/invoices/:id/photos/:filename — serve photo file.
-router.get('/:id/photos/:filename', (req: Request, res: Response) => {
+router.get('/:id/photos/:filename', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -169,10 +171,10 @@ router.get('/:id/photos/:filename', (req: Request, res: Response) => {
 
 // GET /api/invoices/:id — single invoice with items.
 // Supplier fields enriched from verified `suppliers` row when ИНН matches.
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const raw = invoiceRepo.getWithItems(id);
-  const invoice = raw ? { ...enrichInvoiceWithSupplier(raw), items: raw.items } : raw;
+  const raw = await invoiceRepo.getWithItems(id);
+  const invoice = raw ? { ...(await enrichInvoiceWithSupplier(raw)), items: raw.items } : raw;
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -189,10 +191,10 @@ router.get('/:id', (req: Request, res: Response) => {
 // Принимает любой subset полей. Поля, переданные как пустая строка, сбрасываются
 // в null. Поля, не переданные, остаются как были. Items не трогаются — для них
 // есть отдельный PATCH /:invoiceId/items/:itemId.
-router.patch('/:id', (req: Request, res: Response) => {
+router.patch('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
   const body = req.body as Record<string, unknown>;
@@ -292,9 +294,9 @@ router.patch('/:id', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'No editable fields in request body' });
   }
 
-  invoiceRepo.updateInvoiceData(id, update);
-  const updated = invoiceRepo.getById(id);
-  return res.json({ data: updated ? enrichInvoiceWithSupplier(updated) : null });
+  await invoiceRepo.updateInvoiceData(id, update);
+  const updated = await invoiceRepo.getById(id);
+  return res.json({ data: updated ? await enrichInvoiceWithSupplier(updated) : null });
 });
 
 // POST /api/invoices/:id/send — approve invoice for 1C pickup.
@@ -310,7 +312,7 @@ router.patch('/:id', (req: Request, res: Response) => {
 // The webhook path was replaced by this explicit pull/approval model.
 router.post('/:id/send', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -333,9 +335,9 @@ router.post('/:id/send', async (req: Request, res: Response) => {
   }
 
   // Primary flow: mark as approved so 1C picks it up on next /pending call
-  invoiceRepo.approveForOneC(id);
+  await invoiceRepo.approveForOneC(id);
 
-  const invForNotif = invoiceRepo.getById(id);
+  const invForNotif = await invoiceRepo.getById(id);
   if (invForNotif) {
     emitNotification('approved_for_1c', {
       invoice_id: invForNotif.id,
@@ -359,13 +361,13 @@ router.post('/:id/send', async (req: Request, res: Response) => {
 // already_sent=true instead of mutating state. This protects against 1C
 // network-retrying the same confirmation and causing duplicate purchase docs
 // from being perceived as different invoices on the 1C side.
-router.post('/:id/confirm', (req: Request, res: Response) => {
+router.post('/:id/confirm', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (!Number.isFinite(id) || id <= 0) {
     res.status(400).json({ error: 'Invalid invoice id' });
     return;
   }
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -377,11 +379,11 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
     return;
   }
 
-  invoiceRepo.markSent(id);
+  await invoiceRepo.markSent(id);
   const db = getDb();
-  db.prepare('UPDATE invoices SET approved_for_1c = 0 WHERE id = ?').run(id);
+  await db.prepare('UPDATE invoices SET approved_for_1c = 0 WHERE id = ?').run(id);
 
-  const invConfirmed = invoiceRepo.getById(id);
+  const invConfirmed = await invoiceRepo.getById(id);
   if (invConfirmed) {
     emitNotification('sent_to_1c', {
       invoice_id: invConfirmed.id,
@@ -397,9 +399,9 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
 // POST /api/invoices/:id/reset — reset from sent_to_1c back to processed.
 // Also clears approved_for_1c flag so user has to explicitly re-approve
 // before 1C picks it up again (avoids accidental double-imports).
-router.post('/:id/reset', (req: Request, res: Response) => {
+router.post('/:id/reset', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -407,7 +409,7 @@ router.post('/:id/reset', (req: Request, res: Response) => {
   }
 
   const db = getDb();
-  db.prepare(
+  await db.prepare(
     "UPDATE invoices SET status = 'processed', sent_at = NULL, approved_for_1c = 0, approved_at = NULL WHERE id = ?"
   ).run(id);
   res.json({ data: { id, status: 'processed', approved_for_1c: false } });
@@ -415,16 +417,16 @@ router.post('/:id/reset', (req: Request, res: Response) => {
 
 // POST /api/invoices/:id/unapprove — withdraw the "Отправить в 1С" approval.
 // Use when user wants to cancel the pending 1C upload before 1C has fetched it.
-router.post('/:id/unapprove', (req: Request, res: Response) => {
+router.post('/:id/unapprove', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
     return;
   }
 
-  invoiceRepo.unapproveForOneC(id);
+  await invoiceRepo.unapproveForOneC(id);
   res.json({ data: { id, approved_for_1c: false } });
 });
 
@@ -432,10 +434,10 @@ router.post('/:id/unapprove', (req: Request, res: Response) => {
 // Query param: ?all=true to also re-map items that already have a GUID.
 // Useful after 1C catalog update — new items may be a better match for
 // already-mapped lines.
-router.post('/:id/remap', (req: Request, res: Response) => {
+router.post('/:id/remap', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const includeAll = req.query.all === 'true';
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -450,7 +452,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
   // Refresh mapper cache to pick up any new nomenclature
   mapper.invalidateCache();
 
-  const items = invoiceRepo.getItems(id);
+  const items = await invoiceRepo.getItems(id);
 
   // Header total_sum recovery: invoices processed BEFORE the recalculateTotal
   // fix have a total_sum that was overwritten with Σ items. If raw_text is
@@ -470,7 +472,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
         // Extract vat_sum too, if present, to keep things coherent.
         const vatMatch = invoice.raw_text.match(/"vat_sum"\s*:\s*(\d+(?:\.\d+)?)/);
         const rawVat = vatMatch ? parseFloat(vatMatch[1]) : null;
-        invoiceRepo.updateInvoiceData(id, {
+        await invoiceRepo.updateInvoiceData(id, {
           total_sum: rawTotal,
           vat_sum: rawVat && isFinite(rawVat) ? rawVat : undefined,
         });
@@ -499,7 +501,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
         const before = items[k];
         const after = vatFix.items[k];
         if (after.total !== before.total || after.price !== before.price) {
-          invoiceRepo.updateItemFields(before.id, {
+          await invoiceRepo.updateItemFields(before.id, {
             total: after.total ?? null,
             price: after.price ?? null,
           });
@@ -522,11 +524,11 @@ router.post('/:id/remap', (req: Request, res: Response) => {
     // run pack-transform below so a pack_size learned AFTER first ingest can
     // retroactively convert qty/unit (e.g. 7 шт ведра → 21 кг сельди).
     const shouldLookup = includeAll || !alreadyMapped;
-    const result = shouldLookup ? mapper.map(item.original_name) : null;
+    const result = shouldLookup ? await mapper.map(item.original_name) : null;
 
     if (result?.onec_guid) {
       if (result.onec_guid !== item.onec_guid) changed++;
-      invoiceRepo.updateItemMapping(
+      await invoiceRepo.updateItemMapping(
         item.id,
         result.onec_guid,
         result.mapped_name,
@@ -539,7 +541,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
       // Update the displayed name so the user sees the correct target even
       // without a catalog GUID. mapping_confidence set to 0.9 to match the
       // mapper's internal convention for legacy results.
-      invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
+      await invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
       legacyMapped++;
     }
 
@@ -552,7 +554,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
     // When we skipped the mapper lookup above (already-mapped item without
     // ?all=true), fetch the current mapping directly so pack_size can still
     // be honoured.
-    const mappingForPack = result ?? mapper.map(item.original_name);
+    const mappingForPack = result ?? await mapper.map(item.original_name);
     // Prefer the unit from whatever catalog row this item resolves to —
     // either the mapping's guid (learned mapping) or the item's own guid
     // (freshly placed by LLM-remap without a mappings row yet). Without
@@ -560,7 +562,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
     // is countable (e.g. "Бутылка ПЭТ 0,3 …" → qty × 150 × 150).
     const packGuid = mappingForPack.onec_guid || item.onec_guid;
     const remapOnec1cUnit = packGuid
-      ? onecNomenclatureRepo.getByGuid(packGuid)?.unit ?? null
+      ? (await onecNomenclatureRepo.getByGuid(packGuid))?.unit ?? null
       : null;
     const resolved = resolveAndApplyPackTransform(
       { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
@@ -577,7 +579,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
       || after.unit !== before.unit
       || after.price !== before.price
     ) {
-      invoiceRepo.updateItemFields(item.id, {
+      await invoiceRepo.updateItemFields(item.id, {
         quantity: after.quantity ?? null,
         unit: after.unit ?? null,
         price: after.price ?? null,
@@ -588,7 +590,7 @@ router.post('/:id/remap', (req: Request, res: Response) => {
 
   // Totals may have shifted if pack-transform changed any prices (it shouldn't
   // — total is preserved — but flag mismatches regardless).
-  invoiceRepo.recalculateTotal(id);
+  await invoiceRepo.recalculateTotal(id);
 
   logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length, all: includeAll });
   res.json({ data: { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length } });
@@ -607,13 +609,13 @@ router.post('/:id/remap', (req: Request, res: Response) => {
 router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const includeAll = req.query.all === 'true' || req.query.all === '1';
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
     return;
   }
 
-  const items = invoiceRepo.getItems(id);
+  const items = await invoiceRepo.getItems(id);
   const targets = includeAll ? items : items.filter(it => !it.onec_guid);
   if (targets.length === 0) {
     res.json({
@@ -628,14 +630,14 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   // Build the catalog snapshot ONCE — the same ordering is used both to
   // build the prompt and to resolve catalog_idx back to a guid in the
   // response.
-  const catalogRows = onecNomenclatureRepo.listItems({ excludeFolders: true });
+  const catalogRows = await onecNomenclatureRepo.listItems({ excludeFolders: true });
   if (catalogRows.length === 0) {
     res.status(400).json({ error: 'Справочник 1С пуст — нечего сопоставлять. Сначала выгрузите номенклатуру из 1С.' });
     return;
   }
   const catalog: CatalogEntry[] = catalogRows.map(r => ({ guid: r.guid, name: r.name, unit: r.unit }));
 
-  const analyzerCfg = invoiceRepo.getAnalyzerConfig();
+  const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
   const apiKey = analyzerCfg.anthropic_api_key || config.anthropicApiKey;
   if (!apiKey) {
     res.status(500).json({ error: 'Anthropic API key not configured' });
@@ -667,10 +669,10 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
       matched++;
       const guidChanged = it.onec_guid !== hit.guid;
       if (guidChanged) {
-        invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
+        await invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
         changed++;
       }
-      const onec1cUnit = onecNomenclatureRepo.getByGuid(hit.guid)?.unit ?? null;
+      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(hit.guid))?.unit ?? null;
 
       // Pack-transforms multiply qty — so we only run them when this row is
       // either NEW (was unmapped) or the guid switched. Otherwise we'd double-
@@ -684,7 +686,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
         // "Мука (50кг)" — without it, items that were originally unmapped
         // and only got their guid via this LLM-remap call would never get
         // their qty/unit corrected from "1 шт" to "50 кг".
-        const learnedMapping = mappingRepo.getByScannedName(it.original_name || '');
+        const learnedMapping = await mappingRepo.getByScannedName(it.original_name || '');
         const llmGavePackHint = !!(hit.pack_size && hit.pack_size > 0 && hit.unit_override);
         const hintedSize = llmGavePackHint ? hit.pack_size : (learnedMapping?.pack_size ?? null);
         const hintedUnit = llmGavePackHint ? hit.unit_override : (learnedMapping?.pack_unit ?? null);
@@ -703,7 +705,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
         const beforeUnit = it.unit;
         const beforePrice = it.price;
         if (r.quantity !== beforeQty || r.unit !== beforeUnit || r.price !== beforePrice) {
-          invoiceRepo.updateItemFields(it.id, {
+          await invoiceRepo.updateItemFields(it.id, {
             quantity: r.quantity ?? null,
             unit: r.unit ?? null,
             price: r.price ?? null,
@@ -714,7 +716,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
         // Persist regex-detected pack back to the mapping (как watcher) —
         // следующий llm-remap пойдёт по learned-mapping ветке, а не regex.
         if (resolved.usedFallback && learnedMapping && resolved.packSize && resolved.packUnit) {
-          mappingRepo.update(learnedMapping.id, {
+          await mappingRepo.update(learnedMapping.id, {
             pack_size: resolved.packSize,
             pack_unit: resolved.packUnit,
           });
@@ -728,7 +730,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
           onec1cUnit,
         );
         if (coerced.unit !== it.unit || coerced.quantity !== it.quantity) {
-          invoiceRepo.updateItemFields(it.id, coerced);
+          await invoiceRepo.updateItemFields(it.id, coerced);
           coercedCount++;
         }
       }
@@ -739,20 +741,20 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     // coerce the unit if the row was already mapped previously and is
     // sitting in a non-1C unit (e.g. "л" while 1C tracks in "кг").
     if (!wasUnmapped) {
-      const onec1cUnit = onecNomenclatureRepo.getByGuid(it.onec_guid as string)?.unit ?? null;
+      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(it.onec_guid as string))?.unit ?? null;
       const coerced = coerceToOnec1cUnit(
         { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
         onec1cUnit,
       );
       if (coerced.unit !== it.unit || coerced.quantity !== it.quantity) {
-        invoiceRepo.updateItemFields(it.id, coerced);
+        await invoiceRepo.updateItemFields(it.id, coerced);
         coercedCount++;
       }
     }
   }
 
   // Flags the invoice if Σ(items.total) drifts from invoice.total_sum.
-  invoiceRepo.recalculateTotal(id);
+  await invoiceRepo.recalculateTotal(id);
 
   logger.info('LLM-remap completed', {
     id, requested: targets.length, matched, changed, repacked, coerced: coercedCount, all: includeAll,
@@ -772,9 +774,9 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
@@ -782,7 +784,7 @@ router.delete('/:id', (req: Request, res: Response) => {
   }
 
   try {
-    const { file_name } = invoiceRepo.delete(id);
+    const { file_name } = await invoiceRepo.delete(id);
 
     // Delete associated photo files from processed/failed dirs
     if (file_name) {
@@ -808,7 +810,7 @@ router.delete('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/invoices/delete-batch — delete multiple invoices
-router.post('/delete-batch', (req: Request, res: Response) => {
+router.post('/delete-batch', async (req: Request, res: Response) => {
   const { ids } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: 'ids array required' });
@@ -822,7 +824,7 @@ router.post('/delete-batch', (req: Request, res: Response) => {
 
   for (const id of ids) {
     try {
-      const { file_name } = invoiceRepo.delete(id);
+      const { file_name } = await invoiceRepo.delete(id);
       if (file_name) {
         const fileNames = file_name.split(',').map((f: string) => f.trim());
         for (const fn of fileNames) {
@@ -846,11 +848,11 @@ router.post('/delete-batch', (req: Request, res: Response) => {
 // POST /api/invoices/canonicalize-suppliers — retroactively rewrite supplier
 // names in existing invoices to the canonical form (ООО "Name" / ИП Name).
 // Safe to run repeatedly — canonicalizeSupplierName is idempotent.
-router.post('/canonicalize-suppliers', (_req: Request, res: Response) => {
+router.post('/canonicalize-suppliers', async (_req: Request, res: Response) => {
   const db = getDb();
-  const rows = db.prepare(
+  const rows = await db.prepare(
     `SELECT id, supplier FROM invoices WHERE supplier IS NOT NULL AND supplier != ''`
-  ).all() as Array<{ id: number; supplier: string }>;
+  ).all<{ id: number; supplier: string }>();
 
   const update = db.prepare('UPDATE invoices SET supplier = ? WHERE id = ?');
   let updated = 0;
@@ -859,7 +861,7 @@ router.post('/canonicalize-suppliers', (_req: Request, res: Response) => {
   for (const row of rows) {
     const canonical = canonicalizeSupplierName(row.supplier);
     if (canonical && canonical !== row.supplier) {
-      update.run(canonical, row.id);
+      await update.run(canonical, row.id);
       updated++;
       if (changes.length < 20) {
         changes.push({ id: row.id, before: row.supplier, after: canonical });
@@ -956,7 +958,7 @@ async function waitForProcessed(fileName: string, timeoutMs: number): Promise<nu
   const terminalStatuses = ['processed', 'sent_to_1c', 'error'];
 
   while (Date.now() - start < timeoutMs) {
-    const inv = invoiceRepo.findRecentByFileName(fileName, 10);
+    const inv = await invoiceRepo.findRecentByFileName(fileName, 10);
     if (inv && terminalStatuses.includes(inv.status)) {
       return inv.id;
     }
@@ -984,7 +986,7 @@ async function waitForProcessed(fileName: string, timeoutMs: number): Promise<nu
 //
 // All mutations are wrapped in a single DB transaction so partial failure cannot
 // leave inconsistent state across invoice_items / nomenclature_mappings / mapping_supplier_usage.
-router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
+router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) => {
   const invoiceId = parseInt(req.params.invoiceId as string, 10);
   const itemId = parseInt(req.params.itemId as string, 10);
   if (Number.isNaN(invoiceId) || Number.isNaN(itemId)) {
@@ -1011,12 +1013,12 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
   const pack_unit: string | null =
     typeof rawPackUnit === 'string' && rawPackUnit.trim() !== '' ? rawPackUnit.trim() : null;
 
-  const invoice = invoiceRepo.getById(invoiceId);
+  const invoice = await invoiceRepo.getById(invoiceId);
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
     return;
   }
-  const item = invoiceRepo.getItemById(itemId);
+  const item = await invoiceRepo.getItemById(itemId);
   if (!item || item.invoice_id !== invoiceId) {
     res.status(404).json({ error: 'Invoice item not found' });
     return;
@@ -1025,7 +1027,7 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
   // If setting a mapping, validate the GUID exists in the synced catalog
   let resolvedName: string | null = null;
   if (onec_guid) {
-    const onecRow = onecNomenclatureRepo.getByGuid(onec_guid);
+    const onecRow = await onecNomenclatureRepo.getByGuid(onec_guid);
     if (!onecRow) {
       res.status(400).json({ error: 'onec_guid not found in onec_nomenclature' });
       return;
@@ -1055,13 +1057,12 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
   }
 
   // All mutations in one transaction
-  const db = getDb();
-  db.transaction(() => {
-    invoiceRepo.mapItem(itemId, onec_guid, displayName);
+  await getDb().transaction(async (txn) => {
+    await invoiceRepo.mapItem(itemId, onec_guid, displayName);
 
     // Write transformed quantity/unit/price on the item if applicable
     if (applyPack) {
-      invoiceRepo.updateItemQuantity(itemId, transformedQty, transformedUnit, transformedPrice);
+      await invoiceRepo.updateItemQuantity(itemId, transformedQty, transformedUnit, transformedPrice);
     }
 
     // Learning loop: only touch the global nomenclature_mappings when SETTING.
@@ -1080,14 +1081,16 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
         upsertPayload.pack_size = pack_size;
         upsertPayload.pack_unit = pack_unit;
       }
-      mappingRepo.upsert(upsertPayload);
+      await mappingRepo.upsert(upsertPayload);
     }
-  })();
+    // Touch txn so unused-param lint stays quiet — actual writes go through repos.
+    void txn;
+  });
 
   // Invalidate mapper cache so the next fuzzy lookup rebuilds
   if (mapper) mapper.invalidateCache();
 
-  const updatedItem = invoiceRepo.getItemById(itemId);
+  const updatedItem = await invoiceRepo.getItemById(itemId);
   if (!updatedItem) {
     res.status(500).json({ error: 'Failed to retrieve updated item' });
     return;
@@ -1102,7 +1105,7 @@ router.put('/:invoiceId/items/:itemId/map', (req: Request, res: Response) => {
 //
 // Always triggers recalculateTotal on the parent invoice so the sum +
 // items_total_mismatch flag stay accurate.
-router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
+router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) => {
   const invoiceId = parseInt(req.params.invoiceId as string, 10);
   const itemId = parseInt(req.params.itemId as string, 10);
   if (!Number.isFinite(invoiceId) || !Number.isFinite(itemId)) {
@@ -1110,7 +1113,7 @@ router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
     return;
   }
 
-  const item = invoiceRepo.getItemById(itemId);
+  const item = await invoiceRepo.getItemById(itemId);
   if (!item || item.invoice_id !== invoiceId) {
     res.status(404).json({ error: 'Invoice item not found' });
     return;
@@ -1159,15 +1162,15 @@ router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
     return;
   }
 
-  const db = getDb();
-  db.transaction(() => {
-    invoiceRepo.updateItemFields(itemId, fields);
+  await getDb().transaction(async (txn) => {
+    await invoiceRepo.updateItemFields(itemId, fields);
     // Keep the invoice total + mismatch flag in sync with the edited items.
-    invoiceRepo.recalculateTotal(invoiceId);
-  })();
+    await invoiceRepo.recalculateTotal(invoiceId);
+    void txn;
+  });
 
-  const updated = invoiceRepo.getItemById(itemId);
-  const invoice = invoiceRepo.getById(invoiceId);
+  const updated = await invoiceRepo.getItemById(itemId);
+  const invoice = await invoiceRepo.getById(invoiceId);
 
   if (invoice) {
     emitNotification('invoice_edited', {
@@ -1196,7 +1199,7 @@ router.post('/:id/rescan', async (req: Request, res: Response) => {
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   if (!fileWatcher) return res.status(500).json({ error: 'FileWatcher not initialized' });
 
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
   try {
@@ -1212,23 +1215,23 @@ router.post('/:id/rescan', async (req: Request, res: Response) => {
 // Сбрасывает duplicate_of в NULL и возвращает status='processed'. Items при этом
 // НЕ восстанавливаются — если юзер хочет полную обработку, нужно нажать «Удалить»
 // и переотсканировать.
-router.post('/:id/unlink-duplicate', (req: Request, res: Response) => {
+router.post('/:id/unlink-duplicate', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
   if (invoice.duplicate_of == null) {
     return res.status(400).json({ error: 'Invoice is not marked as duplicate' });
   }
-  invoiceRepo.unmarkAsDuplicate(id);
+  await invoiceRepo.unmarkAsDuplicate(id);
   return res.json({ success: true });
 });
 
 // GET /api/invoices/:id/sber-status — текущее состояние платежа в Сбере
-router.get('/:id/sber-status', (req: Request, res: Response) => {
+router.get('/:id/sber-status', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-  const payment = sberPaymentRepo.findByInvoiceId(id);
+  const payment = await sberPaymentRepo.findByInvoiceId(id);
   return res.json({ payment });
 });
 
@@ -1237,10 +1240,10 @@ router.get('/:id/sber-status', (req: Request, res: Response) => {
 // позволяет). Юзер должен открыть свой банк и удалить вручную. Этот endpoint
 // нужен для retry-сценария и для очистки записей, которые юзер уже разрулил
 // в банке.
-router.delete('/:id/sber-payment', (req: Request, res: Response) => {
+router.delete('/:id/sber-payment', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-  sberPaymentRepo.deleteByInvoiceId(id);
+  await sberPaymentRepo.deleteByInvoiceId(id);
   return res.json({ success: true });
 });
 
@@ -1248,15 +1251,15 @@ router.delete('/:id/sber-payment', (req: Request, res: Response) => {
 router.post('/:id/send-sber', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-  const invoice = invoiceRepo.getById(id);
+  const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-  const existingPayment = sberPaymentRepo.findByInvoiceId(id);
+  const existingPayment = await sberPaymentRepo.findByInvoiceId(id);
   if (existingPayment) {
     if (existingPayment.status === 'failed') {
       // Предыдущая попытка упала — разрешаем retry (юзер явно нажал кнопку
       // ещё раз). Удаляем старую строку, дальше идёт обычный create.
-      sberPaymentRepo.deleteByInvoiceId(id);
+      await sberPaymentRepo.deleteByInvoiceId(id);
     } else {
       // status === 'created' | 'pending' — реальный конфликт.
       return res.status(409).json({
@@ -1273,7 +1276,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'invoice has no supplier_inn' });
   }
 
-  const tokenRow = sberTokenRepo.get();
+  const tokenRow = await sberTokenRepo.get();
   if (!tokenRow) return res.status(400).json({ error: 'Sber not connected' });
   if (!tokenRow.account_number || !tokenRow.org_name || !tokenRow.payer_inn ||
       !tokenRow.payer_bank_bic || !tokenRow.payer_bank_corr_account) {
@@ -1282,7 +1285,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
 
   // Resolve supplier
   const overrides = (req.body as { supplier_overrides?: Record<string, unknown> }).supplier_overrides;
-  let supplier = supplierRepo.findByInn(invoice.supplier_inn);
+  let supplier = await supplierRepo.findByInn(invoice.supplier_inn);
   if (overrides) {
     const o = overrides as {
       inn?: string; name?: string; kpp?: string;
@@ -1292,7 +1295,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     if (!o.inn || !o.name || !o.bank_bic) {
       return res.status(400).json({ error: 'supplier_overrides missing required fields (inn, name, bank_bic)' });
     }
-    supplier = supplierRepo.upsert({
+    supplier = await supplierRepo.upsert({
       inn: o.inn, name: o.name, kpp: o.kpp ?? null,
       account: o.account ?? null, bank_bic: o.bank_bic,
       bank_corr_account: o.bank_corr_account ?? null,
@@ -1325,12 +1328,12 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
 
   // Render purpose
   const purposeOverride = (req.body as { purpose_override?: string }).purpose_override;
-  const userId = userRepo.firstUserId() ?? 1;
+  const userId = (await userRepo.firstUserId()) ?? 1;
   const tpl =
     purposeOverride ??
-    userRepo.getPurposeTemplate(userId) ??
+    (await userRepo.getPurposeTemplate(userId)) ??
     'Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}';
-  const items = invoiceRepo.getItems(id);
+  const items = await invoiceRepo.getItems(id);
   const firstVatRate = items[0]?.vat_rate ?? null;
   const purpose = renderPurpose(tpl, {
     invoice_number: invoice.invoice_number,
@@ -1368,7 +1371,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
 
   // INSERT pending row — UNIQUE invoice_id защищает от двойного клика
   try {
-    sberPaymentRepo.create({
+    await sberPaymentRepo.create({
       invoice_id: id,
       external_id: externalId,
       status: 'pending',
@@ -1379,7 +1382,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       request_payload: JSON.stringify(redact(payload)),
     });
   } catch (err) {
-    if ((err as Error).message.includes('UNIQUE')) {
+    if ((err as Error).message.includes('UNIQUE') || (err as Error).message.includes('Duplicate')) {
       return res.status(409).json({ error: 'Payment already created for this invoice' });
     }
     throw err;
@@ -1387,12 +1390,12 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
 
   try {
     const result = await createPaymentOrder(accessToken, payload);
-    sberPaymentRepo.updateStatus(id, {
+    await sberPaymentRepo.updateStatus(id, {
       status: 'created',
       sber_payment_number: result.number ?? null,
       response_body: JSON.stringify(redact(result)),
     });
-    supplierRepo.touchLastUsed(supplier.inn);
+    await supplierRepo.touchLastUsed(supplier.inn);
     logger.info('[sber] payment created', { invoice_id: id, number: result.number, externalId });
     return res.json({
       success: true,
@@ -1401,7 +1404,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     });
   } catch (err) {
     if (err instanceof SberApiError) {
-      sberPaymentRepo.updateStatus(id, {
+      await sberPaymentRepo.updateStatus(id, {
         status: 'failed',
         response_body: err.body,
         error_message: `${err.status}: ${err.body.slice(0, 500)}`,
@@ -1409,7 +1412,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       logger.error('[sber] payment failed', { invoice_id: id, status: err.status });
       return res.status(502).json({ error: 'Sber API error', sber_status: err.status, sber_body: err.body });
     }
-    sberPaymentRepo.updateStatus(id, {
+    await sberPaymentRepo.updateStatus(id, {
       status: 'failed',
       error_message: (err as Error).message.slice(0, 500),
     });

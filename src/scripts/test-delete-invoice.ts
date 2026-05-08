@@ -7,7 +7,7 @@
  */
 import '../config';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
-import { getDb } from '../database/db';
+import { getDb, initDb } from '../database/db';
 
 let passCount = 0;
 let failCount = 0;
@@ -23,19 +23,20 @@ function assert(condition: boolean, message: string): void {
 }
 
 async function main(): Promise<void> {
+  await initDb();
   console.log('Delete Invoice Tests');
   console.log('====================');
 
   // Create a test invoice
   console.log('\n=== Setup: create test invoice with items ===');
-  const invoice = invoiceRepo.create({
+  const invoice = await invoiceRepo.create({
     file_name: 'test-delete.jpg',
     file_path: '/tmp/test-delete.jpg',
   });
   assert(!!invoice.id, `Created invoice with id: ${invoice.id}`);
 
   // Add a couple of items
-  invoiceRepo.addItem({
+  await invoiceRepo.addItem({
     invoice_id: invoice.id,
     original_name: 'Test product 1',
     quantity: 5,
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
     price: 100,
     total: 500,
   });
-  invoiceRepo.addItem({
+  await invoiceRepo.addItem({
     invoice_id: invoice.id,
     original_name: 'Test product 2',
     quantity: 2,
@@ -52,34 +53,34 @@ async function main(): Promise<void> {
     total: 500,
   });
 
-  const withItems = invoiceRepo.getWithItems(invoice.id);
+  const withItems = await invoiceRepo.getWithItems(invoice.id);
   assert(!!withItems, 'Invoice retrievable with items');
   assert(withItems?.items.length === 2, `Has 2 items, got ${withItems?.items.length}`);
 
   // Delete it
   console.log('\n=== Delete invoice ===');
-  invoiceRepo.delete(invoice.id);
+  await invoiceRepo.delete(invoice.id);
 
   // Verify gone
-  const afterDelete = invoiceRepo.getById(invoice.id);
+  const afterDelete = await invoiceRepo.getById(invoice.id);
   assert(!afterDelete, `Invoice deleted (getById returns undefined)`);
 
-  const itemsAfterDelete = invoiceRepo.getItems(invoice.id);
+  const itemsAfterDelete = await invoiceRepo.getItems(invoice.id);
   assert(itemsAfterDelete.length === 0, `Items deleted (cascade), got ${itemsAfterDelete.length}`);
 
   // Verify direct DB check — no orphan rows
   console.log('\n=== Verify no orphan rows in DB ===');
   const db = getDb();
-  const invRow = db.prepare('SELECT COUNT(*) as c FROM invoices WHERE id = ?').get(invoice.id) as { c: number };
-  assert(invRow.c === 0, `invoices row count = 0, got ${invRow.c}`);
+  const invRow = await db.prepare('SELECT COUNT(*) as c FROM invoices WHERE id = ?').get<{ c: number }>(invoice.id);
+  assert(invRow!.c === 0, `invoices row count = 0, got ${invRow!.c}`);
 
-  const itemRows = db.prepare('SELECT COUNT(*) as c FROM invoice_items WHERE invoice_id = ?').get(invoice.id) as { c: number };
-  assert(itemRows.c === 0, `invoice_items rows = 0, got ${itemRows.c}`);
+  const itemRows = await db.prepare('SELECT COUNT(*) as c FROM invoice_items WHERE invoice_id = ?').get<{ c: number }>(invoice.id);
+  assert(itemRows!.c === 0, `invoice_items rows = 0, got ${itemRows!.c}`);
 
   // Delete non-existent — should not throw
   console.log('\n=== Delete non-existent invoice (idempotency) ===');
   try {
-    invoiceRepo.delete(999999999);
+    await invoiceRepo.delete(999999999);
     assert(true, 'Delete of non-existent invoice does not throw');
   } catch (e: any) {
     assert(false, `Delete threw: ${e.message}`);

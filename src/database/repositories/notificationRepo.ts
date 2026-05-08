@@ -11,8 +11,8 @@ export interface PendingNotification {
 }
 
 export const notificationRepo = {
-  enqueue(userId: number, eventType: EventType, payload: EventPayload): void {
-    getDb()
+  async enqueue(userId: number, eventType: EventType, payload: EventPayload): Promise<void> {
+    await getDb()
       .prepare(
         `INSERT INTO notification_events (user_id, event_type, payload_json)
          VALUES (?, ?, ?)`,
@@ -23,38 +23,38 @@ export const notificationRepo = {
   // Returns rows created at or before `cutoffIso` for the given user that
   // haven't been sent yet. cutoffIso is taken at digest start so events
   // emitted DURING digest send roll into the next batch.
-  pendingForUser(userId: number, cutoffIso: string): PendingNotification[] {
+  async pendingForUser(userId: number, cutoffIso: string): Promise<PendingNotification[]> {
     return getDb()
       .prepare(
         `SELECT * FROM notification_events
          WHERE user_id = ? AND sent_at IS NULL AND created_at <= ?
          ORDER BY created_at`,
       )
-      .all(userId, cutoffIso) as PendingNotification[];
+      .all<PendingNotification>(userId, cutoffIso);
   },
 
-  markSent(ids: number[]): void {
+  async markSent(ids: number[]): Promise<void> {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => '?').join(',');
-    getDb()
-      .prepare(`UPDATE notification_events SET sent_at = datetime('now') WHERE id IN (${placeholders})`)
+    await getDb()
+      .prepare(`UPDATE notification_events SET sent_at = NOW() WHERE id IN (${placeholders})`)
       .run(...ids);
   },
 
   // Cleanup: remove sent rows older than 7 days. Called from digestWorker
   // once a day.
-  purgeOldSent(): number {
-    const result = getDb()
-      .prepare(`DELETE FROM notification_events WHERE sent_at IS NOT NULL AND sent_at < datetime('now', '-7 days')`)
+  async purgeOldSent(): Promise<number> {
+    const result = await getDb()
+      .prepare(`DELETE FROM notification_events WHERE sent_at IS NOT NULL AND sent_at < (NOW() - INTERVAL 7 DAY)`)
       .run();
     return result.changes;
   },
 
   // For tests / debug
-  countPending(userId: number): number {
-    const row = getDb()
+  async countPending(userId: number): Promise<number> {
+    const row = await getDb()
       .prepare(`SELECT COUNT(*) as cnt FROM notification_events WHERE user_id = ? AND sent_at IS NULL`)
-      .get(userId) as { cnt: number };
-    return row.cnt;
+      .get<{ cnt: number }>(userId);
+    return row?.cnt ?? 0;
   },
 };

@@ -16,7 +16,7 @@ interface UserDigestRow {
 // number of events sent (0 means nothing to send).
 async function sendDigestForUser(user: UserDigestRow, cutoffIso: string): Promise<number> {
   if (!user.email) return 0;
-  const pending = notificationRepo.pendingForUser(user.id, cutoffIso);
+  const pending = await notificationRepo.pendingForUser(user.id, cutoffIso);
   if (pending.length === 0) return 0;
 
   // Group by event_type, preserving insertion order across types
@@ -44,7 +44,7 @@ async function sendDigestForUser(user: UserDigestRow, cutoffIso: string): Promis
   const { subject, html } = renderDigest(groups);
   try {
     await sendNotification(user.email, subject, html);
-    notificationRepo.markSent(pending.map(p => p.id));
+    await notificationRepo.markSent(pending.map(p => p.id));
     return pending.length;
   } catch (err) {
     logger.error('digestWorker: send failed for user', {
@@ -64,9 +64,9 @@ async function runTickForMode(mode: NotifyMode): Promise<void> {
     return;
   }
   const cutoffIso = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  const users = getDb()
+  const users = await getDb()
     .prepare(`SELECT id, email, notify_mode FROM users WHERE notify_mode = ?`)
-    .all(mode) as UserDigestRow[];
+    .all<UserDigestRow>(mode);
 
   let totalSent = 0;
   for (const user of users) {
@@ -106,12 +106,14 @@ export function startDigestWorker(): void {
     cron.schedule(
       '30 3 * * *',
       () => {
-        try {
-          const removed = notificationRepo.purgeOldSent();
-          if (removed > 0) logger.info('digestWorker: purged old sent events', { removed });
-        } catch (err) {
-          logger.error('digestWorker: purge failed', { error: (err as Error).message });
-        }
+        void (async () => {
+          try {
+            const removed = await notificationRepo.purgeOldSent();
+            if (removed > 0) logger.info('digestWorker: purged old sent events', { removed });
+          } catch (err) {
+            logger.error('digestWorker: purge failed', { error: (err as Error).message });
+          }
+        })();
       },
       { timezone: 'Europe/Moscow' },
     ),

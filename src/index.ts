@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from './config';
 import { logger } from './utils/logger';
-import { getDb, closeDb } from './database/db';
+import { initDb, closeDb } from './database/db';
 import { OcrManager } from './ocr/ocrManager';
 import { NomenclatureMapper } from './mapping/nomenclatureMapper';
 import { FileWatcher } from './watcher/fileWatcher';
@@ -30,13 +30,13 @@ async function main(): Promise<void> {
     dryRun: config.dryRun,
   });
 
-  // Initialize database
-  getDb();
+  // Initialize database (opens MariaDB pool + runs migrations)
+  await initDb();
   logger.info('Database ready');
 
   // Seed/sync admin user from .env. Idempotent — safe on every startup.
   try {
-    seedAdminUser();
+    await seedAdminUser();
   } catch (e) {
     logger.error('Admin seed failed', { error: (e as Error).message });
   }
@@ -50,11 +50,11 @@ async function main(): Promise<void> {
   //     запись и переместить файл из processed/ обратно в inbox/, чтобы
   //     watcher переобработал как новую.
   try {
-    const stale = invoiceRepo.listStaleForRecovery();
+    const stale = await invoiceRepo.listStaleForRecovery();
     let promoted = 0, requeued = 0;
     for (const s of stale) {
       if (s.itemsCount > 0) {
-        invoiceRepo.updateStatus(s.id, 'processed');
+        await invoiceRepo.updateStatus(s.id, 'processed');
         promoted++;
       } else {
         // Re-queue the file for fresh processing
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
             try { fs.renameSync(processedPath, inboxPath); } catch { /* ignore */ }
           }
         }
-        invoiceRepo.delete(s.id);
+        await invoiceRepo.delete(s.id);
         requeued++;
       }
     }
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     }
     // Catch-all: anything still non-terminal older than 1 minute → error.
     // Should be empty after the loop above, but kept as safety net.
-    const fallback = invoiceRepo.markStaleAsFailed(1);
+    const fallback = await invoiceRepo.markStaleAsFailed(1);
     if (fallback > 0) {
       logger.warn('Marked remaining stale as error', { count: fallback });
     }
@@ -102,15 +102,16 @@ async function main(): Promise<void> {
   // Schedule daily database backup at 03:00 server time
   cron.schedule('0 3 * * *', () => {
     logger.info('Running scheduled database backup...');
-    backupDatabase();
+    backupDatabase().catch(err => logger.error('scheduled backup failed', { error: (err as Error).message }));
   });
   logger.info('Daily database backup scheduled at 03:00');
 
   // Schedule daily request log cleanup at 03:05 (after backup so the backup
   // captures the cleaned-up state). Moves the DELETE out of the request hot path.
   cron.schedule('5 3 * * *', () => {
-    const deleted = cleanupOldRequestLogs();
-    logger.info('API request log cleanup', { deleted });
+    cleanupOldRequestLogs()
+      .then(deleted => logger.info('API request log cleanup', { deleted }))
+      .catch(err => logger.error('request log cleanup failed', { error: (err as Error).message }));
   });
 
   // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files
@@ -123,13 +124,13 @@ async function main(): Promise<void> {
   // Disk space check every 6 hours + once on startup.
   // Emails when free space < 5 GB.
   cron.schedule('0 */6 * * *', () => {
-    checkDiskSpace();
+    checkDiskSpace().catch(err => logger.error('disk space check failed', { error: (err as Error).message }));
   });
-  checkDiskSpace();
+  checkDiskSpace().catch(err => logger.error('initial disk space check failed', { error: (err as Error).message }));
 
   // Run one backup immediately on startup — captures current state
   // before any crash or issues happen in this session.
-  backupDatabase();
+  backupDatabase().catch(err => logger.error('startup backup failed', { error: (err as Error).message }));
 
   // Start user notification digest worker (cron: hourly 9-18 MSK + daily 19 MSK + cleanup 03:30 MSK)
   startDigestWorker();
@@ -149,12 +150,12 @@ async function shutdown(): Promise<void> {
     await ocrManager.terminate();
   }
 
-  closeDb();
+  await closeDb();
   process.exit(0);
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => { shutdown().catch(err => logger.error('shutdown error', { error: (err as Error).message })); });
+process.on('SIGTERM', () => { shutdown().catch(err => logger.error('shutdown error', { error: (err as Error).message })); });
 
 // Email critical errors
 import { sendErrorEmail } from './utils/mailer';

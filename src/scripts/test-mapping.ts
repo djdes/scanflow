@@ -3,19 +3,19 @@
  * Использование: npm run test:mapping -- "Молоко 3.2%"
  */
 import '../config';
-import { getDb } from '../database/db';
+import { initDb, closeDb } from '../database/db';
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
-function main(): void {
+async function main(): Promise<void> {
+  await initDb();
   const name = process.argv[2];
   if (!name) {
     console.log('Usage: npm run test:mapping -- "Название товара"');
     console.log('Example: npm run test:mapping -- "Молоко 3.2%"\n');
 
     // Show current mappings
-    getDb();
-    const allMappings = mappingRepo.getAll();
+    const allMappings = await mappingRepo.getAll();
     console.log(`Current mappings in database: ${allMappings.length}`);
 
     if (allMappings.length === 0) {
@@ -29,16 +29,16 @@ function main(): void {
         console.log(`  "${m.scanned_name}" → "${m.mapped_name_1c}" ${m.approved ? '✓' : '?'}`);
       });
     }
+    await closeDb();
     return;
   }
 
-  getDb();
   const mapper = new NomenclatureMapper();
 
   console.log(`\n=== Mapping test for: "${name}" ===\n`);
 
   // Direct mapping
-  const result = mapper.map(name);
+  const result = await mapper.map(name);
   console.log('Direct mapping:');
   console.log(`  Original: ${result.original_name}`);
   console.log(`  Mapped:   ${result.mapped_name}`);
@@ -47,7 +47,7 @@ function main(): void {
 
   // Suggestions
   console.log('\nTop-5 suggestions:');
-  const suggestions = mapper.getSuggestions(name);
+  const suggestions = await mapper.getSuggestions(name);
   if (suggestions.length === 0) {
     console.log('  No suggestions (add mappings to database first)');
   } else {
@@ -55,6 +55,11 @@ function main(): void {
       console.log(`  ${i + 1}. "${s.name}" (${(s.confidence * 100).toFixed(0)}%)`);
     });
   }
+
+  await closeDb();
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

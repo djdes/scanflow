@@ -15,7 +15,7 @@
  */
 import { randomBytes } from 'crypto';
 import { config } from '../config';
-import { getDb, closeDb } from '../database/db';
+import { initDb, closeDb } from '../database/db';
 import { userRepo } from '../database/repositories/userRepo';
 import { hashPassword } from '../auth/password';
 
@@ -25,9 +25,9 @@ function generatePassword(): string {
   return randomBytes(12).toString('base64url');
 }
 
-function main(): void {
+async function main(): Promise<void> {
   // Touch the DB so migrations run before we touch users.
-  getDb();
+  await initDb();
 
   const provided = process.argv[2];
   const password = provided && provided.length >= 4 ? provided : generatePassword();
@@ -36,23 +36,23 @@ function main(): void {
   }
 
   const hash = hashPassword(password);
-  let user = userRepo.findByUsername(ADMIN_USERNAME);
+  let user = await userRepo.findByUsername(ADMIN_USERNAME);
 
   if (!user) {
     if (!config.apiKey) {
       console.error('API_KEY is empty in .env — cannot create admin without an api_key.');
       process.exit(1);
     }
-    userRepo.create({
+    await userRepo.create({
       username: ADMIN_USERNAME,
       password_hash: hash,
       api_key: config.apiKey,
       role: 'admin',
     });
-    user = userRepo.findByUsername(ADMIN_USERNAME);
+    user = await userRepo.findByUsername(ADMIN_USERNAME);
     console.log(`Created new admin user.`);
   } else {
-    userRepo.updatePasswordHash(user.id, hash);
+    await userRepo.updatePasswordHash(user.id, hash);
     console.log(`Updated password for existing admin user (id=${user.id}).`);
   }
 
@@ -63,7 +63,10 @@ function main(): void {
   console.log('============================================================');
   console.log('Copy this password now — it will not be shown again.');
 
-  closeDb();
+  await closeDb();
 }
 
-main();
+main().catch((err) => {
+  console.error('reset-admin-password failed:', err);
+  process.exit(1);
+});

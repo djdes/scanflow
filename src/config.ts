@@ -21,11 +21,9 @@ function envBool(key: string, defaultVal: boolean): boolean {
 
 export const config = {
   // OCR
-  ocrChain: envStr('OCR_CHAIN', 'google_vision,claude_cli,tesseract').split(',').map(s => s.trim()),
+  ocrChain: envStr('OCR_CHAIN', 'google_vision,tesseract').split(',').map(s => s.trim()),
   ocrForceEngine: envStr('OCR_FORCE_ENGINE') || null,
   googleCredentials: envStr('GOOGLE_APPLICATION_CREDENTIALS', './google-credentials.json'),
-  claudeCliPath: envStr('CLAUDE_CLI_PATH', 'claude'),
-  claudeCodeGitBashPath: envStr('CLAUDE_CODE_GIT_BASH_PATH', ''),
   useClaudeAnalyzer: envBool('USE_CLAUDE_ANALYZER', false),
   anthropicApiKey: envStr('ANTHROPIC_API_KEY', ''),
   anthropicProxyUrl: envStr('ANTHROPIC_PROXY_URL', ''),
@@ -34,7 +32,13 @@ export const config = {
   inboxDir: path.resolve(envStr('INBOX_DIR', './data/inbox')),
   processedDir: path.resolve(envStr('PROCESSED_DIR', './data/processed')),
   failedDir: path.resolve(envStr('FAILED_DIR', './data/failed')),
-  dbPath: path.resolve(envStr('DB_PATH', './data/database.sqlite')),
+
+  // MySQL/MariaDB
+  dbHost: envStr('DB_HOST', '192.168.33.3'),
+  dbPort: envInt('DB_PORT', 3306),
+  dbUser: envStr('DB_USER', 'scanflow'),
+  dbPassword: envStr('DB_PASSWORD', ''),
+  dbName: envStr('DB_NAME', 'scanflow'),
 
   // API
   apiPort: envInt('API_PORT', 3000),

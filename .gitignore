@@ -37,9 +37,11 @@ datainbox.gitkeep
 architecture.excalidraw
 improvements.excalidraw
 
-# SQLite WAL/SHM files
+# Legacy SQLite leftovers (DB is now MariaDB; these are kept for one-shot migration)
 data/database.sqlite-wal
 data/database.sqlite-shm
+data/legacy-database.sqlite
+data/database.sqlite.malformed-*
 
 # Tesseract trained data
 osd.traineddata

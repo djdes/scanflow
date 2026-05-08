@@ -23,29 +23,29 @@ function validateSupplier(body: SupplierBody): string | null {
   return null;
 }
 
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const q = (req.query.q as string | undefined) || undefined;
   const verified = req.query.verified !== undefined ? Number(req.query.verified) : undefined;
   const limit = Math.min(parseInt((req.query.limit as string) || '100', 10), 500);
   const offset = parseInt((req.query.offset as string) || '0', 10);
-  const suppliers = supplierRepo.list({ q, verified, limit, offset });
+  const suppliers = await supplierRepo.list({ q, verified, limit, offset });
   return res.json({ suppliers });
 });
 
-router.get('/:inn', (req: Request, res: Response) => {
-  const supplier = supplierRepo.findByInn((req.params.inn as string));
+router.get('/:inn', async (req: Request, res: Response) => {
+  const supplier = await supplierRepo.findByInn((req.params.inn as string));
   if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
   return res.json({ supplier });
 });
 
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   const err = validateSupplier(req.body as SupplierBody);
   if (err) return res.status(400).json({ error: err });
   const body = req.body as Required<Pick<SupplierBody, 'inn' | 'name' | 'bank_bic'>> & SupplierBody;
-  if (supplierRepo.findByInn(body.inn)) {
+  if (await supplierRepo.findByInn(body.inn)) {
     return res.status(409).json({ error: 'Supplier with this INN already exists' });
   }
-  const supplier = supplierRepo.create({
+  const supplier = await supplierRepo.create({
     inn: body.inn, name: body.name, bank_bic: body.bank_bic,
     kpp: body.kpp ?? null, account: body.account ?? null,
     bank_corr_account: body.bank_corr_account ?? null,
@@ -57,19 +57,19 @@ router.post('/', (req: Request, res: Response) => {
   return res.status(201).json({ supplier });
 });
 
-router.patch('/:inn', (req: Request, res: Response) => {
-  const existing = supplierRepo.findByInn((req.params.inn as string));
+router.patch('/:inn', async (req: Request, res: Response) => {
+  const existing = await supplierRepo.findByInn((req.params.inn as string));
   if (!existing) return res.status(404).json({ error: 'Supplier not found' });
   const body = req.body as SupplierBody;
   if (body.bank_bic && !BIC_RE.test(body.bank_bic)) return res.status(400).json({ error: 'bank_bic must be 9 digits' });
   if (body.account && !ACC_RE.test(body.account)) return res.status(400).json({ error: 'account must be 20 digits' });
   if (body.bank_corr_account && !ACC_RE.test(body.bank_corr_account)) return res.status(400).json({ error: 'bank_corr_account must be 20 digits' });
-  supplierRepo.update((req.params.inn as string), body);
-  return res.json({ supplier: supplierRepo.findByInn((req.params.inn as string)) });
+  await supplierRepo.update((req.params.inn as string), body);
+  return res.json({ supplier: await supplierRepo.findByInn((req.params.inn as string)) });
 });
 
-router.delete('/:inn', (req: Request, res: Response) => {
-  supplierRepo.delete((req.params.inn as string));
+router.delete('/:inn', async (req: Request, res: Response) => {
+  await supplierRepo.delete((req.params.inn as string));
   return res.json({ success: true });
 });
 

@@ -39,15 +39,17 @@ export interface ListOptions {
 }
 
 export const supplierRepo = {
-  findByInn(inn: string): Supplier | null {
-    const row = getDb().prepare('SELECT * FROM suppliers WHERE inn = ?').get(inn) as Supplier | undefined;
+  async findByInn(inn: string): Promise<Supplier | null> {
+    const row = await getDb()
+      .prepare('SELECT * FROM suppliers WHERE inn = ?')
+      .get<Supplier>(inn);
     return row ?? null;
   },
 
-  create(input: CreateSupplierInput): Supplier {
-    getDb().prepare(`
+  async create(input: CreateSupplierInput): Promise<Supplier> {
+    await getDb().prepare(`
       INSERT INTO suppliers (inn, name, kpp, account, bank_bic, bank_corr_account, bank_name, address, verified, source, notes)
-      VALUES (@inn, @name, @kpp, @account, @bank_bic, @bank_corr_account, @bank_name, @address, @verified, @source, @notes)
+      VALUES (:inn, :name, :kpp, :account, :bank_bic, :bank_corr_account, :bank_name, :address, :verified, :source, :notes)
     `).run({
       inn: input.inn,
       name: input.name,
@@ -61,20 +63,20 @@ export const supplierRepo = {
       source: input.source ?? null,
       notes: input.notes ?? null,
     });
-    return this.findByInn(input.inn)!;
+    return (await this.findByInn(input.inn))!;
   },
 
-  upsert(input: CreateSupplierInput): Supplier {
-    const existing = this.findByInn(input.inn);
+  async upsert(input: CreateSupplierInput): Promise<Supplier> {
+    const existing = await this.findByInn(input.inn);
     if (existing) {
-      this.update(input.inn, input);
+      await this.update(input.inn, input);
     } else {
-      this.create(input);
+      await this.create(input);
     }
-    return this.findByInn(input.inn)!;
+    return (await this.findByInn(input.inn))!;
   },
 
-  update(inn: string, patch: Partial<CreateSupplierInput>): void {
+  async update(inn: string, patch: Partial<CreateSupplierInput>): Promise<void> {
     const sets: string[] = [];
     const vals: unknown[] = [];
     for (const [k, v] of Object.entries(patch)) {
@@ -83,24 +85,25 @@ export const supplierRepo = {
       vals.push(v);
     }
     if (sets.length === 0) return;
-    sets.push(`updated_at = datetime('now')`);
+    sets.push(`updated_at = NOW()`);
     vals.push(inn);
-    getDb().prepare(`UPDATE suppliers SET ${sets.join(', ')} WHERE inn = ?`).run(...vals);
+    await getDb().prepare(`UPDATE suppliers SET ${sets.join(', ')} WHERE inn = ?`).run(...vals);
   },
 
-  touchLastUsed(inn: string): void {
-    getDb().prepare(`UPDATE suppliers SET last_used_at = datetime('now') WHERE inn = ?`).run(inn);
+  async touchLastUsed(inn: string): Promise<void> {
+    await getDb().prepare(`UPDATE suppliers SET last_used_at = NOW() WHERE inn = ?`).run(inn);
   },
 
-  delete(inn: string): void {
-    getDb().prepare('DELETE FROM suppliers WHERE inn = ?').run(inn);
+  async delete(inn: string): Promise<void> {
+    await getDb().prepare('DELETE FROM suppliers WHERE inn = ?').run(inn);
   },
 
-  list(opts: ListOptions): Supplier[] {
+  async list(opts: ListOptions): Promise<Supplier[]> {
     const wheres: string[] = [];
     const params: unknown[] = [];
     if (opts.q) {
-      wheres.push('(name LIKE ? COLLATE NOCASE OR inn LIKE ?)');
+      // utf8mb4_unicode_ci collation makes LIKE case-insensitive by default
+      wheres.push('(name LIKE ? OR inn LIKE ?)');
       params.push(`%${opts.q}%`, `%${opts.q}%`);
     }
     if (opts.verified !== undefined) {
@@ -110,10 +113,10 @@ export const supplierRepo = {
     const sql = `
       SELECT * FROM suppliers
       ${wheres.length > 0 ? 'WHERE ' + wheres.join(' AND ') : ''}
-      ORDER BY (last_used_at IS NULL), last_used_at DESC, name COLLATE NOCASE
+      ORDER BY (last_used_at IS NULL), last_used_at DESC, name
       LIMIT ? OFFSET ?
     `;
     params.push(opts.limit, opts.offset);
-    return getDb().prepare(sql).all(...params) as Supplier[];
+    return getDb().prepare(sql).all<Supplier>(...params);
   },
 };

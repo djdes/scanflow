@@ -42,14 +42,14 @@ router.get('/callback', async (req: Request, res: Response) => {
   try {
     const token = await exchangeCodeForToken(code);
     const expiresAt = new Date(Date.now() + token.expiresIn * 1000).toISOString();
-    sberTokenRepo.upsert({
+    await sberTokenRepo.upsert({
       access_token: token.accessToken,
       refresh_token: token.refreshToken,
       expires_at: expiresAt,
     });
     try {
       const info = await fetchClientInfo(token.accessToken);
-      sberTokenRepo.updatePayerDetails({
+      await sberTokenRepo.updatePayerDetails({
         org_name: info.orgName,
         account_number: info.accountNumber,
       });
@@ -63,7 +63,7 @@ router.get('/callback', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/seed-token', (req: Request, res: Response) => {
+router.post('/seed-token', async (req: Request, res: Response) => {
   const {
     access_token, refresh_token, expires_at, account_number, org_name,
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
@@ -86,7 +86,7 @@ router.post('/seed-token', (req: Request, res: Response) => {
   const expiresAt = expires_at
     ? new Date(expires_at).toISOString()
     : new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-  sberTokenRepo.upsert({
+  await sberTokenRepo.upsert({
     access_token, refresh_token, expires_at: expiresAt,
     account_number: account_number ?? null,
     org_name: org_name ?? null,
@@ -98,8 +98,8 @@ router.post('/seed-token', (req: Request, res: Response) => {
   return res.json({ success: true });
 });
 
-router.patch('/payer', (req: Request, res: Response) => {
-  const t = sberTokenRepo.get();
+router.patch('/payer', async (req: Request, res: Response) => {
+  const t = await sberTokenRepo.get();
   if (!t) return res.status(404).json({ error: 'Sber not connected' });
   const {
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
@@ -117,15 +117,15 @@ router.patch('/payer', (req: Request, res: Response) => {
   if (payer_inn && !INN_RE.test(payer_inn)) {
     return res.status(400).json({ error: 'payer_inn must be 10 or 12 digits' });
   }
-  sberTokenRepo.updatePayerDetails({
+  await sberTokenRepo.updatePayerDetails({
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
     account_number, org_name,
   });
   return res.json({ success: true });
 });
 
-router.get('/status', (_req: Request, res: Response) => {
-  const t = sberTokenRepo.get();
+router.get('/status', async (_req: Request, res: Response) => {
+  const t = await sberTokenRepo.get();
   if (!t) return res.json({ connected: false });
   const tokenExpired = new Date(t.expires_at).getTime() < Date.now();
   const payerComplete = !!(
@@ -148,8 +148,8 @@ router.get('/status', (_req: Request, res: Response) => {
   });
 });
 
-router.post('/disconnect', (_req: Request, res: Response) => {
-  sberTokenRepo.clear();
+router.post('/disconnect', async (_req: Request, res: Response) => {
+  await sberTokenRepo.clear();
   return res.json({ success: true });
 });
 

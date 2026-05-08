@@ -101,16 +101,16 @@ export class NomenclatureMapper {
   private onecFuse: Fuse<OnecNomenclatureRow> | null = null;
   private learnedTokens: LearnedToken[] | null = null;
 
-  private refreshIndex(): void {
-    const items = onecNomenclatureRepo.listItems({ excludeFolders: true });
+  private async refreshIndex(): Promise<void> {
+    const items = await onecNomenclatureRepo.listItems({ excludeFolders: true });
     this.onecFuse = new Fuse(items, ONEC_FUSE_OPTIONS);
     logger.debug('Nomenclature mapper index refreshed', { onecItems: items.length });
   }
 
-  private refreshLearnedIndex(): void {
+  private async refreshLearnedIndex(): Promise<void> {
     // Only rows with a live onec_guid — legacy rows without guid can't help
     // link a new scan to 1С.
-    const all = mappingRepo.getAll().filter(m => m.onec_guid);
+    const all = (await mappingRepo.getAll()).filter(m => m.onec_guid);
     this.learnedTokens = all.map(row => ({
       row,
       tokens: tokenize(normalizeName(row.scanned_name)),
@@ -118,16 +118,16 @@ export class NomenclatureMapper {
     logger.debug('Learned mappings index refreshed', { learnedCount: all.length });
   }
 
-  private ensureIndex(): Fuse<OnecNomenclatureRow> {
+  private async ensureIndex(): Promise<Fuse<OnecNomenclatureRow>> {
     if (!this.onecFuse) {
-      this.refreshIndex();
+      await this.refreshIndex();
     }
     return this.onecFuse!;
   }
 
-  private ensureLearnedIndex(): LearnedToken[] {
+  private async ensureLearnedIndex(): Promise<LearnedToken[]> {
     if (!this.learnedTokens) {
-      this.refreshLearnedIndex();
+      await this.refreshLearnedIndex();
     }
     return this.learnedTokens!;
   }
@@ -146,15 +146,15 @@ export class NomenclatureMapper {
    *   2. Fuzzy search against onec_nomenclature (confidence ≥ 0.7)
    *   3. None
    */
-  map(scannedName: string): MappingResult {
+  async map(scannedName: string): Promise<MappingResult> {
     const cleanName = normalizeName(scannedName);
 
     // 1. Learned mapping (try original first, then cleaned)
-    const learned = mappingRepo.getByScannedName(scannedName)
-      || (cleanName !== scannedName ? mappingRepo.getByScannedName(cleanName) : null);
+    const learned = (await mappingRepo.getByScannedName(scannedName))
+      || (cleanName !== scannedName ? (await mappingRepo.getByScannedName(cleanName)) : null);
     if (learned) {
       if (learned.onec_guid) {
-        const onec = onecNomenclatureRepo.getByGuid(learned.onec_guid);
+        const onec = await onecNomenclatureRepo.getByGuid(learned.onec_guid);
         if (onec) {
           return {
             original_name: scannedName,
@@ -203,7 +203,7 @@ export class NomenclatureMapper {
     // Jaccard is used instead of Fuse because Fuse's char-level scoring
     // stays >0.7 even on pairs like ("…йогуртовый без наполнителя 3кг",
     // "…йогуртовый 20% ведро 3л") that obviously refer to the same item.
-    const learnedIdx = this.ensureLearnedIndex();
+    const learnedIdx = await this.ensureLearnedIndex();
     const incomingTokens = tokenize(cleanName || scannedName);
     if (incomingTokens.size >= 2 && learnedIdx.length > 0) {
       let best: { row: NomenclatureMapping; sim: number } | null = null;
@@ -214,7 +214,7 @@ export class NomenclatureMapper {
         }
       }
       if (best && best.row.onec_guid) {
-        const onec = onecNomenclatureRepo.getByGuid(best.row.onec_guid);
+        const onec = await onecNomenclatureRepo.getByGuid(best.row.onec_guid);
         if (onec) {
           logger.info('Mapping via learned-name token fuzzy', {
             scannedName,
@@ -239,7 +239,7 @@ export class NomenclatureMapper {
     }
 
     // 2. Fuzzy search against onec_nomenclature (use cleaned name)
-    const fuse = this.ensureIndex();
+    const fuse = await this.ensureIndex();
     const searchTerm = cleanName || scannedName;
     const results = fuse.search(searchTerm);
     if (results.length > 0 && results[0].score !== undefined) {
@@ -257,9 +257,9 @@ export class NomenclatureMapper {
             const packFields = detected
               ? { pack_size: detected.pack_size, pack_unit: detected.pack_unit }
               : {};
-            const existing = mappingRepo.getByScannedName(scannedName);
+            const existing = await mappingRepo.getByScannedName(scannedName);
             if (!existing) {
-              mappingRepo.create({
+              await mappingRepo.create({
                 scanned_name: scannedName,
                 mapped_name_1c: best.item.name,
                 onec_guid: best.item.guid,
@@ -268,10 +268,10 @@ export class NomenclatureMapper {
             }
             // Also save cleaned name variant if different
             if (cleanName !== scannedName) {
-              const existingClean = mappingRepo.getByScannedName(cleanName);
+              const existingClean = await mappingRepo.getByScannedName(cleanName);
               if (!existingClean) {
                 // Cleaned name has no pack suffix, so no pack fields here.
-                mappingRepo.create({
+                await mappingRepo.create({
                   scanned_name: cleanName,
                   mapped_name_1c: best.item.name,
                   onec_guid: best.item.guid,
@@ -309,12 +309,16 @@ export class NomenclatureMapper {
     };
   }
 
-  mapAll(names: string[]): MappingResult[] {
-    return names.map(n => this.map(n));
+  async mapAll(names: string[]): Promise<MappingResult[]> {
+    const results: MappingResult[] = [];
+    for (const n of names) {
+      results.push(await this.map(n));
+    }
+    return results;
   }
 
-  getSuggestions(scannedName: string, limit: number = 5): Array<{ guid: string; name: string; confidence: number }> {
-    const fuse = this.ensureIndex();
+  async getSuggestions(scannedName: string, limit: number = 5): Promise<Array<{ guid: string; name: string; confidence: number }>> {
+    const fuse = await this.ensureIndex();
     const results = fuse.search(normalizeName(scannedName) || scannedName, { limit });
     return results.map(r => ({
       guid: r.item.guid,

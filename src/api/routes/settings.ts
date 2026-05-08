@@ -5,9 +5,9 @@ import { logger } from '../../utils/logger';
 const router = Router();
 
 // GET /api/settings/analyzer — get current analyzer config
-router.get('/analyzer', (_req: Request, res: Response) => {
+router.get('/analyzer', async (_req: Request, res: Response) => {
   try {
-    const config = invoiceRepo.getAnalyzerConfig();
+    const config = await invoiceRepo.getAnalyzerConfig();
     res.json({
       data: {
         mode: config.mode,
@@ -24,7 +24,7 @@ router.get('/analyzer', (_req: Request, res: Response) => {
 });
 
 // PUT /api/settings/analyzer — update analyzer config
-router.put('/analyzer', (req: Request, res: Response) => {
+router.put('/analyzer', async (req: Request, res: Response) => {
   try {
     const { mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber } = req.body;
 
@@ -38,14 +38,14 @@ router.put('/analyzer', (req: Request, res: Response) => {
     const autoSber = typeof auto_send_sber === 'boolean' ? auto_send_sber : undefined;
 
     if (mode === 'claude_api' && !anthropic_api_key) {
-      const current = invoiceRepo.getAnalyzerConfig();
+      const current = await invoiceRepo.getAnalyzerConfig();
       if (!current.anthropic_api_key) {
         res.status(400).json({ error: 'Anthropic API key is required for Claude API mode' });
         return;
       }
-      invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber);
+      await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber);
     } else {
-      invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber);
+      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber);
     }
 
     logger.info('Analyzer config updated', { mode, llmMapperEnabled: llmFlag, autoSend1c: auto1c, autoSendSber: autoSber });

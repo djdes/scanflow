@@ -14,7 +14,7 @@ import {
   canonicalizeSupplierName,
 } from '../utils/invoiceNumber';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
-import { getDb } from '../database/db';
+import { initDb, closeDb } from '../database/db';
 
 let passCount = 0;
 let failCount = 0;
@@ -170,79 +170,79 @@ function testSuppliersMatch(): void {
 // ============================================================
 // Test 7: findRecentByNumber uses normalization
 // ============================================================
-function testFindRecentByNumber(): void {
+async function testFindRecentByNumber(): Promise<void> {
   console.log('\n=== Test 7: findRecentByNumber handles homoglyphs ===');
 
   // Create test invoice with Latin BM-611
-  const page1 = invoiceRepo.create({
+  const page1 = await invoiceRepo.create({
     file_name: 'test-page1.jpg',
     file_path: '/tmp/test-page1.jpg',
     invoice_number: 'BM-611',
     invoice_date: '2026-03-23',
     supplier: 'ООО "Вкусный мир ТК"',
   });
-  invoiceRepo.updateStatus(page1.id, 'processed');
+  await invoiceRepo.updateStatus(page1.id, 'processed');
 
   // Simulate page 2 arriving with Cyrillic ВМ-611
-  const found = invoiceRepo.findRecentByNumber('ВМ-611', undefined, 10);
+  const found = await invoiceRepo.findRecentByNumber('ВМ-611', undefined, 10);
   assert(!!found, 'findRecentByNumber finds Latin BM-611 when searching for Cyrillic ВМ-611');
   assert(found?.id === page1.id, `Returns correct invoice: got id=${found?.id}, expected ${page1.id}`);
 
   // Also verify reverse direction
-  const found2 = invoiceRepo.findRecentByNumber('BM-611', undefined, 10);
+  const found2 = await invoiceRepo.findRecentByNumber('BM-611', undefined, 10);
   assert(!!found2, 'findRecentByNumber finds original exact match');
 
   // Case insensitive match
-  const found3 = invoiceRepo.findRecentByNumber('bm-611', undefined, 10);
+  const found3 = await invoiceRepo.findRecentByNumber('bm-611', undefined, 10);
   assert(!!found3, 'findRecentByNumber is case-insensitive');
 
   // Whitespace variation
-  const found4 = invoiceRepo.findRecentByNumber('BM 611', undefined, 10);
+  const found4 = await invoiceRepo.findRecentByNumber('BM 611', undefined, 10);
   assert(!!found4, 'findRecentByNumber ignores internal whitespace');
 
   // Different number — should NOT match
-  const notFound = invoiceRepo.findRecentByNumber('XX-999', undefined, 10);
+  const notFound = await invoiceRepo.findRecentByNumber('XX-999', undefined, 10);
   assert(!notFound, 'Different number correctly returns undefined');
 
   // Cleanup
-  invoiceRepo.delete(page1.id);
+  await invoiceRepo.delete(page1.id);
 }
 
 // ============================================================
 // Test 5: Supplier filter still works with normalization
 // ============================================================
-function testWithSupplier(): void {
+async function testWithSupplier(): Promise<void> {
   console.log('\n=== Test 8: Supplier filter compatibility ===');
 
-  const a = invoiceRepo.create({
+  const a = await invoiceRepo.create({
     file_name: 'a.jpg', file_path: '/tmp/a.jpg',
     invoice_number: 'BM-700',
     invoice_date: '2026-03-23',
     supplier: 'ООО "Алфа"',
   });
-  invoiceRepo.updateStatus(a.id, 'processed');
+  await invoiceRepo.updateStatus(a.id, 'processed');
 
-  const b = invoiceRepo.create({
+  const b = await invoiceRepo.create({
     file_name: 'b.jpg', file_path: '/tmp/b.jpg',
     invoice_number: 'BM-700',
     invoice_date: '2026-03-23',
     supplier: 'ООО "Бета"',
   });
-  invoiceRepo.updateStatus(b.id, 'processed');
+  await invoiceRepo.updateStatus(b.id, 'processed');
 
   // Search with supplier filter — should get only the matching one
-  const foundA = invoiceRepo.findRecentByNumber('ВМ-700', 'ООО "Алфа"', 10);
+  const foundA = await invoiceRepo.findRecentByNumber('ВМ-700', 'ООО "Алфа"', 10);
   assert(foundA?.id === a.id, `Supplier "Алфа" filter: got id=${foundA?.id}, expected ${a.id}`);
 
-  const foundB = invoiceRepo.findRecentByNumber('ВМ-700', 'ООО "Бета"', 10);
+  const foundB = await invoiceRepo.findRecentByNumber('ВМ-700', 'ООО "Бета"', 10);
   assert(foundB?.id === b.id, `Supplier "Бета" filter: got id=${foundB?.id}, expected ${b.id}`);
 
   // Non-matching supplier
-  const foundNone = invoiceRepo.findRecentByNumber('ВМ-700', 'ООО "Другая"', 10);
+  const foundNone = await invoiceRepo.findRecentByNumber('ВМ-700', 'ООО "Другая"', 10);
   assert(!foundNone, 'Non-matching supplier returns undefined');
 
-  invoiceRepo.delete(a.id);
-  invoiceRepo.delete(b.id);
+  await invoiceRepo.delete(a.id);
+  await invoiceRepo.delete(b.id);
 }
 
 // ============================================================
@@ -317,22 +317,22 @@ function testCanonicalizeSupplier(): void {
 // ============================================================
 // Test 9: Production bug — МСМС-40626 vs 40626 with supplier variations
 // ============================================================
-function testDigitSequenceFallback(): void {
+async function testDigitSequenceFallback(): Promise<void> {
   console.log('\n=== Test 9: Digit-sequence fallback (МСМС-40626 ↔ 40626) ===');
 
   // Page 1: full invoice number with prefix
-  const page1 = invoiceRepo.create({
+  const page1 = await invoiceRepo.create({
     file_name: 'test-msms-page1.jpg',
     file_path: '/tmp/test-msms-page1.jpg',
     invoice_number: 'МСМС-40626',
     invoice_date: '2026-03-24',
     supplier: 'Общество с ограниченной ответственностью "МС ЛОГИСТИК"',
   });
-  invoiceRepo.updateStatus(page1.id, 'processed');
+  await invoiceRepo.updateStatus(page1.id, 'processed');
 
   // Page 2 arrives with truncated number (OCR missed the prefix) and different
   // supplier form
-  const found = invoiceRepo.findRecentByNumber(
+  const found = await invoiceRepo.findRecentByNumber(
     '40626',
     'Мс логисТИК 000',
     10
@@ -341,16 +341,16 @@ function testDigitSequenceFallback(): void {
   assert(found?.id === page1.id, `Matches correct invoice: got ${found?.id}, expected ${page1.id}`);
 
   // Negative case: same digit sequence but DIFFERENT supplier should NOT merge
-  const unrelated = invoiceRepo.create({
+  const unrelated = await invoiceRepo.create({
     file_name: 'unrelated.jpg',
     file_path: '/tmp/unrelated.jpg',
     invoice_number: 'INV-40626',
     invoice_date: '2026-03-24',
     supplier: 'ООО "Совершенно другая компания"',
   });
-  invoiceRepo.updateStatus(unrelated.id, 'processed');
+  await invoiceRepo.updateStatus(unrelated.id, 'processed');
 
-  const notFoundForDifferentSupplier = invoiceRepo.findRecentByNumber(
+  const notFoundForDifferentSupplier = await invoiceRepo.findRecentByNumber(
     '40626',
     'ООО "Третья фирма"',
     10
@@ -360,7 +360,7 @@ function testDigitSequenceFallback(): void {
     'Digit match fails when supplier does not match any candidate');
 
   // But searching for the first variant's supplier should still find page1
-  const foundAgain = invoiceRepo.findRecentByNumber(
+  const foundAgain = await invoiceRepo.findRecentByNumber(
     '40626',
     'ООО "МС ЛОГИСТИК"',
     10
@@ -368,14 +368,15 @@ function testDigitSequenceFallback(): void {
   assert(foundAgain?.id === page1.id,
     `Still finds page 1 with another supplier variant: ${foundAgain?.id}`);
 
-  invoiceRepo.delete(page1.id);
-  invoiceRepo.delete(unrelated.id);
+  await invoiceRepo.delete(page1.id);
+  await invoiceRepo.delete(unrelated.id);
 }
 
 // ============================================================
 // Run all tests
 // ============================================================
 async function main(): Promise<void> {
+  await initDb();
   console.log('Invoice Number Normalization Tests');
   console.log('===================================');
 
@@ -386,14 +387,14 @@ async function main(): Promise<void> {
   testNormalizeSupplier();
   testSuppliersMatch();
   testCanonicalizeSupplier();
-  testFindRecentByNumber();
-  testWithSupplier();
-  testDigitSequenceFallback();
+  await testFindRecentByNumber();
+  await testWithSupplier();
+  await testDigitSequenceFallback();
 
   console.log('\n===================================');
   console.log(`Results: ${passCount} passed, ${failCount} failed`);
 
-  getDb().close();
+  await closeDb();
 
   if (failCount > 0) {
     process.exit(1);

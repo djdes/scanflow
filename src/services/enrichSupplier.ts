@@ -19,12 +19,12 @@ import type { Invoice } from '../database/repositories/invoiceRepo';
  *
  * Возвращает НОВЫЙ объект — не мутирует входной.
  */
-export function enrichInvoiceWithSupplier<T extends Pick<Invoice,
+export async function enrichInvoiceWithSupplier<T extends Pick<Invoice,
   'supplier' | 'supplier_inn' | 'supplier_kpp' | 'supplier_bik' |
   'supplier_account' | 'supplier_corr_account' | 'supplier_address'
->>(invoice: T): T {
+>>(invoice: T): Promise<T> {
   if (!invoice.supplier_inn) return invoice;
-  const supplier = supplierRepo.findByInn(invoice.supplier_inn);
+  const supplier = await supplierRepo.findByInn(invoice.supplier_inn);
   if (!supplier || !supplier.verified) return invoice;
 
   return {

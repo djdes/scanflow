@@ -13,7 +13,7 @@ export function setMapper(m: NomenclatureMapper): void {
 }
 
 // POST /api/nomenclature/sync — bulk upsert from 1C
-router.post('/sync', (req: Request, res: Response) => {
+router.post('/sync', async (req: Request, res: Response) => {
   const items = req.body?.items as OnecNomenclatureInput[] | undefined;
   if (!Array.isArray(items) || items.length === 0) {
     res.status(400).json({ error: 'items must be a non-empty array' });
@@ -27,9 +27,9 @@ router.post('/sync', (req: Request, res: Response) => {
     }
   }
   try {
-    const upserted = onecNomenclatureRepo.bulkUpsert(items);
+    const upserted = await onecNomenclatureRepo.bulkUpsert(items);
     // Clean up mappings that point to deleted 1C items
-    const orphaned = mappingRepo.removeOrphaned();
+    const orphaned = await mappingRepo.removeOrphaned();
     if (orphaned > 0) {
       logger.info('Removed orphaned mappings after sync', { orphaned });
     }
@@ -47,9 +47,9 @@ router.post('/sync', (req: Request, res: Response) => {
 // DELETE /api/nomenclature — clear catalog before a full re-sync from 1C.
 // Called by the BSL "Выгрузить номенклатуру" command to evict stale rows
 // (e.g. finished products after switching to a purchase-documents-only query).
-router.delete('/', (_req: Request, res: Response) => {
+router.delete('/', async (_req: Request, res: Response) => {
   try {
-    const deleted = onecNomenclatureRepo.clearAll();
+    const deleted = await onecNomenclatureRepo.clearAll();
     // Don't removeOrphaned here — catalog is temporarily empty,
     // POST /sync will refill it and clean orphans after.
     if (mapper) mapper.invalidateCache();
@@ -62,18 +62,18 @@ router.delete('/', (_req: Request, res: Response) => {
 });
 
 // GET /api/nomenclature — list catalog items
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const excludeFolders = req.query.exclude_folders === 'true';
   const search = req.query.search as string | undefined;
   const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-  const items = onecNomenclatureRepo.listItems({ excludeFolders, search, limit });
-  const stats = onecNomenclatureRepo.stats();
+  const items = await onecNomenclatureRepo.listItems({ excludeFolders, search, limit });
+  const stats = await onecNomenclatureRepo.stats();
   res.json({ data: items, count: items.length, last_synced_at: stats.last_synced_at });
 });
 
 // GET /api/nomenclature/stats
-router.get('/stats', (_req: Request, res: Response) => {
-  res.json({ data: onecNomenclatureRepo.stats() });
+router.get('/stats', async (_req: Request, res: Response) => {
+  res.json({ data: await onecNomenclatureRepo.stats() });
 });
 
 

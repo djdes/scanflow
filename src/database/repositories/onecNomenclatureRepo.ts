@@ -7,7 +7,7 @@ export interface OnecNomenclatureRow {
   full_name: string | null;
   unit: string | null;
   parent_guid: string | null;
-  is_folder: number; // sqlite stores bools as 0/1
+  is_folder: number;
   is_weighted: number;
   synced_at: string;
 }
@@ -28,28 +28,28 @@ export const onecNomenclatureRepo = {
    * Upsert a batch of items. Existing rows are updated by guid; new rows inserted.
    * Wrapped in a transaction for atomicity. Returns the count of rows processed.
    */
-  bulkUpsert(items: OnecNomenclatureInput[]): number {
+  async bulkUpsert(items: OnecNomenclatureInput[]): Promise<number> {
     if (items.length === 0) return 0;
     const db = getDb();
-    const stmt = db.prepare(`
-      INSERT INTO onec_nomenclature
-        (guid, code, name, full_name, unit, parent_guid, is_folder, is_weighted, synced_at)
-      VALUES
-        (@guid, @code, @name, @full_name, @unit, @parent_guid, @is_folder, @is_weighted, datetime('now'))
-      ON CONFLICT(guid) DO UPDATE SET
-        code        = excluded.code,
-        name        = excluded.name,
-        full_name   = excluded.full_name,
-        unit        = excluded.unit,
-        parent_guid = excluded.parent_guid,
-        is_folder   = excluded.is_folder,
-        is_weighted = excluded.is_weighted,
-        synced_at   = excluded.synced_at
-    `);
-    const tx = db.transaction((rows: OnecNomenclatureInput[]) => {
+    return db.transaction(async (txn) => {
       let count = 0;
-      for (const item of rows) {
-        stmt.run({
+      const stmt = txn.prepare(`
+        INSERT INTO onec_nomenclature
+          (guid, code, name, full_name, unit, parent_guid, is_folder, is_weighted, synced_at)
+        VALUES
+          (:guid, :code, :name, :full_name, :unit, :parent_guid, :is_folder, :is_weighted, NOW())
+        ON DUPLICATE KEY UPDATE
+          code        = VALUES(code),
+          name        = VALUES(name),
+          full_name   = VALUES(full_name),
+          unit        = VALUES(unit),
+          parent_guid = VALUES(parent_guid),
+          is_folder   = VALUES(is_folder),
+          is_weighted = VALUES(is_weighted),
+          synced_at   = VALUES(synced_at)
+      `);
+      for (const item of items) {
+        await stmt.run({
           guid: item.guid,
           code: item.code ?? null,
           name: item.name,
@@ -63,7 +63,6 @@ export const onecNomenclatureRepo = {
       }
       return count;
     });
-    return tx(items);
   },
 
   /**
@@ -76,46 +75,43 @@ export const onecNomenclatureRepo = {
    * mapper's dead-GUID fallthrough sends those lookups back to fuzzy search
    * against the newly-rebuilt catalog.
    */
-  clearAll(): number {
-    const db = getDb();
-    const result = db.prepare('DELETE FROM onec_nomenclature').run();
+  async clearAll(): Promise<number> {
+    const result = await getDb().prepare('DELETE FROM onec_nomenclature').run();
     return result.changes;
   },
 
-  getByGuid(guid: string): OnecNomenclatureRow | undefined {
-    const db = getDb();
-    return db.prepare('SELECT * FROM onec_nomenclature WHERE guid = ?')
-      .get(guid) as OnecNomenclatureRow | undefined;
+  async getByGuid(guid: string): Promise<OnecNomenclatureRow | undefined> {
+    return getDb()
+      .prepare('SELECT * FROM onec_nomenclature WHERE guid = ?')
+      .get<OnecNomenclatureRow>(guid);
   },
 
-  listItems(opts: { excludeFolders?: boolean; search?: string; limit?: number } = {}): OnecNomenclatureRow[] {
-    const db = getDb();
+  async listItems(opts: { excludeFolders?: boolean; search?: string; limit?: number } = {}): Promise<OnecNomenclatureRow[]> {
     const clauses: string[] = [];
     const params: Record<string, unknown> = {};
     if (opts.excludeFolders) {
       clauses.push('is_folder = 0');
     }
     if (opts.search) {
-      // ulower() is a custom JS-backed Unicode-aware LOWER registered in db.ts.
-      // Required because SQLite's built-in LOWER() and LIKE's case-insensitive
-      // mode are ASCII-only — Cyrillic "Картоф" wouldn't match a lowercase
-      // search term otherwise.
-      clauses.push('(ulower(name) LIKE ulower(@search) OR ulower(full_name) LIKE ulower(@search))');
+      // utf8mb4_unicode_ci collation makes LIKE case-insensitive for Cyrillic
+      // and any other Unicode script — no custom ulower() needed.
+      clauses.push('(name LIKE :search OR full_name LIKE :search)');
       params.search = `%${opts.search}%`;
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const limit = opts.limit ? `LIMIT ${opts.limit}` : '';
-    return db.prepare(
-      `SELECT * FROM onec_nomenclature ${where} ORDER BY name COLLATE NOCASE ${limit}`
-    ).all(params) as OnecNomenclatureRow[];
+    return getDb()
+      .prepare(`SELECT * FROM onec_nomenclature ${where} ORDER BY name ${limit}`)
+      .all<OnecNomenclatureRow>(params);
   },
 
-  stats(): { total: number; folders: number; items: number; last_synced_at: string | null } {
+  async stats(): Promise<{ total: number; folders: number; items: number; last_synced_at: string | null }> {
     const db = getDb();
-    const total = (db.prepare('SELECT COUNT(*) as c FROM onec_nomenclature').get() as { c: number }).c;
-    const folders = (db.prepare('SELECT COUNT(*) as c FROM onec_nomenclature WHERE is_folder = 1').get() as { c: number }).c;
-    const items = total - folders;
-    const lastRow = db.prepare('SELECT MAX(synced_at) as ts FROM onec_nomenclature').get() as { ts: string | null };
-    return { total, folders, items, last_synced_at: lastRow.ts };
+    const totalRow = await db.prepare('SELECT COUNT(*) as c FROM onec_nomenclature').get<{ c: number }>();
+    const foldersRow = await db.prepare('SELECT COUNT(*) as c FROM onec_nomenclature WHERE is_folder = 1').get<{ c: number }>();
+    const lastRow = await db.prepare('SELECT MAX(synced_at) as ts FROM onec_nomenclature').get<{ ts: string | null }>();
+    const total = totalRow?.c ?? 0;
+    const folders = foldersRow?.c ?? 0;
+    return { total, folders, items: total - folders, last_synced_at: lastRow?.ts ?? null };
   },
 };

@@ -31,13 +31,12 @@ export interface CreateMappingData {
 }
 
 export const mappingRepo = {
-  create(data: CreateMappingData): NomenclatureMapping {
+  async create(data: CreateMappingData): Promise<NomenclatureMapping> {
     const db = getDb();
-    const stmt = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
-      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved, @onec_guid, @pack_size, @pack_unit)
-    `);
-    const result = stmt.run({
+      VALUES (:scanned_name, :mapped_name_1c, :category, :default_unit, :approved, :onec_guid, :pack_size, :pack_unit)
+    `).run({
       scanned_name: data.scanned_name,
       mapped_name_1c: data.mapped_name_1c,
       category: data.category ?? null,
@@ -47,66 +46,68 @@ export const mappingRepo = {
       pack_size: data.pack_size ?? null,
       pack_unit: data.pack_unit ?? null,
     });
-    return db.prepare('SELECT * FROM nomenclature_mappings WHERE id = ?')
-      .get(Number(result.lastInsertRowid)) as NomenclatureMapping;
+    return (await db
+      .prepare('SELECT * FROM nomenclature_mappings WHERE id = ?')
+      .get<NomenclatureMapping>(Number(result.lastInsertRowid)))!;
   },
 
-  getById(id: number): NomenclatureMapping | undefined {
-    const db = getDb();
-    return db.prepare('SELECT * FROM nomenclature_mappings WHERE id = ?').get(id) as NomenclatureMapping | undefined;
+  async getById(id: number): Promise<NomenclatureMapping | undefined> {
+    return getDb()
+      .prepare('SELECT * FROM nomenclature_mappings WHERE id = ?')
+      .get<NomenclatureMapping>(id);
   },
 
-  getByScannedName(scannedName: string): NomenclatureMapping | undefined {
-    const db = getDb();
-    return db.prepare('SELECT * FROM nomenclature_mappings WHERE scanned_name = ?')
-      .get(scannedName) as NomenclatureMapping | undefined;
+  async getByScannedName(scannedName: string): Promise<NomenclatureMapping | undefined> {
+    return getDb()
+      .prepare('SELECT * FROM nomenclature_mappings WHERE scanned_name = ?')
+      .get<NomenclatureMapping>(scannedName);
   },
 
-  getAll(): NomenclatureMapping[] {
-    const db = getDb();
-    return db.prepare('SELECT * FROM nomenclature_mappings ORDER BY mapped_name_1c').all() as NomenclatureMapping[];
+  async getAll(): Promise<NomenclatureMapping[]> {
+    return getDb()
+      .prepare('SELECT * FROM nomenclature_mappings ORDER BY mapped_name_1c')
+      .all<NomenclatureMapping>();
   },
 
-  update(id: number, data: Partial<CreateMappingData>): void {
-    const db = getDb();
+  async update(id: number, data: Partial<CreateMappingData>): Promise<void> {
     const fields: string[] = [];
     const values: Record<string, unknown> = { id };
 
-    if (data.scanned_name !== undefined) { fields.push('scanned_name = @scanned_name'); values.scanned_name = data.scanned_name; }
-    if (data.mapped_name_1c !== undefined) { fields.push('mapped_name_1c = @mapped_name_1c'); values.mapped_name_1c = data.mapped_name_1c; }
-    if (data.category !== undefined) { fields.push('category = @category'); values.category = data.category; }
-    if (data.default_unit !== undefined) { fields.push('default_unit = @default_unit'); values.default_unit = data.default_unit; }
-    if (data.approved !== undefined) { fields.push('approved = @approved'); values.approved = data.approved ? 1 : 0; }
-    if (data.onec_guid !== undefined) { fields.push('onec_guid = @onec_guid'); values.onec_guid = data.onec_guid; }
-    if (data.pack_size !== undefined) { fields.push('pack_size = @pack_size'); values.pack_size = data.pack_size; }
-    if (data.pack_unit !== undefined) { fields.push('pack_unit = @pack_unit'); values.pack_unit = data.pack_unit; }
+    if (data.scanned_name !== undefined) { fields.push('scanned_name = :scanned_name'); values.scanned_name = data.scanned_name; }
+    if (data.mapped_name_1c !== undefined) { fields.push('mapped_name_1c = :mapped_name_1c'); values.mapped_name_1c = data.mapped_name_1c; }
+    if (data.category !== undefined) { fields.push('category = :category'); values.category = data.category; }
+    if (data.default_unit !== undefined) { fields.push('default_unit = :default_unit'); values.default_unit = data.default_unit; }
+    if (data.approved !== undefined) { fields.push('approved = :approved'); values.approved = data.approved ? 1 : 0; }
+    if (data.onec_guid !== undefined) { fields.push('onec_guid = :onec_guid'); values.onec_guid = data.onec_guid; }
+    if (data.pack_size !== undefined) { fields.push('pack_size = :pack_size'); values.pack_size = data.pack_size; }
+    if (data.pack_unit !== undefined) { fields.push('pack_unit = :pack_unit'); values.pack_unit = data.pack_unit; }
 
     if (fields.length > 0) {
-      db.prepare(`UPDATE nomenclature_mappings SET ${fields.join(', ')} WHERE id = @id`).run(values);
+      await getDb()
+        .prepare(`UPDATE nomenclature_mappings SET ${fields.join(', ')} WHERE id = :id`)
+        .run(values);
     }
   },
 
-  delete(id: number): void {
-    const db = getDb();
-    db.prepare('DELETE FROM nomenclature_mappings WHERE id = ?').run(id);
+  async delete(id: number): Promise<void> {
+    await getDb().prepare('DELETE FROM nomenclature_mappings WHERE id = ?').run(id);
   },
 
-  upsert(data: CreateMappingData): NomenclatureMapping {
-    const existing = this.getByScannedName(data.scanned_name);
+  async upsert(data: CreateMappingData): Promise<NomenclatureMapping> {
+    const existing = await this.getByScannedName(data.scanned_name);
     if (existing) {
-      this.update(existing.id, data);
-      return this.getById(existing.id)!;
+      await this.update(existing.id, data);
+      return (await this.getById(existing.id))!;
     }
     return this.create(data);
   },
 
-  getAllGrouped(): Array<{ onec_guid: string; mapped_name: string; variants: NomenclatureMapping[] }> {
-    const db = getDb();
-    const all = db.prepare(
+  async getAllGrouped(): Promise<Array<{ onec_guid: string; mapped_name: string; variants: NomenclatureMapping[] }>> {
+    const all = await getDb().prepare(
       `SELECT * FROM nomenclature_mappings
        WHERE onec_guid IS NOT NULL AND onec_guid != ''
        ORDER BY mapped_name_1c, scanned_name`
-    ).all() as NomenclatureMapping[];
+    ).all<NomenclatureMapping>();
 
     const groups = new Map<string, { onec_guid: string; mapped_name: string; variants: NomenclatureMapping[] }>();
     for (const m of all) {
@@ -119,26 +120,24 @@ export const mappingRepo = {
     return Array.from(groups.values());
   },
 
-  getUnmapped(): NomenclatureMapping[] {
-    const db = getDb();
-    return db.prepare(
+  async getUnmapped(): Promise<NomenclatureMapping[]> {
+    return getDb().prepare(
       `SELECT * FROM nomenclature_mappings
        WHERE onec_guid IS NULL OR onec_guid = ''
        ORDER BY scanned_name`
-    ).all() as NomenclatureMapping[];
+    ).all<NomenclatureMapping>();
   },
 
-  importBulk(items: CreateMappingData[]): number {
-    const db = getDb();
-    const stmt = db.prepare(`
-      INSERT OR REPLACE INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
-      VALUES (@scanned_name, @mapped_name_1c, @category, @default_unit, @approved, @onec_guid, @pack_size, @pack_unit)
-    `);
-
-    const transaction = db.transaction((items: CreateMappingData[]) => {
+  async importBulk(items: CreateMappingData[]): Promise<number> {
+    if (items.length === 0) return 0;
+    return getDb().transaction(async (txn) => {
+      const stmt = txn.prepare(`
+        REPLACE INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
+        VALUES (:scanned_name, :mapped_name_1c, :category, :default_unit, :approved, :onec_guid, :pack_size, :pack_unit)
+      `);
       let count = 0;
       for (const item of items) {
-        stmt.run({
+        await stmt.run({
           scanned_name: item.scanned_name,
           mapped_name_1c: item.mapped_name_1c,
           category: item.category ?? null,
@@ -152,17 +151,14 @@ export const mappingRepo = {
       }
       return count;
     });
-
-    return transaction(items);
   },
 
   /**
    * Удалить маппинги, чей onec_guid больше не существует в onec_nomenclature.
    * Вызывается после пересинхронизации справочника.
    */
-  removeOrphaned(): number {
-    const db = getDb();
-    const result = db.prepare(
+  async removeOrphaned(): Promise<number> {
+    const result = await getDb().prepare(
       `DELETE FROM nomenclature_mappings
        WHERE onec_guid IS NOT NULL AND onec_guid != ''
        AND onec_guid NOT IN (SELECT guid FROM onec_nomenclature)`

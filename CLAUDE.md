@@ -7,7 +7,7 @@
 ## Pipeline
 
 ```
-JPG photo → OCR (Google Vision → Claude API → Tesseract) → parser → nomenclature mapper → SQLite → 1C webhook/REST
+JPG photo → OCR (Google Vision → Claude API → Tesseract) → parser → nomenclature mapper → MariaDB → 1C webhook/REST
 ```
 
 **Production:** https://scanflow.ru (Ubuntu 24.04, FastPanel, PM2 process `scanflow`, port 8899). GitHub Actions auto-deploys on push to `main`.
@@ -15,7 +15,7 @@ JPG photo → OCR (Google Vision → Claude API → Tesseract) → parser → no
 ## Tech stack
 
 - **Runtime:** Node.js 25 + TypeScript (strict). Server is plain Express 5; frontend is vanilla HTML/CSS/JS with hash routing — no build step for client.
-- **DB:** SQLite (better-sqlite3, WAL mode), single file `data/database.sqlite`. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration 19.
+- **DB:** MariaDB 10.11 (mysql2/promise driver, async pool). Single instance on `192.168.33.3:3306`, schema `scanflow`, used by both production and local dev. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration 22.
 - **OCR mode (`analyzer_config.mode`):** `claude_api` in production — Claude SDK reads the image directly, one call. The legacy `hybrid` mode (Google Vision OCR → Claude text structuring) is still in code.
 - **Auth:** every API call needs `X-API-Key` header that maps to `users.api_key`. UI logs in via `POST /api/auth/login` (username + scrypt-hashed password) and stores the returned key in `localStorage`. There is no JWT and no session cookie.
 - **Notifications:** Telegram bot per user (`users.telegram_chat_id` + `bot_token`). Email infra (`src/utils/mailer.ts`, `src/notifications/templates.ts`, `digestWorker.ts`, `notification_events` table) is **dead code kept for back-compat** — no events flow through it.
@@ -85,7 +85,7 @@ pm2 restart scanflow                     # after config change
 gh run list --repo djdes/scanflow        # GHA status
 ```
 
-App lives at `~/www/scanflow.ru/app/`. `.env` and `google-credentials.json` are server-only (excluded from rsync). `data/database.sqlite` is server-only too — backups run daily at 03:00 to `data/backups/`.
+App lives at `~/www/scanflow.ru/app/`. `.env` and `google-credentials.json` are server-only (excluded from rsync). DB lives in MariaDB (`scanflow` schema on the same host). Backups: schedule a `mysqldump scanflow > data/backups/scanflow-$(date +%F).sql` via cron — the in-app SQLite file backup is gone.
 
 GitHub secrets needed: `SSH_PRIVATE_KEY`, `SSH_HOST=magday.ru`, `SSH_USER=magday`, `SSH_PORT=50222`.
 
@@ -119,7 +119,8 @@ First start with empty `users` table prints a one-time random admin password to 
 12. **Sber `/v1/payments` Authorization header is bare token, NOT `Bearer`.** Sber Business API expects `Authorization: <access_token>` directly. Adding `Bearer ` prefix returns 401. See `src/sber/payments.ts` and `src/sber/clientInfo.ts`.
 13. **Sber `purpose` field max 210 chars + ASCII-friendly punctuation.** Server returns 400 on ёлочки/em-dash/non-breaking space. `renderPurpose()` truncates and `sanitizePurpose()` normalises — don't bypass either.
 14. **`sber_payments.invoice_id` UNIQUE = one payment per invoice.** This is intentional double-click protection. If частичные оплаты понадобятся — это отдельная фича с миграцией, не «ослабить constraint».
-15. **Не делай прямых SQL-команд через `sqlite3` CLI на прод-БД.** SQLite в WAL mode допускает одного writer-а; параллельный CLI race-ит с PM2 better-sqlite3 → corruption партиальных уникальных индексов (`idx_invoices_file_hash_unique`, `idx_invoices_status`). За май 2026 — три случая «database disk image is malformed» и потеря items в нескольких invoice'ах. **Diagnostic SELECT-ы — ок** (read-only безопасны). Любое UPDATE/DELETE/DDL — только через UI-кнопки или API-эндпоинты. Если нужного действия нет в API — сначала добавь endpoint, задеплой, потом вызывай. Schema changes — только через миграции в `src/database/migrations.ts`.
+15. **Все DB-обращения теперь async.** Каждый метод репозиториев (`invoiceRepo.*`, `mappingRepo.*`, `userRepo.*`, …) возвращает Promise; забыл `await` — TypeScript ругнётся, но в runtime это будет «невидимый» баг. Транзакции: `await getDb().transaction(async (txn) => { … })`. Никаких `db.transaction(() => {…})()` синхронных — сразу TypeError.
+16. **Schema changes — только через миграции** в `src/database/migrations.ts`. Каждая миграция должна быть idempotent (`CREATE TABLE IF NOT EXISTS`, `hasColumn` guards) — MySQL DDL не транзакционна, поэтому частичный фейл должен переигрываться без ошибок.
 
 ## API surface (mounted in `src/api/server.ts`)
 

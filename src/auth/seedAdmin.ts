@@ -19,8 +19,8 @@ const DEFAULT_ADMIN_USERNAME = 'admin';
  *
  * To rotate the admin password later, run:  npm run reset-admin-password
  */
-export function seedAdminUser(): void {
-  if (userRepo.count() > 0) return;
+export async function seedAdminUser(): Promise<void> {
+  if ((await userRepo.count()) > 0) return;
 
   if (!config.apiKey || config.apiKey === 'your-secret-api-key') {
     logger.warn(
@@ -29,7 +29,7 @@ export function seedAdminUser(): void {
   }
 
   const password = generateInitialPassword();
-  userRepo.create({
+  await userRepo.create({
     username: DEFAULT_ADMIN_USERNAME,
     password_hash: hashPassword(password),
     api_key: config.apiKey,

@@ -9,21 +9,21 @@ interface WebhookConfig {
   auth_token: string | null;
 }
 
-function getWebhookConfig(): WebhookConfig | null {
+async function getWebhookConfig(): Promise<WebhookConfig | null> {
   const db = getDb();
-  const config = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get() as WebhookConfig | undefined;
+  const config = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get<WebhookConfig>();
   if (!config || !config.enabled || !config.url) return null;
   return config;
 }
 
 export async function sendToWebhook(invoiceId: number): Promise<boolean> {
-  const config = getWebhookConfig();
+  const config = await getWebhookConfig();
   if (!config) {
     logger.debug('Webhook not configured or disabled');
     return false;
   }
 
-  const invoice = invoiceRepo.getWithItems(invoiceId);
+  const invoice = await invoiceRepo.getWithItems(invoiceId);
   if (!invoice) {
     logger.warn('Invoice not found for webhook', { invoiceId });
     return false;
@@ -79,10 +79,10 @@ export async function sendToWebhook(invoiceId: number): Promise<boolean> {
         // Capture pre-state BEFORE markSent so we can suppress the notification
         // when the invoice was already sent (otherwise a webhook retry, OR a
         // webhook + 1С /confirm racing on the same invoice, fires two emails).
-        const before = invoiceRepo.getById(invoiceId);
+        const before = await invoiceRepo.getById(invoiceId);
         const wasAlreadySent = before?.sent_at != null;
 
-        invoiceRepo.markSent(invoiceId);
+        await invoiceRepo.markSent(invoiceId);
 
         if (!wasAlreadySent && before) {
           emitNotification('sent_to_1c', {

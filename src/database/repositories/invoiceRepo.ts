@@ -92,14 +92,13 @@ export interface CreateInvoiceItemData {
 }
 
 export const invoiceRepo = {
-  create(data: CreateInvoiceData): Invoice {
+  async create(data: CreateInvoiceData): Promise<Invoice> {
     const db = getDb();
-    const stmt = db.prepare(`
-      INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_kpp, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash)
-      VALUES (@file_name, @file_path, @invoice_number, @invoice_date, @supplier, @invoice_type, @supplier_inn, @supplier_kpp, @supplier_bik, @supplier_account, @supplier_corr_account, @supplier_address, @total_sum, @vat_sum, @raw_text, @ocr_engine, @file_hash)
-    `);
     try {
-      const result = stmt.run({
+      const result = await db.prepare(`
+        INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_kpp, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash)
+        VALUES (:file_name, :file_path, :invoice_number, :invoice_date, :supplier, :invoice_type, :supplier_inn, :supplier_kpp, :supplier_bik, :supplier_account, :supplier_corr_account, :supplier_address, :total_sum, :vat_sum, :raw_text, :ocr_engine, :file_hash)
+      `).run({
         file_name: data.file_name,
         file_path: data.file_path,
         invoice_number: data.invoice_number ?? null,
@@ -118,162 +117,148 @@ export const invoiceRepo = {
         ocr_engine: data.ocr_engine ?? null,
         file_hash: data.file_hash ?? null,
       });
-      return this.getById(Number(result.lastInsertRowid))!;
+      return (await this.getById(Number(result.lastInsertRowid)))!;
     } catch (err) {
-      const msg = (err as Error).message || '';
-      // Partial unique index on file_hash — triggered when another concurrent
+      // Unique constraint on file_hash — triggered when another concurrent
       // upload of the same content beat us to the INSERT. Surface the existing
       // invoice so the caller can reuse it instead of creating a duplicate.
-      if (data.file_hash && msg.includes('UNIQUE') && msg.includes('file_hash')) {
-        const existing = this.findByFileHash(data.file_hash);
+      const e = err as { code?: string; errno?: number; message?: string };
+      const isDup =
+        e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062 ||
+        (e?.message ?? '').includes('Duplicate entry');
+      if (data.file_hash && isDup && (e?.message ?? '').toLowerCase().includes('file_hash')) {
+        const existing = await this.findByFileHash(data.file_hash);
         if (existing) throw new DuplicateFileHashError(existing);
       }
       throw err;
     }
   },
 
-  getById(id: number): Invoice | undefined {
-    const db = getDb();
-    return db.prepare('SELECT * FROM invoices WHERE id = ?').get(id) as Invoice | undefined;
+  async getById(id: number): Promise<Invoice | undefined> {
+    return getDb().prepare('SELECT * FROM invoices WHERE id = ?').get<Invoice>(id);
   },
 
-  getAll(status?: string, limit: number = 100, offset: number = 0): Invoice[] {
-    const db = getDb();
+  async getAll(status?: string, limit: number = 100, offset: number = 0): Promise<Invoice[]> {
     if (status) {
-      return db.prepare('SELECT * FROM invoices WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
-        .all(status, limit, offset) as Invoice[];
+      return getDb()
+        .prepare('SELECT * FROM invoices WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+        .all<Invoice>(status, limit, offset);
     }
-    return db.prepare('SELECT * FROM invoices ORDER BY created_at DESC LIMIT ? OFFSET ?')
-      .all(limit, offset) as Invoice[];
+    return getDb()
+      .prepare('SELECT * FROM invoices ORDER BY created_at DESC LIMIT ? OFFSET ?')
+      .all<Invoice>(limit, offset);
   },
 
-  /**
-   * Накладные, которые пользователь явно отправил в 1С кнопкой "Отправить в 1С"
-   * в дашборде. Возвращает только те что approved_for_1c=1 И в активных статусах
-   * (не sent_to_1c ещё и не error).
-   */
-  getPending(): Invoice[] {
-    const db = getDb();
-    return db.prepare(
+  async getPending(): Promise<Invoice[]> {
+    return getDb().prepare(
       `SELECT * FROM invoices
        WHERE approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')
        ORDER BY created_at DESC`
-    ).all() as Invoice[];
+    ).all<Invoice>();
   },
 
-  /**
-   * Fetch pending invoices + their items in 2 queries instead of N+1.
-   * Used by GET /api/invoices/pending which is polled by the 1C side.
-   */
-  getPendingWithItems(
+  async getPendingWithItems(
     opts: { limit?: number; offset?: number } = {}
-  ): { rows: Array<Invoice & { items: InvoiceItem[] }>; total: number } {
+  ): Promise<{ rows: Array<Invoice & { items: InvoiceItem[] }>; total: number }> {
     const db = getDb();
     const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
     const offset = Math.max(0, opts.offset ?? 0);
 
-    const totalRow = db.prepare(
+    const totalRow = await db.prepare(
       `SELECT COUNT(*) as c FROM invoices
        WHERE approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')`
-    ).get() as { c: number };
+    ).get<{ c: number }>();
+    const total = totalRow?.c ?? 0;
 
-    const invoices = db.prepare(
+    const invoices = await db.prepare(
       `SELECT * FROM invoices
        WHERE approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')
        ORDER BY created_at ASC
        LIMIT ? OFFSET ?`
-    ).all(limit, offset) as Invoice[];
+    ).all<Invoice>(limit, offset);
 
-    if (invoices.length === 0) return { rows: [], total: totalRow.c };
+    if (invoices.length === 0) return { rows: [], total };
 
     const ids = invoices.map(i => i.id);
     const placeholders = ids.map(() => '?').join(',');
-    const items = db.prepare(
+    const items = await db.prepare(
       `SELECT * FROM invoice_items WHERE invoice_id IN (${placeholders}) ORDER BY id`
-    ).all(...ids) as InvoiceItem[];
+    ).all<InvoiceItem>(...ids);
 
     const itemsByInvoice = new Map<number, InvoiceItem[]>();
     for (const item of items) {
-      if (!itemsByInvoice.has(item.invoice_id)) {
-        itemsByInvoice.set(item.invoice_id, []);
-      }
+      if (!itemsByInvoice.has(item.invoice_id)) itemsByInvoice.set(item.invoice_id, []);
       itemsByInvoice.get(item.invoice_id)!.push(item);
     }
 
     return {
       rows: invoices.map(inv => ({ ...inv, items: itemsByInvoice.get(inv.id) ?? [] })),
-      total: totalRow.c,
+      total,
     };
   },
 
-  /**
-   * Пометить накладную как одобренную для 1С.
-   * Не меняет status — он остаётся 'processed'.
-   * 1C забирает накладную через /pending, создаёт документ, вызывает /confirm,
-   * только после этого status становится 'sent_to_1c'.
-   */
-  approveForOneC(id: number): void {
-    const db = getDb();
-    db.prepare("UPDATE invoices SET approved_for_1c = 1, approved_at = datetime('now') WHERE id = ?").run(id);
+  async approveForOneC(id: number): Promise<void> {
+    await getDb()
+      .prepare("UPDATE invoices SET approved_for_1c = 1, approved_at = NOW() WHERE id = ?")
+      .run(id);
   },
 
-  /**
-   * Отозвать одобрение (если передумали отправлять в 1С).
-   */
-  unapproveForOneC(id: number): void {
-    const db = getDb();
-    db.prepare('UPDATE invoices SET approved_for_1c = 0, approved_at = NULL WHERE id = ?').run(id);
+  async unapproveForOneC(id: number): Promise<void> {
+    await getDb()
+      .prepare('UPDATE invoices SET approved_for_1c = 0, approved_at = NULL WHERE id = ?')
+      .run(id);
   },
 
-  updateStatus(id: number, status: string, errorMessage?: string): void {
+  async updateStatus(id: number, status: string, errorMessage?: string): Promise<void> {
     const db = getDb();
     if (errorMessage) {
-      db.prepare('UPDATE invoices SET status = ?, error_message = ? WHERE id = ?').run(status, errorMessage, id);
+      await db.prepare('UPDATE invoices SET status = ?, error_message = ? WHERE id = ?').run(status, errorMessage, id);
     } else {
-      db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(status, id);
+      await db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(status, id);
     }
   },
 
-  updateInvoiceData(id: number, data: Partial<CreateInvoiceData>): void {
-    const db = getDb();
+  async updateInvoiceData(id: number, data: Partial<CreateInvoiceData>): Promise<void> {
     const fields: string[] = [];
     const values: Record<string, unknown> = { id };
 
-    if (data.invoice_number !== undefined) { fields.push('invoice_number = @invoice_number'); values.invoice_number = data.invoice_number; }
-    if (data.invoice_date !== undefined) { fields.push('invoice_date = @invoice_date'); values.invoice_date = data.invoice_date; }
-    if (data.supplier !== undefined) { fields.push('supplier = @supplier'); values.supplier = data.supplier; }
-    if (data.invoice_type !== undefined) { fields.push('invoice_type = @invoice_type'); values.invoice_type = data.invoice_type; }
-    if (data.supplier_inn !== undefined) { fields.push('supplier_inn = @supplier_inn'); values.supplier_inn = data.supplier_inn; }
-    if (data.supplier_kpp !== undefined) { fields.push('supplier_kpp = @supplier_kpp'); values.supplier_kpp = data.supplier_kpp; }
-    if (data.supplier_bik !== undefined) { fields.push('supplier_bik = @supplier_bik'); values.supplier_bik = data.supplier_bik; }
-    if (data.supplier_account !== undefined) { fields.push('supplier_account = @supplier_account'); values.supplier_account = data.supplier_account; }
-    if (data.supplier_corr_account !== undefined) { fields.push('supplier_corr_account = @supplier_corr_account'); values.supplier_corr_account = data.supplier_corr_account; }
-    if (data.supplier_address !== undefined) { fields.push('supplier_address = @supplier_address'); values.supplier_address = data.supplier_address; }
-    if (data.total_sum !== undefined) { fields.push('total_sum = @total_sum'); values.total_sum = data.total_sum; }
-    if (data.vat_sum !== undefined) { fields.push('vat_sum = @vat_sum'); values.vat_sum = data.vat_sum; }
-    if (data.raw_text !== undefined) { fields.push('raw_text = @raw_text'); values.raw_text = data.raw_text; }
-    if (data.ocr_engine !== undefined) { fields.push('ocr_engine = @ocr_engine'); values.ocr_engine = data.ocr_engine; }
+    if (data.invoice_number !== undefined) { fields.push('invoice_number = :invoice_number'); values.invoice_number = data.invoice_number; }
+    if (data.invoice_date !== undefined) { fields.push('invoice_date = :invoice_date'); values.invoice_date = data.invoice_date; }
+    if (data.supplier !== undefined) { fields.push('supplier = :supplier'); values.supplier = data.supplier; }
+    if (data.invoice_type !== undefined) { fields.push('invoice_type = :invoice_type'); values.invoice_type = data.invoice_type; }
+    if (data.supplier_inn !== undefined) { fields.push('supplier_inn = :supplier_inn'); values.supplier_inn = data.supplier_inn; }
+    if (data.supplier_kpp !== undefined) { fields.push('supplier_kpp = :supplier_kpp'); values.supplier_kpp = data.supplier_kpp; }
+    if (data.supplier_bik !== undefined) { fields.push('supplier_bik = :supplier_bik'); values.supplier_bik = data.supplier_bik; }
+    if (data.supplier_account !== undefined) { fields.push('supplier_account = :supplier_account'); values.supplier_account = data.supplier_account; }
+    if (data.supplier_corr_account !== undefined) { fields.push('supplier_corr_account = :supplier_corr_account'); values.supplier_corr_account = data.supplier_corr_account; }
+    if (data.supplier_address !== undefined) { fields.push('supplier_address = :supplier_address'); values.supplier_address = data.supplier_address; }
+    if (data.total_sum !== undefined) { fields.push('total_sum = :total_sum'); values.total_sum = data.total_sum; }
+    if (data.vat_sum !== undefined) { fields.push('vat_sum = :vat_sum'); values.vat_sum = data.vat_sum; }
+    if (data.raw_text !== undefined) { fields.push('raw_text = :raw_text'); values.raw_text = data.raw_text; }
+    if (data.ocr_engine !== undefined) { fields.push('ocr_engine = :ocr_engine'); values.ocr_engine = data.ocr_engine; }
 
     if (fields.length > 0) {
-      db.prepare(`UPDATE invoices SET ${fields.join(', ')} WHERE id = @id`).run(values);
+      await getDb()
+        .prepare(`UPDATE invoices SET ${fields.join(', ')} WHERE id = :id`)
+        .run(values);
     }
   },
 
-  markSent(id: number): void {
-    const db = getDb();
-    db.prepare("UPDATE invoices SET status = 'sent_to_1c', sent_at = datetime('now') WHERE id = ?").run(id);
+  async markSent(id: number): Promise<void> {
+    await getDb()
+      .prepare("UPDATE invoices SET status = 'sent_to_1c', sent_at = NOW() WHERE id = ?")
+      .run(id);
   },
 
-  addItem(data: CreateInvoiceItemData): InvoiceItem {
+  async addItem(data: CreateInvoiceItemData): Promise<InvoiceItem> {
     const db = getDb();
-    const stmt = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence, onec_guid)
-      VALUES (@invoice_id, @original_name, @mapped_name, @quantity, @unit, @price, @total, @vat_rate, @mapping_confidence, @onec_guid)
-    `);
-    const result = stmt.run({
+      VALUES (:invoice_id, :original_name, :mapped_name, :quantity, :unit, :price, :total, :vat_rate, :mapping_confidence, :onec_guid)
+    `).run({
       invoice_id: data.invoice_id,
       original_name: data.original_name,
       mapped_name: data.mapped_name ?? null,
@@ -285,62 +270,46 @@ export const invoiceRepo = {
       mapping_confidence: data.mapping_confidence ?? 0,
       onec_guid: data.onec_guid ?? null,
     });
-    return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(Number(result.lastInsertRowid)) as InvoiceItem;
+    return (await db
+      .prepare('SELECT * FROM invoice_items WHERE id = ?')
+      .get<InvoiceItem>(Number(result.lastInsertRowid)))!;
   },
 
-  getItems(invoiceId: number): InvoiceItem[] {
-    const db = getDb();
-    return db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(invoiceId) as InvoiceItem[];
+  async getItems(invoiceId: number): Promise<InvoiceItem[]> {
+    return getDb()
+      .prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id')
+      .all<InvoiceItem>(invoiceId);
   },
 
-  getItemById(id: number): InvoiceItem | undefined {
-    const db = getDb();
-    return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(id) as InvoiceItem | undefined;
+  async getItemById(id: number): Promise<InvoiceItem | undefined> {
+    return getDb()
+      .prepare('SELECT * FROM invoice_items WHERE id = ?')
+      .get<InvoiceItem>(id);
   },
 
-  /**
-   * Set or clear the 1C GUID link for a single invoice line item. Also
-   * updates the cached mapped_name for display. Caller is responsible for
-   * updating nomenclature_mappings and mapping_supplier_usage.
-   */
-  mapItem(itemId: number, onecGuid: string | null, mappedName: string | null): InvoiceItem | undefined {
+  async mapItem(itemId: number, onecGuid: string | null, mappedName: string | null): Promise<InvoiceItem | undefined> {
     const db = getDb();
-    db.prepare(
+    await db.prepare(
       `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name) WHERE id = ?`
     ).run(onecGuid, mappedName, itemId);
-    return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(itemId) as InvoiceItem | undefined;
+    return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
   },
 
-  /**
-   * Update quantity / unit / price on an invoice item. Used by the pack
-   * transform path in the item-map endpoint: when user confirms "1 мешок =
-   * 50 кг", we rewrite the saved line so it shows the converted values
-   * immediately on the detail page (and forwards them to 1С unchanged).
-   * Total is preserved upstream — the caller already recomputed price from
-   * the original total.
-   */
-  updateItemQuantity(
+  async updateItemQuantity(
     itemId: number,
     quantity: number | null,
     unit: string | null,
     price: number | null,
-  ): void {
-    const db = getDb();
-    db.prepare(
+  ): Promise<void> {
+    await getDb().prepare(
       `UPDATE invoice_items SET quantity = ?, unit = ?, price = ? WHERE id = ?`
     ).run(quantity, unit, price, itemId);
   },
 
-  /**
-   * Partial update of an invoice item's editable fields. Pass only the keys
-   * you want to change — others stay untouched. Used by inline editing in
-   * the dashboard.
-   */
-  updateItemFields(
+  async updateItemFields(
     itemId: number,
     fields: { quantity?: number | null; unit?: string | null; price?: number | null; total?: number | null },
-  ): void {
-    const db = getDb();
+  ): Promise<void> {
     const sets: string[] = [];
     const vals: unknown[] = [];
     if ('quantity' in fields) { sets.push('quantity = ?'); vals.push(fields.quantity); }
@@ -349,182 +318,102 @@ export const invoiceRepo = {
     if ('total' in fields) { sets.push('total = ?'); vals.push(fields.total); }
     if (sets.length === 0) return;
     vals.push(itemId);
-    db.prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    await getDb().prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   },
 
-
-  /**
-   * Update mapping + confidence on an invoice item. Used by /remap endpoint
-   * so that the UI "точность" column reflects the new fuzzy score.
-   */
-  updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number): void {
-    const db = getDb();
-    db.prepare(
+  async updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number): Promise<void> {
+    await getDb().prepare(
       `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ? WHERE id = ?`
     ).run(onecGuid, mappedName, confidence, itemId);
   },
 
-  /**
-   * Update only the human-readable mapped_name (used by legacy mappings that
-   * have no onec_guid — 1C's BSL still resolves by name). Leaves onec_guid
-   * untouched so a later real catalog sync can fill it in.
-   */
-  updateItemMappingName(itemId: number, mappedName: string, confidence: number): void {
-    const db = getDb();
-    db.prepare(
+  async updateItemMappingName(itemId: number, mappedName: string, confidence: number): Promise<void> {
+    await getDb().prepare(
       `UPDATE invoice_items SET mapped_name = ?, mapping_confidence = ? WHERE id = ?`
     ).run(mappedName, confidence, itemId);
   },
 
-  getWithItems(id: number): (Invoice & { items: InvoiceItem[] }) | undefined {
-    const invoice = this.getById(id);
+  async getWithItems(id: number): Promise<(Invoice & { items: InvoiceItem[] }) | undefined> {
+    const invoice = await this.getById(id);
     if (!invoice) return undefined;
-    const items = this.getItems(id);
+    const items = await this.getItems(id);
     return { ...invoice, items };
   },
 
-  /**
-   * Найти недавнюю накладную с таким же именем файла (защита от дублей).
-   */
-  findRecentByFileName(fileName: string, withinMinutes: number = 5): Invoice | undefined {
-    const db = getDb();
-    // Dedup ловит ТОЛЬКО реально завершённые накладные ('processed', 'sent_to_1c',
-    // 'duplicate'). In-flight ('ocr_processing', 'parsing') и failed ('error')
-    // НЕ считаются дубликатами — иначе после краха процесса/рестарта PM2 файл
-    // зависает в inbox без шанса быть обработанным.
-    return db.prepare(
+  async findRecentByFileName(fileName: string, withinMinutes: number = 5): Promise<Invoice | undefined> {
+    // Dedup ловит ТОЛЬКО реально завершённые накладные.
+    return getDb().prepare(
       `SELECT * FROM invoices
        WHERE (file_name = ? OR file_name LIKE ?)
        AND status IN ('processed', 'sent_to_1c', 'duplicate')
-       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
        ORDER BY created_at DESC LIMIT 1`
-    ).get(fileName, `%${fileName}%`) as Invoice | undefined;
+    ).get<Invoice>(fileName, `%${fileName}%`);
   },
 
-  /**
-   * Найти накладную по SHA-256 хешу содержимого файла.
-   * Используется для защиты от дублирующих загрузок одного и того же фото
-   * (даже если оно переименовано).
-   */
-  /**
-   * Найти накладную по имени файла. Используется async upload-flow для polling
-   * статуса со стороны клиента — клиент знает только file_name (он сгенерён
-   * multer'ом и возвращён в синхронном response), но не знает invoice_id
-   * до тех пор, пока watcher не закончит INSERT.
-   *
-   * file_name в БД может быть запятой-разделённым списком при multi-page
-   * merge — поэтому сравниваем через LIKE.
-   */
-  findByFileName(fileName: string): Invoice | undefined {
-    const db = getDb();
-    return db.prepare(
+  async findByFileName(fileName: string): Promise<Invoice | undefined> {
+    return getDb().prepare(
       `SELECT * FROM invoices
        WHERE file_name = ? OR file_name LIKE ? OR file_name LIKE ? OR file_name LIKE ?
        ORDER BY created_at DESC
        LIMIT 1`
-    ).get(
+    ).get<Invoice>(
       fileName,
       `${fileName},%`,
       `%, ${fileName}`,
       `%, ${fileName},%`,
-    ) as Invoice | undefined;
+    );
   },
 
-  findByFileHash(fileHash: string): Invoice | undefined {
-    const db = getDb();
-    return db.prepare(
+  async findByFileHash(fileHash: string): Promise<Invoice | undefined> {
+    return getDb().prepare(
       `SELECT * FROM invoices
        WHERE file_hash = ?
        AND status != 'error'
        ORDER BY created_at DESC
        LIMIT 1`
-    ).get(fileHash) as Invoice | undefined;
+    ).get<Invoice>(fileHash);
   },
 
-  /**
-   * Сохранить SHA-256 хеш файла в накладную.
-   */
-  setFileHash(id: number, fileHash: string): void {
-    const db = getDb();
-    db.prepare('UPDATE invoices SET file_hash = ? WHERE id = ?').run(fileHash, id);
+  async setFileHash(id: number, fileHash: string): Promise<void> {
+    await getDb().prepare('UPDATE invoices SET file_hash = ? WHERE id = ?').run(fileHash, id);
   },
 
-  /**
-   * Найти недавнюю накладную по паттерну имени файла (LIKE).
-   * Используется для multi-page: photo_1_timestamp и photo_2_timestamp.
-   */
-  findRecentByFileNamePattern(pattern: string, excludeId: number, withinMinutes: number = 10): Invoice | undefined {
-    const db = getDb();
-    return db.prepare(
+  async findRecentByFileNamePattern(pattern: string, excludeId: number, withinMinutes: number = 10): Promise<Invoice | undefined> {
+    return getDb().prepare(
       `SELECT * FROM invoices
        WHERE file_name LIKE ?
        AND id != ?
        AND status != 'error'
-       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
        ORDER BY created_at DESC LIMIT 1`
-    ).get(pattern, excludeId) as Invoice | undefined;
+    ).get<Invoice>(pattern, excludeId);
   },
 
-  /**
-   * Найти недавнюю накладную с таким же номером (и, опционально, поставщиком).
-   * Используется для объединения многостраничных накладных.
-   *
-   * Две стратегии матчинга:
-   *
-   *   1. **Exact normalized match** — сравнение по нормализованному номеру:
-   *      учитывает кириллические/латинские омоглифы (В↔B, М↔M, ...), регистр,
-   *      пробелы, разделители, ведущие № / #.
-   *
-   *   2. **Digit-sequence fallback** (если exact провалился) — сравнение по
-   *      последовательности цифр + fuzzy-match поставщика. Это нужно когда OCR
-   *      читает на одной странице префикс буквами, а на другой — только цифры
-   *      (напр. "МСМС-40626" на стр.1 и "40626" на стр.2). Требует:
-   *        - одинаковая цифровая последовательность (минимум 3 цифры)
-   *        - fuzzy-match поставщика (см. suppliersMatch)
-   *
-   *   Передаваемый supplier, если есть, участвует в обеих стратегиях (exact
-   *   идёт через SQL = в 1-й стратегии, fallback — через fuzzy в JS).
-   *
-   * @param invoiceNumber - номер накладной (в любой форме)
-   * @param supplier - поставщик (опционально, для fuzzy fallback в пункте 2)
-   * @param withinMinutes - искать за последние N минут (по умолчанию 10)
-   */
-  findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10): Invoice | undefined {
+  async findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10): Promise<Invoice | undefined> {
     const targetNormalized = normalizeInvoiceNumber(invoiceNumber);
     if (!targetNormalized) return undefined;
 
     const targetDigits = extractDigitSequence(invoiceNumber);
 
-    const db = getDb();
-
-    // Загружаем ВСЕХ кандидатов в окне времени (не фильтруем по supplier в SQL,
-    // чтобы fallback мог использовать fuzzy-match), затем сравниваем в JS.
-    const candidates = db.prepare(
+    const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE invoice_number IS NOT NULL AND invoice_number != ''
-       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
        AND status IN ('processed', 'parsing', 'ocr_processing')
        ORDER BY created_at DESC`
-    ).all() as Invoice[];
+    ).all<Invoice>();
 
-    // Pass 1: exact normalized match (with optional strict supplier filter)
     for (const candidate of candidates) {
       if (normalizeInvoiceNumber(candidate.invoice_number) === targetNormalized) {
-        if (!supplier || candidate.supplier === supplier) {
-          return candidate;
-        }
+        if (!supplier || candidate.supplier === supplier) return candidate;
       }
     }
 
-    // Pass 2: digit-sequence fallback. Requires 3+ digits to avoid matching
-    // common short sequences like "1" or "17".
     if (targetDigits.length >= 3) {
       for (const candidate of candidates) {
         const candDigits = extractDigitSequence(candidate.invoice_number);
         if (candDigits !== targetDigits) continue;
-
-        // Both sides must have a supplier, and they must fuzzy-match.
-        // This is the safety net — same digits alone is not enough.
         if (supplier && candidate.supplier && suppliersMatch(supplier, candidate.supplier)) {
           return candidate;
         }
@@ -534,19 +423,7 @@ export const invoiceRepo = {
     return undefined;
   },
 
-  /**
-   * Найти существующую накладную, которая является ОРИГИНАЛОМ для current —
-   * совпадение invoice_number + supplier (по INN если есть, иначе по name)
-   * + invoice_date + total_sum в окне `days` дней. Используется детектором
-   * дубликатов (отличается от findRecentByNumber длинным окном — там 10 минут
-   * для multi-page merge, здесь 30 дней для duplicate detection).
-   *
-   * Возвращает undefined если оригинал не найден. Игнорирует:
-   *   - саму себя (excludeId)
-   *   - накладные со status='duplicate' (они сами дубликаты, не оригиналы)
-   *   - накладные с duplicate_of NOT NULL (по той же причине)
-   */
-  findDuplicateOriginal(
+  async findDuplicateOriginal(
     excludeId: number,
     invoiceNumber: string | null,
     supplierInn: string | null,
@@ -554,15 +431,14 @@ export const invoiceRepo = {
     invoiceDate: string | null,
     totalSum: number | null,
     days: number = 30,
-  ): Invoice | undefined {
+  ): Promise<Invoice | undefined> {
     if (!invoiceNumber || !invoiceDate || totalSum == null) return undefined;
     if (!supplierInn && !supplierName) return undefined;
 
     const targetNormalized = normalizeInvoiceNumber(invoiceNumber);
     if (!targetNormalized) return undefined;
 
-    const db = getDb();
-    const candidates = db.prepare(
+    const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE id != ?
          AND duplicate_of IS NULL
@@ -570,25 +446,19 @@ export const invoiceRepo = {
          AND invoice_number IS NOT NULL
          AND invoice_date = ?
          AND total_sum IS NOT NULL
-         AND created_at > datetime('now', '-${days} days')
+         AND created_at > (NOW() - INTERVAL ${days} DAY)
        ORDER BY created_at DESC`
-    ).all(excludeId, invoiceDate) as Invoice[];
+    ).all<Invoice>(excludeId, invoiceDate);
 
     for (const candidate of candidates) {
-      // 1. Номер должен совпадать (нормализованно)
       if (normalizeInvoiceNumber(candidate.invoice_number) !== targetNormalized) continue;
-
-      // 2. Сумма должна совпадать в пределах 1 руб (округления НДС)
       if (candidate.total_sum == null) continue;
       if (Math.abs(candidate.total_sum - totalSum) > 1.0) continue;
 
-      // 3. Поставщик: предпочитаем INN-match, fallback на name-fuzzy
       if (supplierInn && candidate.supplier_inn) {
         if (supplierInn === candidate.supplier_inn) return candidate;
-        // INN отличается — это разные юр.лица с похожими номерами, не дубликат
         continue;
       }
-      // INN отсутствует у одной из сторон — сравниваем имена fuzzy
       if (supplierName && candidate.supplier && suppliersMatch(supplierName, candidate.supplier)) {
         return candidate;
       }
@@ -597,160 +467,91 @@ export const invoiceRepo = {
     return undefined;
   },
 
-  /**
-   * Пометить накладную как дубликат другой. Items не удаляются здесь —
-   * watcher должен сам решить (обычно их даже не сохраняли).
-   */
-  markAsDuplicate(id: number, originalId: number): void {
-    getDb().prepare(
+  async markAsDuplicate(id: number, originalId: number): Promise<void> {
+    await getDb().prepare(
       `UPDATE invoices SET duplicate_of = ?, status = 'duplicate' WHERE id = ?`
     ).run(originalId, id);
   },
 
-  /**
-   * Отвязать дубликат — превратить обратно в обычную накладную.
-   * Используется когда юзер отметил «не дубликат» в UI.
-   */
-  unmarkAsDuplicate(id: number): void {
-    getDb().prepare(
+  async unmarkAsDuplicate(id: number): Promise<void> {
+    await getDb().prepare(
       `UPDATE invoices SET duplicate_of = NULL, status = 'processed' WHERE id = ?`
     ).run(id);
   },
 
-  /**
-   * Найти недавнюю накладную с таким же поставщиком (для объединения страниц при быстрой съёмке).
-   */
-  /**
-   * Last-resort merge strategy: return the single most recently processed
-   * invoice within `withinMinutes` minutes, excluding the given id. Used when
-   * a scanned page has no invoice_number AND no supplier extracted (common
-   * for page 2+ of a multi-page УПД/ТОРГ-12 — the top half with all the
-   * header metadata is on page 1, and page 2 is just the bottom of the table
-   * plus signatures). Without this fallback such pages become orphans.
-   *
-   * Intentionally does NOT look at 'parsing' rows — only 'processed' — so
-   * that concurrent uploads of two different invoices can't accidentally
-   * merge with each other mid-processing.
-   */
-  findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2): Invoice | undefined {
-    const db = getDb();
-    return db.prepare(
+  async findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2): Promise<Invoice | undefined> {
+    return getDb().prepare(
       `SELECT * FROM invoices
        WHERE id != ?
        AND status = 'processed'
-       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
        ORDER BY created_at DESC
        LIMIT 1`
-    ).get(excludeId) as Invoice | undefined;
+    ).get<Invoice>(excludeId);
   },
 
-  /**
-   * Cleanup: mark rows stuck in 'parsing' or 'ocr_processing' for longer
-   * than `staleMinutes` as 'error'. Called on startup to recover from
-   * crashes / deploys that interrupted in-flight processing and left rows
-   * stranded. Without this the dashboard fills up with ghost rows that
-   * can't be deleted through normal merge flow.
-   */
-  markStaleAsFailed(staleMinutes: number = 5): number {
-    const db = getDb();
-    // Any non-terminal status older than N minutes is a leftover from a crash.
-    // Terminal statuses that must NEVER be swept: processed, sent_to_1c, duplicate, error.
-    const result = db.prepare(
+  async markStaleAsFailed(staleMinutes: number = 5): Promise<number> {
+    const result = await getDb().prepare(
       `UPDATE invoices
        SET status = 'error',
            error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)')
        WHERE status NOT IN ('processed', 'sent_to_1c', 'duplicate', 'error')
-       AND created_at < datetime('now', '-${staleMinutes} minutes')`
+       AND created_at < (NOW() - INTERVAL ${staleMinutes} MINUTE)`
     ).run();
     return result.changes;
   },
 
-  /**
-   * Список stale-записей для startup recovery — те, что застряли в
-   * 'ocr_processing'/'parsing'. БЕЗ time-окна, потому что после рестарта
-   * процесса любая такая запись гарантированно мёртвая (живой watcher не
-   * мог её там оставить — все его пути обновляют статус). Возвращает id +
-   * file_name + наличие items, чтобы caller решил: сделать ли record
-   * 'processed' (если items уже сохранены) или DELETE + переотправить файл
-   * в inbox для свежей обработки.
-   */
-  listStaleForRecovery(): Array<{ id: number; file_name: string; itemsCount: number }> {
-    const db = getDb();
-    return db.prepare(
+  async listStaleForRecovery(): Promise<Array<{ id: number; file_name: string; itemsCount: number }>> {
+    return getDb().prepare(
       `SELECT i.id, i.file_name,
         (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS itemsCount
        FROM invoices i
        WHERE i.status IN ('ocr_processing', 'parsing')`
-    ).all() as Array<{ id: number; file_name: string; itemsCount: number }>;
+    ).all<{ id: number; file_name: string; itemsCount: number }>();
   },
 
-  findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Invoice | undefined {
-    const db = getDb();
-    const candidates = db.prepare(
+  async findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Promise<Invoice | undefined> {
+    const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE supplier IS NOT NULL AND supplier != ''
        AND id != ?
-       AND created_at > datetime('now', '-${withinMinutes} minutes')
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
        AND status IN ('processed', 'parsing', 'ocr_processing')
        ORDER BY created_at DESC`
-    ).all(excludeId) as Invoice[];
+    ).all<Invoice>(excludeId);
 
     for (const candidate of candidates) {
-      if (candidate.supplier && suppliersMatch(supplier, candidate.supplier)) {
-        return candidate;
-      }
+      if (candidate.supplier && suppliersMatch(supplier, candidate.supplier)) return candidate;
     }
     return undefined;
   },
 
-  /**
-   * Добавить дополнительный файл к существующей накладной.
-   * Используется для многостраничных накладных.
-   */
-  appendFileName(id: number, newFileName: string): void {
-    const db = getDb();
-    const invoice = this.getById(id);
+  async appendFileName(id: number, newFileName: string): Promise<void> {
+    const invoice = await this.getById(id);
     if (invoice) {
       const updatedName = invoice.file_name.includes(newFileName)
         ? invoice.file_name
         : `${invoice.file_name}, ${newFileName}`;
-      db.prepare('UPDATE invoices SET file_name = ? WHERE id = ?').run(updatedName, id);
+      await getDb().prepare('UPDATE invoices SET file_name = ? WHERE id = ?').run(updatedName, id);
     }
   },
 
-  /**
-   * Добавить сырой текст OCR к существующей накладной (для многостраничных).
-   */
-  appendRawText(id: number, additionalText: string): void {
-    const db = getDb();
-    const invoice = this.getById(id);
+  async appendRawText(id: number, additionalText: string): Promise<void> {
+    const invoice = await this.getById(id);
     if (invoice && invoice.raw_text) {
       const separator = '\n\n--- СТРАНИЦА ---\n\n';
       const updatedText = invoice.raw_text + separator + additionalText;
-      db.prepare('UPDATE invoices SET raw_text = ? WHERE id = ?').run(updatedText, id);
+      await getDb().prepare('UPDATE invoices SET raw_text = ? WHERE id = ?').run(updatedText, id);
     }
   },
 
-  /**
-   * Пересчёт итоговой суммы + проверка расхождения с суммой позиций.
-   *
-   * Historically this method overwrote total_sum with sum(items.total). That
-   * discards information — when Claude extracts a total from the document,
-   * it's often more trustworthy than the line-by-line OCR (НДС rounding,
-   * dropped pennies, etc.). So: we preserve a document-level total if it's
-   * already set and "close enough" to the items sum; otherwise we overwrite.
-   *
-   * Mismatch rule: >1% relative difference OR >1 ruble absolute difference,
-   * whichever is larger — avoids nuisance flags on tiny totals.
-   *
-   * items_total_mismatch is set so the UI can flag the invoice for human review.
-   */
-  recalculateTotal(id: number): void {
+  async recalculateTotal(id: number): Promise<void> {
     const db = getDb();
-    const { total: itemsTotal } = db.prepare(
+    const itemsRow = await db.prepare(
       'SELECT COALESCE(SUM(total), 0) as total FROM invoice_items WHERE invoice_id = ?'
-    ).get(id) as { total: number };
-    const invoice = db.prepare('SELECT total_sum FROM invoices WHERE id = ?').get(id) as { total_sum: number | null } | undefined;
+    ).get<{ total: number }>(id);
+    const itemsTotal = Number(itemsRow?.total ?? 0);
+    const invoice = await db.prepare('SELECT total_sum FROM invoices WHERE id = ?').get<{ total_sum: number | null }>(id);
     const documentTotal = invoice?.total_sum ?? null;
 
     let mismatch = 0;
@@ -760,61 +561,43 @@ export const invoiceRepo = {
       const diff = Math.abs(documentTotal - itemsTotal);
       const relative = diff / Math.max(documentTotal, itemsTotal);
       mismatch = (diff > 1 && relative > 0.01) ? 1 : 0;
-      // Always trust the document total when it exists. Even when items
-      // disagree (OCR misread individual lines), the "Всего к оплате"
-      // footer is the source of truth the supplier signed under. Previously
-      // we overwrote total_sum with items_sum on mismatch, which silently
-      // lost the correct value (invoice 1300: 90363.82 → 58273.16).
-      // Set items_total_mismatch=1 so the UI flags the invoice for review.
       nextTotal = documentTotal;
     } else {
-      // No document total at all — fall back to computed items sum.
       nextTotal = itemsTotal;
     }
 
-    db.prepare(
+    await db.prepare(
       'UPDATE invoices SET total_sum = ?, items_total_mismatch = ? WHERE id = ?'
     ).run(nextTotal, mismatch, id);
   },
 
-  /**
-   * Удалить все товары накладной (для пересоздания при multi-page merge).
-   */
-  deleteItems(invoiceId: number): void {
-    const db = getDb();
-    db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(invoiceId);
+  async deleteItems(invoiceId: number): Promise<void> {
+    await getDb().prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(invoiceId);
   },
 
-  /**
-   * Удалить накладную и все её товары.
-   */
-  delete(id: number): { file_name: string | null } {
-    const db = getDb();
-    const invoice = this.getById(id);
+  async delete(id: number): Promise<{ file_name: string | null }> {
+    const invoice = await this.getById(id);
     const fileName = invoice?.file_name ?? null;
-    db.transaction(() => {
-      db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(id);
-      db.prepare('DELETE FROM invoices WHERE id = ?').run(id);
-    })();
+    await getDb().transaction(async (txn) => {
+      await txn.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(id);
+      await txn.prepare('DELETE FROM invoices WHERE id = ?').run(id);
+    });
     return { file_name: fileName };
   },
 
-  /**
-   * Получить статистику по статусам (для дашборда).
-   */
-  getStats(): { byStatus: { status: string; count: number }[]; total: number } {
+  async getStats(): Promise<{ byStatus: { status: string; count: number }[]; total: number }> {
     const db = getDb();
-    const byStatus = db.prepare(
+    const byStatus = await db.prepare(
       'SELECT status, COUNT(*) as count FROM invoices GROUP BY status'
-    ).all() as { status: string; count: number }[];
-    const total = db.prepare('SELECT COUNT(*) as count FROM invoices').get() as { count: number };
-    return { byStatus, total: total.count };
+    ).all<{ status: string; count: number }>();
+    const totalRow = await db.prepare('SELECT COUNT(*) as count FROM invoices').get<{ count: number }>();
+    return { byStatus, total: totalRow?.count ?? 0 };
   },
 
-  getAnalyzerConfig(): { mode: string; anthropic_api_key: string | null; claude_model: string; llm_mapper_enabled: boolean; auto_send_1c: boolean; auto_send_sber: boolean } {
-    const db = getDb();
-    const row = db.prepare('SELECT mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber FROM analyzer_config WHERE id = 1').get() as
-      { mode: string; anthropic_api_key: string | null; claude_model: string | null; llm_mapper_enabled: number | null; auto_send_1c: number | null; auto_send_sber: number | null } | undefined;
+  async getAnalyzerConfig(): Promise<{ mode: string; anthropic_api_key: string | null; claude_model: string; llm_mapper_enabled: boolean; auto_send_1c: boolean; auto_send_sber: boolean }> {
+    const row = await getDb()
+      .prepare('SELECT mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber FROM analyzer_config WHERE id = 1')
+      .get<{ mode: string; anthropic_api_key: string | null; claude_model: string | null; llm_mapper_enabled: number | null; auto_send_1c: number | null; auto_send_sber: number | null }>();
     return {
       mode: row?.mode ?? 'hybrid',
       anthropic_api_key: row?.anthropic_api_key ?? null,
@@ -825,50 +608,33 @@ export const invoiceRepo = {
     };
   },
 
-  updateAnalyzerConfig(
+  async updateAnalyzerConfig(
     mode: string,
     anthropicApiKey?: string | null,
     claudeModel?: string | null,
     llmMapperEnabled?: boolean,
     autoSend1c?: boolean,
     autoSendSber?: boolean,
-  ): void {
-    const db = getDb();
+  ): Promise<void> {
     const sets: string[] = ['mode = ?'];
     const vals: unknown[] = [mode];
-    // anthropic_api_key: undefined → skip (keep existing), null → clear, string → set
-    if (anthropicApiKey !== undefined) {
-      sets.push('anthropic_api_key = ?');
-      vals.push(anthropicApiKey);
-    }
-    if (claudeModel !== undefined && claudeModel !== null) {
-      sets.push('claude_model = ?');
-      vals.push(claudeModel);
-    }
-    if (llmMapperEnabled !== undefined) {
-      sets.push('llm_mapper_enabled = ?');
-      vals.push(llmMapperEnabled ? 1 : 0);
-    }
-    if (autoSend1c !== undefined) {
-      sets.push('auto_send_1c = ?');
-      vals.push(autoSend1c ? 1 : 0);
-    }
-    if (autoSendSber !== undefined) {
-      sets.push('auto_send_sber = ?');
-      vals.push(autoSendSber ? 1 : 0);
-    }
-    db.prepare(`UPDATE analyzer_config SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
+    if (anthropicApiKey !== undefined) { sets.push('anthropic_api_key = ?'); vals.push(anthropicApiKey); }
+    if (claudeModel !== undefined && claudeModel !== null) { sets.push('claude_model = ?'); vals.push(claudeModel); }
+    if (llmMapperEnabled !== undefined) { sets.push('llm_mapper_enabled = ?'); vals.push(llmMapperEnabled ? 1 : 0); }
+    if (autoSend1c !== undefined) { sets.push('auto_send_1c = ?'); vals.push(autoSend1c ? 1 : 0); }
+    if (autoSendSber !== undefined) { sets.push('auto_send_sber = ?'); vals.push(autoSendSber ? 1 : 0); }
+    await getDb().prepare(`UPDATE analyzer_config SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
   },
 
-  getTelegramMessageId(id: number): number | null {
-    const row = getDb()
+  async getTelegramMessageId(id: number): Promise<number | null> {
+    const row = await getDb()
       .prepare('SELECT telegram_message_id FROM invoices WHERE id = ?')
-      .get(id) as { telegram_message_id: number | null } | undefined;
+      .get<{ telegram_message_id: number | null }>(id);
     return row?.telegram_message_id ?? null;
   },
 
-  setTelegramMessageId(id: number, messageId: number): void {
-    getDb()
+  async setTelegramMessageId(id: number, messageId: number): Promise<void> {
+    await getDb()
       .prepare('UPDATE invoices SET telegram_message_id = ? WHERE id = ?')
       .run(messageId, id);
   },

@@ -30,17 +30,19 @@ export function apiRequestLog(req: Request, res: Response, next: NextFunction): 
   const capturedUserAgent = (req.headers['user-agent'] as string | undefined) || null;
 
   res.on('finish', () => {
-    try {
-      const db = getDb();
-      const duration = Date.now() - start;
+    void (async () => {
+      try {
+        const db = getDb();
+        const duration = Date.now() - start;
 
-      db.prepare(
-        `INSERT INTO api_requests_log (method, path, remote_addr, user_agent, status_code, duration_ms)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(capturedMethod, capturedPath, capturedRemoteAddr, capturedUserAgent, res.statusCode, duration);
-    } catch {
-      // Never break the request pipeline on logging failures
-    }
+        await db.prepare(
+          `INSERT INTO api_requests_log (method, path, remote_addr, user_agent, status_code, duration_ms)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(capturedMethod, capturedPath, capturedRemoteAddr, capturedUserAgent, res.statusCode, duration);
+      } catch {
+        // Never break the request pipeline on logging failures
+      }
+    })();
   });
 
   next();
@@ -50,11 +52,11 @@ export function apiRequestLog(req: Request, res: Response, next: NextFunction): 
  * Delete request log entries older than 7 days.
  * Called by a daily cron — not from every request.
  */
-export function cleanupOldRequestLogs(): number {
+export async function cleanupOldRequestLogs(): Promise<number> {
   try {
     const db = getDb();
-    const result = db.prepare(
-      `DELETE FROM api_requests_log WHERE timestamp < datetime('now', '-7 days')`
+    const result = await db.prepare(
+      `DELETE FROM api_requests_log WHERE timestamp < (NOW() - INTERVAL 7 DAY)`
     ).run();
     return result.changes;
   } catch {

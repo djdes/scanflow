@@ -16,10 +16,10 @@ import os from 'os';
  * Excludes folders. Returns an empty array if the feature is disabled in
  * analyzer_config, so callers can blindly pass the result to the API layer.
  */
-function getCatalogForPrompt(): CatalogEntry[] {
-  const cfg = invoiceRepo.getAnalyzerConfig();
+async function getCatalogForPrompt(): Promise<CatalogEntry[]> {
+  const cfg = await invoiceRepo.getAnalyzerConfig();
   if (!cfg.llm_mapper_enabled) return [];
-  const rows = onecNomenclatureRepo.listItems({ excludeFolders: true });
+  const rows = await onecNomenclatureRepo.listItems({ excludeFolders: true });
   return rows.map(r => ({ guid: r.guid, name: r.name, unit: r.unit }));
 }
 
@@ -65,7 +65,7 @@ export class OcrManager {
    * Returns 0 on any error (never block OCR on orientation detection).
    */
   private async detectTextRotation(imagePath: string): Promise<0 | 90 | 180 | 270> {
-    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
     if (!apiKey) return 0;
 
@@ -242,12 +242,12 @@ export class OcrManager {
     // Step 2: Send OCR text to Anthropic API for intelligent structuring
     logger.info('Hybrid OCR: sending text to Anthropic API', { textLength: ocrResult.text.length });
 
-    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
     const modelId = analyzerConfig.claude_model;
 
     if (apiKey) {
-      const catalog = getCatalogForPrompt();
+      const catalog = await getCatalogForPrompt();
       const apiResult = await analyzeMultiPageTextWithClaudeApi(ocrResult.text, apiKey, 1, modelId, catalog);
       if (apiResult.success && apiResult.data) {
         logger.info('Hybrid OCR: Anthropic API text analyzer succeeded', {
@@ -275,7 +275,7 @@ export class OcrManager {
    * отправляет ВСЕ страницы в один запрос Anthropic API.
    */
   async recognizeMultiPageWithClaudeApi(imagePaths: string[]): Promise<OcrResult> {
-    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
     const modelId = analyzerConfig.claude_model;
 
@@ -285,7 +285,7 @@ export class OcrManager {
 
     // Preprocess every page — each can have its own rotation.
     const processedPaths = await Promise.all(imagePaths.map(p => this.preprocessImage(p)));
-    const catalog = getCatalogForPrompt();
+    const catalog = await getCatalogForPrompt();
     const result = await analyzeMultipleImagesWithClaudeApi(processedPaths, apiKey, modelId, catalog);
     // Clean up temp files
     for (const pp of processedPaths) {
@@ -312,7 +312,7 @@ export class OcrManager {
    * Claude получает уже-текст и собирает из него единый structured-ответ.
    */
   async analyzeMultiPageText(combinedOcrText: string, pageCount: number): Promise<OcrResult> {
-    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
     const modelId = analyzerConfig.claude_model;
 
@@ -320,7 +320,7 @@ export class OcrManager {
       throw new Error('Anthropic API key not configured.');
     }
 
-    const catalog = getCatalogForPrompt();
+    const catalog = await getCatalogForPrompt();
     const result = await analyzeMultiPageTextWithClaudeApi(combinedOcrText, apiKey, pageCount, modelId, catalog);
 
     if (result.success && result.data) {
@@ -346,7 +346,7 @@ export class OcrManager {
    * Google Vision не используется.
    */
   async recognizeWithClaudeApi(imagePath: string): Promise<OcrResult> {
-    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
     const modelId = analyzerConfig.claude_model;
 
@@ -361,7 +361,7 @@ export class OcrManager {
     const processedPath = await this.preprocessImage(imagePath);
 
     try {
-      const catalog = getCatalogForPrompt();
+      const catalog = await getCatalogForPrompt();
       const result = await analyzeImageWithClaudeApi(processedPath, apiKey, modelId, catalog);
 
       if (result.success && result.data) {

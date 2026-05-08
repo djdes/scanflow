@@ -8,7 +8,8 @@ import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/invoiceRepo';
 import { mappingRepo } from '../database/repositories/mappingRepo';
-import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
+import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
+import type { MappingResult } from '../mapping/nomenclatureMapper';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
@@ -26,8 +27,8 @@ const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
  * stored verbatim in invoices.raw_text. Tolerant to jsonrepair cases where
  * the text contains fenced markdown — we scan for the first /"row_no":\s*(\d+)/.
  */
-function getFirstRowNo(invoiceId: number): number | null {
-  const row = invoiceRepo.getById(invoiceId);
+async function getFirstRowNo(invoiceId: number): Promise<number | null> {
+  const row = await invoiceRepo.getById(invoiceId);
   if (!row || !row.raw_text) return null;
   const m = row.raw_text.match(/"row_no"\s*:\s*(\d+)/);
   if (!m) return null;
@@ -66,7 +67,10 @@ export class FileWatcher {
     });
 
     this.watcher
-      .on('add', (filePath: string) => this.onFileAdded(filePath))
+      .on('add', (filePath: string) =>
+        this.onFileAdded(filePath).catch(err =>
+          logger.error('onFileAdded failed', { error: (err as Error).message })
+        ))
       .on('error', (error: unknown) => logger.error('File watcher error', { error: (error as Error).message }));
 
     logger.info('File watcher started', { path: watchPath });
@@ -99,7 +103,7 @@ export class FileWatcher {
     const fileName = path.basename(filePath);
 
     // DB-level dedup: check if this file was already processed recently (within 5 min)
-    const recentDuplicate = invoiceRepo.findRecentByFileName(fileName, 5);
+    const recentDuplicate = await invoiceRepo.findRecentByFileName(fileName, 5);
     if (recentDuplicate) {
       logger.warn('File already processed recently, skipping duplicate', {
         fileName,
@@ -135,7 +139,7 @@ export class FileWatcher {
    */
   private resolveCatalogIdx(
     idx: number | null | undefined,
-    catalog: ReturnType<typeof onecNomenclatureRepo.listItems> | null,
+    catalog: OnecNomenclatureRow[] | null,
   ): { guid: string; name: string; unit: string | null } | undefined {
     if (!catalog || idx == null || !Number.isFinite(idx)) return undefined;
     const row = catalog[idx - 1];
@@ -148,14 +152,14 @@ export class FileWatcher {
    * learned mapping didn't carry pack_size / pack_unit), persist the detected
    * values back onto the mapping row so the next run skips the regex pass.
    */
-  private persistPackFallback(
+  private async persistPackFallback(
     mappingId: number | null,
     resolved: { usedFallback: boolean; packSize: number | null; packUnit: string | null },
-  ): void {
+  ): Promise<void> {
     if (!mappingId || !resolved.usedFallback) return;
     if (!resolved.packSize || !resolved.packUnit) return;
     try {
-      mappingRepo.update(mappingId, {
+      await mappingRepo.update(mappingId, {
         pack_size: resolved.packSize,
         pack_unit: resolved.packUnit,
       });
@@ -176,13 +180,13 @@ export class FileWatcher {
    */
   private async autoSendSber(invoiceId: number): Promise<void> {
     try {
-      const adminId = (await import('../database/repositories/userRepo')).userRepo.firstUserId();
+      const adminId = await (await import('../database/repositories/userRepo')).userRepo.firstUserId();
       if (!adminId) {
         logger.warn('Auto-send Sber: no admin user', { invoiceId });
         return;
       }
       const db = (await import('../database/db')).getDb();
-      const row = db.prepare('SELECT api_key FROM users WHERE id = ?').get(adminId) as { api_key: string } | undefined;
+      const row = await db.prepare('SELECT api_key FROM users WHERE id = ?').get<{ api_key: string }>(adminId);
       const apiKey = row?.api_key;
       if (!apiKey) {
         logger.warn('Auto-send Sber: admin has no api_key', { invoiceId });
@@ -227,7 +231,7 @@ export class FileWatcher {
    * не нужно сливать с другими.
    */
   async reprocessInvoice(invoiceId: number): Promise<void> {
-    const invoice = invoiceRepo.getById(invoiceId);
+    const invoice = await invoiceRepo.getById(invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
     const firstFile = (invoice.file_name || '').split(',')[0].trim();
@@ -248,7 +252,7 @@ export class FileWatcher {
     // OCR + structured parse — RESPECT analyzer_config.mode (как в processFile).
     // Без этого rescan скатывался в OCR-chain (Tesseract) и regex-парсер
     // даже при mode='claude_api', давая 0.00 сумм.
-    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     let ocrResult;
     if (analyzerConfig.mode === 'claude_api') {
       ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
@@ -266,8 +270,8 @@ export class FileWatcher {
     }
 
     // Заменяем metadata + raw_text + items
-    invoiceRepo.deleteItems(invoiceId);
-    invoiceRepo.updateInvoiceData(invoiceId, {
+    await invoiceRepo.deleteItems(invoiceId);
+    await invoiceRepo.updateInvoiceData(invoiceId, {
       invoice_number: parsed.invoice_number,
       invoice_date: parsed.invoice_date,
       supplier: parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : undefined,
@@ -287,7 +291,7 @@ export class FileWatcher {
     // картина. Если новые реквизиты опять совпадут с другой накладной,
     // ручной флаг ставится через UI «Пересопоставить» либо повторным rescan'ом.
     if (invoice.duplicate_of != null) {
-      invoiceRepo.unmarkAsDuplicate(invoiceId);
+      await invoiceRepo.unmarkAsDuplicate(invoiceId);
     }
 
     // VAT sanity passes (как в processFile)
@@ -315,9 +319,9 @@ export class FileWatcher {
     }));
 
     // Mapping pipeline
-    const analyzerCfg = invoiceRepo.getAnalyzerConfig();
+    const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
     const catalog = analyzerCfg.llm_mapper_enabled
-      ? onecNomenclatureRepo.listItems({ excludeFolders: true })
+      ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
       : null;
 
     for (const item of parsedItems) {
@@ -327,9 +331,9 @@ export class FileWatcher {
       });
 
       const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
-      let mapping: ReturnType<typeof this.mapper.map>;
+      let mapping: MappingResult;
       if (llmPicked) {
-        const existingMapping = mappingRepo.getByScannedName(item.name);
+        const existingMapping = await mappingRepo.getByScannedName(item.name);
         mapping = {
           original_name: item.name,
           mapped_name: llmPicked.name,
@@ -341,7 +345,7 @@ export class FileWatcher {
           pack_unit: existingMapping?.pack_unit ?? null,
         };
         try {
-          mappingRepo.upsert({
+          await mappingRepo.upsert({
             scanned_name: item.name,
             mapped_name_1c: llmPicked.name,
             onec_guid: llmPicked.guid,
@@ -354,12 +358,12 @@ export class FileWatcher {
         }
         this.mapper.invalidateCache();
       } else {
-        mapping = this.mapper.map(item.name);
+        mapping = await this.mapper.map(item.name);
       }
 
       const resolved = mapping.onec_guid
-        ? (() => {
-            const onec1cUnit = onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null;
+        ? await (async () => {
+            const onec1cUnit = (await onecNomenclatureRepo.getByGuid(mapping.onec_guid!))?.unit ?? null;
             const hintedPackSize = item.pack_size ?? mapping.pack_size;
             const hintedPackUnit = item.pack_size ? 'шт' : mapping.pack_unit;
             const r = resolveAndApplyPackTransform(
@@ -370,12 +374,12 @@ export class FileWatcher {
               mapping.mapped_name,
               onec1cUnit,
             );
-            this.persistPackFallback(mapping.mapping_id, r);
+            await this.persistPackFallback(mapping.mapping_id, r);
             return r;
           })()
         : { item: sanity.item, packSize: null, packUnit: null, usedFallback: false };
 
-      invoiceRepo.addItem({
+      await invoiceRepo.addItem({
         invoice_id: invoiceId,
         original_name: item.name,
         mapped_name: mapping.mapped_name,
@@ -389,8 +393,8 @@ export class FileWatcher {
       });
     }
 
-    invoiceRepo.recalculateTotal(invoiceId);
-    invoiceRepo.updateStatus(invoiceId, 'processed');
+    await invoiceRepo.recalculateTotal(invoiceId);
+    await invoiceRepo.updateStatus(invoiceId, 'processed');
 
     logger.info('Invoice reprocessed successfully', {
       id: invoiceId,
@@ -418,7 +422,7 @@ export class FileWatcher {
     // Cheap up-front check (cuts most obvious duplicates without hitting
     // the INSERT path at all). The UNIQUE index still protects us from races.
     if (fileHash) {
-      const duplicate = invoiceRepo.findByFileHash(fileHash);
+      const duplicate = await invoiceRepo.findByFileHash(fileHash);
       if (duplicate) {
         logger.info('Duplicate file detected by hash, returning existing invoice', {
           filePath,
@@ -440,7 +444,7 @@ export class FileWatcher {
     // 1. Create invoice record (atomic dedup via UNIQUE partial index).
     let invoice;
     try {
-      invoice = invoiceRepo.create({
+      invoice = await invoiceRepo.create({
         file_name: fileName,
         file_path: filePath,
         file_hash: fileHash,
@@ -475,7 +479,7 @@ export class FileWatcher {
 
     try {
       // 2. OCR (hybrid mode: Google Vision + Claude analyzer if enabled)
-      invoiceRepo.updateStatus(invoice.id, 'ocr_processing');
+      await invoiceRepo.updateStatus(invoice.id, 'ocr_processing');
       let ocrResult;
       if (forceEngine) {
         ocrResult = await this.ocrManager.recognizeWithEngine(filePath, forceEngine);
@@ -483,7 +487,7 @@ export class FileWatcher {
         // Check analyzer mode from DB config. Known values: 'claude_api', 'hybrid'.
         // Anything else is a misconfig — log loudly and fall back to hybrid so
         // we never silently downgrade to regex parsing without visibility.
-        const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+        const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
         const KNOWN_MODES = ['claude_api', 'hybrid'] as const;
         if (!KNOWN_MODES.includes(analyzerConfig.mode as typeof KNOWN_MODES[number])) {
           logger.error('Unknown analyzer_config.mode — falling back to hybrid', {
@@ -505,13 +509,13 @@ export class FileWatcher {
         }
       }
 
-      invoiceRepo.updateInvoiceData(invoice.id, {
+      await invoiceRepo.updateInvoiceData(invoice.id, {
         raw_text: ocrResult.text,
         ocr_engine: ocrResult.engine,
       });
 
       // 3. Parse: use Claude's structured data if available, else regex parser
-      invoiceRepo.updateStatus(invoice.id, 'parsing');
+      await invoiceRepo.updateStatus(invoice.id, 'parsing');
       const parsed = ocrResult.structured ?? parseInvoiceText(ocrResult);
 
       if (ocrResult.structured) {
@@ -529,9 +533,9 @@ export class FileWatcher {
       // Supplier is passed through so that the digit-sequence fallback inside
       // findRecentByNumber can fuzzy-match supplier names that OCR read
       // differently across pages (e.g. "ООО МС ЛОГИСТИК" vs full legal form).
-      let existingInvoice: ReturnType<typeof invoiceRepo.findRecentByNumber> = undefined;
+      let existingInvoice: Awaited<ReturnType<typeof invoiceRepo.findRecentByNumber>> = undefined;
       if (parsed.invoice_number) {
-        existingInvoice = invoiceRepo.findRecentByNumber(
+        existingInvoice = await invoiceRepo.findRecentByNumber(
           parsed.invoice_number,
           parsed.supplier ?? undefined,
           10
@@ -543,7 +547,7 @@ export class FileWatcher {
         const pageMatch = fileName.match(/^photo_(\d+)_(.+)$/);
         if (pageMatch && parseInt(pageMatch[1]) > 1) {
           const timestamp = pageMatch[2];
-          existingInvoice = invoiceRepo.findRecentByFileNamePattern(
+          existingInvoice = await invoiceRepo.findRecentByFileNamePattern(
             `photo_%_${timestamp}`,
             invoice.id,
             10
@@ -577,13 +581,13 @@ export class FileWatcher {
       if (!existingInvoice && parsed.supplier && parsed.items.length > 0) {
         const firstRowNo = parsed.items[0].row_no;
         const lastRowNo = parsed.items[parsed.items.length - 1].row_no;
-        const candidate = invoiceRepo.findRecentBySupplier(
+        const candidate = await invoiceRepo.findRecentBySupplier(
           parsed.supplier,
           invoice.id,
           5,
         );
         if (candidate) {
-          const existingItems = invoiceRepo.getItems(candidate.id);
+          const existingItems = await invoiceRepo.getItems(candidate.id);
 
           // Case A: current is a continuation
           if (firstRowNo != null && firstRowNo > 1) {
@@ -605,7 +609,7 @@ export class FileWatcher {
           if (!existingInvoice
             && lastRowNo != null && lastRowNo === parsed.items.length
             && existingItems.length > 0) {
-            const existingFirstRow = getFirstRowNo(candidate.id);
+            const existingFirstRow = await getFirstRowNo(candidate.id);
             if (existingFirstRow != null) {
               const gap = existingFirstRow - (lastRowNo + 1);
               if (Math.abs(gap) <= 1) {
@@ -633,7 +637,7 @@ export class FileWatcher {
       // If the current page has a number that DOES match a recent invoice
       // (normalised), Strategy A above would've already caught it.
       if (!existingInvoice && parsed.supplier && !parsed.invoice_number) {
-        existingInvoice = invoiceRepo.findRecentBySupplier(
+        existingInvoice = await invoiceRepo.findRecentBySupplier(
           parsed.supplier,
           invoice.id,
           5  // within last 5 minutes
@@ -657,7 +661,7 @@ export class FileWatcher {
       // Safety: only consults 'processed' rows (not 'parsing'), so we
       // never merge two concurrently-uploading invoices into each other.
       if (!existingInvoice && !parsed.invoice_number && !parsed.supplier) {
-        existingInvoice = invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2);
+        existingInvoice = await invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2);
         if (existingInvoice) {
           logger.info('Multi-page: matched by temporal proximity (no metadata on this page)', {
             currentFile: fileName,
@@ -687,8 +691,8 @@ export class FileWatcher {
           const existingTextSnapshot = existingInvoice.raw_text || '';
 
           // Append file name and raw text to existing invoice.
-          invoiceRepo.appendFileName(existingInvoice.id, fileName);
-          invoiceRepo.appendRawText(existingInvoice.id, ocrResult.text);
+          await invoiceRepo.appendFileName(existingInvoice.id, fileName);
+          await invoiceRepo.appendRawText(existingInvoice.id, ocrResult.text);
 
           // CRITICAL: delete the temp invoice row NOW, before any failable
           // async work. Previously this delete happened at the end of the
@@ -698,7 +702,7 @@ export class FileWatcher {
           // stuck in status 'parsing'. Early delete makes the merge atomic
           // from the moment append succeeds: either the page is folded into
           // the parent, or nothing happens (the parent is unchanged).
-          invoiceRepo.delete(invoice.id);
+          await invoiceRepo.delete(invoice.id);
 
           // Re-process ALL pages together: combine OCR texts and send to Claude
           try {
@@ -717,10 +721,10 @@ export class FileWatcher {
               const unifiedParsed = multiResult.structured;
 
               // Delete old items and re-save all from unified result
-              invoiceRepo.deleteItems(targetInvoiceId);
+              await invoiceRepo.deleteItems(targetInvoiceId);
 
               // Update invoice metadata from unified result
-              invoiceRepo.updateInvoiceData(targetInvoiceId, {
+              await invoiceRepo.updateInvoiceData(targetInvoiceId, {
                 invoice_number: unifiedParsed.invoice_number,
                 invoice_date: unifiedParsed.invoice_date,
                 supplier: unifiedParsed.supplier ? canonicalizeSupplierName(unifiedParsed.supplier) : undefined,
@@ -761,9 +765,9 @@ export class FileWatcher {
               }));
 
               // Save unified items
-              const mergedAnalyzerCfg = invoiceRepo.getAnalyzerConfig();
+              const mergedAnalyzerCfg = await invoiceRepo.getAnalyzerConfig();
               const mergedCatalog = mergedAnalyzerCfg.llm_mapper_enabled
-                ? onecNomenclatureRepo.listItems({ excludeFolders: true })
+                ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
                 : null;
 
               for (const item of mergedItems) {
@@ -777,7 +781,7 @@ export class FileWatcher {
 
                 // LLM-mapper path (see normal flow below for full comment).
                 const llmPicked = this.resolveCatalogIdx(item.catalog_idx, mergedCatalog);
-                let mapping: ReturnType<typeof this.mapper.map>;
+                let mapping: MappingResult;
                 if (llmPicked) {
                   mapping = {
                     original_name: item.name,
@@ -790,7 +794,7 @@ export class FileWatcher {
                     pack_unit: null,
                   };
                   try {
-                    mappingRepo.upsert({
+                    await mappingRepo.upsert({
                       scanned_name: item.name,
                       mapped_name_1c: llmPicked.name,
                       onec_guid: llmPicked.guid,
@@ -803,7 +807,7 @@ export class FileWatcher {
                   }
                   this.mapper.invalidateCache();
                 } else {
-                  mapping = this.mapper.map(item.name);
+                  mapping = await this.mapper.map(item.name);
                 }
 
                 // Pack-transform only runs when we KNOW where the row maps.
@@ -813,8 +817,8 @@ export class FileWatcher {
                 // as a pack-size anchor). Better to let llm-remap handle them
                 // later with an explicit pack_size hint.
                 const mergedResolved = mapping.onec_guid
-                  ? (() => {
-                      const onec1cUnit = onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null;
+                  ? await (async () => {
+                      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(mapping.onec_guid!))?.unit ?? null;
                       const hintedPackSize = item.pack_size ?? mapping.pack_size;
                       const hintedPackUnit = item.pack_size ? 'шт' : mapping.pack_unit;
                       const r = resolveAndApplyPackTransform(
@@ -825,11 +829,11 @@ export class FileWatcher {
                         mapping.mapped_name,
                         onec1cUnit,
                       );
-                      this.persistPackFallback(mapping.mapping_id, r);
+                      await this.persistPackFallback(mapping.mapping_id, r);
                       return r;
                     })()
                   : { item: sanity.item, packSize: null, packUnit: null, usedFallback: false };
-                invoiceRepo.addItem({
+                await invoiceRepo.addItem({
                   invoice_id: targetInvoiceId,
                   original_name: item.name,
                   mapped_name: mapping.mapped_name,
@@ -843,10 +847,10 @@ export class FileWatcher {
                 });
               }
 
-              invoiceRepo.recalculateTotal(targetInvoiceId);
-              invoiceRepo.updateStatus(targetInvoiceId, 'processed');
+              await invoiceRepo.recalculateTotal(targetInvoiceId);
+              await invoiceRepo.updateStatus(targetInvoiceId, 'processed');
 
-              const totalItems = invoiceRepo.getItems(targetInvoiceId);
+              const totalItems = await invoiceRepo.getItems(targetInvoiceId);
               logger.info('Multi-page invoice merged via combined OCR text', {
                 id: targetInvoiceId,
                 totalItemsCount: totalItems.length,
@@ -854,7 +858,7 @@ export class FileWatcher {
               });
 
               // Fire-and-forget notifications for recognised invoice.
-              const finalInvoice = invoiceRepo.getById(targetInvoiceId);
+              const finalInvoice = await invoiceRepo.getById(targetInvoiceId);
               if (finalInvoice) {
                 emitNotification('invoice_recognized', {
                   invoice_id: finalInvoice.id,
@@ -863,9 +867,8 @@ export class FileWatcher {
                   total_sum: finalInvoice.total_sum,
                 }, null).catch(() => {});
                 if (finalInvoice.items_total_mismatch === 1) {
-                  const itemsTotal = invoiceRepo
-                    .getItems(finalInvoice.id)
-                    .reduce((sum, it) => sum + (it.total ?? 0), 0);
+                  const finalItems = await invoiceRepo.getItems(finalInvoice.id);
+                  const itemsTotal = finalItems.reduce((sum, it) => sum + (it.total ?? 0), 0);
                   emitNotification('suspicious_total', {
                     invoice_id: finalInvoice.id,
                     invoice_number: finalInvoice.invoice_number,
@@ -895,7 +898,7 @@ export class FileWatcher {
 
       if (!isMergedPage) {
         // Normal flow: update the new invoice with parsed data
-        invoiceRepo.updateInvoiceData(invoice.id, {
+        await invoiceRepo.updateInvoiceData(invoice.id, {
           invoice_number: parsed.invoice_number,
           invoice_date: parsed.invoice_date,
           supplier: parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : undefined,
@@ -916,7 +919,7 @@ export class FileWatcher {
         // unified by Strategy A/B/C/D above. If detected, we mark this row
         // as duplicate and SKIP the items pipeline below — there's nothing
         // to add (the original already has the items).
-        const dupOriginal = invoiceRepo.findDuplicateOriginal(
+        const dupOriginal = await invoiceRepo.findDuplicateOriginal(
           invoice.id,
           parsed.invoice_number ?? null,
           parsed.supplier_inn ?? null,
@@ -933,7 +936,7 @@ export class FileWatcher {
             supplier: parsed.supplier,
             totalSum: parsed.total_sum,
           });
-          invoiceRepo.markAsDuplicate(invoice.id, dupOriginal.id);
+          await invoiceRepo.markAsDuplicate(invoice.id, dupOriginal.id);
 
           // Move file to processed before returning, как в normal flow ниже
           if (!config.dryRun) {
@@ -982,9 +985,9 @@ export class FileWatcher {
       // 6. Map nomenclature and save items (to target invoice)
       // If LLM-mapper is on, Claude has already chosen catalog_idx per item.
       // Resolve those first; fall back to fuzzy mapper only when LLM missed.
-      const analyzerCfg = invoiceRepo.getAnalyzerConfig();
+      const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
       const catalog = analyzerCfg.llm_mapper_enabled
-        ? onecNomenclatureRepo.listItems({ excludeFolders: true })
+        ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
         : null;
 
       for (const item of parsedItems) {
@@ -1000,12 +1003,12 @@ export class FileWatcher {
         // source of truth. This beats fuzzy because Claude understands
         // context (brand/OCR garbage) that Jaccard tokens can't.
         const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
-        let mapping: ReturnType<typeof this.mapper.map>;
+        let mapping: MappingResult;
         if (llmPicked) {
           // Preserve any previously-learned pack transform on the existing
           // mapping (if any) so pack-transform still fires even when LLM
           // picked the GUID. Look up by scanned_name.
-          const existingMapping = mappingRepo.getByScannedName(item.name);
+          const existingMapping = await mappingRepo.getByScannedName(item.name);
           mapping = {
             original_name: item.name,
             mapped_name: llmPicked.name,
@@ -1018,7 +1021,7 @@ export class FileWatcher {
           };
           // Teach the fuzzy mapper for future invoices where LLM might be off.
           try {
-            mappingRepo.upsert({
+            await mappingRepo.upsert({
               scanned_name: item.name,
               mapped_name_1c: llmPicked.name,
               onec_guid: llmPicked.guid,
@@ -1031,15 +1034,15 @@ export class FileWatcher {
           }
           this.mapper.invalidateCache();
         } else {
-          mapping = this.mapper.map(item.name);
+          mapping = await this.mapper.map(item.name);
         }
 
         // Pack-transform only runs when we KNOW where the row maps.
         // Unmapped rows go in as-is — llm-remap will handle them later with
         // an explicit pack_size hint, which is safer than regex-guessing.
         const resolved = mapping.onec_guid
-          ? (() => {
-              const onec1cUnit = onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null;
+          ? await (async () => {
+              const onec1cUnit = (await onecNomenclatureRepo.getByGuid(mapping.onec_guid!))?.unit ?? null;
               // Prefer the pack_size Claude extracted from the scan name
               // ("*48", "1/12", etc.) — it's ground-truth from the invoice,
               // far more reliable than the legacy regex fallback inside
@@ -1054,11 +1057,11 @@ export class FileWatcher {
                 mapping.mapped_name,
                 onec1cUnit,
               );
-              this.persistPackFallback(mapping.mapping_id, r);
+              await this.persistPackFallback(mapping.mapping_id, r);
               return r;
             })()
           : { item: sanity.item, packSize: null, packUnit: null, usedFallback: false };
-        invoiceRepo.addItem({
+        await invoiceRepo.addItem({
           invoice_id: targetInvoiceId,
           original_name: item.name,
           mapped_name: mapping.mapped_name,
@@ -1076,9 +1079,9 @@ export class FileWatcher {
       //    deleted above, immediately after appendFileName/appendRawText, so
       //    we don't need to delete it again here.)
       if (isMergedPage) {
-        invoiceRepo.recalculateTotal(targetInvoiceId);
+        await invoiceRepo.recalculateTotal(targetInvoiceId);
 
-        const existingItems = invoiceRepo.getItems(targetInvoiceId);
+        const existingItems = await invoiceRepo.getItems(targetInvoiceId);
         logger.info('Invoice pages merged successfully (append mode)', {
           id: targetInvoiceId,
           totalItemsCount: existingItems.length,
@@ -1089,8 +1092,8 @@ export class FileWatcher {
         // Without this, single-page invoices never got validated — a Claude
         // OCR blunder (e.g. reading "165 229,2" as 1652292) would slip
         // straight into total_sum with items_total_mismatch=0.
-        invoiceRepo.recalculateTotal(invoice.id);
-        invoiceRepo.updateStatus(invoice.id, 'processed');
+        await invoiceRepo.recalculateTotal(invoice.id);
+        await invoiceRepo.updateStatus(invoice.id, 'processed');
         logger.info('Invoice processed successfully', {
           id: invoice.id,
           fileName,
@@ -1099,7 +1102,7 @@ export class FileWatcher {
         });
 
         // Fire-and-forget notifications for recognised invoice.
-        const finalInvoice = invoiceRepo.getById(invoice.id);
+        const finalInvoice = await invoiceRepo.getById(invoice.id);
         if (finalInvoice) {
           emitNotification('invoice_recognized', {
             invoice_id: finalInvoice.id,
@@ -1108,9 +1111,8 @@ export class FileWatcher {
             total_sum: finalInvoice.total_sum,
           }, null).catch(() => {});
           if (finalInvoice.items_total_mismatch === 1) {
-            const itemsTotal = invoiceRepo
-              .getItems(finalInvoice.id)
-              .reduce((sum, it) => sum + (it.total ?? 0), 0);
+            const finalItems = await invoiceRepo.getItems(finalInvoice.id);
+            const itemsTotal = finalItems.reduce((sum, it) => sum + (it.total ?? 0), 0);
             emitNotification('suspicious_total', {
               invoice_id: finalInvoice.id,
               invoice_number: finalInvoice.invoice_number,
@@ -1125,17 +1127,17 @@ export class FileWatcher {
       // 8. Auto-send hooks (если включены в Настройках). Skip для duplicate
       // и error статусов, чтобы не отправлять кривое.
       try {
-        const finalInv = invoiceRepo.getById(targetInvoiceId);
-        const cfg = invoiceRepo.getAnalyzerConfig();
+        const finalInv = await invoiceRepo.getById(targetInvoiceId);
+        const cfg = await invoiceRepo.getAnalyzerConfig();
         const canAutoSend = finalInv && finalInv.status === 'processed' && finalInv.duplicate_of == null;
 
         // Legacy webhook flag — оставляем для back-compat. ИЛИ с новым analyzer_config.
         const db = (await import('../database/db')).getDb();
-        const whCfg = db.prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1').get() as { auto_send_1c: number } | undefined;
+        const whCfg = await db.prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1').get<{ auto_send_1c: number }>();
         const wantAuto1c = (whCfg?.auto_send_1c === 1) || cfg.auto_send_1c;
 
         if (canAutoSend && wantAuto1c) {
-          invoiceRepo.approveForOneC(targetInvoiceId);
+          await invoiceRepo.approveForOneC(targetInvoiceId);
           logger.info('Auto-approved for 1C', { id: targetInvoiceId });
         }
 
@@ -1164,7 +1166,7 @@ export class FileWatcher {
       return targetInvoiceId;
     } catch (err) {
       const errorMsg = (err as Error).message;
-      invoiceRepo.updateStatus(invoice.id, 'error', errorMsg);
+      await invoiceRepo.updateStatus(invoice.id, 'error', errorMsg);
       logger.error('Invoice processing failed', { id: invoice.id, fileName, error: errorMsg });
 
       // Fire-and-forget notification for recognition failure.

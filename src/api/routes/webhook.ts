@@ -12,34 +12,34 @@ interface WebhookConfig {
 const router = Router();
 
 // GET /api/webhook/config
-router.get('/config', (_req: Request, res: Response) => {
+router.get('/config', async (_req: Request, res: Response) => {
   const db = getDb();
-  const config = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get() as WebhookConfig | undefined;
+  const config = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get<WebhookConfig>();
   res.json({ data: config || { id: 1, url: '', enabled: 0, auth_token: null, auto_send_1c: 0 } });
 });
 
 // PUT /api/webhook/config
-router.put('/config', (req: Request, res: Response) => {
+router.put('/config', async (req: Request, res: Response) => {
   const db = getDb();
   const { url, enabled, auth_token, auto_send_1c } = req.body;
 
-  const existing = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
+  const existing = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
   if (existing) {
-    db.prepare('UPDATE webhook_config SET url = ?, enabled = ?, auth_token = ?, auto_send_1c = ? WHERE id = 1')
+    await db.prepare('UPDATE webhook_config SET url = ?, enabled = ?, auth_token = ?, auto_send_1c = ? WHERE id = 1')
       .run(url || '', enabled ? 1 : 0, auth_token || null, auto_send_1c ? 1 : 0);
   } else {
-    db.prepare('INSERT INTO webhook_config (id, url, enabled, auth_token, auto_send_1c) VALUES (1, ?, ?, ?, ?)')
+    await db.prepare('INSERT INTO webhook_config (id, url, enabled, auth_token, auto_send_1c) VALUES (1, ?, ?, ?, ?)')
       .run(url || '', enabled ? 1 : 0, auth_token || null, auto_send_1c ? 1 : 0);
   }
 
-  const updated = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
+  const updated = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
   res.json({ data: updated });
 });
 
 // POST /api/webhook/test
 router.post('/test', async (req: Request, res: Response) => {
   const db = getDb();
-  const config = db.prepare('SELECT * FROM webhook_config WHERE id = 1').get() as WebhookConfig | undefined;
+  const config = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get<WebhookConfig>();
 
   if (!config || !config.url) {
     res.status(400).json({ error: 'Webhook URL not configured' });

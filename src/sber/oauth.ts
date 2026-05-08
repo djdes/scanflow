@@ -95,14 +95,14 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenDat
 }
 
 export async function getValidAccessToken(): Promise<string> {
-  const row = sberTokenRepo.get();
+  const row = await sberTokenRepo.get();
   if (!row) throw new Error('Sber not connected');
   const buffer = 5 * 60 * 1000;
   const expiresAt = new Date(row.expires_at).getTime();
   if (expiresAt > Date.now() + buffer) return row.access_token;
   const fresh = await refreshAccessToken(row.refresh_token);
   const newExpiresAt = new Date(Date.now() + fresh.expiresIn * 1000).toISOString();
-  sberTokenRepo.updateTokens({
+  await sberTokenRepo.updateTokens({
     access_token: fresh.accessToken,
     refresh_token: fresh.refreshToken,
     expires_at: newExpiresAt,

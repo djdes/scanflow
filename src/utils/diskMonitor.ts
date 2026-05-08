@@ -13,7 +13,10 @@ const WARNING_THRESHOLD_GB = 5;
  */
 export async function checkDiskSpace(): Promise<void> {
   try {
-    const dbDir = path.dirname(config.dbPath);
+    // Since the migration to MySQL there is no longer a local database file
+    // path. Fall back to monitoring the inbox/processed/failed roots, which
+    // are the only ScanFlow-controlled directories that grow on disk.
+    const dbDir = path.dirname(config.processedDir);
     if (!fs.existsSync(dbDir)) return;
 
     // statfsSync is available on Node >= 18.15. Fall back to no-op if unsupported.
