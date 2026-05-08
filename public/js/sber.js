@@ -224,6 +224,27 @@ const Sber = {
   },
 
   async sendToSber(invoiceId, supplierOverrides) {
+    // Pre-flight: required header fields для платёжки.
+    if (!supplierOverrides && window.Invoices?._missingFields) {
+      try {
+        const j = await App.api(`/invoices/${invoiceId}`).then(r => r.json());
+        const missing = window.Invoices._missingFields(j.data, window.Invoices._REQUIRED_FOR_SBER);
+        if (missing.length > 0) {
+          window.Invoices._openEditModal({
+            invoice: j.data,
+            title: 'Дозаполните реквизиты для отправки в Сбербанк',
+            requiredFields: window.Invoices._REQUIRED_FOR_SBER,
+            reasonText: 'Без этих полей Сбер не примет платёжку',
+            onSaved: () => Sber.sendToSber(invoiceId),
+          });
+          return;
+        }
+      } catch (e) {
+        // Если не можем проверить — продолжаем как есть, backend всё равно отвергнет
+        console.warn('[sber] pre-flight check failed', e);
+      }
+    }
+
     const btn = document.getElementById('sber-send-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Создание платежа...'; }
     const body = supplierOverrides ? { supplier_overrides: supplierOverrides } : {};

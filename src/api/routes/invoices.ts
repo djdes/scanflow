@@ -182,6 +182,121 @@ router.get('/:id', (req: Request, res: Response) => {
   res.json({ data: invoice });
 });
 
+// PATCH /api/invoices/:id — отредактировать header-поля накладной.
+// Используется UI-формой «Реквизиты накладной» когда юзеру нужно дозаполнить
+// или поправить распознанные данные перед отправкой в 1С / Сбербанк.
+//
+// Принимает любой subset полей. Поля, переданные как пустая строка, сбрасываются
+// в null. Поля, не переданные, остаются как были. Items не трогаются — для них
+// есть отдельный PATCH /:invoiceId/items/:itemId.
+router.patch('/:id', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = invoiceRepo.getById(id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  const body = req.body as Record<string, unknown>;
+  const update: Record<string, unknown> = {};
+
+  // Validation regexes (по той же модели что в /api/sber/seed-token и /api/suppliers).
+  const INN_RE = /^([0-9]{10}|[0-9]{12})$/;
+  const KPP_RE = /^[0-9]{9}$/;
+  const BIC_RE = /^[0-9]{9}$/;
+  const ACC_RE = /^[0-9]{20}$/;
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  // Helper: переводит '' и null в null, undefined пропускает (нет в update),
+  // строку trim-ит. Используется для всех текстовых полей.
+  const trimOrNull = (v: unknown): string | null | undefined => {
+    if (v === undefined) return undefined;
+    if (v === null) return null;
+    if (typeof v !== 'string') return undefined;
+    const t = v.trim();
+    return t === '' ? null : t;
+  };
+
+  // Numeric helper (total_sum, vat_sum)
+  const toFinite = (v: unknown): number | null | undefined => {
+    if (v === undefined) return undefined;
+    if (v === null || v === '') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    if (!isFinite(n)) return undefined;  // skip — invalid
+    return n;
+  };
+
+  // Validate + collect
+  const invoice_number = trimOrNull(body.invoice_number);
+  if (invoice_number !== undefined) update.invoice_number = invoice_number;
+
+  const invoice_date = trimOrNull(body.invoice_date);
+  if (invoice_date !== undefined) {
+    if (invoice_date !== null && !DATE_RE.test(invoice_date)) {
+      return res.status(400).json({ error: 'invoice_date must be YYYY-MM-DD' });
+    }
+    update.invoice_date = invoice_date;
+  }
+
+  const supplier = trimOrNull(body.supplier);
+  if (supplier !== undefined) update.supplier = supplier;
+
+  const supplier_inn = trimOrNull(body.supplier_inn);
+  if (supplier_inn !== undefined) {
+    if (supplier_inn !== null && !INN_RE.test(supplier_inn)) {
+      return res.status(400).json({ error: 'supplier_inn must be 10 or 12 digits' });
+    }
+    update.supplier_inn = supplier_inn;
+  }
+
+  const supplier_kpp = trimOrNull(body.supplier_kpp);
+  if (supplier_kpp !== undefined) {
+    if (supplier_kpp !== null && !KPP_RE.test(supplier_kpp)) {
+      return res.status(400).json({ error: 'supplier_kpp must be 9 digits' });
+    }
+    update.supplier_kpp = supplier_kpp;
+  }
+
+  const supplier_bik = trimOrNull(body.supplier_bik);
+  if (supplier_bik !== undefined) {
+    if (supplier_bik !== null && !BIC_RE.test(supplier_bik)) {
+      return res.status(400).json({ error: 'supplier_bik must be 9 digits' });
+    }
+    update.supplier_bik = supplier_bik;
+  }
+
+  const supplier_account = trimOrNull(body.supplier_account);
+  if (supplier_account !== undefined) {
+    if (supplier_account !== null && !ACC_RE.test(supplier_account)) {
+      return res.status(400).json({ error: 'supplier_account must be 20 digits' });
+    }
+    update.supplier_account = supplier_account;
+  }
+
+  const supplier_corr_account = trimOrNull(body.supplier_corr_account);
+  if (supplier_corr_account !== undefined) {
+    if (supplier_corr_account !== null && !ACC_RE.test(supplier_corr_account)) {
+      return res.status(400).json({ error: 'supplier_corr_account must be 20 digits' });
+    }
+    update.supplier_corr_account = supplier_corr_account;
+  }
+
+  const supplier_address = trimOrNull(body.supplier_address);
+  if (supplier_address !== undefined) update.supplier_address = supplier_address;
+
+  const total_sum = toFinite(body.total_sum);
+  if (total_sum !== undefined) update.total_sum = total_sum;
+
+  const vat_sum = toFinite(body.vat_sum);
+  if (vat_sum !== undefined) update.vat_sum = vat_sum;
+
+  if (Object.keys(update).length === 0) {
+    return res.status(400).json({ error: 'No editable fields in request body' });
+  }
+
+  invoiceRepo.updateInvoiceData(id, update);
+  const updated = invoiceRepo.getById(id);
+  return res.json({ data: updated ? enrichInvoiceWithSupplier(updated) : null });
+});
+
 // POST /api/invoices/:id/send — approve invoice for 1C pickup.
 //
 // Approval workflow (user-controlled):

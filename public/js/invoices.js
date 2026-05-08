@@ -304,6 +304,7 @@ const Invoices = {
       if (unmappedCount > 0) {
         actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
       }
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.editHeader(${data.id})" title="Редактировать реквизиты накладной">✎ Реквизиты</button>`;
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id})" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
       // LLM button is always visible. When everything is already mapped it
@@ -404,14 +405,180 @@ const Invoices = {
     return Promise.resolve().then(fn).finally(() => this._busy.delete(token));
   },
 
+  // === Editable header fields & validation ===
+
+  _REQUIRED_FOR_1C: ['invoice_number', 'invoice_date', 'supplier', 'supplier_inn', 'total_sum'],
+  _REQUIRED_FOR_SBER: ['supplier', 'supplier_inn', 'supplier_bik', 'total_sum'],
+
+  _FIELD_LABELS: {
+    invoice_number: 'Номер накладной',
+    invoice_date: 'Дата (YYYY-MM-DD)',
+    supplier: 'Поставщик (название)',
+    supplier_inn: 'ИНН поставщика',
+    supplier_kpp: 'КПП поставщика',
+    supplier_bik: 'БИК банка',
+    supplier_account: 'Р/с поставщика',
+    supplier_corr_account: 'К/с банка',
+    supplier_address: 'Адрес поставщика',
+    total_sum: 'Сумма',
+    vat_sum: 'В т.ч. НДС',
+  },
+
+  _missingFields(invoice, fields) {
+    return fields.filter(f => {
+      const v = invoice[f];
+      if (v == null || v === '') return true;
+      if (typeof v === 'number' && (!isFinite(v) || v <= 0)) return true;
+      return false;
+    });
+  },
+
+  async editHeader(id) {
+    try {
+      const j = await App.apiJson(`/invoices/${id}`);
+      this._openEditModal({
+        invoice: j.data,
+        title: 'Редактирование реквизитов',
+        onSaved: () => this.showDetail(id),
+      });
+    } catch (e) {
+      App.notify('Не удалось загрузить накладную: ' + e.message, 'error');
+    }
+  },
+
+  /**
+   * Открывает модалку редактирования header'а накладной.
+   *
+   * options:
+   *   - invoice: current invoice data
+   *   - title: заголовок модалки
+   *   - requiredFields: какие поля показать как «обязательные» (asterisk + красный)
+   *   - reasonText: подзаголовок «Не хватает: …» при pre-flight failure
+   *   - onSaved: () => void — callback после успешного PATCH (retry send 1C / Sber)
+   */
+  _openEditModal({ invoice, title = 'Реквизиты накладной', requiredFields = [], reasonText = '', onSaved = () => {} }) {
+    let modal = document.getElementById('invoice-edit-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'invoice-edit-modal';
+      modal.className = 'modal-backdrop';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px';
+      document.body.appendChild(modal);
+    }
+
+    const requiredSet = new Set(requiredFields);
+    const missing = new Set(this._missingFields(invoice, requiredFields));
+
+    const fieldOrder = [
+      'invoice_number', 'invoice_date', 'total_sum', 'vat_sum',
+      'supplier', 'supplier_inn', 'supplier_kpp',
+      'supplier_bik', 'supplier_account', 'supplier_corr_account',
+      'supplier_address',
+    ];
+    const fieldsHtml = fieldOrder.map(name => {
+      const label = this._FIELD_LABELS[name];
+      const isRequired = requiredSet.has(name);
+      const isMissing = missing.has(name);
+      const value = invoice[name] == null ? '' : String(invoice[name]);
+      const star = isRequired ? '<span style="color:#dc2626"> *</span>' : '';
+      const inputBg = isMissing ? 'background:#fef2f2;border-color:#dc2626' : '';
+      const wide = name === 'supplier' || name === 'supplier_address';
+      const inputType = name === 'invoice_date' ? 'date' :
+                        (name === 'total_sum' || name === 'vat_sum') ? 'number' : 'text';
+      const step = inputType === 'number' ? 'step="0.01"' : '';
+      return `
+        <label style="display:flex;flex-direction:column;gap:4px;${wide ? 'grid-column:1/-1' : ''}">
+          <span style="font-size:12px;color:var(--muted,#64748b)">${label}${star}</span>
+          <input type="${inputType}" name="${name}" value="${App.esc(value)}" ${step} style="${inputBg}">
+        </label>
+      `;
+    }).join('');
+
+    const reasonBlock = reasonText ? `
+      <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.4);padding:10px 14px;border-radius:8px;margin-bottom:14px;color:rgb(120,53,15)">
+        <strong>${App.esc(reasonText)}</strong>
+        ${missing.size > 0 ? `<div style="margin-top:6px;font-size:13px">Не хватает: ${Array.from(missing).map(f => `«${App.esc(this._FIELD_LABELS[f] || f)}»`).join(', ')}</div>` : ''}
+      </div>` : '';
+
+    modal.innerHTML = `
+      <div class="card" style="max-width:700px;width:100%;max-height:90vh;overflow:auto">
+        <h3 style="margin-bottom:16px">${App.esc(title)}</h3>
+        ${reasonBlock}
+        <form id="invoice-edit-form" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
+          ${fieldsHtml}
+          <div style="grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+            <button type="button" class="btn btn-ghost" id="invoice-edit-cancel">Отмена</button>
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+          </div>
+        </form>
+      </div>
+    `;
+    modal.style.display = 'flex';
+
+    modal.querySelector('#invoice-edit-cancel').onclick = () => { modal.style.display = 'none'; };
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+
+    const form = modal.querySelector('#invoice-edit-form');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const update = {};
+      for (const [k, v] of fd.entries()) {
+        update[k] = v;  // backend сам trim'ит и преобразует
+      }
+      try {
+        const res = await App.api(`/invoices/${invoice.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(update),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          App.notify(err.error || 'Ошибка сохранения', 'error');
+          return;
+        }
+        App.notify('Реквизиты обновлены', 'success');
+        modal.style.display = 'none';
+        await onSaved();
+      } catch (err) {
+        App.notify('Ошибка: ' + err.message, 'error');
+      }
+    };
+
+    // Auto-focus на первое missing-поле для pre-flight кейса
+    if (missing.size > 0) {
+      const firstMissing = Array.from(missing)[0];
+      const inp = form.querySelector(`[name="${firstMissing}"]`);
+      if (inp) inp.focus();
+    }
+  },
+
   async sendTo1C(id) {
     return this._withGuard(`send:${id}`, async () => {
-      // If there are unmapped items, confirm before creating catalog rows.
-      let unmappedCount = 0;
+      let invoice;
       try {
         const j = await App.apiJson(`/invoices/${id}`);
-        unmappedCount = (j.data?.items || []).filter(it => !it.onec_guid).length;
-      } catch {}
+        invoice = j.data;
+      } catch (e) {
+        App.notify('Не удалось загрузить накладную', 'error');
+        return;
+      }
+
+      // Pre-flight: required fields для 1С.
+      const missing = this._missingFields(invoice, this._REQUIRED_FOR_1C);
+      if (missing.length > 0) {
+        this._openEditModal({
+          invoice,
+          title: 'Дозаполните реквизиты для отправки в 1С',
+          requiredFields: this._REQUIRED_FOR_1C,
+          reasonText: '1С не примет накладную без этих полей',
+          onSaved: () => this.sendTo1C(id),  // retry после сохранения
+        });
+        return;
+      }
+
+      // Если есть несопоставленные товары — обычное подтверждение.
+      const unmappedCount = (invoice.items || []).filter(it => !it.onec_guid).length;
       if (unmappedCount > 0) {
         const ok = confirm(
           `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
