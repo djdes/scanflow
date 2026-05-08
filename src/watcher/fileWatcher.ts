@@ -168,6 +168,50 @@ export class FileWatcher {
   }
 
   /**
+   * Отправить накладную в Сбер.Бизнес через loopback HTTP — переиспользуем
+   * всю валидацию /send-sber endpoint без дублирования кода. API-ключ берётся
+   * у первого админа (single-tenant система). Если что-то не получилось
+   * (нет supplier verified, нет sber_token, Sber API вернул 4xx) — log warn
+   * и продолжаем; накладная остаётся доступной для ручной отправки через UI.
+   */
+  private async autoSendSber(invoiceId: number): Promise<void> {
+    try {
+      const adminId = (await import('../database/repositories/userRepo')).userRepo.firstUserId();
+      if (!adminId) {
+        logger.warn('Auto-send Sber: no admin user', { invoiceId });
+        return;
+      }
+      const db = (await import('../database/db')).getDb();
+      const row = db.prepare('SELECT api_key FROM users WHERE id = ?').get(adminId) as { api_key: string } | undefined;
+      const apiKey = row?.api_key;
+      if (!apiKey) {
+        logger.warn('Auto-send Sber: admin has no api_key', { invoiceId });
+        return;
+      }
+
+      const url = `http://127.0.0.1:${config.apiPort}/api/invoices/${invoiceId}/send-sber`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({})) as { payment_number?: string };
+        logger.info('Auto-sent to Sber', { invoiceId, paymentNumber: data.payment_number ?? null });
+      } else {
+        const text = await res.text().catch(() => '');
+        logger.warn('Auto-send Sber rejected', {
+          invoiceId, status: res.status, body: text.slice(0, 300),
+        });
+      }
+    } catch (err) {
+      logger.warn('Auto-send Sber error', {
+        invoiceId, error: (err as Error).message,
+      });
+    }
+  }
+
+  /**
    * Перепрогнать существующую накладную через OCR + Claude + mapping pipeline
    * заново, используя её исходный файл. Используется кнопкой UI «Пересканировать
    * фото» когда юзер хочет полностью переанализировать (например, после
@@ -1078,17 +1122,31 @@ export class FileWatcher {
         }
       }
 
-      // 8. Auto-send to 1C if enabled
+      // 8. Auto-send hooks (если включены в Настройках). Skip для duplicate
+      // и error статусов, чтобы не отправлять кривое.
       try {
+        const finalInv = invoiceRepo.getById(targetInvoiceId);
+        const cfg = invoiceRepo.getAnalyzerConfig();
+        const canAutoSend = finalInv && finalInv.status === 'processed' && finalInv.duplicate_of == null;
+
+        // Legacy webhook flag — оставляем для back-compat. ИЛИ с новым analyzer_config.
         const db = (await import('../database/db')).getDb();
-        const whConfig = db.prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1').get() as { auto_send_1c: number } | undefined;
-        if (whConfig?.auto_send_1c) {
-          const finalId = targetInvoiceId;
-          invoiceRepo.approveForOneC(finalId);
-          logger.info('Auto-approved for 1C', { id: finalId });
+        const whCfg = db.prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1').get() as { auto_send_1c: number } | undefined;
+        const wantAuto1c = (whCfg?.auto_send_1c === 1) || cfg.auto_send_1c;
+
+        if (canAutoSend && wantAuto1c) {
+          invoiceRepo.approveForOneC(targetInvoiceId);
+          logger.info('Auto-approved for 1C', { id: targetInvoiceId });
+        }
+
+        // Auto-send Sber через loopback HTTP (переиспользует всю логику
+        // /send-sber endpoint: check supplier verified, payer details,
+        // create payment row, call Sber API). API key админа берётся из БД.
+        if (canAutoSend && cfg.auto_send_sber) {
+          await this.autoSendSber(targetInvoiceId);
         }
       } catch (e) {
-        logger.warn('Auto-send check failed', { error: (e as Error).message });
+        logger.warn('Auto-send hooks failed', { id: targetInvoiceId, error: (e as Error).message });
       }
 
       // 9. Move file to processed

@@ -24,20 +24,31 @@ const Settings = {
       console.error('Failed to load settings', e);
     }
 
-    // Load auto-send setting from webhook config
+    // Auto-send toggles — обе берутся из analyzer_config
     try {
-      const { data } = await App.apiJson('/webhook/config');
-      const cb = document.getElementById('settings-auto-send');
-      const label = document.getElementById('settings-auto-send-text');
+      const { data } = await App.apiJson('/settings/analyzer');
       if (data) {
-        cb.checked = !!data.auto_send_1c;
-        label.textContent = cb.checked ? 'Включена' : 'Выключена';
+        const cb1c = document.getElementById('settings-auto-send-1c');
+        const lbl1c = document.getElementById('settings-auto-send-1c-text');
+        const cbSber = document.getElementById('settings-auto-send-sber');
+        const lblSber = document.getElementById('settings-auto-send-sber-text');
+        if (cb1c) {
+          cb1c.checked = !!data.auto_send_1c;
+          lbl1c.textContent = cb1c.checked ? 'Включена' : 'Выключена';
+          cb1c.addEventListener('change', () => {
+            lbl1c.textContent = cb1c.checked ? 'Включена' : 'Выключена';
+          });
+        }
+        if (cbSber) {
+          cbSber.checked = !!data.auto_send_sber;
+          lblSber.textContent = cbSber.checked ? 'Включена' : 'Выключена';
+          cbSber.addEventListener('change', () => {
+            lblSber.textContent = cbSber.checked ? 'Включена' : 'Выключена';
+          });
+        }
       }
-      cb.addEventListener('change', () => {
-        label.textContent = cb.checked ? 'Включена' : 'Выключена';
-      });
     } catch (e) {
-      console.error('Failed to load auto-send setting', e);
+      console.error('Failed to load auto-send settings', e);
     }
   },
 
@@ -71,20 +82,25 @@ const Settings = {
   },
 
   async saveAutoSend() {
-    const cb = document.getElementById('settings-auto-send');
+    const cb1c = document.getElementById('settings-auto-send-1c');
+    const cbSber = document.getElementById('settings-auto-send-sber');
     try {
-      const { data: current } = await App.apiJson('/webhook/config');
+      // Подтянем текущие mode и claude_model — PUT валидирует mode, поэтому
+      // в payload их нужно пробросить чтобы не сломать конфигурацию.
+      const { data: current } = await App.apiJson('/settings/analyzer');
       const body = {
-        url: current?.url || '',
-        enabled: current?.enabled || 0,
-        auth_token: current?.auth_token || '',
-        auto_send_1c: cb.checked ? 1 : 0,
+        mode: current?.mode || 'claude_api',
+        claude_model: current?.claude_model || 'claude-sonnet-4-6',
+        llm_mapper_enabled: !!current?.llm_mapper_enabled,
+        auto_send_1c: !!(cb1c && cb1c.checked),
+        auto_send_sber: !!(cbSber && cbSber.checked),
       };
-      const res = await App.api('/webhook/config', { method: 'PUT', body });
+      const res = await App.api('/settings/analyzer', { method: 'PUT', body });
       if (res.ok) {
-        App.notify(cb.checked ? 'Автоотправка включена' : 'Автоотправка выключена', 'success');
+        App.notify('Настройки автоотправки сохранены', 'success');
       } else {
-        App.notify('Ошибка сохранения', 'error');
+        const err = await res.json().catch(() => ({}));
+        App.notify(err.error || 'Ошибка сохранения', 'error');
       }
     } catch (e) {
       App.notify('Ошибка: ' + e.message, 'error');

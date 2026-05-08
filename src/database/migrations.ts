@@ -510,6 +510,21 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 22,
+    name: 'auto-send flags in analyzer_config',
+    detect: (db) =>
+      hasColumn(db, 'analyzer_config', 'auto_send_1c') &&
+      hasColumn(db, 'analyzer_config', 'auto_send_sber'),
+    run: (db) => {
+      if (!hasColumn(db, 'analyzer_config', 'auto_send_1c')) {
+        db.exec(`ALTER TABLE analyzer_config ADD COLUMN auto_send_1c INTEGER NOT NULL DEFAULT 0`);
+      }
+      if (!hasColumn(db, 'analyzer_config', 'auto_send_sber')) {
+        db.exec(`ALTER TABLE analyzer_config ADD COLUMN auto_send_sber INTEGER NOT NULL DEFAULT 0`);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {
