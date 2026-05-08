@@ -119,6 +119,7 @@ First start with empty `users` table prints a one-time random admin password to 
 12. **Sber `/v1/payments` Authorization header is bare token, NOT `Bearer`.** Sber Business API expects `Authorization: <access_token>` directly. Adding `Bearer ` prefix returns 401. See `src/sber/payments.ts` and `src/sber/clientInfo.ts`.
 13. **Sber `purpose` field max 210 chars + ASCII-friendly punctuation.** Server returns 400 on ёлочки/em-dash/non-breaking space. `renderPurpose()` truncates and `sanitizePurpose()` normalises — don't bypass either.
 14. **`sber_payments.invoice_id` UNIQUE = one payment per invoice.** This is intentional double-click protection. If частичные оплаты понадобятся — это отдельная фича с миграцией, не «ослабить constraint».
+15. **Не делай прямых SQL-команд через `sqlite3` CLI на прод-БД.** SQLite в WAL mode допускает одного writer-а; параллельный CLI race-ит с PM2 better-sqlite3 → corruption партиальных уникальных индексов (`idx_invoices_file_hash_unique`, `idx_invoices_status`). За май 2026 — три случая «database disk image is malformed» и потеря items в нескольких invoice'ах. **Diagnostic SELECT-ы — ок** (read-only безопасны). Любое UPDATE/DELETE/DDL — только через UI-кнопки или API-эндпоинты. Если нужного действия нет в API — сначала добавь endpoint, задеплой, потом вызывай. Schema changes — только через миграции в `src/database/migrations.ts`.
 
 ## API surface (mounted in `src/api/server.ts`)
 
