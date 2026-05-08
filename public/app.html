@@ -179,89 +179,34 @@
       </div>
     </section>
 
-    <!-- Upload Section -->
+    <!-- Upload Section (camera + drag-drop merged) -->
     <section id="view-upload">
       <div class="section-header">
-        <h2>Загрузка накладных</h2>
-        <p class="section-subtitle">Загрузите фотографии или сканы для распознавания</p>
+        <h2>Загрузить накладные</h2>
+        <p class="section-subtitle">Сфотографируйте на камеру или выберите файлы — система загрузит и распознает их асинхронно.</p>
       </div>
+
       <div class="card upload-card">
-        <!-- Top buttons -->
-        <div class="upload-top-buttons">
-          <button class="btn upload-btn-pick" onclick="document.getElementById('file-input').click()">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10V2m0 0L5 5m3-3l3 3M2 10v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Загрузить файлы
+        <div class="upload-camera-block">
+          <button class="btn btn-primary btn-large" id="btn-capture">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+              <path d="M2 5a1 1 0 011-1h2l1-1.5h4L11 4h2a1 1 0 011 1v7a1 1 0 01-1 1H3a1 1 0 01-1-1V5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <circle cx="8" cy="8.5" r="2.5" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+            Сфотографировать
           </button>
-          <button class="btn upload-btn-clear" onclick="Upload.clearAll()">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            Очистить
-          </button>
+          <input type="file" id="capture-input" accept="image/*" capture="environment" hidden>
         </div>
 
-        <!-- Carousel area: arrows + drop zone / preview -->
-        <div class="upload-carousel">
-          <button class="upload-arrow upload-arrow-left" onclick="Upload.prevSlide()" title="Предыдущий">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-
-          <div class="drop-zone" id="drop-zone">
-            <div class="drop-placeholder" id="drop-placeholder">
-              <div class="drop-text">Перетащите файлы сюда</div>
-              <div class="drop-hint">JPG, PNG, BMP, TIFF, WEBP (макс. 20 МБ)</div>
-            </div>
-            <div class="upload-preview" id="upload-preview" style="display:none">
-              <img id="upload-preview-img" alt="Превью">
-              <div class="upload-preview-info" id="upload-preview-info"></div>
-            </div>
-            <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" multiple style="display:none">
-          </div>
-
-          <button class="upload-arrow upload-arrow-right" onclick="Upload.nextSlide()" title="Следующий">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+        <div id="drop-zone" class="upload-dropzone">
+          <p>Перетащите файлы сюда<br>или <button type="button" class="btn btn-outline btn-sm" id="btn-browse">выберите</button></p>
+          <p class="muted">jpg, png, bmp, tiff, webp · до 20 МБ · можно сразу несколько</p>
+          <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" multiple hidden>
         </div>
 
-        <!-- Progress bar -->
-        <div class="progress-bar" id="upload-progress">
-          <div class="progress-fill" id="upload-progress-fill"></div>
-        </div>
-
-        <!-- Counter -->
-        <div class="upload-counter" id="upload-counter"></div>
-
-        <!-- Bottom button -->
-        <div class="upload-bottom-buttons" id="upload-bottom-buttons" style="display:none">
-          <button class="btn upload-btn-open-all" onclick="Upload.openAllResults()">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            Открыть все накладные
-          </button>
-          <button class="btn upload-btn-retry-all" id="upload-btn-retry-all" onclick="Upload.retryAllErrors()" style="display:none">
-            ↻ Повторить ошибки (<span id="upload-errors-count">0</span>)
-          </button>
-        </div>
-
-        <!-- Result cards -->
-        <div class="upload-result" id="upload-result"></div>
-      </div>
-    </section>
-
-    <!-- Camera Section -->
-    <section id="view-camera">
-      <div class="section-header">
-        <h2>Фото накладной</h2>
-        <p class="section-subtitle">Сфотографируйте накладную камерой телефона или выберите файл</p>
-      </div>
-      <div class="card">
-        <input type="file" id="camera-file-input" accept="image/*" capture="environment" style="display:none">
-        <button class="btn-camera-capture" id="btn-camera-capture">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <path d="M4 10a2 2 0 012-2h4l2-3h8l2 3h4a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V10z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-            <circle cx="16" cy="17" r="5" stroke="currentColor" stroke-width="2"/>
-          </svg>
-          <span>Сфотографировать</span>
-        </button>
-        <div class="camera-counter" id="camera-counter"></div>
-        <div class="camera-history" id="camera-history"></div>
+        <div id="upload-wakelock-notice" class="upload-wakelock-notice" hidden></div>
+        <div id="upload-counter" class="upload-counter"></div>
+        <div id="upload-history"></div>
       </div>
     </section>
 
@@ -724,7 +669,6 @@
 <script src="/js/app.js"></script>
 <script src="/js/invoices.js"></script>
 <script src="/js/upload.js"></script>
-<script src="/js/camera.js"></script>
 <script src="/js/mappings.js"></script>
 <script src="/js/webhook.js"></script>
 <script src="/js/settings.js"></script>

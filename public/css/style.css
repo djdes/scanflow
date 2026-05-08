@@ -882,8 +882,11 @@ details[open] summary { margin-bottom: 12px; }
   display: none;
 }
 
-/* ========== Camera Tab ========== */
-.btn-camera-capture {
+/* ========== Upload (camera + drag-drop merged) ========== */
+.upload-camera-block {
+  margin-bottom: 16px;
+}
+.btn-large {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -901,92 +904,70 @@ details[open] summary { margin-bottom: 12px; }
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
   min-height: 96px;
 }
-.btn-camera-capture:hover {
+.btn-large:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
 }
-.btn-camera-capture:active {
+.btn-large:active {
   transform: translateY(0);
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
 }
-.btn-camera-capture:disabled {
+.btn-large:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
 }
-.btn-camera-capture svg {
-  flex-shrink: 0;
+.btn-large svg { flex-shrink: 0; }
+
+.upload-dropzone {
+  border: 2px dashed var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 24px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  margin-bottom: 16px;
+  background: var(--bg, #f8fafc);
+}
+.upload-dropzone:hover,
+.upload-dropzone.dragover {
+  border-color: var(--primary, #2563eb);
+  background: rgba(37, 99, 235, 0.04);
+}
+.upload-dropzone p { margin: 6px 0; }
+.upload-dropzone .muted {
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
 }
 
-.camera-counter {
+.upload-wakelock-notice {
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.upload-wakelock-active {
+  background: rgba(16,185,129,0.08);
+  border: 1px solid rgba(16,185,129,0.3);
+  color: rgb(6,95,70);
+}
+.upload-wakelock-warn {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.3);
+  color: rgb(146,64,14);
+}
+
+.upload-counter {
   text-align: center;
   color: var(--text-muted, #64748b);
   font-size: 14px;
-  margin-top: 16px;
+  margin: 8px 0 12px;
   min-height: 20px;
 }
 
-.camera-history {
-  margin-top: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.camera-queue {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.camera-queue-item {
-  position: relative;
-  width: 100px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 2px solid var(--primary, #2563eb);
-  background: #f8fafc;
-}
-.camera-queue-item img {
-  width: 100%;
-  height: 80px;
-  object-fit: cover;
-  display: block;
-}
-.camera-queue-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 2px 4px;
-  font-size: 10px;
-  color: var(--text-muted, #64748b);
-}
-.camera-queue-info .btn {
-  padding: 0 5px;
-  font-size: 11px;
-  line-height: 18px;
-  min-width: auto;
-}
-.camera-buttons {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.camera-buttons .btn-camera-capture {
-  flex: 1;
-}
-.btn-camera-send {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 140px;
-  font-size: 16px;
-  white-space: nowrap;
-}
-
-.camera-history-item {
+.upload-history-item {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -994,13 +975,13 @@ details[open] summary { margin-bottom: 12px; }
   background: var(--bg, #f8fafc);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 10px;
+  margin-bottom: 8px;
   transition: border-color 0.15s ease;
 }
-.camera-history-item:hover {
+.upload-history-item:hover {
   border-color: var(--border-hover, #cbd5e1);
 }
-
-.camera-history-item img {
+.upload-history-item img {
   width: 56px;
   height: 74px;
   object-fit: cover;
@@ -1008,15 +989,14 @@ details[open] summary { margin-bottom: 12px; }
   flex-shrink: 0;
   background: #e2e8f0;
 }
-
-.camera-history-info {
+.upload-history-info {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
-.camera-history-name {
+.upload-history-name {
   font-size: 13px;
   color: var(--text-muted, #64748b);
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -1025,7 +1005,7 @@ details[open] summary { margin-bottom: 12px; }
   text-overflow: ellipsis;
 }
 
-.camera-status {
+.upload-status {
   display: inline-block;
   padding: 4px 10px;
   border-radius: 6px;
@@ -1034,25 +1014,27 @@ details[open] summary { margin-bottom: 12px; }
   text-decoration: none;
   align-self: flex-start;
 }
-.camera-status-loading {
+.upload-status-queued {
+  background: var(--bg, #f1f5f9);
+  color: var(--text-muted, #64748b);
+}
+.upload-status-loading {
   background: #dbeafe;
   color: #1e40af;
 }
-.camera-status-ok {
+.upload-status-ok {
   background: #dcfce7;
   color: #166534;
 }
-.camera-status-ok:hover {
+.upload-status-ok:hover {
   background: #bbf7d0;
 }
-.camera-status-error {
+.upload-status-error {
   background: #fef2f2;
   color: #991b1b;
 }
 
-/* Detailed error message under the status pill — visible on phones where
-   `title` tooltips don't render. */
-.camera-error-detail {
+.upload-error-detail {
   font-size: 12px;
   color: var(--error, #991b1b);
   line-height: 1.4;
@@ -1060,17 +1042,27 @@ details[open] summary { margin-bottom: 12px; }
   word-break: break-word;
 }
 
-/* Action buttons row (Retry / Delete / Dismiss) under the camera item.
-   Spacing tuned for tap-friendly mobile use. */
-.camera-actions {
+.upload-progress-bar {
+  height: 4px;
+  width: 100%;
+  background: rgba(0,0,0,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.upload-progress-fill {
+  height: 100%;
+  background: var(--primary, #2563eb);
+  transition: width 0.15s ease-out;
+}
+
+.upload-actions {
   display: flex;
   gap: 8px;
   margin-top: 6px;
   flex-wrap: wrap;
 }
-
-.camera-action-btn {
-  /* Ensure tap targets are at least ~36px tall on mobile */
+.upload-actions .btn-sm {
   min-height: 32px;
   padding: 6px 14px;
   font-size: 13px;

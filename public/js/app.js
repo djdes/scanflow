@@ -120,9 +120,9 @@ const App = {
       document.querySelector('nav a[data-tab="upload"]').classList.add('active');
       Upload.init();
     } else if (hash === '#/camera') {
-      document.getElementById('view-camera').style.display = 'block';
-      document.querySelector('nav a[data-tab="camera"]').classList.add('active');
-      Camera.init();
+      // Legacy bookmark — редирект на объединённую страницу /#/upload
+      this.navigate('#/upload');
+      return;
     } else if (hash === '#/mappings') {
       document.getElementById('view-mappings').style.display = 'block';
       document.querySelector('nav a[data-tab="mappings"]').classList.add('active');
