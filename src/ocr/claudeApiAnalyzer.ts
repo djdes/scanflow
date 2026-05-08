@@ -653,6 +653,12 @@ export async function mapItemsWithClaudeApi(
 
   (3) qty измеряется в весе/объёме ("кг", "л", "мл") а 1С тоже в весе → unit_override: null.
 
+  (4) В НАЗВАНИИ В СКОБКАХ указан вес/объём ("Мука (50кг)", "Сахар (50кг)",
+      "Масло (5л)"), scan unit="шт" qty=мешков-или-канистр, 1С учёт в "кг" или "л" →
+      pack_size: N (из скобок), unit_override: "кг" (или "л").
+      Сервер умножит qty на N и переведёт единицу на 1С-единицу.
+      Это ВАЖНЫЙ кейс — поставщик продаёт мешками/канистрами, склад в 1С учитывает в весе.
+
   Примеры:
     "Перчатки 100шт/упак", scan unit="упак", 1С="шт"       → pack_size: 100, unit_override: "шт"
     "Подложка 300шт/упак", scan unit="упак", 1С="шт"       → pack_size: 300, unit_override: "шт"
@@ -662,10 +668,14 @@ export async function mapItemsWithClaudeApi(
     "Золушка 5л",           scan unit="шт",  1С="шт"       → pack_size: null, unit_override: null
     "Бутылка ПЭТ 150шт/упак", scan unit="шт" qty=150, 1С="шт" → pack_size: null, unit_override: null
                                                               (qty в скане уже в штуках, не развораЧивай снова!)
+    "Мука (50кг)",          scan unit="шт", qty=1, 1С="кг"  → pack_size: 50,  unit_override: "кг"  (правило 4)
+    "Сахар (50кг)",         scan unit="шт", qty=2, 1С="кг"  → pack_size: 50,  unit_override: "кг"  (2 мешка → 100 кг)
+    "Капуста морская (3кг)", scan unit="шт", qty=3, 1С="кг" → pack_size: 3,   unit_override: "кг"  (3 пакета → 9 кг)
+    "Масло подсолн (5л)",   scan unit="шт", qty=4, 1С="л"   → pack_size: 5,   unit_override: "л"
 
   НЕ ВЫДУМЫВАЙ pack_size — только если коэффициент ЯВНО написан в названии
-  И скан-единица это упаковка ("упак", "уп", "пач", "кор" + число в названии).
-  Если scan unit уже "шт" — pack_size ДОЛЖЕН быть null.
+  (число + единица в скобках, или "Nшт/упак").
+  Если scan unit уже совпадает с 1С-единицей — pack_size ДОЛЖЕН быть null.
 
 ФОРМАТ ОТВЕТА (строго этот JSON, без markdown, без комментариев):
 {"matches":[{"key":"...","catalog_idx":число_или_null,"pack_size":число_или_null,"unit_override":"шт"или_null},...]}

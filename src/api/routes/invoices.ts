@@ -512,31 +512,52 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
       // count on every re-run.
       const canRepack = wasUnmapped || guidChanged;
 
-      if (canRepack && hit.pack_size && hit.unit_override) {
-        const qty = it.quantity;
-        if (qty != null && qty > 0) {
-          const total = it.total != null
-            ? it.total
-            : (it.price != null ? it.price * qty : null);
-          const newQty = qty * hit.pack_size;
-          const newPrice = total != null && newQty > 0 ? total / newQty : it.price ?? null;
-          const coerced = coerceToOnec1cUnit(
-            { quantity: newQty, unit: hit.unit_override, price: newPrice, total: total ?? null },
-            onec1cUnit,
-          );
-          invoiceRepo.updateItemFields(it.id, coerced);
-          repacked++;
-        }
-      } else if (canRepack && hit.unit_override && hit.unit_override !== it.unit) {
-        const coerced = coerceToOnec1cUnit(
-          { quantity: it.quantity, unit: hit.unit_override, price: it.price, total: it.total },
+      if (canRepack) {
+        // Unified pack-transform path that mirrors fileWatcher. Priority for
+        // pack hints: LLM (when complete) → learned mapping → regex fallback
+        // via detectPackFromName. The regex fallback is what catches
+        // "Мука (50кг)" — without it, items that were originally unmapped
+        // and only got their guid via this LLM-remap call would never get
+        // their qty/unit corrected from "1 шт" to "50 кг".
+        const learnedMapping = mappingRepo.getByScannedName(it.original_name || '');
+        const llmGavePackHint = !!(hit.pack_size && hit.pack_size > 0 && hit.unit_override);
+        const hintedSize = llmGavePackHint ? hit.pack_size : (learnedMapping?.pack_size ?? null);
+        const hintedUnit = llmGavePackHint ? hit.unit_override : (learnedMapping?.pack_unit ?? null);
+
+        const resolved = resolveAndApplyPackTransform(
+          { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
+          it.original_name || '',
+          hintedSize,
+          hintedUnit,
+          hit.name,
           onec1cUnit,
         );
-        invoiceRepo.updateItemFields(it.id, coerced);
+
+        const r = resolved.item;
+        const beforeQty = it.quantity;
+        const beforeUnit = it.unit;
+        const beforePrice = it.price;
+        if (r.quantity !== beforeQty || r.unit !== beforeUnit || r.price !== beforePrice) {
+          invoiceRepo.updateItemFields(it.id, {
+            quantity: r.quantity ?? null,
+            unit: r.unit ?? null,
+            price: r.price ?? null,
+          });
+          repacked++;
+        }
+
+        // Persist regex-detected pack back to the mapping (как watcher) —
+        // следующий llm-remap пойдёт по learned-mapping ветке, а не regex.
+        if (resolved.usedFallback && learnedMapping && resolved.packSize && resolved.packUnit) {
+          mappingRepo.update(learnedMapping.id, {
+            pack_size: resolved.packSize,
+            pack_unit: resolved.packUnit,
+          });
+        }
       } else {
-        // Coerce-only path. Idempotent: even already-mapped rows whose unit
-        // doesn't match the 1C accounting unit (e.g. stored as "л" while 1C
-        // tracks in "кг") get fixed here. Safe to run on every llm-remap call.
+        // Already-mapped, no guid change — coerce-only (idempotent). Even
+        // long-standing rows whose unit doesn't match the 1C accounting unit
+        // (e.g. stored as "л" while 1C tracks in "кг") get fixed here.
         const coerced = coerceToOnec1cUnit(
           { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
           onec1cUnit,
