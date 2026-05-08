@@ -26,6 +26,33 @@ import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
 import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
 
+/**
+ * Attach Sber payment status to a batch of invoices (for the list view —
+ * a single SQL roundtrip instead of N + 1 queries to sber_payments).
+ *
+ * Adds `sber_payment_status` ('created' | 'failed' | 'pending' | null) and
+ * `sber_payment_number` so the frontend can render a status icon next to
+ * each row without opening the invoice.
+ */
+function attachSberStatus<T extends { id: number }>(invoices: T[]): (T & { sber_payment_status: string | null; sber_payment_number: string | null })[] {
+  if (invoices.length === 0) return [] as (T & { sber_payment_status: string | null; sber_payment_number: string | null })[];
+  const ids = invoices.map(i => i.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = getDb().prepare(
+    `SELECT invoice_id, status, sber_payment_number
+     FROM sber_payments WHERE invoice_id IN (${placeholders})`
+  ).all(...ids) as Array<{ invoice_id: number; status: string; sber_payment_number: string | null }>;
+  const map = new Map(rows.map(r => [r.invoice_id, r]));
+  return invoices.map(inv => {
+    const p = map.get(inv.id);
+    return {
+      ...inv,
+      sber_payment_status: p?.status ?? null,
+      sber_payment_number: p?.sber_payment_number ?? null,
+    };
+  });
+}
+
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
@@ -64,7 +91,7 @@ router.get('/', (req: Request, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;
 
-  const invoices = invoiceRepo.getAll(status, limit, offset).map(enrichInvoiceWithSupplier);
+  const invoices = attachSberStatus(invoiceRepo.getAll(status, limit, offset).map(enrichInvoiceWithSupplier));
   res.json({ data: invoices, count: invoices.length });
 });
 

@@ -87,6 +87,7 @@ const Invoices = {
           <td style="text-align:right">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
           <td>${App.ocrEngineBadge(inv.ocr_engine)}</td>
           <td>${App.statusBadge(inv.status)}</td>
+          <td style="text-align:center">${this._sberCell(inv)}</td>
           <td>${App.formatDate(inv.created_at)}</td>
           <td style="text-align:center">
             <button class="btn-icon-danger" title="Удалить накладную"
@@ -129,6 +130,25 @@ const Invoices = {
   prevPage() {
     this.offset = Math.max(0, this.offset - this.limit);
     this.loadTable();
+  },
+
+  // Renders one cell in the invoices list that shows whether a Sber payment
+  // exists for this invoice (created/failed/pending), so the user can spot at
+  // a glance which invoices have already been pushed to the bank.
+  _sberCell(inv) {
+    const status = inv.sber_payment_status;
+    if (!status) return '<span style="color:#cbd5e1" title="Платёж в Сбер.Бизнес не создан">—</span>';
+    const num = inv.sber_payment_number ? ` №${App.esc(inv.sber_payment_number)}` : '';
+    if (status === 'created') {
+      return `<span style="color:#16a34a;font-size:18px" title="Черновик создан в Сбер.Бизнес${num}">✓</span>`;
+    }
+    if (status === 'failed') {
+      return `<span style="color:#dc2626;font-size:16px" title="Ошибка отправки${num} — открой накладную чтобы увидеть детали">⚠</span>`;
+    }
+    if (status === 'pending') {
+      return `<span style="color:#f59e0b;font-size:16px" title="Отправка в процессе…">⏳</span>`;
+    }
+    return `<span style="color:#94a3b8" title="Статус: ${App.esc(status)}">●</span>`;
   },
 
   async showDetail(id) {
