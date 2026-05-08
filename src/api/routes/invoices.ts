@@ -24,6 +24,7 @@ import { getValidAccessToken } from '../../sber/oauth';
 import { createPaymentOrder, SberApiError } from '../../sber/payments';
 import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
+import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
 
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
@@ -54,7 +55,8 @@ router.get('/', (req: Request, res: Response) => {
   const fileName = req.query.file_name as string | undefined;
   if (fileName) {
     const invoice = invoiceRepo.findByFileName(fileName);
-    res.json({ data: invoice ? [invoice] : [], count: invoice ? 1 : 0 });
+    const enriched = invoice ? [enrichInvoiceWithSupplier(invoice)] : [];
+    res.json({ data: enriched, count: enriched.length });
     return;
   }
 
@@ -62,7 +64,7 @@ router.get('/', (req: Request, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;
 
-  const invoices = invoiceRepo.getAll(status, limit, offset);
+  const invoices = invoiceRepo.getAll(status, limit, offset).map(enrichInvoiceWithSupplier);
   res.json({ data: invoices, count: invoices.length });
 });
 
@@ -75,7 +77,10 @@ router.get('/pending', (req: Request, res: Response) => {
   const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
   const offset = Number.isFinite(offsetRaw) ? offsetRaw : undefined;
   const { rows, total } = invoiceRepo.getPendingWithItems({ limit, offset });
-  res.json({ data: rows, count: rows.length, total, limit: limit ?? 100, offset: offset ?? 0 });
+  // Enrich each invoice's supplier fields from the verified suppliers table —
+  // this is what 1С actually receives and uses to find/create контрагент.
+  const enriched = rows.map(r => ({ ...enrichInvoiceWithSupplier(r), items: r.items }));
+  res.json({ data: enriched, count: enriched.length, total, limit: limit ?? 100, offset: offset ?? 0 });
 });
 
 // GET /api/invoices/:id/photos — list photo files for an invoice
@@ -135,10 +140,12 @@ router.get('/:id/photos/:filename', (req: Request, res: Response) => {
   res.sendFile(filePath);
 });
 
-// GET /api/invoices/:id — single invoice with items
+// GET /api/invoices/:id — single invoice with items.
+// Supplier fields enriched from verified `suppliers` row when ИНН matches.
 router.get('/:id', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const invoice = invoiceRepo.getWithItems(id);
+  const raw = invoiceRepo.getWithItems(id);
+  const invoice = raw ? { ...enrichInvoiceWithSupplier(raw), items: raw.items } : raw;
 
   if (!invoice) {
     res.status(404).json({ error: 'Invoice not found' });
