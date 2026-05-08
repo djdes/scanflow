@@ -1,4 +1,6 @@
 import cron from 'node-cron';
+import fs from 'fs';
+import path from 'path';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { getDb, closeDb } from './database/db';
@@ -22,7 +24,6 @@ async function main(): Promise<void> {
   logger.info('Configuration loaded', {
     ocrChain: config.ocrChain,
     ocrForceEngine: config.ocrForceEngine,
-    claudeCliPath: config.claudeCliPath,
     inboxDir: config.inboxDir,
     apiPort: config.apiPort,
     debug: config.debug,
@@ -40,15 +41,43 @@ async function main(): Promise<void> {
     logger.error('Admin seed failed', { error: (e as Error).message });
   }
 
-  // Recover from crashes / interrupted deploys: mark any invoice row stuck
-  // in 'parsing' or 'ocr_processing' for more than 5 minutes as 'error'.
-  // Without this, rows whose processing was killed mid-flight stay orphaned
-  // forever because the normal delete-on-merge path only runs inside the
-  // processFile() function.
+  // Recover from crashes / interrupted deploys. After process restart, ANY
+  // invoice in 'ocr_processing'/'parsing' is by definition dead — нет живого
+  // watcher'а, кто бы её сейчас обрабатывал. Two paths:
+  //   - has items already (Claude finished, only status flip didn't run) →
+  //     UPDATE status='processed'.
+  //   - no items (crash happened earlier, mid-Claude or mid-OCR) → DELETE
+  //     запись и переместить файл из processed/ обратно в inbox/, чтобы
+  //     watcher переобработал как новую.
   try {
-    const stuckRecovered = invoiceRepo.markStaleAsFailed(5);
-    if (stuckRecovered > 0) {
-      logger.warn('Recovered stale invoices stuck in processing', { count: stuckRecovered });
+    const stale = invoiceRepo.listStaleForRecovery();
+    let promoted = 0, requeued = 0;
+    for (const s of stale) {
+      if (s.itemsCount > 0) {
+        invoiceRepo.updateStatus(s.id, 'processed');
+        promoted++;
+      } else {
+        // Re-queue the file for fresh processing
+        const firstFile = (s.file_name || '').split(',')[0].trim();
+        if (firstFile) {
+          const processedPath = path.join(config.processedDir, firstFile);
+          const inboxPath = path.join(config.inboxDir, firstFile);
+          if (fs.existsSync(processedPath) && !fs.existsSync(inboxPath)) {
+            try { fs.renameSync(processedPath, inboxPath); } catch { /* ignore */ }
+          }
+        }
+        invoiceRepo.delete(s.id);
+        requeued++;
+      }
+    }
+    if (promoted > 0 || requeued > 0) {
+      logger.warn('Recovered stale invoices', { stuck: stale.length, promoted, requeued });
+    }
+    // Catch-all: anything still non-terminal older than 1 minute → error.
+    // Should be empty after the loop above, but kept as safety net.
+    const fallback = invoiceRepo.markStaleAsFailed(1);
+    if (fallback > 0) {
+      logger.warn('Marked remaining stale as error', { count: fallback });
     }
   } catch (e) {
     logger.error('Startup stale-invoice recovery failed', { error: (e as Error).message });

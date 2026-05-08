@@ -388,10 +388,14 @@ export const invoiceRepo = {
    */
   findRecentByFileName(fileName: string, withinMinutes: number = 5): Invoice | undefined {
     const db = getDb();
+    // Dedup ловит ТОЛЬКО реально завершённые накладные ('processed', 'sent_to_1c',
+    // 'duplicate'). In-flight ('ocr_processing', 'parsing') и failed ('error')
+    // НЕ считаются дубликатами — иначе после краха процесса/рестарта PM2 файл
+    // зависает в inbox без шанса быть обработанным.
     return db.prepare(
       `SELECT * FROM invoices
        WHERE (file_name = ? OR file_name LIKE ?)
-       AND status != 'error'
+       AND status IN ('processed', 'sent_to_1c', 'duplicate')
        AND created_at > datetime('now', '-${withinMinutes} minutes')
        ORDER BY created_at DESC LIMIT 1`
     ).get(fileName, `%${fileName}%`) as Invoice | undefined;
@@ -650,15 +654,34 @@ export const invoiceRepo = {
   markStaleAsFailed(staleMinutes: number = 5): number {
     const db = getDb();
     // Any non-terminal status older than N minutes is a leftover from a crash.
-    // Terminal statuses that must NEVER be swept: processed, sent_to_1c, error.
+    // Terminal statuses that must NEVER be swept: processed, sent_to_1c, duplicate, error.
     const result = db.prepare(
       `UPDATE invoices
        SET status = 'error',
            error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)')
-       WHERE status NOT IN ('processed', 'sent_to_1c', 'error')
+       WHERE status NOT IN ('processed', 'sent_to_1c', 'duplicate', 'error')
        AND created_at < datetime('now', '-${staleMinutes} minutes')`
     ).run();
     return result.changes;
+  },
+
+  /**
+   * Список stale-записей для startup recovery — те, что застряли в
+   * 'ocr_processing'/'parsing'. БЕЗ time-окна, потому что после рестарта
+   * процесса любая такая запись гарантированно мёртвая (живой watcher не
+   * мог её там оставить — все его пути обновляют статус). Возвращает id +
+   * file_name + наличие items, чтобы caller решил: сделать ли record
+   * 'processed' (если items уже сохранены) или DELETE + переотправить файл
+   * в inbox для свежей обработки.
+   */
+  listStaleForRecovery(): Array<{ id: number; file_name: string; itemsCount: number }> {
+    const db = getDb();
+    return db.prepare(
+      `SELECT i.id, i.file_name,
+        (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS itemsCount
+       FROM invoices i
+       WHERE i.status IN ('ocr_processing', 'parsing')`
+    ).all() as Array<{ id: number; file_name: string; itemsCount: number }>;
   },
 
   findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Invoice | undefined {
