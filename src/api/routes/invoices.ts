@@ -1022,6 +1022,22 @@ router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
   });
 });
 
+// POST /api/invoices/:id/unlink-duplicate — отметить накладную как «не дубликат».
+// Сбрасывает duplicate_of в NULL и возвращает status='processed'. Items при этом
+// НЕ восстанавливаются — если юзер хочет полную обработку, нужно нажать «Удалить»
+// и переотсканировать.
+router.post('/:id/unlink-duplicate', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = invoiceRepo.getById(id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (invoice.duplicate_of == null) {
+    return res.status(400).json({ error: 'Invoice is not marked as duplicate' });
+  }
+  invoiceRepo.unmarkAsDuplicate(id);
+  return res.json({ success: true });
+});
+
 // GET /api/invoices/:id/sber-status — текущее состояние платежа в Сбере
 router.get('/:id/sber-status', (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);

@@ -677,6 +677,41 @@ export class FileWatcher {
           supplier_corr_account: parsed.supplier_corr_account,
           supplier_address: parsed.supplier_address,
         });
+
+        // Duplicate detector: 30-day window, matches by invoice_number +
+        // supplier (INN preferred, name fallback) + invoice_date + total_sum.
+        // Only fires on non-merged invoices — multi-page pages are already
+        // unified by Strategy A/B/C/D above. If detected, we mark this row
+        // as duplicate and SKIP the items pipeline below — there's nothing
+        // to add (the original already has the items).
+        const dupOriginal = invoiceRepo.findDuplicateOriginal(
+          invoice.id,
+          parsed.invoice_number ?? null,
+          parsed.supplier_inn ?? null,
+          parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : null,
+          parsed.invoice_date ?? null,
+          parsed.total_sum ?? null,
+          30,
+        );
+        if (dupOriginal) {
+          logger.info('Duplicate invoice detected', {
+            newId: invoice.id,
+            originalId: dupOriginal.id,
+            invoiceNumber: parsed.invoice_number,
+            supplier: parsed.supplier,
+            totalSum: parsed.total_sum,
+          });
+          invoiceRepo.markAsDuplicate(invoice.id, dupOriginal.id);
+
+          // Move file to processed before returning, как в normal flow ниже
+          if (!config.dryRun) {
+            try {
+              const destPath = path.join(config.processedDir, fileName);
+              fs.renameSync(filePath, destPath);
+            } catch { /* may already be moved */ }
+          }
+          return invoice.id;
+        }
       }
 
       // 5. VAT sanity: if Claude put pre-VAT numbers into items but post-VAT

@@ -2223,3 +2223,41 @@ details[open] summary { margin-bottom: 12px; }
   background: rgba(255,255,255,0.6);
   border-top: 1px solid rgba(15,23,42,0.06);
 }
+
+/* ========== Duplicate detection ========== */
+.dup-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(245,158,11,0.12);
+  color: rgb(146,64,14);
+  border: 1px solid rgba(245,158,11,0.3);
+  white-space: nowrap;
+}
+.duplicate-banner {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.duplicate-banner-text {
+  color: rgb(120,53,15);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.duplicate-banner-text a {
+  color: rgb(120,53,15);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.duplicate-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

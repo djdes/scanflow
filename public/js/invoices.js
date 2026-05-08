@@ -81,7 +81,7 @@ const Invoices = {
         <tr class="clickable" onclick="App.navigate('#/invoices/${inv.id}')">
           <td>${inv.id}</td>
           <td title="${fileName}">${fileNameDisplay}</td>
-          <td>${App.esc(inv.invoice_number || '—')}</td>
+          <td>${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td>${App.formatDate(inv.invoice_date)}</td>
           <td>${App.esc(inv.supplier || '—')}</td>
           <td style="text-align:right">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
@@ -231,6 +231,33 @@ const Invoices = {
       // Actions
       const actions = document.getElementById('invoice-actions');
       let actionsHtml = '';
+
+      // Duplicate banner — превалирует над всем остальным. Дубликаты не сохраняют
+      // items, поэтому 1С/Сбер actions ниже им бесполезны.
+      if (data.duplicate_of) {
+        actionsHtml += `
+          <div class="duplicate-banner">
+            <div class="duplicate-banner-text">
+              🔁 <strong>Дубликат накладной</strong>
+              <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a>
+              — позиции и сумма совпадают с оригиналом, в эту запись items не сохранены.
+            </div>
+            <div class="duplicate-banner-actions">
+              <button class="btn btn-outline btn-sm" onclick="Invoices.unlinkDuplicate(${data.id})">Не дубликат</button>
+              <button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить дубликат</button>
+            </div>
+          </div>
+        `;
+        actions.innerHTML = actionsHtml;
+        // Items/Sber/1С блоки ниже не нужны для дубликата — выйти из rendering
+        if (window.Sber) {
+          // Спрятать Sber-секцию если она была от прошлого invoice
+          const sberWrap = document.getElementById('invoice-sber-section');
+          if (sberWrap) sberWrap.style.display = 'none';
+        }
+        return;
+      }
+
       const unmappedCount = (data.items || []).filter(it => !it.onec_guid).length;
       if (data.status === 'processed') {
         if (data.approved_for_1c) {
@@ -454,6 +481,22 @@ const Invoices = {
         App.notify('Ошибка: ' + e.message, 'error');
       }
     });
+  },
+
+  async unlinkDuplicate(id) {
+    if (!confirm('Снять отметку «дубликат»? Накладная превратится в обычную (status=processed), но items в неё не вернутся — для полноценной обработки нужно её удалить и переотсканировать.')) return;
+    try {
+      const res = await App.api(`/invoices/${id}/unlink-duplicate`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        App.notify(err.error || 'Ошибка', 'error');
+        return;
+      }
+      App.notify('Отметка снята', 'success');
+      this.showDetail(id);
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
   },
 
   deleteInvoice(id, event) {

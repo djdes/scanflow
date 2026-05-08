@@ -495,6 +495,21 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 21,
+    name: 'duplicate invoice detection',
+    detect: (db) => hasColumn(db, 'invoices', 'duplicate_of'),
+    run: (db) => {
+      if (!hasColumn(db, 'invoices', 'duplicate_of')) {
+        // Самовзвязь: указывает на оригинал, который текущая накладная
+        // дублирует (по совпадению invoice_number + supplier + invoice_date
+        // + total_sum в окне 30 дней). NULL = не дубликат. SQLite не умеет
+        // ALTER ADD COLUMN ... REFERENCES, поэтому FK не декларирован.
+        db.exec(`ALTER TABLE invoices ADD COLUMN duplicate_of INTEGER`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_invoices_duplicate_of ON invoices(duplicate_of)`);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

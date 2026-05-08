@@ -32,6 +32,7 @@ export interface Invoice {
   file_hash: string | null;
   items_total_mismatch: number;
   telegram_message_id: number | null;
+  duplicate_of: number | null;
 }
 
 export interface InvoiceItem {
@@ -503,6 +504,89 @@ export const invoiceRepo = {
     }
 
     return undefined;
+  },
+
+  /**
+   * Найти существующую накладную, которая является ОРИГИНАЛОМ для current —
+   * совпадение invoice_number + supplier (по INN если есть, иначе по name)
+   * + invoice_date + total_sum в окне `days` дней. Используется детектором
+   * дубликатов (отличается от findRecentByNumber длинным окном — там 10 минут
+   * для multi-page merge, здесь 30 дней для duplicate detection).
+   *
+   * Возвращает undefined если оригинал не найден. Игнорирует:
+   *   - саму себя (excludeId)
+   *   - накладные со status='duplicate' (они сами дубликаты, не оригиналы)
+   *   - накладные с duplicate_of NOT NULL (по той же причине)
+   */
+  findDuplicateOriginal(
+    excludeId: number,
+    invoiceNumber: string | null,
+    supplierInn: string | null,
+    supplierName: string | null,
+    invoiceDate: string | null,
+    totalSum: number | null,
+    days: number = 30,
+  ): Invoice | undefined {
+    if (!invoiceNumber || !invoiceDate || totalSum == null) return undefined;
+    if (!supplierInn && !supplierName) return undefined;
+
+    const targetNormalized = normalizeInvoiceNumber(invoiceNumber);
+    if (!targetNormalized) return undefined;
+
+    const db = getDb();
+    const candidates = db.prepare(
+      `SELECT * FROM invoices
+       WHERE id != ?
+         AND duplicate_of IS NULL
+         AND status NOT IN ('duplicate', 'failed')
+         AND invoice_number IS NOT NULL
+         AND invoice_date = ?
+         AND total_sum IS NOT NULL
+         AND created_at > datetime('now', '-${days} days')
+       ORDER BY created_at DESC`
+    ).all(excludeId, invoiceDate) as Invoice[];
+
+    for (const candidate of candidates) {
+      // 1. Номер должен совпадать (нормализованно)
+      if (normalizeInvoiceNumber(candidate.invoice_number) !== targetNormalized) continue;
+
+      // 2. Сумма должна совпадать в пределах 1 руб (округления НДС)
+      if (candidate.total_sum == null) continue;
+      if (Math.abs(candidate.total_sum - totalSum) > 1.0) continue;
+
+      // 3. Поставщик: предпочитаем INN-match, fallback на name-fuzzy
+      if (supplierInn && candidate.supplier_inn) {
+        if (supplierInn === candidate.supplier_inn) return candidate;
+        // INN отличается — это разные юр.лица с похожими номерами, не дубликат
+        continue;
+      }
+      // INN отсутствует у одной из сторон — сравниваем имена fuzzy
+      if (supplierName && candidate.supplier && suppliersMatch(supplierName, candidate.supplier)) {
+        return candidate;
+      }
+    }
+
+    return undefined;
+  },
+
+  /**
+   * Пометить накладную как дубликат другой. Items не удаляются здесь —
+   * watcher должен сам решить (обычно их даже не сохраняли).
+   */
+  markAsDuplicate(id: number, originalId: number): void {
+    getDb().prepare(
+      `UPDATE invoices SET duplicate_of = ?, status = 'duplicate' WHERE id = ?`
+    ).run(originalId, id);
+  },
+
+  /**
+   * Отвязать дубликат — превратить обратно в обычную накладную.
+   * Используется когда юзер отметил «не дубликат» в UI.
+   */
+  unmarkAsDuplicate(id: number): void {
+    getDb().prepare(
+      `UPDATE invoices SET duplicate_of = NULL, status = 'processed' WHERE id = ?`
+    ).run(id);
   },
 
   /**
