@@ -167,6 +167,184 @@ export class FileWatcher {
     }
   }
 
+  /**
+   * Перепрогнать существующую накладную через OCR + Claude + mapping pipeline
+   * заново, используя её исходный файл. Используется кнопкой UI «Пересканировать
+   * фото» когда юзер хочет полностью переанализировать (например, после
+   * обновления промпта или 1С-каталога).
+   *
+   * Файл ищется в `processed/` (где он лежит после успешной обработки), либо в
+   * `inbox/`, либо по invoice.file_path. Если не найден — кидаем ошибку.
+   *
+   * Existing items стираются и пересохраняются. Invoice metadata обновляется.
+   * `duplicate_of` сбрасывается в NULL (юзер решит сам после переанализа).
+   *
+   * Multi-page logic НЕ запускается — для повторного scan'а одной страницы её
+   * не нужно сливать с другими.
+   */
+  async reprocessInvoice(invoiceId: number): Promise<void> {
+    const invoice = invoiceRepo.getById(invoiceId);
+    if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
+
+    const firstFile = (invoice.file_name || '').split(',')[0].trim();
+    if (!firstFile) throw new Error(`Invoice ${invoiceId} has no file_name`);
+
+    const candidates = [
+      path.join(config.processedDir, firstFile),
+      path.join(config.inboxDir, firstFile),
+      invoice.file_path || '',
+    ].filter(Boolean);
+    const filePath = candidates.find(p => fs.existsSync(p));
+    if (!filePath) {
+      throw new Error(`Original file not found in any of: ${candidates.join(', ')}`);
+    }
+
+    logger.info('Reprocessing invoice from existing file', { invoiceId, filePath });
+
+    // OCR + structured parse (как в processFile)
+    const ocrResult = await this.ocrManager.recognize(filePath);
+    let parsed = ocrResult.structured;
+    if (!parsed) {
+      parsed = parseInvoiceText(ocrResult);
+    }
+    if (!parsed) {
+      throw new Error('Failed to parse invoice — neither structured analyzer nor regex parser produced data');
+    }
+
+    // Заменяем metadata + raw_text + items
+    invoiceRepo.deleteItems(invoiceId);
+    invoiceRepo.updateInvoiceData(invoiceId, {
+      invoice_number: parsed.invoice_number,
+      invoice_date: parsed.invoice_date,
+      supplier: parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : undefined,
+      total_sum: parsed.total_sum,
+      vat_sum: parsed.vat_sum,
+      invoice_type: parsed.invoice_type,
+      supplier_inn: parsed.supplier_inn,
+      supplier_kpp: parsed.supplier_kpp,
+      supplier_bik: parsed.supplier_bik,
+      supplier_account: parsed.supplier_account,
+      supplier_corr_account: parsed.supplier_corr_account,
+      supplier_address: parsed.supplier_address,
+      raw_text: ocrResult.text,
+      ocr_engine: ocrResult.engine,
+    });
+    // Сбрасываем флаг дубликата — после rescan'а это уже потенциально другая
+    // картина. Если новые реквизиты опять совпадут с другой накладной,
+    // ручной флаг ставится через UI «Пересопоставить» либо повторным rescan'ом.
+    if (invoice.duplicate_of != null) {
+      invoiceRepo.unmarkAsDuplicate(invoiceId);
+    }
+
+    // VAT sanity passes (как в processFile)
+    const vatSanity = sanitizeInvoiceVat(
+      parsed.items.map(i => ({
+        quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
+      })),
+      parsed.total_sum,
+      parsed.vat_sum,
+    );
+    if (vatSanity.report.scaled) {
+      logger.info('Reprocess: invoice VAT sanity scaled', vatSanity.report);
+    }
+    const perItemVat = sanitizeItemVatPerItem(
+      vatSanity.items.map((i, k) => ({
+        quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
+        vat_rate: parsed.items[k]?.vat_rate,
+      })),
+      parsed.total_sum,
+    );
+    const parsedItems = parsed.items.map((orig, i) => ({
+      ...orig,
+      price: perItemVat.items[i]?.price ?? orig.price,
+      total: perItemVat.items[i]?.total ?? orig.total,
+    }));
+
+    // Mapping pipeline
+    const analyzerCfg = invoiceRepo.getAnalyzerConfig();
+    const catalog = analyzerCfg.llm_mapper_enabled
+      ? onecNomenclatureRepo.listItems({ excludeFolders: true })
+      : null;
+
+    for (const item of parsedItems) {
+      if (!item.name) continue;
+      const sanity = sanitizeItemArithmetic({
+        quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+      });
+
+      const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
+      let mapping: ReturnType<typeof this.mapper.map>;
+      if (llmPicked) {
+        const existingMapping = mappingRepo.getByScannedName(item.name);
+        mapping = {
+          original_name: item.name,
+          mapped_name: llmPicked.name,
+          onec_guid: llmPicked.guid,
+          confidence: 1,
+          source: 'learned',
+          mapping_id: existingMapping?.id ?? null,
+          pack_size: existingMapping?.pack_size ?? null,
+          pack_unit: existingMapping?.pack_unit ?? null,
+        };
+        try {
+          mappingRepo.upsert({
+            scanned_name: item.name,
+            mapped_name_1c: llmPicked.name,
+            onec_guid: llmPicked.guid,
+            approved: false,
+          });
+        } catch (e) {
+          logger.warn('Reprocess: failed to persist learned mapping', {
+            name: item.name, error: (e as Error).message,
+          });
+        }
+        this.mapper.invalidateCache();
+      } else {
+        mapping = this.mapper.map(item.name);
+      }
+
+      const resolved = mapping.onec_guid
+        ? (() => {
+            const onec1cUnit = onecNomenclatureRepo.getByGuid(mapping.onec_guid)?.unit ?? null;
+            const hintedPackSize = item.pack_size ?? mapping.pack_size;
+            const hintedPackUnit = item.pack_size ? 'шт' : mapping.pack_unit;
+            const r = resolveAndApplyPackTransform(
+              sanity.item,
+              item.name,
+              hintedPackSize,
+              hintedPackUnit,
+              mapping.mapped_name,
+              onec1cUnit,
+            );
+            this.persistPackFallback(mapping.mapping_id, r);
+            return r;
+          })()
+        : { item: sanity.item, packSize: null, packUnit: null, usedFallback: false };
+
+      invoiceRepo.addItem({
+        invoice_id: invoiceId,
+        original_name: item.name,
+        mapped_name: mapping.mapped_name,
+        quantity: resolved.item.quantity,
+        unit: resolved.item.unit,
+        price: resolved.item.price,
+        total: resolved.item.total,
+        vat_rate: item.vat_rate,
+        mapping_confidence: mapping.confidence,
+        onec_guid: mapping.onec_guid,
+      });
+    }
+
+    invoiceRepo.recalculateTotal(invoiceId);
+    invoiceRepo.updateStatus(invoiceId, 'processed');
+
+    logger.info('Invoice reprocessed successfully', {
+      id: invoiceId,
+      itemsCount: parsedItems.length,
+      engine: ocrResult.engine,
+    });
+  }
+
   async processFile(filePath: string, fileName: string, forceEngine?: string): Promise<number> {
     // 0. Content-based deduplication via SHA-256.
     // Hash is stored DURING the invoice INSERT under a UNIQUE partial index

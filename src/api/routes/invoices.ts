@@ -30,6 +30,14 @@ export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
 }
 
+// Injected by server.ts at startup. Used by /:id/rescan to drive the
+// FileWatcher's reprocessInvoice() — keeps the OCR/Claude/mapping pipeline
+// in one place instead of duplicating it across watcher + routes.
+let fileWatcher: import('../../watcher/fileWatcher').FileWatcher | null = null;
+export function setFileWatcher(fw: import('../../watcher/fileWatcher').FileWatcher): void {
+  fileWatcher = fw;
+}
+
 const router = Router();
 
 // GET /api/invoices/stats — dashboard statistics (must be before /:id)
@@ -1020,6 +1028,27 @@ router.patch('/:invoiceId/items/:itemId', (req: Request, res: Response) => {
       items_total_mismatch: invoice?.items_total_mismatch ?? 0,
     },
   });
+});
+
+// POST /api/invoices/:id/rescan — full re-process: re-OCR + re-Claude + re-map.
+// Используется кнопкой UI «Пересканировать фото» когда юзеру нужен полный
+// rerun pipeline (например, после обновления промпта или 1С-каталога).
+// Файл должен ещё лежать на диске (processed/ или inbox/).
+router.post('/:id/rescan', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  if (!fileWatcher) return res.status(500).json({ error: 'FileWatcher not initialized' });
+
+  const invoice = invoiceRepo.getById(id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  try {
+    await fileWatcher.reprocessInvoice(id);
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error('Rescan failed', { id, error: (err as Error).message });
+    return res.status(502).json({ error: (err as Error).message });
+  }
 });
 
 // POST /api/invoices/:id/unlink-duplicate — отметить накладную как «не дубликат».

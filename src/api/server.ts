@@ -7,7 +7,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth } from './middleware/auth';
 import { apiRequestLog } from './middleware/requestLog';
-import invoicesRouter, { setMapper as setInvoicesMapper } from './routes/invoices';
+import invoicesRouter, { setMapper as setInvoicesMapper, setFileWatcher as setInvoicesFileWatcher } from './routes/invoices';
 import mappingsRouter, { setMapper } from './routes/mappings';
 import uploadRouter, { setFileWatcher } from './routes/upload';
 import webhookRouter from './routes/webhook';
@@ -89,6 +89,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setNomenclatureMapper(mapper);
   setInvoicesMapper(mapper);
   setFileWatcher(fileWatcher);
+  setInvoicesFileWatcher(fileWatcher);
 
   // Health check (no auth) — runs real probes against the DB, credentials
   // file, anthropic key, and inbox queue depth. Returns 503 if any critical

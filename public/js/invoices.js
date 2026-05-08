@@ -285,6 +285,7 @@ const Invoices = {
         actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
       }
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id})" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
       // LLM button is always visible. When everything is already mapped it
       // passes all=true so Claude can reconsider existing picks (catalog may
       // have grown, or an old fuzzy match may be improvable).
@@ -414,6 +415,32 @@ const Invoices = {
       try {
         await App.apiJson(`/invoices/${id}/unapprove`, { method: 'POST' });
         App.notify('Отправка отозвана', 'success');
+        this.showDetail(id);
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
+      }
+    });
+  },
+
+  async rescan(id) {
+    if (!confirm(
+      'Полностью пересканировать фото накладной?\n\n' +
+      '• Запустит OCR + Claude API заново для исходного изображения.\n' +
+      '• Текущие позиции будут заменены новыми.\n' +
+      '• Если это была отметка «дубликат» — она снимется.\n' +
+      '• Стоит API-вызов Claude.\n\n' +
+      'Продолжить?'
+    )) return;
+    return this._withGuard(`rescan:${id}`, async () => {
+      try {
+        App.notify('Пересканирование запущено, ожидайте 10–30 сек…', 'info');
+        const res = await App.api(`/invoices/${id}/rescan`, { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          App.notify(err.error || `Ошибка ${res.status}`, 'error');
+          return;
+        }
+        App.notify('Накладная пересканирована', 'success');
         this.showDetail(id);
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
