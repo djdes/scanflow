@@ -201,8 +201,18 @@ export class FileWatcher {
 
     logger.info('Reprocessing invoice from existing file', { invoiceId, filePath });
 
-    // OCR + structured parse (как в processFile)
-    const ocrResult = await this.ocrManager.recognize(filePath);
+    // OCR + structured parse — RESPECT analyzer_config.mode (как в processFile).
+    // Без этого rescan скатывался в OCR-chain (Tesseract) и regex-парсер
+    // даже при mode='claude_api', давая 0.00 сумм.
+    const analyzerConfig = invoiceRepo.getAnalyzerConfig();
+    let ocrResult;
+    if (analyzerConfig.mode === 'claude_api') {
+      ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
+    } else if (config.useClaudeAnalyzer) {
+      ocrResult = await this.ocrManager.recognizeHybrid(filePath, true);
+    } else {
+      ocrResult = await this.ocrManager.recognize(filePath);
+    }
     let parsed = ocrResult.structured;
     if (!parsed) {
       parsed = parseInvoiceText(ocrResult);
