@@ -9,6 +9,15 @@
       "date": "2026-05-11",
       "readingMinutes": 7,
       "ogImage": "/og/default.svg"
+    },
+    {
+      "slug": "perevod-paper-zacenok-v-1c-unf",
+      "title": "От фото накладной до приходной в 1С:УНФ за 3 секунды",
+      "description": "Полный пайплайн интеграции ScanFlow с 1С:УНФ — что забирает 1С по REST, как маппится номенклатура, как считается НДС по дате.",
+      "tags": ["1c-unf", "ocr"],
+      "date": "2026-05-11",
+      "readingMinutes": 8,
+      "ogImage": "/og/default.svg"
     }
   ]
 }
