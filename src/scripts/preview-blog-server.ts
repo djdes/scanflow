@@ -27,6 +27,88 @@ app.use((req, res, next) => {
   next();
 });
 
+// Mock /api/* — preview server has no DB. Returns sensible empty / success
+// payloads so the dashboard UI renders all sections without 401s or 500s.
+app.use(express.json());
+
+const MOCK_USER = {
+  apiKey: 'preview-dev-key',
+  username: 'preview-admin',
+  role: 'admin',
+};
+
+const mockTable: Array<{ test: RegExp; handler: (req: express.Request, res: express.Response) => void }> = [
+  // Auth — accept any creds
+  { test: /^\/api\/auth\/login$/, handler: (_req, res) => res.json(MOCK_USER) },
+
+  // Invoices — server wraps responses in { data: ... }
+  { test: /^\/api\/invoices\/stats$/, handler: (_req, res) => res.json({
+    data: {
+      total: 12,
+      byStatus: [
+        { status: 'new', count: 1 },
+        { status: 'processed', count: 8 },
+        { status: 'sent_to_1c', count: 3 },
+        { status: 'error', count: 0 },
+      ],
+    },
+  })},
+  { test: /^\/api\/invoices\/pending$/, handler: (_req, res) => res.json({ data: [] }) },
+  { test: /^\/api\/invoices(\?.*)?$/, handler: (_req, res) => res.json({ data: [] }) },
+  { test: /^\/api\/invoices\/\d+/, handler: (_req, res) => res.status(404).json({ error: 'No data in preview mode' }) },
+
+  // Mappings — server wraps in { data: { grouped, unmapped } }
+  { test: /^\/api\/mappings(\?.*)?$/, handler: (_req, res) => res.json({ data: { grouped: [], unmapped: [] } }) },
+
+  // Suppliers
+  { test: /^\/api\/suppliers(\?.*)?$/, handler: (_req, res) => res.json([]) },
+
+  // Sber
+  { test: /^\/api\/sber\/status$/, handler: (_req, res) => res.json({ connected: false, organization: null }) },
+  { test: /^\/api\/sber\/payer$/, handler: (_req, res) => res.json({}) },
+
+  // Webhook
+  { test: /^\/api\/webhook\/config$/, handler: (_req, res) => res.json({ url: '', token: '', enabled: false }) },
+
+  // Settings
+  { test: /^\/api\/settings\/analyzer$/, handler: (_req, res) => res.json({
+    mode: 'claude_api',
+    claude_model: 'claude-sonnet-4-6',
+    anthropic_api_key: '',
+    llm_mapper_enabled: true,
+    auto_send_to_1c: false,
+    auto_send_to_sber: false,
+  })},
+
+  // Profile
+  { test: /^\/api\/profile$/, handler: (_req, res) => res.json({
+    email: '', notify_mode: 'off', notify_events: [],
+    telegram_chat_id: null, telegram_bot_token: null,
+    username: MOCK_USER.username, role: MOCK_USER.role,
+  })},
+
+  // Nomenclature (1C catalog) — client reads { data, last_synced_at }
+  { test: /^\/api\/nomenclature(\/.*)?(\?.*)?$/, handler: (_req, res) => res.json({ data: [], last_synced_at: null }) },
+
+  // Debug
+  { test: /^\/api\/debug(\/.*)?$/, handler: (_req, res) => res.json([]) },
+];
+
+app.use('/api', (req, res, next) => {
+  const fullPath = req.originalUrl;
+  for (const { test, handler } of mockTable) {
+    if (test.test(fullPath)) {
+      handler(req, res);
+      return;
+    }
+  }
+  // Default: write/patch ops succeed silently; reads return empty array
+  if (req.method === 'GET') {
+    return res.json([]);
+  }
+  return res.json({ ok: true, preview: true });
+});
+
 app.use(express.static(publicDir, { redirect: false }));
 
 // /sitemap.xml

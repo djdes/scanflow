@@ -16,24 +16,18 @@ const Invoices = {
       const container = document.getElementById('invoices-stats');
       const counts = {};
       (data.byStatus || []).forEach(s => { counts[s.status] = s.count; });
-      container.innerHTML = `
-        <div class="stat-card">
-          <div class="stat-value">${data.total || 0}</div>
-          <div class="stat-label">Всего</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${counts.processed || 0}</div>
-          <div class="stat-label">Обработано</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${counts.sent_to_1c || 0}</div>
-          <div class="stat-label">Отправлено в 1С</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${counts.error || 0}</div>
-          <div class="stat-label">Ошибки</div>
-        </div>
-      `;
+      const cur = this.currentStatus || 'all';
+      const cardHtml = (filter, value, label) => `
+        <button type="button" class="stat-card${cur === filter ? ' active' : ''}" data-filter="${filter}" onclick="Invoices.setFilter('${filter}')">
+          <span class="stat-value">${value || 0}</span>
+          <span class="stat-label">${label}</span>
+        </button>`;
+      container.innerHTML = [
+        cardHtml('all',        data.total || 0,            'Всего'),
+        cardHtml('processed',  counts.processed || 0,      'Обработано'),
+        cardHtml('sent_to_1c', counts.sent_to_1c || 0,     'Отправлено в 1С'),
+        cardHtml('error',      counts.error || 0,          'Ошибки'),
+      ].join('');
     } catch (e) {
       console.error('Failed to load stats', e);
     }
@@ -58,14 +52,14 @@ const Invoices = {
     if (this.currentStatus) url += `&status=${this.currentStatus}`;
 
     // Show skeleton rows while real data is loading — feels instant
-    App.skeletonRows('invoices-tbody', ['w-24', 'w-full', 'w-40', 'w-40', 'w-60', 'w-40', 'w-40', 'w-40', 'w-40', 'w-24'], 6);
+    App.skeletonRows('invoices-tbody', ['w-40', 'w-40', 'w-60', 'w-40', 'w-40', 'w-24', 'w-24'], 6);
 
     try {
       const { data } = await App.apiJson(url);
       const tbody = document.getElementById('invoices-tbody');
 
       if (!data || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
           <div class="empty-icon">&#128196;</div>
           <div>Накладных пока нет. Загрузите фото или положите в папку data/inbox/</div>
         </div></td></tr>`;
@@ -73,22 +67,14 @@ const Invoices = {
       }
 
       tbody.innerHTML = data.map(inv => {
-        const fileName = App.esc(inv.file_name || '');
-        const fileNameDisplay = (inv.file_name || '').length > 30
-          ? App.esc(inv.file_name.substring(0, 30) + '...')
-          : fileName;
         return `
-        <tr class="clickable" onclick="App.navigate('#/invoices/${inv.id}')">
-          <td>${inv.id}</td>
-          <td title="${fileName}">${fileNameDisplay}</td>
+        <tr class="clickable" onclick="App.navigate('#/invoices/${inv.id}')" title="ID ${inv.id} · файл ${App.esc(inv.file_name || '')} · создан ${App.formatDate(inv.created_at)} · ${App.esc(inv.ocr_engine || '')}">
           <td>${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td>${App.formatDate(inv.invoice_date)}</td>
           <td>${App.esc(inv.supplier || '—')}</td>
           <td style="text-align:right">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
-          <td>${App.ocrEngineBadge(inv.ocr_engine)}</td>
           <td>${App.statusBadge(inv.status)}</td>
           <td style="text-align:center">${this._sberCell(inv)}</td>
-          <td>${App.formatDate(inv.created_at)}</td>
           <td style="text-align:center">
             <button class="btn-icon-danger" title="Удалить накладную"
                     aria-label="Удалить накладную ${inv.id}"

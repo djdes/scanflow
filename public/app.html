@@ -64,28 +64,33 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           Накладные
         </a>
-        <a href="#/upload" data-tab="upload">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10V2m0 0L5 5m3-3l3 3M2 10v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Загрузить
-        </a>
-        <a href="#/mappings" data-tab="mappings">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          Номенклатура
-        </a>
-        <a href="#/suppliers" data-tab="suppliers">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          Поставщики
-        </a>
-        <a href="#/sber" data-tab="sber">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Сбербанк
-        </a>
-        <a href="#/webhook" data-tab="webhook">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 4 6-4M2 4v8a1 1 0 001 1h10a1 1 0 001-1V4M2 4a1 1 0 011-1h10a1 1 0 011 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          Webhook 1C
-        </a>
+
+        <div class="nav-group" data-group="catalogs">
+          <a href="#/mappings" class="nav-group-trigger" data-tab="mappings,suppliers" aria-haspopup="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Справочники
+            <svg class="nav-caret" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <div class="nav-menu" role="menu">
+            <a href="#/mappings" data-tab="mappings" role="menuitem">Номенклатура</a>
+            <a href="#/suppliers" data-tab="suppliers" role="menuitem">Поставщики</a>
+          </div>
+        </div>
+
+        <div class="nav-group" data-group="integrations">
+          <a href="#/sber" class="nav-group-trigger" data-tab="sber,webhook" aria-haspopup="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Интеграции
+            <svg class="nav-caret" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <div class="nav-menu" role="menu">
+            <a href="#/sber" data-tab="sber" role="menuitem">Сбербанк</a>
+            <a href="#/webhook" data-tab="webhook" role="menuitem">Webhook 1C</a>
+          </div>
+        </div>
+
         <a href="#/settings" data-tab="settings">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 8a5.5 5.5 0 01-.4 2l1.2 1.5-1.4 1.4L11.4 11.7a5.5 5.5 0 01-2 .4V14h-2v-1.9a5.5 5.5 0 01-2-.4L3.9 12.9 2.5 11.5 3.7 10a5.5 5.5 0 01-.4-2H1.5V6h1.8a5.5 5.5 0 01.4-2L2.5 2.5l1.4-1.4L5.4 2.3a5.5 5.5 0 012-.4V0h2v1.9a5.5 5.5 0 012 .4l1.5-1.2 1.4 1.4-1.2 1.5a5.5 5.5 0 01.4 2h1.9v2h-1.9z" stroke="currentColor" stroke-width="1" opacity="0.4"/></svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" opacity="0.4"/></svg>
           Настройки
         </a>
         <a href="#/profile" data-tab="profile" data-route="profile">
@@ -105,23 +110,28 @@
   <main>
     <!-- Invoices Section -->
     <section id="view-invoices">
+      <div class="section-header">
+        <h1 class="section-h1">Накладные</h1>
+        <a href="#/upload" class="btn btn-primary btn-sm" id="btn-upload-from-list">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          Загрузить
+        </a>
+      </div>
       <div id="invoices-stats" class="stats-bar"></div>
       <div id="invoices-list">
         <div class="filters" id="invoices-filters"></div>
         <div class="table-wrap">
-          <table>
+          <table class="invoices-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Файл</th>
                 <th>Номер</th>
                 <th>Дата</th>
                 <th>Поставщик</th>
-                <th>Сумма</th>
-                <th>Обработка</th>
+                <th style="text-align:right">Сумма</th>
                 <th>Статус</th>
-                <th title="Платёжное поручение в Сбер.Бизнес">Сбер</th>
-                <th>Создан</th>
+                <th title="Платёжное поручение в Сбер.Бизнес" style="text-align:center">Сбер</th>
                 <th></th>
               </tr>
             </thead>

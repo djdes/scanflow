@@ -94,6 +94,17 @@ const App = {
     window.location.hash = hash;
   },
 
+  // Set .active on the nav link for `tab`. If the link lives inside a
+  // .nav-group dropdown, also highlight the group's trigger so the user
+  // sees which dropdown is open.
+  activateNavTab(tab) {
+    const link = document.querySelector(`nav a[data-tab="${tab}"]:not(.nav-group-trigger)`);
+    if (!link) return;
+    link.classList.add('active');
+    const group = link.closest('.nav-group');
+    if (group) group.querySelector('.nav-group-trigger')?.classList.add('active');
+  },
+
   route() {
     const hash = window.location.hash || '#/invoices';
     // Hide all sections
@@ -103,7 +114,7 @@ const App = {
 
     if (hash.startsWith('#/invoices/')) {
       document.getElementById('view-invoices').style.display = 'block';
-      document.querySelector('nav a[data-tab="invoices"]').classList.add('active');
+      this.activateNavTab('invoices');
       const id = parseInt(hash.split('/')[2]);
       if (!Number.isFinite(id) || id <= 0) {
         this.notify('Некорректный ID накладной', 'error');
@@ -113,11 +124,11 @@ const App = {
       Invoices.showDetail(id);
     } else if (hash === '#/invoices' || hash === '#/' || hash === '') {
       document.getElementById('view-invoices').style.display = 'block';
-      document.querySelector('nav a[data-tab="invoices"]').classList.add('active');
+      this.activateNavTab('invoices');
       Invoices.showList();
     } else if (hash === '#/upload') {
       document.getElementById('view-upload').style.display = 'block';
-      document.querySelector('nav a[data-tab="upload"]').classList.add('active');
+      this.activateNavTab('upload');
       Upload.init();
     } else if (hash === '#/camera') {
       // Legacy bookmark — редирект на объединённую страницу /#/upload
@@ -125,31 +136,31 @@ const App = {
       return;
     } else if (hash === '#/mappings') {
       document.getElementById('view-mappings').style.display = 'block';
-      document.querySelector('nav a[data-tab="mappings"]').classList.add('active');
+      this.activateNavTab('mappings');
       Mappings.load();
     } else if (hash === '#/suppliers') {
       document.getElementById('view-suppliers').style.display = 'block';
-      document.querySelector('nav a[data-tab="suppliers"]').classList.add('active');
+      this.activateNavTab('suppliers');
       Suppliers.load();
     } else if (hash.startsWith('#/sber')) {
       document.getElementById('view-sber').style.display = 'block';
-      document.querySelector('nav a[data-tab="sber"]').classList.add('active');
+      this.activateNavTab('sber');
       Sber.load();
     } else if (hash === '#/webhook') {
       document.getElementById('view-webhook').style.display = 'block';
-      document.querySelector('nav a[data-tab="webhook"]').classList.add('active');
+      this.activateNavTab('webhook');
       Webhook.load();
     } else if (hash === '#/settings') {
       document.getElementById('view-settings').style.display = 'block';
-      document.querySelector('nav a[data-tab="settings"]').classList.add('active');
+      this.activateNavTab('settings');
       Settings.load();
     } else if (hash === '#/profile') {
       document.getElementById('view-profile').style.display = 'block';
-      document.querySelector('nav a[data-tab="profile"]').classList.add('active');
+      this.activateNavTab('profile');
       Profile.init();
     } else {
       document.getElementById('view-invoices').style.display = 'block';
-      document.querySelector('nav a[data-tab="invoices"]').classList.add('active');
+      this.activateNavTab('invoices');
       Invoices.showList();
     }
   },
