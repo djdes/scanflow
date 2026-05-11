@@ -45,6 +45,15 @@
       "date": "2026-05-11",
       "readingMinutes": 7,
       "ogImage": "/og/default.svg"
+    },
+    {
+      "slug": "multi-page-nakladnye-sliyanie",
+      "title": "Накладная на 3 страницах: как ScanFlow собирает её обратно в один документ",
+      "description": "Алгоритм мерджа многостраничных накладных: общий номер + поставщик → одна запись, кейсы когда мердж не сработает.",
+      "tags": ["multi-page", "ocr"],
+      "date": "2026-05-11",
+      "readingMinutes": 5,
+      "ogImage": "/og/default.svg"
     }
   ]
 }
