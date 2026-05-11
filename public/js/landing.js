@@ -620,4 +620,93 @@
     }, 60 * 1000);
   })();
 
+  // ========== LLM Mapping Demo (interactive before/after) ==========
+
+  (function initMappingDemo() {
+    const demo = document.getElementById('mapping-demo');
+    if (!demo) return;
+    const cta = document.getElementById('mapping-cta');
+    const counterEl = document.getElementById('mapping-counter-num');
+    const rows = Array.from(demo.querySelectorAll('.mapping-demo__row:not(.mapping-demo__row--head)'));
+    const total = rows.length;
+    const initiallyMatched = rows.filter((r) => r.dataset.matched === '1').length;
+
+    let animating = false;
+
+    function reset() {
+      demo.classList.remove('is-matched', 'is-running');
+      rows.forEach((r, i) => {
+        // первая строка стартует уже сопоставленной — это нормально, fuzzy сработал.
+        // 0-я row (index) — это первая позиция; ее матч-статус определяется data-matched в HTML.
+        // Здесь восстанавливаем оригинальное состояние.
+        const original = r.getAttribute('data-original-matched') ?? r.dataset.matched;
+        r.dataset.matched = original;
+      });
+      counterEl.textContent = String(initiallyMatched);
+      const label = cta.querySelector('.mapping-demo__cta-label');
+      if (label) label.textContent = 'LLM-маппинг';
+    }
+
+    // Сохраняем исходное значение data-matched чтобы можно было сбросить демо после реплея.
+    rows.forEach((r) => r.setAttribute('data-original-matched', r.dataset.matched));
+
+    function runDemo() {
+      if (animating) return;
+      animating = true;
+
+      // Если уже сопоставлено — это replay: сбрасываем, ждём один кадр, запускаем заново.
+      if (demo.classList.contains('is-matched')) {
+        reset();
+        // Force reflow so the transitions replay cleanly.
+        void demo.offsetWidth;
+      }
+
+      demo.classList.add('is-running');
+
+      // Стадия 1: «обращение к LLM» — 700 мс показываем спиннер
+      setTimeout(() => {
+        demo.classList.remove('is-running');
+        demo.classList.add('is-matched');
+
+        // Стадия 2: строки переключаются последовательно (волной), счётчик растёт
+        const stagger = 120;
+        let matched = initiallyMatched;
+        counterEl.textContent = String(matched);
+
+        rows.forEach((r) => {
+          if (r.dataset.matched === '1') return; // уже было сопоставлено
+          setTimeout(() => {
+            r.dataset.matched = '1';
+            matched += 1;
+            counterEl.textContent = String(matched);
+          }, matched * stagger - initiallyMatched * stagger);
+        });
+
+        // По завершении: смена надписи кнопки + разблокировка
+        setTimeout(() => {
+          const label = cta.querySelector('.mapping-demo__cta-label');
+          if (label) label.textContent = 'Сопоставлено · повторить';
+          animating = false;
+        }, (total - initiallyMatched) * stagger + 400);
+      }, 700);
+    }
+
+    cta.addEventListener('click', runDemo);
+
+    // Авто-запуск один раз когда блок попадает во вьюпорт — чтобы пользователь
+    // увидел «магию» без необходимости куда-то жать. Запоминаем что уже играли,
+    // чтобы скролл туда-сюда не дёргал заново.
+    let autoplayed = false;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || autoplayed) return;
+        autoplayed = true;
+        io.unobserve(entry.target);
+        // Дать секцию рассмотреть в исходном виде, потом запустить.
+        setTimeout(runDemo, 900);
+      });
+    }, { threshold: 0.35 });
+    io.observe(demo);
+  })();
+
 })();
