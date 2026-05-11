@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /app.html
+Disallow: /camera
+Disallow: /api/
+
+Sitemap: https://scanflow.ru/sitemap.xml
