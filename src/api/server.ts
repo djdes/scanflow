@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { loadArticles } from '../seo/articles';
 import { buildSitemapXml } from '../seo/sitemap';
-import { renderListingHtml } from '../seo/blogRender';
+import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth } from './middleware/auth';
@@ -236,7 +236,22 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.sendFile(file);
   });
 
-  // SPA fallback: serve index.html for unmatched GET requests
+  // Build the landing HTML once at first GET / and cache it. Crawlers
+  // see the three newest blog cards inline (good for internal linking).
+  // To refresh after publishing a new article, restart the server.
+  let landingHtmlCache: string | null = null;
+  function getLandingHtml(): string {
+    if (landingHtmlCache) return landingHtmlCache;
+    const raw = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+    landingHtmlCache = renderPreviewHtml(raw, loadArticles()) || raw;
+    return landingHtmlCache;
+  }
+
+  // Explicit landing route — must serve the rendered (with blog preview) HTML.
+  app.get('/', (_req, res) => res.type('html').send(getLandingHtml()));
+
+  // SPA fallback: serve index.html for unmatched GET requests (no injection;
+  // this is for hash-routed subpaths that the SPA handles client-side).
   app.get('/{*splat}', (_req, res) => {
     res.sendFile(path.join(publicDir, 'index.html'));
   });
