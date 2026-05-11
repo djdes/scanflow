@@ -29,14 +29,13 @@ interface CardOpts { featured?: boolean; full?: boolean; }
 /**
  * Render a single blog card anchor.
  *
- * Class-naming convention: the base anchor uses `bc` (short for "blog-card")
- * plus optional BEM modifiers `blog-card--featured`/`blog-card--full`. Tag chips
- * use `blog-card-tag`. The total `blog-card` substring count per rendered card
- * (with no modifier) is exactly `tags.length`, which keeps substring-matching
- * tests well-defined and the CSS hooks consistent with the existing styles.
+ * Class names match the existing CSS in public/css/article.css: `.blog-card`,
+ * `.blog-card--featured`, `.blog-card--full`, `.blog-card-tags`, `.blog-card-tag`,
+ * `.blog-card-desc`, `.blog-card-meta`. The reading-minutes number is wrapped
+ * in <b> to pick up the `.blog-card-meta b` rule (bold, --text colour).
  */
 export function renderCard(article: Article, opts: CardOpts = {}): string {
-  const classes = ['bc'];
+  const classes = ['blog-card'];
   if (opts.featured) classes.push('blog-card--featured');
   if (opts.full) classes.push('blog-card--full');
   const tagChips = article.tags
@@ -44,10 +43,10 @@ export function renderCard(article: Article, opts: CardOpts = {}): string {
     .join('');
   return [
     `<a class="${classes.join(' ')}" href="/blog/${escapeHtml(article.slug)}">`,
-    `  <div class="bc-tags">${tagChips}</div>`,
+    `  <div class="blog-card-tags">${tagChips}</div>`,
     `  <h3>${escapeHtml(article.title)}</h3>`,
-    `  <p class="bc-desc">${escapeHtml(article.description)}</p>`,
-    `  <div class="bc-meta">${article.readingMinutes} мин · ${escapeHtml(formatDateRu(article.date))}</div>`,
+    `  <p class="blog-card-desc">${escapeHtml(article.description)}</p>`,
+    `  <div class="blog-card-meta"><b>${article.readingMinutes}</b> мин · ${escapeHtml(formatDateRu(article.date))}</div>`,
     `</a>`,
   ].join('\n');
 }

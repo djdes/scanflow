@@ -16,12 +16,15 @@ describe('renderCard', () => {
     const html = renderCard(a());
     expect(html).toContain('Тест статьи');
     expect(html).toContain('Описание');
-    expect(html).toContain('7 мин');
+    expect(html).toContain('<b>7</b>');
+    expect(html).toContain('мин');
     expect(html).toContain('1 мая 2026');
   });
   it('renders each tag with the .blog-card-tag class', () => {
     const html = renderCard(a({ tags: ['ocr', '1c-unf'] }));
-    expect((html.match(/blog-card-tag/g) || []).length).toBe(2);
+    // Count chip <span>s specifically — the container <div class="blog-card-tags">
+    // also contains the substring "blog-card-tag", so anchor the regex.
+    expect((html.match(/<span class="blog-card-tag">/g) || []).length).toBe(2);
   });
   it('escapes HTML in title and description', () => {
     const html = renderCard(a({ title: '<script>x</script>' }));
@@ -57,7 +60,8 @@ describe('renderPreviewHtml', () => {
     const doc = '<div class="blog-preview-grid"><!-- BLOG-PREVIEW-PLACEHOLDER --></div>';
     const arts = Array.from({ length: 5 }, (_, i) => a({ slug: `s${i}`, date: `2026-05-0${i+1}` }));
     const out = renderPreviewHtml(doc, arts);
-    expect((out.match(/blog-card/g) || []).length).toBe(3);
+    // Count opening anchor tags that have blog-card as a (whole) class word.
+    expect((out.match(/<a class="blog-card[" ]/g) || []).length).toBe(3);
     expect(out).toContain('s4'); // newest
   });
   it('renders nothing (placeholder removed) when there are no articles', () => {
