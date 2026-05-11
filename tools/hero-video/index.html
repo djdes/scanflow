@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px; height: 1080px;
+        overflow: hidden;
+        background: #06080d;
+        font-family: 'Outfit', sans-serif;
+        color: #e8ecf4;
+      }
+      :root {
+        --bg: #06080d;
+        --bg-surface: #0c1018;
+        --bg-card: #111827;
+        --border: rgba(255,255,255,0.06);
+        --border-lit: rgba(255,255,255,0.12);
+        --text: #e8ecf4;
+        --text-dim: #8892a4;
+        --text-muted: #4a5568;
+        --accent-blue: #3b82f6;
+        --accent-green: #06d6a0;
+        --accent-purple: #a78bfa;
+        --gradient: linear-gradient(135deg, #3b82f6 0%, #06d6a0 100%);
+        --gradient-text: linear-gradient(135deg, #60a5fa 0%, #34d399 100%);
+      }
+
+      /* Atmosphere — lighter (no blur orbs, no SVG-noise overlay for faster capture) */
+      .grid {
+        position: absolute; inset: 0;
+        background-image:
+          linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+        background-size: 80px 80px;
+        mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 90%);
+      }
+      .glow {
+        position: absolute;
+        inset: -10% -10%;
+        background:
+          radial-gradient(circle at 18% 28%, rgba(59,130,246,0.22), transparent 38%),
+          radial-gradient(circle at 82% 78%, rgba(6,214,160,0.18), transparent 42%);
+        pointer-events: none;
+      }
+
+      /* Beat 1 — eyebrow */
+      .eyebrow {
+        position: absolute; top: 110px; left: 50%; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 18px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 26px;
+        color: var(--text-muted);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .dot {
+        width: 14px; height: 14px; border-radius: 50%;
+        background: var(--accent-green);
+        box-shadow: 0 0 24px var(--accent-green);
+      }
+      .eyebrow b { color: var(--accent-green); font-weight: 600; }
+
+      /* Brand mark */
+      .brand {
+        position: absolute; top: 60px; left: 80px;
+        display: flex; align-items: center; gap: 16px;
+        font-family: 'Outfit', sans-serif;
+        font-size: 36px; font-weight: 700;
+        color: var(--text);
+      }
+      .brand-logo {
+        width: 48px; height: 48px;
+        border: 3px solid;
+        border-image: linear-gradient(135deg, #3b82f6, #06d6a0) 1;
+        border-radius: 12px;
+      }
+
+      /* Beat 2 — photo polaroid */
+      .photo {
+        position: absolute;
+        top: 320px; left: 220px;
+        width: 480px; height: 600px;
+        background: #f1f5f9;
+        border: 8px solid #ffffff;
+        border-radius: 6px;
+        box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 16px 32px rgba(0,0,0,0.4);
+        transform-origin: center;
+        padding: 28px 26px 80px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 14px;
+        color: #1e293b;
+        line-height: 1.5;
+        overflow: hidden;
+      }
+      .photo-header {
+        font-weight: 700; font-size: 16px; margin-bottom: 10px;
+        border-bottom: 1px solid #cbd5e1; padding-bottom: 8px;
+      }
+      .photo-row {
+        display: flex; justify-content: space-between;
+        padding: 3px 0;
+      }
+      .photo-row b { font-weight: 600; }
+      .photo-line { height: 1px; background: #e2e8f0; margin: 8px 0; }
+      .photo-total {
+        margin-top: auto;
+        display: flex; justify-content: space-between;
+        padding-top: 12px; border-top: 2px solid #1e293b;
+        font-weight: 700; font-size: 18px;
+      }
+
+      /* Beat 3 — scan-line + badge + counter */
+      .scan-beam {
+        position: absolute;
+        left: 215px; width: 490px;
+        top: 0; height: 100px;
+        background: linear-gradient(180deg,
+          transparent 0%,
+          rgba(59,130,246,0.0) 30%,
+          rgba(59,130,246,0.5) 49%,
+          rgba(6,214,160,0.6) 50%,
+          rgba(59,130,246,0.5) 51%,
+          rgba(59,130,246,0.0) 70%,
+          transparent 100%);
+        filter: blur(4px);
+        z-index: 5;
+      }
+      .ai-badge {
+        position: absolute;
+        top: 320px; left: 760px;
+        display: flex; align-items: center; gap: 12px;
+        padding: 14px 22px;
+        background: rgba(167,139,250,0.12);
+        border: 1px solid rgba(167,139,250,0.4);
+        border-radius: 100px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 22px;
+        color: var(--accent-purple);
+        font-weight: 600;
+      }
+      .ai-badge::before {
+        content: '✦';
+        font-size: 26px;
+      }
+      .counter {
+        position: absolute;
+        top: 410px; left: 760px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 28px;
+        color: var(--text-dim);
+        font-feature-settings: 'tnum';
+      }
+      .counter b { color: var(--text); font-weight: 600; }
+
+      /* Beat 4 — JSON typewriter */
+      .json-pane {
+        position: absolute;
+        top: 320px; left: 760px;
+        width: 920px;
+        background: #0c1426;
+        border: 1px solid var(--border-lit);
+        border-radius: 14px;
+        padding: 30px 32px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 22px;
+        line-height: 1.6;
+        color: #cbd5e1;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      }
+      .json-pane .k { color: #93c5fd; }
+      .json-pane .s { color: #86efac; }
+      .json-pane .n { color: #fcd34d; }
+      .json-pane .c { color: #64748b; }
+      .json-line { display: block; opacity: 0; }
+
+      /* Beat 5 — 3-way fanout */
+      .out-card {
+        position: absolute;
+        width: 460px;
+        background: #111827;
+        border: 1px solid var(--border-lit);
+        border-radius: 16px;
+        padding: 24px 26px;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+        opacity: 0;
+      }
+      .out-1c { top: 540px; left: 200px; }
+      .out-sber { top: 540px; left: 730px; }
+      .out-tg { top: 540px; left: 1260px; }
+      .out-icon {
+        width: 48px; height: 48px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 26px; font-weight: 700;
+        margin-bottom: 14px;
+      }
+      .out-1c .out-icon { background: rgba(251,146,60,0.12); color: #fb923c; }
+      .out-sber .out-icon { background: rgba(33,160,56,0.15); color: #21a038; }
+      .out-tg .out-icon { background: rgba(34,158,217,0.15); color: #229ed9; }
+      .out-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+      .out-title {
+        font-family: 'Unbounded', sans-serif;
+        font-size: 26px; font-weight: 700;
+        margin-bottom: 14px;
+        color: var(--text);
+        line-height: 1.1;
+      }
+      .out-row {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 15px;
+        color: var(--text-dim);
+        padding: 4px 0;
+      }
+      .out-row b { color: var(--text); font-weight: 600; }
+      .out-row.ok { color: var(--accent-green); }
+
+      /* Beat 6 — result big number */
+      .result-stage {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        opacity: 0;
+      }
+      .result-num {
+        font-family: 'Unbounded', sans-serif;
+        font-weight: 900;
+        font-size: 360px;
+        line-height: 0.9;
+        letter-spacing: -0.04em;
+        background: var(--gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .result-label {
+        font-family: 'Unbounded', sans-serif;
+        font-weight: 600;
+        font-size: 56px;
+        color: var(--text);
+        margin-top: 20px;
+        letter-spacing: -0.02em;
+      }
+      .result-sub {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 24px;
+        color: var(--text-dim);
+        margin-top: 24px;
+        letter-spacing: 0.06em;
+      }
+      .result-sub b { color: var(--accent-green); font-weight: 600; }
+
+      /* connecting lines */
+      .conn-line {
+        position: absolute;
+        top: 480px; left: 960px;
+        width: 2px; height: 60px;
+        background: linear-gradient(180deg, var(--accent-blue), transparent);
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="30"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Ambient layer (always visible — but treated as clip per framework) -->
+      <div id="bg" class="clip" data-start="0" data-duration="30" data-track-index="0">
+        <div class="glow"></div>
+        <div class="grid"></div>
+      </div>
+
+      <!-- Brand mark — visible throughout -->
+      <div id="brand" class="clip brand" data-start="0" data-duration="30" data-track-index="1">
+        <div class="brand-logo"></div>
+        <span>ScanFlow</span>
+      </div>
+
+      <!-- Beat 1 (0-3s): eyebrow status line -->
+      <div id="eyebrow" class="clip eyebrow" data-start="0" data-duration="30" data-track-index="2">
+        <span class="dot"></span>
+        <span><b>[</b> OCR ENGINE: CLAUDE-SONNET-4.6 · ONLINE <b>]</b></span>
+      </div>
+
+      <!-- Beat 2 (3-7s): invoice photo slides in -->
+      <div id="photo" class="clip photo" data-start="3" data-duration="22" data-track-index="3" style="transform: translate(0, 800px) rotate(-6deg);">
+        <div class="photo-header">ТОВАРНАЯ НАКЛАДНАЯ № 2841</div>
+        <div class="photo-row"><span>от 30.01.2026</span><span>ТОРГ-12</span></div>
+        <div class="photo-line"></div>
+        <div class="photo-row"><span>Поставщик</span><b>ИП Чихинов Г.А.</b></div>
+        <div class="photo-row"><span>ИНН</span><b>504410008491</b></div>
+        <div class="photo-line"></div>
+        <div class="photo-row"><span>Баклажаны</span><span>2 484 ₽</span></div>
+        <div class="photo-row"><span>Грибы шампиньоны</span><span>900 ₽</span></div>
+        <div class="photo-row"><span>Капуста китайская</span><span>2 220 ₽</span></div>
+        <div class="photo-row"><span>Картофель мини</span><span>754 ₽</span></div>
+        <div class="photo-row"><span>Лук красный</span><span>264 ₽</span></div>
+        <div class="photo-row"><span>Майонез Печагин</span><span>3 500 ₽</span></div>
+        <div class="photo-row"><span>Морковь</span><span>2 107 ₽</span></div>
+        <div class="photo-row"><span>Огурцы соленые</span><span>2 220 ₽</span></div>
+        <div class="photo-row"><span>... + 6 позиций</span><span></span></div>
+        <div class="photo-total"><span>Итого</span><span>22 893 ₽</span></div>
+      </div>
+
+      <!-- Beat 3 (7-12s): scan beam -->
+      <div id="scan" class="clip scan-beam" data-start="7" data-duration="5" data-track-index="4"></div>
+
+      <!-- Beat 3 (7-12s): Claude badge + counter -->
+      <div id="aibadge" class="clip ai-badge" data-start="7" data-duration="10" data-track-index="5">claude-sonnet-4.6 · vision</div>
+      <div id="counter" class="clip counter" data-start="7" data-duration="10" data-track-index="6"><b id="counterval">0.0</b> сек</div>
+
+      <!-- Beat 4 (12-17s): JSON typewriter -->
+      <div id="jsonpane" class="clip json-pane" data-start="12" data-duration="12" data-track-index="7" style="opacity: 0;">
+        <span class="json-line" id="jl0"><span class="c">// invoice 2841 — distilled</span></span>
+        <span class="json-line" id="jl1">{</span>
+        <span class="json-line" id="jl2">  <span class="k">"invoice_number"</span>: <span class="s">"2841"</span>,</span>
+        <span class="json-line" id="jl3">  <span class="k">"date"</span>: <span class="s">"2026-01-30"</span>,</span>
+        <span class="json-line" id="jl4">  <span class="k">"supplier"</span>: <span class="s">"ИП Чихинов Г.А."</span>,</span>
+        <span class="json-line" id="jl5">  <span class="k">"inn"</span>: <span class="s">"504410008491"</span>,</span>
+        <span class="json-line" id="jl6">  <span class="k">"items"</span>: <span class="n">14</span>,</span>
+        <span class="json-line" id="jl7">  <span class="k">"total"</span>: <span class="n">22893</span>,</span>
+        <span class="json-line" id="jl8">  <span class="k">"validated"</span>: <span class="n">true</span>  <span class="c">// qty×price=total</span></span>
+        <span class="json-line" id="jl9">}</span>
+      </div>
+
+      <!-- Beat 5 (17-24s): 3 fanout cards -->
+      <div id="out1c" class="clip out-card out-1c" data-start="17" data-duration="11" data-track-index="8">
+        <div class="out-icon">1C</div>
+        <div class="out-tag">1С:УНФ · приход</div>
+        <div class="out-title">Приходная<br>накладная №2841</div>
+        <div class="out-row"><b>14</b> позиций · НДС 20%</div>
+        <div class="out-row ok">✓ создан документ</div>
+      </div>
+
+      <div id="outsber" class="clip out-card out-sber" data-start="17" data-duration="11" data-track-index="9">
+        <div class="out-icon">₽</div>
+        <div class="out-tag">сбербизнес · черновик</div>
+        <div class="out-title">Платёжное<br>поручение</div>
+        <div class="out-row">ИП Чихинов · <b>22 893 ₽</b></div>
+        <div class="out-row ok">✓ ждёт подписи токеном</div>
+      </div>
+
+      <div id="outtg" class="clip out-card out-tg" data-start="17" data-duration="11" data-track-index="10">
+        <div class="out-icon">✈</div>
+        <div class="out-tag">telegram · уведомление</div>
+        <div class="out-title">Накладная<br>обработана</div>
+        <div class="out-row">№2841 · 14 поз · 22 893 ₽</div>
+        <div class="out-row ok">✓ доставлено</div>
+      </div>
+
+      <!-- Beat 6 (24-30s): result stage -->
+      <div id="result" class="clip result-stage" data-start="24" data-duration="6" data-track-index="11">
+        <div class="result-num">3</div>
+        <div class="result-label">секунды</div>
+        <div class="result-sub">1 фото → <b>3 системы</b> · полностью автоматически</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // Beat 1 (0-3s) — eyebrow fade-in + dot pulse
+      tl.from('#brand', { opacity: 0, y: -20, duration: 0.7, ease: 'power2.out' }, 0)
+        .from('#eyebrow', { opacity: 0, y: 12, duration: 0.7, ease: 'power2.out' }, 0.2)
+        .to('.dot', { opacity: 0.4, duration: 1, repeat: 28, yoyo: true, ease: 'sine.inOut' }, 0);
+
+      // Beat 2 (3-7s) — photo slides in from bottom-right
+      tl.to('#photo', {
+        x: 0, y: 0, rotation: -4,
+        duration: 1.2,
+        ease: 'back.out(1.4)',
+      }, 3);
+
+      // Beat 3 (7-12s) — scan beam sweeps top→bottom over photo + Claude badge + counter
+      tl.fromTo('#scan',
+        { top: 220 },
+        { top: 1000, duration: 4, ease: 'sine.inOut' },
+      3.2);
+      tl.from('#aibadge', { opacity: 0, x: 40, duration: 0.6, ease: 'power2.out' }, 7)
+        .from('#counter', { opacity: 0, x: 40, duration: 0.6, ease: 'power2.out' }, 7.2);
+
+      // Counter ticks 0.0 → 1.2
+      const counterObj = { v: 0 };
+      tl.to(counterObj, {
+        v: 1.2, duration: 4, ease: 'power1.out',
+        onUpdate: () => {
+          const el = document.getElementById('counterval');
+          if (el) el.textContent = counterObj.v.toFixed(1);
+        }
+      }, 7.5);
+
+      // Beat 4 (12-17s) — fade Claude badge+counter out, photo dims; JSON pane appears
+      tl.to(['#aibadge', '#counter'], { opacity: 0, duration: 0.4 }, 11.5)
+        .to('#photo', { x: -120, scale: 0.9, opacity: 0.35, duration: 0.6 }, 11.5);
+      tl.to('#jsonpane', { opacity: 1, x: 0, duration: 0.5, ease: 'power2.out' }, 12);
+
+      // Typewriter — each line opacity 0→1 with slight delay
+      ['#jl0', '#jl1', '#jl2', '#jl3', '#jl4', '#jl5', '#jl6', '#jl7', '#jl8', '#jl9'].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, duration: 0.18, ease: 'none' }, 12.4 + i * 0.32);
+      });
+
+      // Beat 5 (17-24s) — hide photo + JSON, deal out 3 cards
+      tl.to(['#photo', '#jsonpane'], { opacity: 0, scale: 0.85, duration: 0.7 }, 16.8);
+      tl.fromTo('#out1c',
+        { opacity: 0, y: 60, scale: 0.92 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)' },
+      17.2);
+      tl.fromTo('#outsber',
+        { opacity: 0, y: 60, scale: 0.92 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)' },
+      17.6);
+      tl.fromTo('#outtg',
+        { opacity: 0, y: 60, scale: 0.92 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)' },
+      18);
+
+      // Beat 6 (24-30s) — fade everything down except brand+eyebrow, show big "3 секунды"
+      tl.to(['#out1c', '#outsber', '#outtg'], { opacity: 0, y: -30, duration: 0.6 }, 23.5);
+      tl.fromTo('#result',
+        { opacity: 0, scale: 0.7 },
+        { opacity: 1, scale: 1, duration: 0.9, ease: 'back.out(1.4)' },
+      24);
+      tl.to('#result', { opacity: 0, duration: 0.6 }, 29.4);
+
+      window.__timelines['main'] = tl;
+    </script>
+  </body>
+</html>
