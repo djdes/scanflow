@@ -27,6 +27,15 @@
       "date": "2026-05-11",
       "readingMinutes": 9,
       "ogImage": "/og/default.svg"
+    },
+    {
+      "slug": "torg-12-kak-pravilno-raspoznat",
+      "title": "ТОРГ-12: какие графы важны и где OCR ошибается чаще всего",
+      "description": "Структура ТОРГ-12, что нужно вытащить, типичные OCR-ошибки и как их ловит кросс-валидация qty × price ≈ total.",
+      "tags": ["torg-12", "ocr"],
+      "date": "2026-05-11",
+      "readingMinutes": 6,
+      "ogImage": "/og/default.svg"
     }
   ]
 }
