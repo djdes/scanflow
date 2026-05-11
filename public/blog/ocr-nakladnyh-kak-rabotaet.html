@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Как работает OCR накладных в 2026: от Google Vision к Claude Sonnet 4.6</title>
+  <meta name="description" content="Сравнение классической OCR-цепочки и vision-LLM на реальных накладных. Цифры из продакшена ScanFlow: 99.2% точности, 1.2с на страницу, $0.003 за документ.">
+  <link rel="canonical" href="https://scanflow.ru/blog/ocr-nakladnyh-kak-rabotaet">
+  <meta name="robots" content="index, follow">
+
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Как работает OCR накладных в 2026">
+  <meta property="og:description" content="Vision-LLM против классики: реальные цифры точности и стоимости.">
+  <meta property="og:url" content="https://scanflow.ru/blog/ocr-nakladnyh-kak-rabotaet">
+  <meta property="og:image" content="https://scanflow.ru/og/default.svg">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="article:published_time" content="2026-05-11">
+  <meta property="article:section" content="OCR">
+  <meta property="article:tag" content="ocr">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Как работает OCR накладных в 2026">
+  <meta name="twitter:description" content="Vision-LLM против классики: реальные цифры.">
+  <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/article.css">
+
+  <script>
+    (function () {
+      function resolveAuto() {
+        var h = new Date().getHours();
+        if (h >= 7 && h < 19) return 'light';
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+        return 'dark';
+      }
+      try {
+        var raw = localStorage.getItem('sf-theme');
+        var mode = (raw === 'light' || raw === 'dark' || raw === 'auto') ? raw : 'auto';
+        document.documentElement.setAttribute('data-theme', (mode === 'auto') ? resolveAuto() : mode);
+        document.documentElement.setAttribute('data-theme-mode', mode);
+      } catch (_) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    })();
+  </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Как работает OCR накладных в 2026: от Google Vision к Claude Sonnet 4.6",
+    "description": "Сравнение классической OCR-цепочки и vision-LLM на реальных накладных. Цифры из продакшена ScanFlow.",
+    "image": "https://scanflow.ru/og/default.svg",
+    "datePublished": "2026-05-11",
+    "dateModified": "2026-05-11",
+    "author": { "@type": "Organization", "name": "ScanFlow" },
+    "publisher": {
+      "@type": "Organization",
+      "name": "ScanFlow",
+      "logo": { "@type": "ImageObject", "url": "https://scanflow.ru/og/default.svg" }
+    },
+    "mainEntityOfPage": "https://scanflow.ru/blog/ocr-nakladnyh-kak-rabotaet"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Главная", "item": "https://scanflow.ru/" },
+      { "@type": "ListItem", "position": 2, "name": "Блог",    "item": "https://scanflow.ru/blog" },
+      { "@type": "ListItem", "position": 3, "name": "OCR накладных" }
+    ]
+  }
+  </script>
+</head>
+<body class="article-page">
+
+  <div class="read-progress" id="read-progress" aria-hidden="true"></div>
+  <div class="grain-overlay" aria-hidden="true"></div>
+
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+            <rect x="3" y="3" width="34" height="34" rx="8" stroke="url(#logo-grad)" stroke-width="2.5"/>
+            <line x1="11" y1="14" x2="29" y2="14" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round"/>
+            <line x1="11" y1="20" x2="25" y2="20" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+            <line x1="11" y1="26" x2="21" y2="26" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+            <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#06d6a0"/></linearGradient></defs>
+          </svg>
+        </div>
+        <span class="logo-text">ScanFlow</span>
+      </a>
+      <nav class="main-nav" id="main-nav">
+        <a href="/#features">Возможности</a>
+        <a href="/#demo">Демо</a>
+        <a href="/#pricing">Тарифы</a>
+        <a href="/blog" aria-current="page">Блог</a>
+      </nav>
+      <div class="header-actions">
+        <a href="/#auth" class="btn-ghost">Войти</a>
+        <a href="/#demo" class="btn-primary-sm">Попробовать</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="article-hero">
+      <div class="hero-papers" aria-hidden="true">
+        <span class="paper paper--1">qty × price = 2 200</span>
+        <span class="paper paper--3">№ 2841 · 12 850 ₽</span>
+      </div>
+      <div class="container">
+        <nav class="article-breadcrumb" aria-label="Хлебные крошки">
+          <a href="/">Главная</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <a href="/blog">Блог</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <span>OCR накладных</span>
+        </nav>
+        <div class="article-tags">
+          <span class="article-tag">OCR</span>
+        </div>
+        <h1>Как работает <span class="gradient-text">OCR накладных</span> в 2026: от Google Vision к Claude Sonnet 4.6</h1>
+        <div class="article-meta">
+          <span>автор <b>Команда ScanFlow</b></span>
+          <span class="sep">·</span>
+          <span><b>7 мин</b> чтения</span>
+          <span class="sep">·</span>
+          <span>11 мая 2026</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="container article-layout">
+      <article class="article-prose">
+
+        <details class="article-toc-mobile">
+          <summary>Содержание</summary>
+          <ol>
+            <li><a href="#problem">Проблема</a></li>
+            <li><a href="#classic">Как обычно решают</a></li>
+            <li><a href="#scanflow">Как это работает в ScanFlow</a></li>
+            <li><a href="#gotchas">Что важно учесть</a></li>
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="#next">Что дальше</a></li>
+          </ol>
+        </details>
+
+<!-- BODY PROSE START -->
+
+        <p>OCR — это <em>распознавание текста с изображения</em>. Применительно к российским накладным звучит просто: «возьмите фото, верните таблицу позиций». На практике это до сих пор одна из самых хрупких задач в B2B-автоматизации: ТОРГ-12 пишут от руки, штампы переезжают на текст, лента кассового аппарата затирает суммы, страницы накладной фотографируют под наклоном с подсветкой от окна.</p>
+
+        <p>За последние два года рынок изменился сильнее, чем за десять до этого: vision-LLM (Claude Sonnet 4.6, GPT-4o vision, Gemini 1.5 Pro) научились читать целую накладную в один заход — без отдельной OCR-стадии. В этой статье мы разберём, как именно это работает у нас в <a href="/">ScanFlow</a> — на цифрах из реального продакшена.</p>
+
+        <h2 id="problem">Проблема: почему обычный OCR проигрывает на накладных</h2>
+
+        <p>Классическая OCR-задача — это плоский текст: книга, договор, абзацы. Накладная — это <strong>таблица</strong>, в которой важен не только текст, но и геометрия: какая ячейка относится к колонке «количество», а какая — к «итого». Если потерять колонку, числа поплывут.</p>
+
+        <p>Типовые ошибки на накладных, которые мы видим в нашем потоке:</p>
+        <ul>
+          <li><strong>SKU прочитан как количество.</strong> В ТОРГ-12 артикулы выглядят как «113393» — длинное число рядом с позицией. Без понимания структуры таблицы OCR парсит его в графу «количество», а реальное «10» уходит в графу «цена». Накладная на 14 позиций превращается в неправдоподобный итог в миллион рублей.</li>
+          <li><strong>Перенос между страницами.</strong> Многостраничная накладная: на странице 1 — 15 позиций, на странице 2 — продолжение нумерации, а на странице 3 — только итоги и подпись. Если соединять их «текстом», ИТОГО будет посчитан дважды, а позиции с переноса потеряются.</li>
+          <li><strong>Своп НДС и итога.</strong> Колонки «без НДС / НДС / с НДС» близко друг к другу, OCR путает их местами в строках, где НДС не выписан явно. Так в учёт попадает завышенная или заниженная сумма налога.</li>
+          <li><strong>Печать поверх текста.</strong> Штамп поставщика смещается на цену — и распознаётся как часть числа.</li>
+        </ul>
+
+        <h2 id="classic">Как обычно решают: классическая цепочка</h2>
+
+        <p>Стандартная архитектура «OCR-стартапа» 2019-2022 годов выглядела так:</p>
+
+        <ol>
+          <li><strong>Препроцессинг изображения</strong> — deskew (выравнивание наклона), denoise (шумоподавление), бинаризация. Обычно через OpenCV или Sharp.</li>
+          <li><strong>Сам OCR</strong> — Google Cloud Vision / Yandex SpeechKit OCR / Tesseract — даёт сырой текст с bounding-box'ами.</li>
+          <li><strong>Layout analysis</strong> — поиск таблиц: где границы, где заголовки колонок. Чаще всего регулярки и эвристики.</li>
+          <li><strong>Парсер позиций</strong> — извлекает кортежи <code>(название, qty, price, total)</code> из распознанных строк таблицы, опять же regex-ами.</li>
+          <li><strong>Валидация</strong> — <code>qty × price ≈ total</code> для каждой строки; если не сходится — флаг для ручной проверки.</li>
+        </ol>
+
+        <p>Эта цепочка работает, но <strong>каждый шаг — точка отказа</strong>. Google Vision отлично читает буквы, но не понимает, что «113393» — это артикул. Регулярки парсера ломаются на любом нестандартном формате таблицы. Layout analysis на 4-страничной накладной с переносом колонок — это отдельная боль.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-icon">⚠</span>
+          <div>
+            <p><strong>Подводный камень из нашей истории:</strong> в нашем регулярном парсере живёт массив <code>skipKeywords</code> — список слов вроде «образец», «заполнения», «платёжного». Каждое слово там <em>блокирует реальный false-positive</em>, пойманный на проде. Удалить любое — значит вернуть конкретную ошибку парсинга. Это типично для regex-based OCR: эвристики растут как бородавки и хрупки к любым изменениям формата.</p>
+          </div>
+        </div>
+
+        <h2 id="scanflow">Как это работает в ScanFlow: один вызов вместо четырёх</h2>
+
+        <p>Сегодня в продакшене OCR работает <strong>в одном API-вызове</strong>: фото уходит напрямую в Claude Sonnet 4.6 (vision-режим), модель возвращает структурированный JSON со всеми позициями накладной. Отдельной OCR-стадии больше нет.</p>
+
+        <h3>Что происходит под капотом</h3>
+
+        <ol>
+          <li><strong>Препроцессинг — только ориентация.</strong> Sharp поворачивает изображение по EXIF, а Claude Haiku 4.5 на маленьком 400-пиксельном превью определяет правильную ориентацию (документ может быть боком или вверх ногами). Без этого vision-модели сильно галлюцинируют на повёрнутом тексте — это самая дешёвая и эффективная оптимизация во всём пайплайне.</li>
+          <li><strong>Vision-запрос с typed schema.</strong> Claude получает картинку и инструкцию вернуть JSON по схеме <code>{invoice_number, supplier, items: [{name, qty, unit, price, total, vat_rate}]}</code>. Никаких регулярок, никакого layout-analysis — модель сама «видит» таблицу как таблицу.</li>
+          <li><strong>Валидация в коде.</strong> Для каждой строки проверяем <code>qty × price ≈ total ± 1%</code>. Если расходится — флаг <code>items_total_mismatch</code>, накладная не уходит в 1С автоматом, ждёт оператора.</li>
+          <li><strong>Маппинг номенклатуры.</strong> Названия типа «мол. 3.2% Простоквашино» сопоставляются с каталогом 1С через Fuse.js fuzzy match + Claude LLM-маппер. Это уже не OCR, но часть пайплайна — и без неё распознанная позиция бесполезна.</li>
+        </ol>
+
+        <h3>Реальные цифры из продакшена</h3>
+
+        <p>За 6 месяцев работы пайплайна на потоке российских поставщиков (продукты, общепит, опт):</p>
+
+        <ul>
+          <li><strong>Точность на уровне позиции:</strong> 99.2% — доля строк, где qty, price и total распознаны верно. На уровне накладной в целом (хотя бы одна позиция с ошибкой) — около 96%.</li>
+          <li><strong>Среднее время:</strong> 1.2 секунды на страницу, 3.2 секунды на 3-страничную накладную (включая препроцессинг, валидацию и маппинг).</li>
+          <li><strong>Стоимость:</strong> ~$0.003 за документ при текущих ценах Claude Sonnet 4.6 API. На рублёвой стороне получается около 25 копеек за скан.</li>
+          <li><strong>Многостраничные:</strong> 12% документов в выборке имеют 2+ страницы; алгоритм объединения корректно склеивает их по общему номеру и поставщику в 97% случаев.</li>
+        </ul>
+
+        <p class="pull-quote">Главный сдвиг — не «точность OCR стала выше». Главный сдвиг — модель <em>понимает</em> накладную как документ, а не как пиксели.</p>
+
+        <h3>Почему fallback-цепочка всё ещё в коде</h3>
+
+        <p>В <code>src/ocr/ocrManager.ts</code> по-прежнему живут Google Vision и Tesseract — мы их не выбросили после миграции на Claude. Причины утилитарные:</p>
+
+        <ul>
+          <li><strong>Network-сбои до Anthropic API случаются.</strong> Когда падает <code>api.anthropic.com</code>, лучше отдать оператору пусть менее точный, но непустой результат из Google Vision + regex-парсинга, чем 500-ю ошибку. На наших цифрах такое случается несколько раз в месяц на одного потребителя API.</li>
+          <li><strong>Дешёвая фолбэк-валидация.</strong> Если новый Claude-ответ выглядит подозрительно (например, total на порядок меньше суммы позиций), мы можем сверить с тем, что увидел Google Vision в исходном тексте.</li>
+          <li><strong>Регуляторно полезно иметь deterministic-парсер</strong> — точку доверия с воспроизводимым поведением, не зависящую от внешнего сервиса. Это важно для аудита.</li>
+        </ul>
+
+        <h2 id="gotchas">Что важно учесть</h2>
+
+        <p>Если вы строите свой OCR-пайплайн на vision-LLM, эти грабли мы уже наступили — не повторяйте.</p>
+
+        <h3>Не доверяйте суммам, считайте их сами</h3>
+
+        <p>Claude иногда округляет числа «для красоты»: возвращает 3 500.00, когда в накладной стоит 3 482.50. Всегда сверяйте <code>qty × price = total</code> и <code>sum(items.total) = invoice.total</code>. На наших данных эта проверка ловит около 30% мелких ошибок до того, как они уходят в учётную систему. Дешёвая страховка, которая окупается с первого инцидента.</p>
+
+        <h3>Считайте rate-limits и стоимость заранее</h3>
+
+        <p>Claude Sonnet 4.6 vision при 200 запросах/мин (стандартный лимит на старте) выдерживает примерно двух одновременных пользователей, делающих batch-загрузку накладных. Если у вас планируется массовая обработка — заранее запрашивайте увеличение rate-limit у Anthropic, очередь иначе быстро встанет.</p>
+
+        <h3>Кешируйте ориентацию</h3>
+
+        <p>Определение ориентации через Claude Haiku — это лишний API-вызов на каждой картинке. Мы кешируем результат по hash файла; повторно отправленная накладная не платит дважды. Мелочь, но на batch-загрузке экономит десятки центов в неделю.</p>
+
+        <div class="callout callout--tip">
+          <span class="callout-icon">💡</span>
+          <div>
+            <p><strong>Если бюджет важен:</strong> используйте Claude Haiku 4.5 вместо Sonnet для простых накладных (одна страница, типографский шрифт, никаких рукописных правок). Точность падает с 99.2% до ~97%, но стоимость снижается в 10×. В <a href="/#features">настройках ScanFlow</a> есть тумблер выбора модели — для большого потока однотипных накладных это реальная экономия.</p>
+          </div>
+        </div>
+
+        <h2 id="faq">FAQ</h2>
+
+        <h3>Можно ли подключить ваш OCR к своему 1С через API?</h3>
+
+        <p>Да, у нас есть REST с <code>X-API-Key</code>: <code>POST /api/upload</code> принимает файл и возвращает structured JSON с распознанными полями. Документацию интеграции получите после регистрации, она же приходит вместе со скачиваемой внешней обработкой <code>.epf</code> для 1С:УНФ.</p>
+
+        <h3>Что с рукописными накладными?</h3>
+
+        <p>Печатный текст — 99%+, рукописный (правки от руки поверх печатной формы — типичный случай в общепите) — около 85%. Полностью рукописная накладная — нестандартный кейс, который мы не оптимизируем. Для такого лучше переснять с лучшим освещением или ввести вручную в 1С.</p>
+
+        <h3>А если ваш сервис ляжет — что с моими данными?</h3>
+
+        <p>Распознанные документы хранятся в нашей MySQL в России, с ежедневными дампами в 03:00. Фото исходников хранятся 90 дней, потом удаляются автоматически. По запросу выгружаем всё в JSON, никаких vendor-lock. Бизнес-критичные данные (контрагенты, номенклатура) синхронизируются с вашей 1С — мы тут только промежуточный слой.</p>
+
+        <h2 id="next">Что дальше</h2>
+
+        <p>OCR — это вход пайплайна. Выход — интеграция с учётной системой и банком. Дальше у нас есть отдельные разборы:</p>
+
+        <ul>
+          <li><a href="/blog/perevod-paper-zacenok-v-1c-unf">От фото накладной до приходной в 1С:УНФ за 3 секунды</a> — что забирает 1С через REST, как маппится номенклатура, как считается НДС по дате.</li>
+          <li><a href="/blog/torg-12-kak-pravilno-raspoznat">ТОРГ-12: какие графы важны и где OCR ошибается чаще всего</a> — углубление по самой популярной российской форме накладной.</li>
+        </ul>
+
+        <p>Хотите попробовать на своих документах — <a href="/#pricing">регистрируйтесь</a>, 5 распознаваний бесплатно.</p>
+
+<!-- BODY PROSE END -->
+
+      </article>
+
+      <aside class="article-toc" id="article-toc-desktop" aria-label="Содержание">
+        <div class="article-toc-label">Содержание</div>
+        <ol>
+          <li><a href="#problem">Проблема</a></li>
+          <li><a href="#classic">Как обычно решают</a></li>
+          <li><a href="#scanflow">Как это работает в ScanFlow</a></li>
+          <li><a href="#gotchas">Что важно учесть</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="#next">Что дальше</a></li>
+        </ol>
+      </aside>
+    </div>
+
+    <footer class="article-footer">
+      <div class="container">
+        <div class="article-cta">
+          <h2>Понравилось?</h2>
+          <p>Попробуйте ScanFlow — 5 распознаваний бесплатно после регистрации.</p>
+          <a href="/#auth" class="btn-primary">Начать бесплатно</a>
+        </div>
+
+        <div class="related-articles">
+          <h3>Читать дальше</h3>
+          <div class="related-grid">
+            <a class="blog-card" href="/blog/perevod-paper-zacenok-v-1c-unf">
+              <div class="blog-card-tags"><span class="blog-card-tag">1С:УНФ</span></div>
+              <h3>От фото накладной до приходной в 1С:УНФ за 3 секунды</h3>
+              <p class="blog-card-desc">Полный пайплайн: что забирает 1С через REST, как сопоставляется номенклатура, как считается НДС по дате.</p>
+              <div class="blog-card-meta"><b>8 мин</b> · 11 мая 2026</div>
+            </a>
+            <a class="blog-card" href="/blog/torg-12-kak-pravilno-raspoznat">
+              <div class="blog-card-tags"><span class="blog-card-tag">ТОРГ-12</span></div>
+              <h3>ТОРГ-12: какие графы важны и где OCR ошибается чаще всего</h3>
+              <p class="blog-card-desc">Структура формы, что важно вытащить и как кросс-валидация ловит 30% ошибок до того, как вы их увидите.</p>
+              <div class="blog-card-meta"><b>6 мин</b> · 11 мая 2026</div>
+            </a>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2026 ScanFlow · OCR накладных для российского бизнеса</p>
+    </div>
+  </footer>
+
+  <script src="/js/landing.js"></script>
+  <script src="/js/article.js" defer></script>
+</body>
+</html>

@@ -67,7 +67,7 @@ describe('Blog listing rendering', () => {
   // This assumes articles.json has at least one article. If it's still empty
   // from Task 0.1, the test is no-op. Once Task 4.1 adds the first article,
   // re-enable.
-  it.skip('listing contains rendered blog-card markup (enable after first article)', async () => {
+  it('listing contains rendered blog-card markup (enable after first article)', async () => {
     const res = await request(app).get('/blog');
     expect(res.text).toMatch(/blog-card/);
     expect(res.text).toMatch(/blog-tag-chip/);

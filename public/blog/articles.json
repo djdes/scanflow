@@ -1,4 +1,14 @@
 {
   "_schema": "Each article has slug, title (≤60), description (140-160), tags[], date (YYYY-MM-DD), readingMinutes (int), ogImage (path), updated? (YYYY-MM-DD optional). 'tags' use the slugs in docs/.../seo-blog-content-design.md tag taxonomy.",
-  "articles": []
+  "articles": [
+    {
+      "slug": "ocr-nakladnyh-kak-rabotaet",
+      "title": "Как работает OCR накладных в 2026: от Google Vision к Claude Sonnet 4.6",
+      "description": "Сравнение классической OCR-цепочки и vision-LLM на реальных накладных. Цифры из продакшена ScanFlow.",
+      "tags": ["ocr"],
+      "date": "2026-05-11",
+      "readingMinutes": 7,
+      "ogImage": "/og/default.svg"
+    }
+  ]
 }
