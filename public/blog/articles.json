@@ -36,6 +36,15 @@
       "date": "2026-05-11",
       "readingMinutes": 6,
       "ogImage": "/og/default.svg"
+    },
+    {
+      "slug": "dadata-i-kontragenty-po-inn",
+      "title": "Автозаполнение контрагентов по ИНН через DaData: как это устроено",
+      "description": "Что возвращает DaData по ИНН, цена, лимиты, сравнение с СПАРК и Контур.Фокус, и как кешировать в локальной таблице.",
+      "tags": ["suppliers"],
+      "date": "2026-05-11",
+      "readingMinutes": 7,
+      "ogImage": "/og/default.svg"
     }
   ]
 }
