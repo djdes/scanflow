@@ -513,4 +513,29 @@
     });
   }
 
+  // ========== Theme Toggle ==========
+  // Manual click sets an override (24h TTL); after that the page falls back
+  // to auto time-of-day in the next page load. The anti-FOUC <script> in
+  // <head> reads the same storage key.
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    const KEY = 'sf-theme';
+    const updateTitle = () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'light' ? 'тёмную' : 'светлую';
+      themeToggle.title = `Переключить на ${next} тему (авто через 24ч)`;
+      themeToggle.setAttribute('aria-pressed', current === 'light' ? 'true' : 'false');
+    };
+    updateTitle();
+    themeToggle.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ value: next, ts: Date.now() }));
+      } catch (_) { /* private mode — best effort */ }
+      updateTitle();
+    });
+  }
+
 })();

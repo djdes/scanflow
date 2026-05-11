@@ -9,6 +9,41 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/landing.css">
+  <script>
+    // Anti-FOUC theme init. Runs before <body> paints.
+    // Priority: fresh user override (< 24h) → time of day (07–19 = light) → prefers-color-scheme.
+    (function () {
+      try {
+        var KEY = 'sf-theme';
+        var OVERRIDE_TTL_MS = 24 * 60 * 60 * 1000;
+        var raw = localStorage.getItem(KEY);
+        var theme = null;
+        if (raw) {
+          try {
+            var saved = JSON.parse(raw);
+            if (saved && saved.value && saved.ts && (Date.now() - saved.ts) < OVERRIDE_TTL_MS) {
+              theme = saved.value;
+            } else {
+              localStorage.removeItem(KEY);
+            }
+          } catch (_) { localStorage.removeItem(KEY); }
+        }
+        if (!theme) {
+          var h = new Date().getHours();
+          if (h >= 7 && h < 19) {
+            theme = 'light';
+          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+            theme = 'light';
+          } else {
+            theme = 'dark';
+          }
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (_) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
 </head>
 <body>
 
@@ -42,6 +77,12 @@
         <a href="#pricing">Тарифы</a>
       </nav>
       <div class="header-actions">
+        <button class="theme-toggle" id="theme-toggle" type="button"
+                aria-label="Переключить тему"
+                title="Переключить тему (автоматически по времени дня)">
+          <span class="icon-sun" aria-hidden="true">☀️</span>
+          <span class="icon-moon" aria-hidden="true">🌙</span>
+        </button>
         <a href="#" class="btn-ghost" id="btn-login-open">Войти</a>
         <a href="#demo" class="btn-primary-sm">Попробовать</a>
       </div>
@@ -161,6 +202,107 @@
           <h3>Оповещения в Telegram-бота</h3>
           <p>Мгновенные уведомления о новых накладных, изменениях цен и ошибках обработки прямо в ваш Telegram.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== AI ADVANTAGES ========== -->
+  <section class="ai-section" id="ai">
+    <div class="container">
+      <div class="section-label" data-animate="fade-up">Почему точнее обычного OCR</div>
+      <h2 class="section-title" data-animate="fade-up" data-delay="1">
+        Не оцифровка — <span class="gradient-text">настоящий ИИ</span>
+      </h2>
+      <p class="section-sub" data-animate="fade-up" data-delay="2">
+        Под капотом Claude Sonnet 4.6. Он понимает накладную как человек: восстанавливает смазанные названия,
+        проверяет арифметику и сам пересчитывает упаковки в нужные вам единицы.
+      </p>
+
+      <div class="ai-cards-row ai-cards-row--featured">
+        <article class="ai-card ai-card--feature" data-animate="fade-up" data-delay="2">
+          <div class="ai-card__badge">AI vs OCR</div>
+          <h3>ИИ читает смысл, а не буквы</h3>
+          <p>Обычный OCR превращает фото в кашу символов и оставляет вас разбираться вручную.
+             ScanFlow понимает структуру накладной — где шапка, где таблица товаров, где итог —
+             даже если фото смазано или сделано под углом.</p>
+          <ul class="ai-card__list">
+            <li>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7l3 3 5-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              ТОРГ-12, УПД, счёт-фактура и счёт на оплату — из коробки
+            </li>
+            <li>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7l3 3 5-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Восстанавливает товары по смыслу даже из искажённого OCR
+            </li>
+            <li>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7l3 3 5-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Игнорирует образцы, штампы и подписи — не подставляет их в товары
+            </li>
+          </ul>
+        </article>
+
+        <article class="ai-card ai-card--feature ai-card--accent" data-animate="fade-up" data-delay="3">
+          <div class="ai-card__badge ai-card__badge--green">Главная фишка</div>
+          <h3>ШТ → КГ автоматически</h3>
+          <p>В накладной — «Кальмар 5 кг», поставка 6 коробок. ИИ распознаёт упаковочный коэффициент
+             и сам переводит количество в нужную единицу. В приходную накладную и в 1С позиции
+             попадают сразу в килограммах — без ручного пересчёта коробок и упаковок.</p>
+          <div class="ai-conversion">
+            <div class="ai-conversion__row">
+              <span class="ai-conversion__from">«Кальмар 5кг» × 6 коробок</span>
+              <svg class="ai-conversion__arrow" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9h11m-4-4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="ai-conversion__to">30 кг</span>
+            </div>
+            <div class="ai-conversion__row">
+              <span class="ai-conversion__from">«Перчатки 100шт/упак» × 2 упак</span>
+              <svg class="ai-conversion__arrow" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9h11m-4-4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="ai-conversion__to">200 шт</span>
+            </div>
+            <div class="ai-conversion__row">
+              <span class="ai-conversion__from">«Маслины 280г 1/12» × 1 кор</span>
+              <svg class="ai-conversion__arrow" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9h11m-4-4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="ai-conversion__to">12 шт</span>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="ai-cards-row ai-cards-row--small">
+        <article class="ai-card" data-animate="fade-up" data-delay="2">
+          <div class="ai-card__icon ai-card__icon--blue">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <rect x="2" y="2" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M6 8l3 3-3 3M12 12h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h3>Самопроверка математики</h3>
+          <p>Каждая строка проверяется: количество × цена ≈ сумма (±1%). Сумма строк сходится
+             с «Всего к оплате». Не сошлось — ИИ перечитывает таблицу, а не подсовывает кривые цифры.</p>
+        </article>
+
+        <article class="ai-card" data-animate="fade-up" data-delay="3">
+          <div class="ai-card__icon ai-card__icon--purple">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <rect x="3" y="2" width="11" height="14" rx="2" stroke="currentColor" stroke-width="1.6"/>
+              <rect x="8" y="6" width="11" height="14" rx="2" stroke="currentColor" stroke-width="1.6"/>
+            </svg>
+          </div>
+          <h3>Многостраничные накладные</h3>
+          <p>Накладная на 3 листа — один документ. ИИ собирает позиции с продолжающейся
+             нумерацией и берёт итог с последней страницы. Ни одна строка не теряется.</p>
+        </article>
+
+        <article class="ai-card" data-animate="fade-up" data-delay="4">
+          <div class="ai-card__icon ai-card__icon--green">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <circle cx="11" cy="11" r="4" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+          <h3>Сопоставление с 1С</h3>
+          <p>ИИ сразу подбирает позицию из вашего справочника номенклатуры — не нужно
+             руками мапить «Помилка Сетан Семам» на «Кальмар филе мороженый».</p>
+        </article>
       </div>
     </div>
   </section>
