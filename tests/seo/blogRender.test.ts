@@ -24,7 +24,12 @@ describe('renderCard', () => {
     const html = renderCard(a({ tags: ['ocr', '1c-unf'] }));
     // Count chip <span>s specifically — the container <div class="blog-card-tags">
     // also contains the substring "blog-card-tag", so anchor the regex.
-    expect((html.match(/<span class="blog-card-tag">/g) || []).length).toBe(2);
+    expect((html.match(/<span class="blog-card-tag"/g) || []).length).toBe(2);
+  });
+  it('emits data-tag on each card tag for client-side filtering', () => {
+    const html = renderCard(a({ tags: ['ocr', '1c-unf'] }));
+    expect(html).toContain('data-tag="ocr"');
+    expect(html).toContain('data-tag="1c-unf"');
   });
   it('escapes HTML in title and description', () => {
     const html = renderCard(a({ title: '<script>x</script>' }));

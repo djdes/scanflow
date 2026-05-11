@@ -39,7 +39,7 @@ export function renderCard(article: Article, opts: CardOpts = {}): string {
   if (opts.featured) classes.push('blog-card--featured');
   if (opts.full) classes.push('blog-card--full');
   const tagChips = article.tags
-    .map((t) => `<span class="blog-card-tag">${escapeHtml(TAG_LABELS[t] ?? t)}</span>`)
+    .map((t) => `<span class="blog-card-tag" data-tag="${escapeHtml(t)}">${escapeHtml(TAG_LABELS[t] ?? t)}</span>`)
     .join('');
   return [
     `<a class="${classes.join(' ')}" href="/blog/${escapeHtml(article.slug)}">`,
