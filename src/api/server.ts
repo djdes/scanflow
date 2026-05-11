@@ -3,6 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
+import fs from 'fs';
+import { loadArticles } from '../seo/articles';
+import { buildSitemapXml } from '../seo/sitemap';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth } from './middleware/auth';
@@ -25,8 +28,11 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   const app = express();
   const publicDir = path.resolve(process.cwd(), 'public');
 
-  // Static files first (no auth needed)
-  app.use(express.static(publicDir));
+  // Static files first (no auth needed).
+  // redirect:false disables the automatic /dir → /dir/ 301 that express.static
+  // applies when a directory matches the URL — otherwise GET /blog would 301
+  // to /blog/ before our explicit /blog route gets a chance to run.
+  app.use(express.static(publicDir, { redirect: false }));
 
   // Middleware
   // CORS: only allow configured origins. With no CORS_ORIGINS env var the
@@ -180,6 +186,36 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Mobile camera page (no auth — accessed from phone on local network)
   app.get('/camera', (_req, res) => {
     res.sendFile(path.join(publicDir, 'camera.html'));
+  });
+
+  // ─── SEO + Blog routes (must be before the SPA fallback) ───
+
+  // GET /sitemap.xml — generated on each request from articles.json (cheap;
+  // alternative would be a startup-time cache, but startup loadtime isn't
+  // worth the staleness on dev).
+  app.get('/sitemap.xml', (_req, res) => {
+    const articles = loadArticles();
+    const xml = buildSitemapXml('https://scanflow.ru', articles);
+    res.type('application/xml').send(xml);
+  });
+
+  // GET /blog — canonical listing (no trailing slash). /blog/ → 301 to /blog.
+  // In Express 5, path-to-regexp v8 treats `/blog` and `/blog/` as the same
+  // route pattern, so we can't register two separate handlers — we check
+  // req.originalUrl to distinguish the trailing-slash form and redirect.
+  app.get('/blog', (req, res) => {
+    if (req.originalUrl.endsWith('/blog/')) return res.redirect(301, '/blog');
+    res.sendFile(path.join(publicDir, 'blog/index.html'));
+  });
+
+  // GET /blog/:slug — serve the matching article HTML or 404. Slug must be
+  // safe (lowercase ascii + hyphens) to avoid path-traversal.
+  app.get('/blog/:slug', (req, res) => {
+    const slug = req.params.slug;
+    if (!/^[a-z0-9-]+$/.test(slug)) return res.status(404).send('Not Found');
+    const file = path.join(publicDir, 'blog', `${slug}.html`);
+    if (!fs.existsSync(file)) return res.status(404).send('Not Found');
+    res.sendFile(file);
   });
 
   // SPA fallback: serve index.html for unmatched GET requests
