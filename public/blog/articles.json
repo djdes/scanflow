@@ -1,0 +1,4 @@
+{
+  "_schema": "Each article has slug, title (≤60), description (140-160), tags[], date (YYYY-MM-DD), readingMinutes (int), ogImage (path), updated? (YYYY-MM-DD optional). 'tags' use the slugs in docs/.../seo-blog-content-design.md tag taxonomy.",
+  "articles": []
+}
