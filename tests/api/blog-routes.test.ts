@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
 
 // Mock all the heavy deps that createServer pulls in, so the test only exercises
 // route wiring. We don't need DB/OCR/Sber here.

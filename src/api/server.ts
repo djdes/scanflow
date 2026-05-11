@@ -222,7 +222,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // safe (lowercase ascii + hyphens) to avoid path-traversal.
   app.get('/blog/:slug', (req, res) => {
     const slug = req.params.slug;
-    if (!/^[a-z0-9-]+$/.test(slug)) return res.status(404).send('Not Found');
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) return res.status(404).send('Not Found');
     const file = path.join(publicDir, 'blog', `${slug}.html`);
     if (!fs.existsSync(file)) return res.status(404).send('Not Found');
     res.sendFile(file);
