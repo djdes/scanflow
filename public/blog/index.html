@@ -1,3 +1,160 @@
 <!DOCTYPE html>
-<html lang="ru"><head><meta charset="UTF-8"><title>Блог</title></head>
-<body><h1>Блог</h1></body></html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Блог ScanFlow — OCR накладных, 1С УНФ, Сбер, контрагенты</title>
+  <meta name="description" content="Технические разборы, гайды по интеграции с 1С:УНФ и СберБизнесом, и редкие истории про то, как OCR ломается на ТОРГ-12.">
+  <link rel="canonical" href="https://scanflow.ru/blog">
+  <meta name="robots" content="index, follow">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Блог ScanFlow">
+  <meta property="og:description" content="Технические гайды по OCR накладных, 1С:УНФ, СберБизнесу и проверке контрагентов.">
+  <meta property="og:url" content="https://scanflow.ru/blog">
+  <meta property="og:image" content="https://scanflow.ru/og/default.svg">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Блог ScanFlow">
+  <meta name="twitter:description" content="OCR накладных, 1С УНФ, СберБизнес — технические разборы">
+  <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/article.css">
+
+  <script>
+    // Anti-FOUC theme init (same as landing) — see /js/landing.js for full logic.
+    (function () {
+      function resolveAuto() {
+        var h = new Date().getHours();
+        if (h >= 7 && h < 19) return 'light';
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+        return 'dark';
+      }
+      try {
+        var raw = localStorage.getItem('sf-theme');
+        var mode = (raw === 'light' || raw === 'dark' || raw === 'auto') ? raw : 'auto';
+        var theme = (mode === 'auto') ? resolveAuto() : mode;
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.setAttribute('data-theme-mode', mode);
+      } catch (_) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    })();
+  </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "Блог ScanFlow",
+    "url": "https://scanflow.ru/blog",
+    "description": "Технические гайды по OCR накладных, 1С:УНФ, СберБизнесу и проверке контрагентов."
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Главная", "item": "https://scanflow.ru/" },
+      { "@type": "ListItem", "position": 2, "name": "Блог",    "item": "https://scanflow.ru/blog" }
+    ]
+  }
+  </script>
+</head>
+<body class="article-page">
+
+  <div class="scan-line" aria-hidden="true"></div>
+  <div class="grain-overlay" aria-hidden="true"></div>
+
+  <!-- Header — reuses landing's site-header markup verbatim. Marked with id so theme switcher binds. -->
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+            <rect x="3" y="3" width="34" height="34" rx="8" stroke="url(#logo-grad)" stroke-width="2.5"/>
+            <line x1="11" y1="14" x2="29" y2="14" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round"/>
+            <line x1="11" y1="20" x2="25" y2="20" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+            <line x1="11" y1="26" x2="21" y2="26" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+            <defs>
+              <linearGradient id="logo-grad" x1="0" y1="0" x2="40" y2="40">
+                <stop offset="0%" stop-color="#3b82f6"/>
+                <stop offset="100%" stop-color="#06d6a0"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <span class="logo-text">ScanFlow</span>
+      </a>
+      <nav class="main-nav" id="main-nav">
+        <a href="/#features">Возможности</a>
+        <a href="/#demo">Демо</a>
+        <a href="/#pricing">Тарифы</a>
+        <a href="/blog" aria-current="page">Блог</a>
+      </nav>
+      <div class="header-actions">
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема" aria-haspopup="menu" aria-expanded="false" title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
+        <a href="/#auth" class="btn-ghost">Войти</a>
+        <a href="/#demo" class="btn-primary-sm">Попробовать</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="blog-hero">
+    <div class="container">
+      <div class="blog-eyebrow">[ БЛОГ · 6 СТАТЕЙ ]</div>
+      <h1>Как мы делаем OCR накладных <span class="gradient-text">и зачем это вам</span></h1>
+      <p class="sub">Технические разборы, гайды по интеграции с 1С:УНФ и СберБизнесом, и редкие истории про то, как OCR ломается на ТОРГ-12.</p>
+
+      <div class="blog-tag-filter" role="group" aria-label="Фильтр по темам">
+        <!-- BLOG-TAG-CHIPS-PLACEHOLDER -->
+      </div>
+
+      <div class="blog-grid" id="blog-grid">
+        <!-- BLOG-CARDS-PLACEHOLDER -->
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2026 ScanFlow · OCR накладных для российского бизнеса</p>
+    </div>
+  </footer>
+
+  <script src="/js/landing.js"></script>
+  <script src="/js/blog.js" defer></script>
+</body>
+</html>
