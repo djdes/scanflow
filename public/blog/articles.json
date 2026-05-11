@@ -18,6 +18,15 @@
       "date": "2026-05-11",
       "readingMinutes": 8,
       "ogImage": "/og/default.svg"
+    },
+    {
+      "slug": "avto-platezhka-v-sberbiznes",
+      "title": "Автоматическое создание платёжки в СберБизнес из накладной",
+      "description": "Гайд по СберБизнес API: mTLS, OAuth, формат purpose, особенность Authorization без Bearer-префикса.",
+      "tags": ["sber"],
+      "date": "2026-05-11",
+      "readingMinutes": 9,
+      "ogImage": "/og/default.svg"
     }
   ]
 }

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Автоматическое создание платёжки в СберБизнес из накладной</title>
+  <meta name="description" content="Гайд по СберБизнес API: mTLS, OAuth, формат purpose, особенность Authorization без Bearer-префикса. Реальные грабли из продакшена.">
+  <link rel="canonical" href="https://scanflow.ru/blog/avto-platezhka-v-sberbiznes">
+  <meta name="robots" content="index, follow">
+
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Автоматическая платёжка в СберБизнес из накладной">
+  <meta property="og:description" content="mTLS, OAuth, purpose без ёлочек, Authorization без Bearer. Грабли из продакшена.">
+  <meta property="og:url" content="https://scanflow.ru/blog/avto-platezhka-v-sberbiznes">
+  <meta property="og:image" content="https://scanflow.ru/og/default.svg">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="article:published_time" content="2026-05-11">
+  <meta property="article:section" content="Сбер">
+  <meta property="article:tag" content="sber">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Автоматическая платёжка в СберБизнес из накладной">
+  <meta name="twitter:description" content="mTLS, OAuth, purpose без ёлочек, Authorization без Bearer. Грабли из продакшена.">
+  <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/article.css">
+
+  <script>
+    (function () {
+      function resolveAuto() {
+        var h = new Date().getHours();
+        if (h >= 7 && h < 19) return 'light';
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+        return 'dark';
+      }
+      try {
+        var raw = localStorage.getItem('sf-theme');
+        var mode = (raw === 'light' || raw === 'dark' || raw === 'auto') ? raw : 'auto';
+        document.documentElement.setAttribute('data-theme', (mode === 'auto') ? resolveAuto() : mode);
+        document.documentElement.setAttribute('data-theme-mode', mode);
+      } catch (_) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    })();
+  </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Автоматическое создание платёжки в СберБизнес из накладной",
+    "description": "Гайд по СберБизнес API: mTLS, OAuth, формат purpose, особенность Authorization без Bearer-префикса. Реальные грабли из продакшена.",
+    "image": "https://scanflow.ru/og/default.svg",
+    "datePublished": "2026-05-11",
+    "dateModified": "2026-05-11",
+    "author": { "@type": "Organization", "name": "ScanFlow" },
+    "publisher": {
+      "@type": "Organization",
+      "name": "ScanFlow",
+      "logo": { "@type": "ImageObject", "url": "https://scanflow.ru/og/default.svg" }
+    },
+    "mainEntityOfPage": "https://scanflow.ru/blog/avto-platezhka-v-sberbiznes"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Главная", "item": "https://scanflow.ru/" },
+      { "@type": "ListItem", "position": 2, "name": "Блог",    "item": "https://scanflow.ru/blog" },
+      { "@type": "ListItem", "position": 3, "name": "Сбер" }
+    ]
+  }
+  </script>
+</head>
+<body class="article-page">
+
+  <div class="read-progress" id="read-progress" aria-hidden="true"></div>
+  <div class="grain-overlay" aria-hidden="true"></div>
+
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+            <rect x="3" y="3" width="34" height="34" rx="8" stroke="url(#logo-grad)" stroke-width="2.5"/>
+            <line x1="11" y1="14" x2="29" y2="14" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round"/>
+            <line x1="11" y1="20" x2="25" y2="20" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+            <line x1="11" y1="26" x2="21" y2="26" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+            <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#06d6a0"/></linearGradient></defs>
+          </svg>
+        </div>
+        <span class="logo-text">ScanFlow</span>
+      </a>
+      <nav class="main-nav" id="main-nav">
+        <a href="/#features">Возможности</a>
+        <a href="/#demo">Демо</a>
+        <a href="/#pricing">Тарифы</a>
+        <a href="/blog" aria-current="page">Блог</a>
+      </nav>
+      <div class="header-actions">
+        <a href="/#auth" class="btn-ghost">Войти</a>
+        <a href="/#demo" class="btn-primary-sm">Попробовать</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="article-hero">
+      <div class="hero-papers" aria-hidden="true">
+        <span class="paper paper--1">Оплата по сч. №2841</span>
+        <span class="paper paper--3">12 850.00 ₽ · в т.ч. НДС 20%</span>
+      </div>
+      <div class="container">
+        <nav class="article-breadcrumb" aria-label="Хлебные крошки">
+          <a href="/">Главная</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <a href="/blog">Блог</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <span>Сбер</span>
+        </nav>
+        <div class="article-tags">
+          <span class="article-tag">Сбер</span>
+        </div>
+        <h1>Автоматическое создание <span class="gradient-text">платёжки в СберБизнес</span> из накладной</h1>
+        <div class="article-meta">
+          <span>автор <b>Команда ScanFlow</b></span>
+          <span class="sep">·</span>
+          <span><b>9 мин</b> чтения</span>
+          <span class="sep">·</span>
+          <span>11 мая 2026</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="container article-layout">
+      <article class="article-prose">
+
+        <details class="article-toc-mobile">
+          <summary>Содержание</summary>
+          <ol>
+            <li><a href="#problem">Проблема</a></li>
+            <li><a href="#classic">Как обычно</a></li>
+            <li><a href="#scanflow">Как это работает в ScanFlow</a></li>
+            <li><a href="#gotchas">Что важно учесть</a></li>
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="#next">Что дальше</a></li>
+          </ol>
+        </details>
+
+<!-- BODY PROSE START -->
+
+        <p>Распознанная накладная — это половина задачи. Вторая половина — заплатить поставщику по этой накладной, не открывая интернет-банк руками. У нас уже есть структурированные реквизиты получателя, сумма, НДС и номер счёта — глупо потом снова набивать всё это в форму СберБизнеса. Эта статья — о том, как мы автоматически создаём черновик платёжного поручения через Sber API, и о пяти конкретных граблях, которые встретили по дороге.</p>
+
+        <p>Если вы ещё не читали предыдущую часть про <a href="/blog/perevod-paper-zacenok-v-1c-unf">интеграцию с 1С:УНФ</a> — там разобрано, как накладная попадает из фото в учётную систему. Здесь мы стартуем с того момента, когда оператор уже подтвердил накладную в дашборде, и хочет одной кнопкой отправить её в банк на оплату.</p>
+
+        <h2 id="problem">Платёжки бухгалтер тоже бьёт руками</h2>
+
+        <p>Накладная пришла, товар принят, в 1С появилась приходная — поставщику пора платить. Это означает: открыть СберБизнес, нажать «Новое платёжное поручение», и руками перенести из накладной шесть-семь полей: ИНН поставщика, КПП, БИК, корсчёт, номер расчётного счёта, сумму, НДС. Дальше написать назначение платежа по канону: <em>«Оплата по сч. №2841 от 30.01.2026 за товары, в т.ч. НДС 20% — 2 141.67 руб.»</em></p>
+
+        <p>На одну платёжку уходит 30-60 секунд. В небольшом оптовом бизнесе это <strong>20+ платежей в день</strong>: одних мы оплачиваем сразу, других — в конце недели, третьих — по факту получения товара. Час-полтора времени бухгалтера в день, и это при условии, что он не отвлекается и не путает реквизиты.</p>
+
+        <p>Категории ошибок, которые мы видели у клиентов до подключения автоматизации:</p>
+
+        <ul>
+          <li><strong>Опечатка в ИНН поставщика.</strong> Самый дорогой класс ошибок: платёж либо уходит «в никуда» и потом возвращается через несколько дней, либо — в худшем случае — попадает к другой организации с похожим ИНН.</li>
+          <li><strong>Не та сумма.</strong> Цифры на бумаге, цифры в накладной 1С, цифры в платёжке — три места, между которыми бухгалтер «прыгает» глазами. Где-то одна цифра выпадает.</li>
+          <li><strong>Назначение без НДС-клаузулы.</strong> Налоговая любит видеть «в т.ч. НДС 20%» прямо в назначении. Без этого пометка идёт в спорные операции при камеральной проверке.</li>
+          <li><strong>Не тот расчётный счёт получателя.</strong> У многих поставщиков несколько счетов (основной, для маркетплейсов, для какой-нибудь спецоперации). Бухгалтер копирует «по памяти» — и попадает не туда.</li>
+        </ul>
+
+        <p>Источник всех этих ошибок — ручное перенесение уже структурированных данных из одной системы в другую. То есть именно тот сценарий, который автоматизация решает идеально.</p>
+
+        <h2 id="classic">Как обычно: открыть Сбер, скопировать реквизиты, вписать назначение</h2>
+
+        <p>Классический маршрут оплаты накладной выглядит так:</p>
+
+        <ol>
+          <li>Открыть распознанную накладную в ScanFlow (или провести её в 1С:УНФ) и посмотреть реквизиты поставщика.</li>
+          <li>В новой вкладке открыть СберБизнес → <code>Платежи и переводы</code> → <code>Создать платёжное поручение</code>.</li>
+          <li>В поле «Получатель»: ввести ИНН, нажать поиск — банк подгружает наименование и КПП из своей базы (или вы создаёте контрагента вручную в первый раз).</li>
+          <li>Выбрать расчётный счёт и БИК банка получателя. Если поставщик новый — ввести оба поля вручную, верифицировать корсчёт.</li>
+          <li>Вписать сумму, выбрать наш расчётный счёт (если у организации их несколько), указать очерёдность платежа (обычно «5»).</li>
+          <li>Сформулировать назначение платежа в строго определённом формате. Включить ссылку на счёт-фактуру (номер и дату) и обязательную НДС-клаузулу.</li>
+          <li>Сохранить как черновик → подписать токеном → отправить.</li>
+        </ol>
+
+        <p>Всё это — механический перенос структурированных данных, которые у нас уже есть. ScanFlow распознал ИНН поставщика, его наименование, банковские реквизиты, сумму и ставку НДС. 1С знает наш расчётный счёт. Очерёдность платежа — константа. Назначение платежа собирается из полей накладной по шаблону.</p>
+
+        <p>Логичный следующий шаг после OCR-автоматизации — научиться передавать это всё в банк через API, чтобы человек только нажал «подписать» в СберБизнесе. Этим мы и занялись.</p>
+
+        <h2 id="scanflow">Как это работает в ScanFlow</h2>
+
+        <p>На странице деталей накладной появляется кнопка <strong>«Отправить в Сбербанк»</strong>. По ней мы собираем payload платёжного поручения и вызываем Sber API. Через несколько секунд в СберБизнесе у пользователя в разделе «Черновики» появляется готовая платёжка — реквизиты заполнены, остаётся только подписать токеном.</p>
+
+        <p>Звучит просто, но между этими двумя точками — четыре нетривиальные вещи, каждую из которых стоит разобрать отдельно.</p>
+
+        <h3>mTLS + OAuth-flow</h3>
+
+        <p>Sber API — это не «получил API-ключ и понеслась». Это полноценный mTLS-канал поверх OAuth. Чтобы вообще достучаться до сервера, нам нужны:</p>
+
+        <ul>
+          <li><strong>Клиентский сертификат</strong> в формате PFX (выдаётся в Sber Developer Portal при регистрации приложения). Храним в <code>./certs/sber.p12</code>, пароль — в env-переменной <code>SBER_TLS_PFX_PASSWORD</code>.</li>
+          <li><strong>CA-сертификат Сбера</strong> для проверки серверного certificate chain. Лежит в <code>./certs/sber-ca.pem</code>.</li>
+          <li><strong>OAuth-токены</strong> на конкретную организацию-плательщика. Получаем через стандартный authorization code flow со scope <code>openid GET_CLIENT_ACCOUNTS PAY_DOC_RU</code>.</li>
+        </ul>
+
+        <p>Без mTLS даже OAuth-эндпоинт не отвечает — TLS-хендшейк просто рвётся. Папка <code>certs/</code> у нас в <code>.gitignore</code>, разворачивается на проде вручную при первом деплое.</p>
+
+        <p>После прохождения OAuth у нас в таблице <code>sber_tokens</code> лежит пара токенов. Платёжное поручение создаётся одним POST-запросом:</p>
+
+        <pre><code>POST https://fintech.sberbank.ru:9443/fintech/api/v1/payments
+Authorization: &lt;access_token&gt;
+Content-Type: application/json
+
+{
+  "date": "2026-02-01",
+  "externalId": "&lt;UUID&gt;",
+  "amount": 12850.00,
+  "operationCode": "01",
+  "priority": "5",
+  "purpose": "Оплата по сч. №2841 от 30.01.2026 за товары, в т.ч. НДС 20%",
+  "payerName": "ООО Ромашка",
+  "payerInn": "7707083893",
+  "payerAccount": "40702810100000000001",
+  "payerBankBic": "044525225",
+  "payerBankCorrAccount": "30101810400000000225",
+  "payeeName": "ООО Поставщик",
+  "payeeBankBic": "044525974"
+}</code></pre>
+
+        <p>Без поля <code>digestSignatures</code> Sber сохраняет документ как черновик и возвращает его <code>externalId</code> — то, что нам нужно.</p>
+
+        <h3>Особенность Authorization: без «Bearer»-префикса</h3>
+
+        <p>Самая неочевидная грабля из тех, что мы прошли. RFC 6750 предписывает передавать OAuth-токен в заголовке как <code>Authorization: Bearer &lt;token&gt;</code>. Любой клиент, любая библиотека, любой Postman-сниппет по умолчанию делает именно так. Так делает <code>fetch</code>, так делают все HTTP-клиенты, так пишут во всех туториалах.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-icon">⚠</span>
+          <div>
+            <p><strong>Sber Business API возвращает 401, если в заголовке есть <code>Bearer</code>.</strong> Ожидается <em>голый</em> токен: <code>Authorization: &lt;access_token&gt;</code>, без всякого префикса. В документации Сбера это упоминается, но мимоходом, и большинство примеров кода в открытых репозиториях написаны с <code>Bearer</code> — потому что копипастятся из других OAuth-провайдеров. Мы выяснили это опытным путём за пару часов до запуска: 401 на каждый запрос, токен валидный, рефреш проходит, но `/v1/payments` упорно отказывает.</p>
+          </div>
+        </div>
+
+        <p>В нашем коде это выглядит так — обратите внимание на отсутствие <code>Bearer</code> в обоих местах:</p>
+
+        <pre><code>// src/sber/payments.ts
+const res = await sberFetch(PAYMENTS_URL, {
+  method: 'POST',
+  headers: {
+    Authorization: accessToken,           // ← БЕЗ Bearer
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  },
+  body: JSON.stringify(body),
+});
+
+// src/sber/clientInfo.ts
+const res = await sberFetch(CLIENT_INFO_URL, {
+  headers: { Authorization: accessToken, Accept: 'application/json' },
+});</code></pre>
+
+        <p>Если в будущем будете писать собственный клиент Sber API — закладывайте это сразу. Все остальные OAuth-провайдеры, с которыми мы работаем (Google, Anthropic, Telegram bot) ждут именно <code>Bearer</code> — поэтому соблазн «исправить» этот код будет высоким. Не исправляйте.</p>
+
+        <h3>Поле «purpose»: 210 символов ASCII-safe — почему</h3>
+
+        <p>Поле назначения платежа (<code>purpose</code>) — отдельная история. Sber API накладывает на него два ограничения, и оба легко проворонить.</p>
+
+        <p>Первое: <strong>максимум 210 символов</strong>. Кажется, что много, но если в назначении есть длинное наименование поставщика и развернутая НДС-клаузула, лимит уезжает быстро. Если превысить — сервер возвращает 400 с непонятной формулировкой про validation error, не уточняя, какое поле «слишком длинное».</p>
+
+        <p>Второе: <strong>только ASCII-friendly пунктуация</strong>. Sber отвергает:</p>
+
+        <ul>
+          <li>«Ёлочки» — типографские кавычки <code>« »</code> и их западные кузены <code>" "</code></li>
+          <li>Em-dash <code>—</code> и en-dash <code>–</code> — нужно заменять на обычный дефис <code>-</code></li>
+          <li>Неразрывный пробел <code> </code> — заменять на обычный пробел</li>
+        </ul>
+
+        <p>При первой реализации мы наивно отправили в Sber пример вида <em>«Оплата по сч. №2841 от 30.01.2026 — в т.ч. НДС 20%»</em> с типографским em-dash. Ответ — 400, без полезного диагноза. Полтора часа на дебаг, прежде чем заподозрили punctuation.</p>
+
+        <p>Сейчас у нас две функции: <code>renderPurpose()</code> собирает текст по шаблону из полей накладной и обрезает на 210 символов с многоточием в конце, а <code>sanitizePurpose()</code> нормализует пунктуацию:</p>
+
+        <pre><code>// src/sber/purposeTemplate.ts
+export function sanitizePurpose(s: string): string {
+  return s
+    .replace(/[«»""„]/g, '"')
+    .replace(/[''']/g, "'")
+    .replace(/ /g, ' ')
+    .replace(/[—–]/g, '-');
+}</code></pre>
+
+        <p>На выходе получаем стабильную строку, которую Sber всегда принимает: <em>«Оплата по сч. №2841 от 30.01.2026 за товары, в т.ч. НДС 20% — 2 141.67 руб.»</em> — где «—» уже превращён в обычный дефис на этапе санитизации.</p>
+
+        <h3>Почему только черновик, а не подписанный платёж</h3>
+
+        <p>Sber API технически позволяет отправлять платёжки уже подписанные — через поле <code>digestSignatures</code> с цифровой подписью документа. Мы сознательно этого не делаем.</p>
+
+        <p class="pull-quote">Деньги уходят только с подписи владельца. ScanFlow заполняет реквизиты, человек принимает финальное решение в банке — иначе никак.</p>
+
+        <p>Причин три, и они складываются друг с другом:</p>
+
+        <ol>
+          <li><strong>Юридическая.</strong> Электронная подпись платёжки — это акт волеизъявления распорядителя счёта. Делегировать его сервису распознавания накладных — путь к проблемам с банком и налоговой при первом же спорном переводе.</li>
+          <li><strong>Безопасность.</strong> Чем меньше критичных операций может сделать наш сервер, тем меньше последствий от потенциальной компрометации. Создать черновик в банке — это zero damage (пользователь увидит лишнюю запись и удалит её). Подписать платёжку — это уже реальные деньги.</li>
+          <li><strong>UX-фильтр.</strong> Пользователь, перед тем как ткнуть подпись токеном, ещё раз глазами видит сумму, получателя и назначение. Это последняя возможность поймать ошибку OCR-распознавания (или нашу ошибку маппинга реквизитов поставщика), прежде чем деньги ушли. Терять этот барьер не хочется.</li>
+        </ol>
+
+        <p>Итог: ScanFlow подготовил черновик, банк принял его и положил в раздел «Черновики», пользователь зашёл с токеном и подписал. От 30-60 секунд ручной работы остаётся только финальное «нажми кнопку и приложи палец». Это и есть нужный нам уровень автоматизации — не больше, не меньше.</p>
+
+        <h2 id="gotchas">Что важно учесть</h2>
+
+        <p>Две грабли, на которые наступаешь не на этапе интеграции, а позже — при первом боевом использовании. Стоит знать заранее.</p>
+
+        <h3>Двойная отправка: UNIQUE(invoice_id) спасает от повторов</h3>
+
+        <p>Пользователь нажал «Отправить в Сбер». Кнопка моргнула. Запрос пошёл. Пользователь, не дождавшись ответа, нажал ещё раз — потому что «вроде ничего не происходит». Если бы мы не защитились — в банке появилось бы <em>два</em> одинаковых черновика на одну и ту же накладную. И, в худшем случае, оба были бы подписаны и оплачены.</p>
+
+        <p>У нас в таблице <code>sber_payments</code> колонка <code>invoice_id</code> объявлена UNIQUE. При первом успешном POST в Sber мы делаем <code>INSERT INTO sber_payments (invoice_id, …)</code>. Второй INSERT на ту же накладную падает на constraint violation — наш роут отвечает 409 Conflict, UI показывает «Платёжка уже отправлена, посмотрите в Сбере». Никаких дублей.</p>
+
+        <p>Эта же логика защищает от другого сценария: пользователь подписал черновик в Сбере, потом передумал и вернулся в ScanFlow «отправить ещё раз». Не получится — и это правильно. Если действительно нужна повторная отправка (предыдущая бухгалтерия удалила черновик в Сбере, например), есть кнопка «сбросить отправку в Сбер» — она удаляет строку из <code>sber_payments</code> и разблокирует повторную попытку. Но это явное осознанное действие, не двойной клик.</p>
+
+        <p>Если кто-то в будущем будет добавлять частичные оплаты (одну накладную тремя платежами по графику) — это <strong>отдельная фича</strong>, с миграцией таблицы и снятием UNIQUE на <code>invoice_id</code>. Не «ослабить constraint», а спроектировать новую модель данных, где у одной накладной несколько связанных платежей. Не путайте.</p>
+
+        <h3>Что делать с истёкшим access_token</h3>
+
+        <p>Sber выдаёт <code>access_token</code> примерно на час, <code>refresh_token</code> — на несколько дней (по нашим наблюдениям — около 5-7). Мы храним оба в таблице <code>sber_tokens</code>. При каждом исходящем запросе проверяем срок жизни <code>access_token</code>: если он истёк или истечёт в ближайшие 60 секунд — делаем refresh через <code>POST /v2/oauth/token</code> и обновляем строку.</p>
+
+        <p>Если на сам платёжный запрос мы всё-таки получили 401 (refresh успешно прошёл несколько минут назад, но Sber уже считает токен невалидным — такое бывает после серверного rebound) — делаем ещё один refresh и повторяем запрос ровно один раз. Больше — нет, иначе можно зациклиться на сломанной аутентификации.</p>
+
+        <div class="callout callout--tip">
+          <span class="callout-icon">💡</span>
+          <div>
+            <p><strong>Операционный совет:</strong> прежде чем катить новый деплой, проверьте, что PFX-сертификат не истёк и расположен по правильному пути. Sber выдаёт сертификат на год, и забыть про это легко — он молча работает 364 дня, а на 365-й все запросы начинают падать с непонятной TLS-ошибкой в кишках undici. У нас в скриптах деплоя есть проверка <code>openssl pkcs12 -in certs/sber.p12 -nokeys</code> с парсингом <code>notAfter</code> — алертит за 30 дней до истечения. Рекомендуем заложить такую же.</p>
+          </div>
+        </div>
+
+        <p>Отдельная история — если <code>refresh_token</code> тоже истёк (пользователь не заходил в систему две недели, токены отлежались и протухли). Тогда любой запрос к Sber падает с 401 уже на refresh. В этом случае мы редиректим пользователя на <code>/#/sber</code> для повторного OAuth flow — браузер открывает страницу Сбера, пользователь логинится, мы получаем свежие токены и кладём их в БД. Это происходит редко (у активных пользователей токены продлеваются автоматически), но если случилось — UX должен быть понятным: «нужно переподключить Сбер», одна кнопка, минута времени.</p>
+
+        <h2 id="faq">FAQ</h2>
+
+        <h3>Что если у меня не Сбер, а другой банк?</h3>
+
+        <p>Пока поддерживается только СберБизнес. В roadmap — ВТБ Бизнес и Альфа-Бизнес: оба банка имеют публичные API для создания платёжных поручений, и оба используют схожую модель с mTLS + OAuth. Но детали разные: у ВТБ другой формат payload (ближе к ISO 20022), Альфа использует JSON Web Signatures для подписи. Это не «поменять URL», а отдельная интеграция для каждого банка. Будем подключать по мере спроса от клиентов.</p>
+
+        <h3>Кто видит черновик платёжки и как его одобрить?</h3>
+
+        <p>Черновик попадает в СберБизнес в раздел <em>«Черновики»</em> или <em>«Документы на подпись»</em> — в зависимости от региональной версии интерфейса. Видят его все сотрудники организации, у которых есть права на работу с этим расчётным счётом. Подписывает — тот, у кого есть право <em>«Подпись платёжных документов»</em>: обычно директор или главбух. Подпись делается через токен Сбера: USB-токен, TouchID на маке/iPhone, либо одноразовый пароль из мобильного приложения СберБизнес — это настраивается в банке при выпуске токена и от ScanFlow не зависит.</p>
+
+        <h3>Отзывается ли черновик автоматом, если я его не подписал?</h3>
+
+        <p>Нет. Черновик живёт в СберБизнесе до тех пор, пока его не подписали или не удалили вручную. Если вы отменили накладную в ScanFlow после того, как успели отправить черновик в Сбер — лучше зайти в банк и удалить черновик руками. У нас нет ручки для удаления уже созданных черновиков из Sber API (с точки зрения API это не баг, а фича — банк не хочет, чтобы внешние сервисы могли отзывать платёжки), поэтому работает только с обеих сторон вручную. На практике это не больно: черновиков накапливается мало, и операция занимает несколько секунд.</p>
+
+        <h2 id="next">Что дальше</h2>
+
+        <p>Сценарий «фото накладной → платёжка в банке» теперь закрыт от начала до конца: распознали, провели в 1С, отправили оплату. Осталось закрыть один важный вспомогательный сценарий — заведение карточки нового поставщика. Об этом — в следующей статье.</p>
+
+        <ul>
+          <li><a href="/blog/perevod-paper-zacenok-v-1c-unf">От фото накладной до приходной в 1С:УНФ за 3 секунды</a> — предыдущая часть пайплайна: как накладная попадает в учётную систему.</li>
+          <li><a href="/blog/dadata-i-kontragenty-po-inn">Автозаполнение контрагентов по ИНН через DaData</a> — следующий шаг: когда поставщик новый, заводим его карточку одним кликом.</li>
+        </ul>
+
+        <p>Хотите попробовать связку «накладная → платёжка» на своих документах — <a href="/#pricing">регистрируйтесь</a>, первые 5 распознаваний бесплатно, подключение Сбера — в разделе «Сбербанк» личного кабинета.</p>
+
+<!-- BODY PROSE END -->
+
+      </article>
+
+      <aside class="article-toc" id="article-toc-desktop" aria-label="Содержание">
+        <div class="article-toc-label">Содержание</div>
+        <ol>
+          <li><a href="#problem">Проблема</a></li>
+          <li><a href="#classic">Как обычно</a></li>
+          <li><a href="#scanflow">Как это работает в ScanFlow</a></li>
+          <li><a href="#gotchas">Что важно учесть</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="#next">Что дальше</a></li>
+        </ol>
+      </aside>
+    </div>
+
+    <footer class="article-footer">
+      <div class="container">
+        <div class="article-cta">
+          <h2>Понравилось?</h2>
+          <p>Попробуйте ScanFlow — 5 распознаваний бесплатно после регистрации.</p>
+          <a href="/#auth" class="btn-primary">Начать бесплатно</a>
+        </div>
+
+        <div class="related-articles">
+          <h3>Читать дальше</h3>
+          <div class="related-grid">
+            <a class="blog-card" href="/blog/perevod-paper-zacenok-v-1c-unf">
+              <div class="blog-card-tags"><span class="blog-card-tag">1С:УНФ</span></div>
+              <h3>От фото накладной до приходной в 1С:УНФ за 3 секунды</h3>
+              <p class="blog-card-desc">Полный пайплайн: REST-контракт, маппинг номенклатуры, НДС по дате. Без рекламы, с цифрами из продакшена.</p>
+              <div class="blog-card-meta"><b>8 мин</b> · 11 мая 2026</div>
+            </a>
+            <a class="blog-card" href="/blog/dadata-i-kontragenty-po-inn">
+              <div class="blog-card-tags"><span class="blog-card-tag">Контрагенты</span></div>
+              <h3>Автозаполнение контрагентов по ИНН через DaData: как это устроено</h3>
+              <p class="blog-card-desc">Что возвращает DaData по ИНН, цена, лимиты, сравнение с СПАРК и Контур.Фокус.</p>
+              <div class="blog-card-meta"><b>7 мин</b> · 11 мая 2026</div>
+            </a>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2026 ScanFlow · OCR накладных для российского бизнеса</p>
+    </div>
+  </footer>
+
+  <script src="/js/landing.js"></script>
+  <script src="/js/article.js" defer></script>
+</body>
+</html>
