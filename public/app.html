@@ -11,46 +11,12 @@
 </head>
 <body>
 
-<!-- Auth Screen -->
-<div id="auth-screen">
-  <div class="auth-backdrop"></div>
-  <div class="auth-card">
-    <div class="auth-logo">
-      <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-        <rect x="2" y="2" width="36" height="36" rx="8" stroke="currentColor" stroke-width="2.5"/>
-        <line x1="10" y1="14" x2="30" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <line x1="10" y1="20" x2="26" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
-        <line x1="10" y1="26" x2="22" y2="26" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
-        <path d="M28 24l4 4m0 0l4 4m-4-4l4-4m-4 4l-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-      </svg>
-    </div>
-    <h1>ScanFlow</h1>
-    <p>Введите логин и пароль для доступа</p>
-    <form id="auth-form" class="auth-form-stacked" autocomplete="on" onsubmit="return false">
-      <div class="input-icon-wrap">
-        <svg class="input-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zM2 14a6 6 0 1112 0H2z" fill="currentColor" opacity="0.4"/></svg>
-        <label for="auth-username-input" class="sr-only">Логин</label>
-        <input type="text" id="auth-username-input" placeholder="Логин" autocomplete="username" aria-label="Логин" required>
-      </div>
-      <div class="input-icon-wrap">
-        <svg class="input-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1a4 4 0 00-4 4v3H3a1 1 0 00-1 1v5a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V5a4 4 0 00-4-4zm2 7H6V5a2 2 0 114 0v3z" fill="currentColor" opacity="0.4"/></svg>
-        <label for="auth-password-input" class="sr-only">Пароль</label>
-        <input type="password" id="auth-password-input" placeholder="Пароль" autocomplete="current-password" aria-label="Пароль" required>
-      </div>
-      <button class="btn btn-primary" id="auth-btn" type="submit">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Войти
-      </button>
-      <div class="auth-error" id="auth-error" hidden></div>
-    </form>
-  </div>
-</div>
-
-<!-- Main App -->
+<!-- Main App. Auth is handled on the landing (/) — if user lands here without
+     a valid apiKey, app.js redirects to /?login=1 which opens the модалку. -->
 <div id="app">
   <header>
     <div class="header-inner">
-      <a href="#/invoices" class="logo" title="На главную">
+      <a href="/" class="logo" title="На лендинг scanflow.ru">
         <svg class="logo-icon" width="28" height="28" viewBox="0 0 40 40" fill="none">
           <rect x="2" y="2" width="36" height="36" rx="8" stroke="currentColor" stroke-width="2.5"/>
           <line x1="10" y1="14" x2="30" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>

@@ -66,8 +66,8 @@ const App = {
     try {
       const res = await fetch(this.baseUrl + path, { ...options, headers });
       if (res.status === 401) {
-        this.logout();
-        this.notify('API-ключ не принят. Введите его снова.', 'error');
+        // 401 = ключ устарел/удалён. Уходим на лендинг, там единая форма входа.
+        this.logout('API-ключ не принят. Войдите ещё раз.');
         throw new Error('Unauthorized');
       }
       return res;
@@ -174,85 +174,31 @@ const App = {
     setTimeout(() => { toast.remove(); }, 4000);
   },
 
-  // Exchange admin username/password for the server's API key via /api/auth/login.
-  // The API key is still the real auth mechanism — login is just a UX wrapper
-  // so users don't have to paste a raw key.
-  async login(username, password) {
-    if (!username || !password) return;
-    const errEl = document.getElementById('auth-error');
-    const btn = document.getElementById('auth-btn');
-    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
-    if (btn) btn.disabled = true;
-    try {
-      const resp = await fetch(this.baseUrl + '/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || !data.apiKey) {
-        if (errEl) {
-          errEl.textContent = data.error || `Ошибка входа (${resp.status})`;
-          errEl.hidden = false;
-        }
-        return;
-      }
-      this.apiKey = data.apiKey;
-      localStorage.setItem('apiKey', data.apiKey);
-      localStorage.setItem('adminUsername', username);
-      sessionStorage.removeItem('apiKey'); // clear any legacy session copy
-      document.getElementById('auth-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      this.route();
-    } catch (err) {
-      if (errEl) {
-        errEl.textContent = 'Не удалось связаться с сервером';
-        errEl.hidden = false;
-      }
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  },
-
-  logout() {
+  // Logout — clears creds, sends user back to the landing page where the
+  // unified login form lives. Optional reason is shown via ?login=1&reason=...
+  // No-op kept for compatibility with the on-page "Выйти" button.
+  logout(reason) {
     this.apiKey = '';
     localStorage.removeItem('apiKey');
     sessionStorage.removeItem('apiKey');
-    document.getElementById('auth-screen').style.display = 'flex';
-    document.getElementById('app').style.display = 'none';
-    const pw = document.getElementById('auth-password-input');
-    if (pw) pw.value = '';
-    const errEl = document.getElementById('auth-error');
-    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    // adminUsername оставляем — пригодится для prefill в форме входа.
+    const params = new URLSearchParams({ login: '1' });
+    if (reason) params.set('reason', reason);
+    window.location.replace('/?' + params.toString());
   },
 
   init() {
     window.addEventListener('hashchange', () => this.route());
 
-    const form = document.getElementById('auth-form');
-    if (form) {
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const u = document.getElementById('auth-username-input').value.trim();
-        const p = document.getElementById('auth-password-input').value;
-        this.login(u, p);
-      });
-      const savedUser = localStorage.getItem('adminUsername');
-      const userInput = document.getElementById('auth-username-input');
-      if (savedUser && userInput) userInput.value = savedUser;
-    }
-
     if (this.apiKey) {
       // Optimistic: render the app immediately. If the stored key is invalid
-      // the very next API call will 401 and api() will log the user out.
-      document.getElementById('auth-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
+      // the very next API call will 401 and api() will redirect to /?login=1.
+      const appEl = document.getElementById('app');
+      if (appEl) appEl.style.display = 'block';
       this.route();
     } else {
-      const focusTarget = localStorage.getItem('adminUsername')
-        ? document.getElementById('auth-password-input')
-        : document.getElementById('auth-username-input');
-      if (focusTarget) setTimeout(() => focusTarget.focus(), 50);
+      // No api-key — uniformly bounce to the landing's login flow.
+      window.location.replace('/?login=1');
     }
   },
 

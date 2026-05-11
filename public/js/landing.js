@@ -444,6 +444,55 @@
     });
   });
 
+  // ========== Auth State (logged-in awareness across landing) ==========
+
+  // Read once at startup, then re-read on storage events / after login.
+  // Source of truth: localStorage.apiKey (same key the dashboard writes).
+  function readApiKey() {
+    return localStorage.getItem('apiKey') || '';
+  }
+
+  // Toggle every element marked with data-auth-state="in" / "out"
+  // — hide the "wrong" ones, show the right ones. Also fills the username
+  // hello-pill on the bottom CTA if present.
+  function applyAuthState() {
+    const authed = !!readApiKey();
+    document.querySelectorAll('[data-auth-state]').forEach((el) => {
+      const want = el.getAttribute('data-auth-state');
+      const show = (want === 'in' && authed) || (want === 'out' && !authed);
+      el.hidden = !show;
+    });
+    const userEl = document.getElementById('auth-cta-username');
+    if (userEl) {
+      const name = localStorage.getItem('adminUsername') || 'администратор';
+      userEl.textContent = name;
+    }
+  }
+
+  applyAuthState();
+
+  // Cross-tab sync: if другой таб разлогинился — отрази здесь же.
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'apiKey' || e.key === 'adminUsername') applyAuthState();
+  });
+
+  // Bottom CTA "Войти в кабинет" (logged-out variant) opens the modal.
+  // The "Открыть кабинет" link is a plain anchor — no JS needed.
+  const ctaLoginBtn = document.getElementById('auth-cta-login');
+  if (ctaLoginBtn) {
+    ctaLoginBtn.addEventListener('click', () => openLogin());
+  }
+
+  // Logout from the bottom CTA — clears creds and re-renders the CTA card.
+  const ctaLogoutBtn = document.getElementById('auth-cta-logout');
+  if (ctaLogoutBtn) {
+    ctaLogoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('apiKey');
+      localStorage.removeItem('adminUsername');
+      applyAuthState();
+    });
+  }
+
   // ========== Login Modal ==========
 
   const loginModal = document.getElementById('login-modal');
@@ -484,6 +533,27 @@
       openLogin();
     });
   }
+
+  // Dashboard redirects un-authed users here with ?login=1 — auto-open модалку
+  // и очистим query чтобы перезагрузка не дёргала её снова. Если пришли с
+  // причиной (например «ключ устарел») — покажем её в модалке как hint.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('login') === '1' && !readApiKey()) {
+      const reason = params.get('reason');
+      params.delete('login');
+      params.delete('reason');
+      const qs = params.toString();
+      history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
+      setTimeout(() => {
+        openLogin();
+        if (reason && loginError) {
+          loginError.textContent = reason;
+          loginError.hidden = false;
+        }
+      }, 100);
+    }
+  } catch { /* URL API edge cases, не критично */ }
 
   // Close on backdrop / close-button / hint-link click
   document.querySelectorAll('[data-close-login]').forEach((el) => {
@@ -531,6 +601,7 @@
         }
         localStorage.setItem('apiKey', data.apiKey);
         localStorage.setItem('adminUsername', username);
+        applyAuthState();
         window.location.href = '/app.html';
       } catch (err) {
         loginError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';

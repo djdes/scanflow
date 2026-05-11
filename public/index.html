@@ -164,8 +164,15 @@
           </button>
           <span class="theme-indicator" aria-hidden="true"></span>
         </div>
-        <a href="#" class="btn-ghost" id="btn-login-open">Войти</a>
-        <a href="#try" class="btn-primary-sm">Попробовать</a>
+        <a href="#" class="btn-ghost" id="btn-login-open" data-auth-state="out">Войти</a>
+        <a href="#try" class="btn-primary-sm" data-auth-state="out">Попробовать</a>
+        <a href="/app.html" class="btn-primary-sm btn-with-icon" data-auth-state="in" hidden>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M2 6h12" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+          Кабинет
+        </a>
       </div>
       <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Меню">
         <span></span><span></span><span></span>
@@ -1009,26 +1016,49 @@
     </div>
   </section>
 
-  <!-- ========== AUTH ========== -->
+  <!-- ========== AUTH CTA ========== -->
   <section class="auth-section" id="auth">
     <div class="container">
       <div class="auth-box" data-animate="fade-up">
         <div class="auth-box-bg" aria-hidden="true"></div>
         <div class="auth-box-content">
-          <h2>Начните за 30 секунд</h2>
-          <p>Зарегистрируйтесь и получите 5 бесплатных сканов</p>
-          <form class="auth-form" id="auth-form" onsubmit="return false">
-            <div class="form-row">
-              <input type="email" placeholder="Email" required id="auth-email" autocomplete="email">
-              <input type="password" placeholder="Пароль" required id="auth-password" autocomplete="new-password">
+          <!-- logged-out state -->
+          <div class="auth-cta" data-auth-state="out">
+            <h2>Начните за 30&nbsp;секунд</h2>
+            <p>Войдите по логину и паролю — отдельная регистрация не нужна, доступ выдаём вручную после оплаты тарифа.</p>
+            <div class="auth-cta__buttons">
+              <button type="button" class="btn-primary btn-lg" id="auth-cta-login">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Войти в кабинет
+              </button>
+              <a href="#pricing" class="btn-outline btn-lg">Выбрать тариф</a>
             </div>
-            <button type="submit" class="btn-primary btn-block" id="auth-submit">
-              Создать аккаунт
-            </button>
-            <div class="auth-toggle">
-              Уже есть аккаунт? <a href="#" id="auth-toggle-link">Войти</a>
+            <p class="auth-cta__small">Уже клиент с api-ключом? Войдите тем же логином — система пустит без повторной настройки.</p>
+          </div>
+
+          <!-- logged-in state — toggled by landing.js when localStorage.apiKey present -->
+          <div class="auth-cta" data-auth-state="in" hidden>
+            <div class="auth-cta__hello">
+              <span class="auth-cta__hello-dot"></span>
+              <span class="auth-cta__hello-text">
+                Вы вошли как <strong id="auth-cta-username">admin</strong>
+              </span>
             </div>
-          </form>
+            <h2>С возвращением 👋</h2>
+            <p>Кабинет уже открыт в этом браузере — продолжайте с того места, где остановились.</p>
+            <div class="auth-cta__buttons">
+              <a href="/app.html#/invoices" class="btn-primary btn-lg">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M2 6h12" stroke="currentColor" stroke-width="1.6"/>
+                </svg>
+                Открыть кабинет
+              </a>
+              <button type="button" class="btn-outline btn-lg" id="auth-cta-logout">Выйти</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
