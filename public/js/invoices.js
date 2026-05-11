@@ -3,9 +3,6 @@ const Invoices = {
   currentStatus: null,
   offset: 0,
   limit: 50,
-  // Какие строки сейчас раскрыты с тех. деталями (ID, файл, OCR, создан).
-  // Set переживает перерисовку таблицы, но сбрасывается при смене страницы/фильтра.
-  _expandedIds: new Set(),
 
   async showList() {
     document.getElementById('invoices-list').style.display = 'block';
@@ -69,17 +66,9 @@ const Invoices = {
         return;
       }
 
-      tbody.innerHTML = data.map(inv => {
-        const expanded = this._expandedIds.has(inv.id);
-        return `
-        <tr class="invoice-row clickable${expanded ? ' expanded' : ''}" data-id="${inv.id}" onclick="App.navigate('#/invoices/${inv.id}')">
-          <td class="col-chevron" onclick="Invoices.toggleRow(${inv.id}, event)">
-            <button type="button" class="row-toggle" aria-label="Показать тех. данные" aria-expanded="${expanded}" tabindex="-1">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <path d="M4 2.5L7.5 6L4 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </td>
+      tbody.innerHTML = data.map(inv => `
+        <tr class="clickable" onclick="App.navigate('#/invoices/${inv.id}')">
+          <td class="col-id">${inv.id}</td>
           <td>${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td>${App.formatDate(inv.invoice_date)}</td>
           <td>${App.esc(inv.supplier || '—')}</td>
@@ -92,18 +81,7 @@ const Invoices = {
                     onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
           </td>
         </tr>
-        <tr class="invoice-detail-row" data-detail-for="${inv.id}">
-          <td colspan="8">
-            <dl class="invoice-meta-grid">
-              <div class="meta-item"><dt>ID</dt><dd class="meta-mono">${inv.id}</dd></div>
-              <div class="meta-item"><dt>Создан</dt><dd>${App.formatDate(inv.created_at)}</dd></div>
-              <div class="meta-item"><dt>OCR</dt><dd>${App.ocrEngineBadge(inv.ocr_engine)}</dd></div>
-              <div class="meta-item meta-item-wide"><dt>Файл</dt><dd class="meta-mono meta-truncate" title="${App.esc(inv.file_name || '')}">${App.esc(inv.file_name || '—')}</dd></div>
-            </dl>
-          </td>
-        </tr>
-      `;
-      }).join('');
+      `).join('');
 
       // Pagination
       const pagination = document.getElementById('invoices-pagination');
@@ -126,22 +104,7 @@ const Invoices = {
   setFilter(status) {
     this.currentStatus = status;
     this.offset = 0;
-    this._expandedIds.clear();
     this.loadTable();
-  },
-
-  // Шеврон: показать/скрыть тех. детали (ID, файл, OCR, создан) под строкой.
-  // Делаем без re-fetch — просто переключаем класс на DOM. Set'ом помним
-  // выбор пользователя на случай если кто-то ещё перерисует таблицу.
-  toggleRow(id, event) {
-    if (event) { event.stopPropagation(); event.preventDefault(); }
-    const row = document.querySelector(`tr.invoice-row[data-id="${id}"]`);
-    if (!row) return;
-    const expanded = row.classList.toggle('expanded');
-    const btn = row.querySelector('.row-toggle');
-    if (btn) btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    if (expanded) this._expandedIds.add(id);
-    else this._expandedIds.delete(id);
   },
 
   nextPage() {
