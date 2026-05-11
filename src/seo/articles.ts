@@ -34,6 +34,10 @@ export function loadArticles(filePath: string = ARTICLES_JSON): Article[] {
     const data = JSON.parse(raw) as Partial<ArticlesIndex>;
     if (!data || !Array.isArray(data.articles)) return [];
     const valid = data.articles.filter(isValid);
+    const dropped = data.articles.length - valid.length;
+    if (dropped > 0) {
+      logger.warn('articles.json: dropped invalid entries', { dropped, total: data.articles.length });
+    }
     return [...valid].sort((a, b) => b.date.localeCompare(a.date));
   } catch (err) {
     logger.error('Failed to load articles.json', { error: (err as Error).message });
@@ -45,7 +49,7 @@ function isValid(a: unknown): a is Article {
   if (!a || typeof a !== 'object') return false;
   const x = a as Record<string, unknown>;
   return (
-    typeof x.slug === 'string' && /^[a-z0-9-]+$/.test(x.slug) &&
+    typeof x.slug === 'string' && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(x.slug) &&
     typeof x.title === 'string' && x.title.length > 0 &&
     typeof x.description === 'string' && x.description.length > 0 &&
     Array.isArray(x.tags) && x.tags.every((t) => typeof t === 'string') &&

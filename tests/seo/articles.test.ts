@@ -1,15 +1,24 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { loadArticles, distinctTags, relatedArticles, Article } from '../../src/seo/articles';
 
+const tmpDirs: string[] = [];
+
 function tmpJson(contents: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-articles-'));
+  tmpDirs.push(dir);
   const p = path.join(dir, 'articles.json');
   fs.writeFileSync(p, contents, 'utf8');
   return p;
 }
+
+afterAll(() => {
+  for (const d of tmpDirs) {
+    try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});
 
 const sample: Article = {
   slug: 'a', title: 'A', description: 'd', tags: ['ocr'], date: '2026-05-01',
@@ -47,6 +56,28 @@ describe('loadArticles', () => {
       ],
     }));
     expect(loadArticles(p).map((a) => a.slug)).toEqual(['new', 'mid', 'old']);
+  });
+
+  it('rejects uppercase letters in slug', () => {
+    const p = tmpJson(JSON.stringify({ articles: [{ ...sample, slug: 'Hello-World' }] }));
+    expect(loadArticles(p)).toEqual([]);
+  });
+
+  it('rejects readingMinutes <= 0', () => {
+    const p = tmpJson(JSON.stringify({ articles: [{ ...sample, readingMinutes: 0 }] }));
+    expect(loadArticles(p)).toEqual([]);
+  });
+
+  it('accepts an article with empty tags array', () => {
+    const p = tmpJson(JSON.stringify({ articles: [{ ...sample, tags: [] }] }));
+    const out = loadArticles(p);
+    expect(out).toHaveLength(1);
+    expect(out[0].tags).toEqual([]);
+  });
+
+  it('preserves the optional updated field', () => {
+    const p = tmpJson(JSON.stringify({ articles: [{ ...sample, updated: '2026-05-10' }] }));
+    expect(loadArticles(p)[0].updated).toBe('2026-05-10');
   });
 });
 
