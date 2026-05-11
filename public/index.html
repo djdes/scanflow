@@ -3,12 +3,68 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ScanFlow — Автоматизация накладных для 1С</title>
-  <meta name="description" content="Сканируйте накладные, автоматически создавайте платёжки, обменивайтесь с 1С. Попробуйте бесплатно.">
+
+  <title>ScanFlow — OCR накладных за 3 секунды для 1С:УНФ и СберБизнеса</title>
+  <meta name="description" content="Сканируйте фото бумажных накладных, получайте готовую приходную в 1С:УНФ, черновик платёжки в СберБизнесе и уведомления в Telegram. Без ручного ввода, без ошибок.">
+  <link rel="canonical" href="https://scanflow.ru/">
+  <meta name="robots" content="index, follow">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="ScanFlow — OCR накладных за 3 секунды">
+  <meta property="og:description" content="Фото накладной → приходная в 1С:УНФ + черновик платёжки в Сбере. OCR на Claude Sonnet 4.6, точность 99.2%.">
+  <meta property="og:url" content="https://scanflow.ru/">
+  <meta property="og:image" content="https://scanflow.ru/og/default.svg">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ScanFlow — OCR накладных за 3 секунды">
+  <meta name="twitter:description" content="OCR на Claude Sonnet 4.6 + интеграция с 1С:УНФ и СберБизнесом. Бесплатные 5 сканов.">
+  <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/landing.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "ScanFlow",
+    "url": "https://scanflow.ru/",
+    "logo": "https://scanflow.ru/og/default.svg",
+    "sameAs": []
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "url": "https://scanflow.ru/",
+    "name": "ScanFlow",
+    "description": "OCR накладных для российского бизнеса: фото → приходная в 1С:УНФ + платёжка в СберБизнесе"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "ScanFlow",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "offers": [
+      { "@type": "Offer", "name": "Старт", "price": "0", "priceCurrency": "RUB" },
+      { "@type": "Offer", "name": "Бизнес", "price": "1999", "priceCurrency": "RUB" }
+    ]
+  }
+  </script>
+
   <script>
     // Anti-FOUC theme init. Runs before <body> paints.
     // Storage values: 'light' | 'dark' | 'auto' (or absent = auto).
