@@ -28,6 +28,18 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   const app = express();
   const publicDir = path.resolve(process.cwd(), 'public');
 
+  // Canonical blog URL has no trailing slash. Catch /blog/ before
+  // express.static — otherwise the static middleware would serve
+  // public/blog/index.html for /blog/, bypassing the redirect.
+  // Express 5 route matching normalises the trailing slash so a separate
+  // app.get('/blog/', ...) registration doesn't fire — hence middleware.
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && req.path === '/blog/') {
+      return res.redirect(301, '/blog');
+    }
+    next();
+  });
+
   // Static files first (no auth needed).
   // redirect:false disables the automatic /dir → /dir/ 301 that express.static
   // applies when a directory matches the URL — otherwise GET /blog would 301
@@ -199,12 +211,10 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.type('application/xml').send(xml);
   });
 
-  // GET /blog — canonical listing (no trailing slash). /blog/ → 301 to /blog.
-  // In Express 5, path-to-regexp v8 treats `/blog` and `/blog/` as the same
-  // route pattern, so we can't register two separate handlers — we check
-  // req.originalUrl to distinguish the trailing-slash form and redirect.
-  app.get('/blog', (req, res) => {
-    if (req.originalUrl.endsWith('/blog/')) return res.redirect(301, '/blog');
+  // GET /blog — canonical listing (no trailing slash).
+  // /blog/ → 301 to /blog is handled by middleware near the top of this file,
+  // before express.static gets to serve public/blog/index.html.
+  app.get('/blog', (_req, res) => {
     res.sendFile(path.join(publicDir, 'blog/index.html'));
   });
 

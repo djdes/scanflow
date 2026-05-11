@@ -48,6 +48,12 @@ describe('Blog routes', () => {
     expect(res.text).toMatch(/Блог/);
   });
 
+  it('GET /blog/ returns 301 redirect to /blog', async () => {
+    const res = await request(app).get('/blog/').redirects(0);
+    expect(res.status).toBe(301);
+    expect(res.headers['location']).toBe('/blog');
+  });
+
   it('GET /blog/<unknown-slug> returns 404 (not SPA fallback)', async () => {
     const res = await request(app).get('/blog/does-not-exist-xyz');
     expect(res.status).toBe(404);
