@@ -11,36 +11,35 @@
   <link rel="stylesheet" href="/css/landing.css">
   <script>
     // Anti-FOUC theme init. Runs before <body> paints.
-    // Priority: fresh user override (< 24h) → time of day (07–19 = light) → prefers-color-scheme.
+    // Storage values: 'light' | 'dark' | 'auto' (or absent = auto).
+    // Legacy values from earlier builds — JSON {value, ts} with 24h TTL — are
+    // honored once, then migrated/cleared by the dropdown script.
     (function () {
+      function resolveAuto() {
+        var h = new Date().getHours();
+        if (h >= 7 && h < 19) return 'light';
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+        return 'dark';
+      }
       try {
-        var KEY = 'sf-theme';
-        var OVERRIDE_TTL_MS = 24 * 60 * 60 * 1000;
-        var raw = localStorage.getItem(KEY);
-        var theme = null;
-        if (raw) {
+        var raw = localStorage.getItem('sf-theme');
+        var mode = 'auto';
+        if (raw === 'light' || raw === 'dark' || raw === 'auto') {
+          mode = raw;
+        } else if (raw && raw.charAt(0) === '{') {
           try {
             var saved = JSON.parse(raw);
-            if (saved && saved.value && saved.ts && (Date.now() - saved.ts) < OVERRIDE_TTL_MS) {
-              theme = saved.value;
-            } else {
-              localStorage.removeItem(KEY);
+            if (saved && (saved.value === 'light' || saved.value === 'dark')) {
+              mode = saved.value;
             }
-          } catch (_) { localStorage.removeItem(KEY); }
+          } catch (_) { /* ignore */ }
         }
-        if (!theme) {
-          var h = new Date().getHours();
-          if (h >= 7 && h < 19) {
-            theme = 'light';
-          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-            theme = 'light';
-          } else {
-            theme = 'dark';
-          }
-        }
+        var theme = (mode === 'auto') ? resolveAuto() : mode;
         document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.setAttribute('data-theme-mode', mode);
       } catch (_) {
         document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-theme-mode', 'auto');
       }
     })();
   </script>
@@ -77,12 +76,33 @@
         <a href="#pricing">Тарифы</a>
       </nav>
       <div class="header-actions">
-        <button class="theme-toggle" id="theme-toggle" type="button"
-                aria-label="Переключить тему"
-                title="Переключить тему (автоматически по времени дня)">
-          <span class="icon-sun" aria-hidden="true">☀️</span>
-          <span class="icon-moon" aria-hidden="true">🌙</span>
-        </button>
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <a href="#" class="btn-ghost" id="btn-login-open">Войти</a>
         <a href="#demo" class="btn-primary-sm">Попробовать</a>
       </div>

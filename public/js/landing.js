@@ -542,29 +542,108 @@
     });
   }
 
-  // ========== Theme Toggle ==========
-  // Manual click sets an override (24h TTL); after that the page falls back
-  // to auto time-of-day in the next page load. The anti-FOUC <script> in
-  // <head> reads the same storage key.
-  const themeToggle = document.getElementById('theme-toggle');
-  if (themeToggle) {
+  // ========== Theme Switcher (dropdown: Светлая / Тёмная / По времени дня) ==========
+  // Storage key 'sf-theme' holds one of: 'light' | 'dark' | 'auto' (or absent = auto).
+  // Anti-FOUC script in <head> reads the same key before paint.
+  (function setupThemeSwitcher() {
     const KEY = 'sf-theme';
-    const updateTitle = () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'light' ? 'тёмную' : 'светлую';
-      themeToggle.title = `Переключить на ${next} тему (авто через 24ч)`;
-      themeToggle.setAttribute('aria-pressed', current === 'light' ? 'true' : 'false');
-    };
-    updateTitle();
-    themeToggle.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', next);
+    const root = document.documentElement;
+    const switcher = document.getElementById('theme-switcher');
+    const trigger  = document.getElementById('theme-toggle');
+    const menu     = document.getElementById('theme-menu');
+    if (!switcher || !trigger || !menu) return;
+    const items = menu.querySelectorAll('.theme-menu-item');
+
+    function readMode() {
       try {
-        localStorage.setItem(KEY, JSON.stringify({ value: next, ts: Date.now() }));
+        const raw = localStorage.getItem(KEY);
+        if (raw === 'light' || raw === 'dark' || raw === 'auto') return raw;
+        // Legacy {value, ts} payload from earlier builds — migrate once.
+        if (raw && raw.charAt(0) === '{') {
+          const saved = JSON.parse(raw);
+          if (saved && (saved.value === 'light' || saved.value === 'dark')) {
+            localStorage.setItem(KEY, saved.value);
+            return saved.value;
+          }
+        }
+      } catch (_) { /* ignore */ }
+      return 'auto';
+    }
+
+    function resolveAuto() {
+      const h = new Date().getHours();
+      if (h >= 7 && h < 19) return 'light';
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+      return 'dark';
+    }
+
+    function applyMode(mode) {
+      const resolved = (mode === 'auto') ? resolveAuto() : mode;
+      root.setAttribute('data-theme', resolved);
+      root.setAttribute('data-theme-mode', mode);
+      items.forEach((btn) => {
+        const active = btn.dataset.mode === mode;
+        btn.setAttribute('aria-checked', active ? 'true' : 'false');
+      });
+      const labels = { light: 'Светлая', dark: 'Тёмная', auto: 'По времени дня' };
+      trigger.setAttribute('aria-label', `Тема: ${labels[mode]}`);
+      trigger.title = `Тема: ${labels[mode]}`;
+    }
+
+    function setMode(mode) {
+      try {
+        if (mode === 'auto') {
+          // Clean storage for 'auto' so a returning visitor on a different
+          // device-time gets the right resolved theme without stale override.
+          localStorage.removeItem(KEY);
+        } else {
+          localStorage.setItem(KEY, mode);
+        }
       } catch (_) { /* private mode — best effort */ }
-      updateTitle();
+      applyMode(mode);
+    }
+
+    function openMenu() {
+      switcher.classList.add('open');
+      trigger.setAttribute('aria-expanded', 'true');
+      menu.setAttribute('aria-hidden', 'false');
+    }
+    function closeMenu() {
+      switcher.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
+      menu.setAttribute('aria-hidden', 'true');
+    }
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (switcher.classList.contains('open')) closeMenu(); else openMenu();
     });
-  }
+    items.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setMode(btn.dataset.mode);
+        closeMenu();
+      });
+    });
+    document.addEventListener('click', (e) => {
+      if (!switcher.contains(e.target)) closeMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && switcher.classList.contains('open')) {
+        closeMenu();
+        trigger.focus();
+      }
+    });
+
+    // Initial state — reflects whatever the anti-FOUC script applied (and may
+    // also migrate legacy storage).
+    applyMode(readMode());
+
+    // Re-evaluate auto theme every 60s. If the user opens the page late evening
+    // and leaves it on for a couple hours, the page should follow time-of-day
+    // automatically when they're in auto mode.
+    setInterval(() => {
+      if (readMode() === 'auto') applyMode('auto');
+    }, 60 * 1000);
+  })();
 
 })();
