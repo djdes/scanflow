@@ -180,7 +180,7 @@
 
         <ol>
           <li><strong>Препроцессинг изображения</strong> — deskew (выравнивание наклона), denoise (шумоподавление), бинаризация. Обычно через OpenCV или Sharp.</li>
-          <li><strong>Сам OCR</strong> — Google Cloud Vision / Yandex SpeechKit OCR / Tesseract — даёт сырой текст с bounding-box'ами.</li>
+          <li><strong>Сам OCR</strong> — Google Cloud Vision / Yandex Vision OCR / Tesseract — даёт сырой текст с bounding-box'ами.</li>
           <li><strong>Layout analysis</strong> — поиск таблиц: где границы, где заголовки колонок. Чаще всего регулярки и эвристики.</li>
           <li><strong>Парсер позиций</strong> — извлекает кортежи <code>(название, qty, price, total)</code> из распознанных строк таблицы, опять же regex-ами.</li>
           <li><strong>Валидация</strong> — <code>qty × price ≈ total</code> для каждой строки; если не сходится — флаг для ручной проверки.</li>
