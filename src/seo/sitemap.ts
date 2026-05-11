@@ -15,18 +15,19 @@ function xmlEscape(s: string): string {
  * article.updated when present and falls back to article.date.
  */
 export function buildSitemapXml(siteUrl: string, articles: Article[]): string {
+  const base = siteUrl.replace(/\/+$/, '');
   const today = new Date().toISOString().slice(0, 10);
   const lines: string[] = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     `  <url>`,
-    `    <loc>${siteUrl}/</loc>`,
+    `    <loc>${base}/</loc>`,
     `    <lastmod>${today}</lastmod>`,
     `    <changefreq>monthly</changefreq>`,
     `    <priority>1.0</priority>`,
     `  </url>`,
     `  <url>`,
-    `    <loc>${siteUrl}/blog</loc>`,
+    `    <loc>${base}/blog</loc>`,
     `    <lastmod>${today}</lastmod>`,
     `    <changefreq>weekly</changefreq>`,
     `    <priority>0.8</priority>`,
@@ -35,7 +36,7 @@ export function buildSitemapXml(siteUrl: string, articles: Article[]): string {
   for (const a of articles) {
     const lastmod = a.updated ?? a.date;
     lines.push(`  <url>`);
-    lines.push(`    <loc>${siteUrl}/blog/${xmlEscape(a.slug)}</loc>`);
+    lines.push(`    <loc>${base}/blog/${xmlEscape(a.slug)}</loc>`);
     lines.push(`    <lastmod>${lastmod}</lastmod>`);
     lines.push(`    <changefreq>monthly</changefreq>`);
     lines.push(`    <priority>0.7</priority>`);

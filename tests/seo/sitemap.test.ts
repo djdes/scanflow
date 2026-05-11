@@ -35,4 +35,22 @@ describe('buildSitemapXml', () => {
     const xml = buildSitemapXml('https://scanflow.ru', [art]);
     expect(xml).toContain('<lastmod>2026-05-10</lastmod>');
   });
+
+  it('strips trailing slash from siteUrl so URLs are well-formed', () => {
+    const xml = buildSitemapXml('https://scanflow.ru/', [a('foo', '2026-05-01')]);
+    expect(xml).toContain('<loc>https://scanflow.ru/</loc>');     // home should be exactly one slash
+    expect(xml).toContain('<loc>https://scanflow.ru/blog</loc>'); // not //blog
+    expect(xml).toContain('<loc>https://scanflow.ru/blog/foo</loc>');
+    expect(xml).not.toContain('//blog');
+  });
+
+  it('emits lastmod in W3C YYYY-MM-DD format for home and blog', () => {
+    const xml = buildSitemapXml('https://scanflow.ru', []);
+    // Both static entries should have a YYYY-MM-DD lastmod (not full ISO timestamp).
+    const matches = xml.match(/<lastmod>([^<]+)<\/lastmod>/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+    for (const m of matches) {
+      expect(m).toMatch(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+    }
+  });
 });
