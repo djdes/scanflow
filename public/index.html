@@ -7,7 +7,7 @@
   <meta name="description" content="Сканируйте накладные, автоматически создавайте платёжки, обменивайтесь с 1С. Попробуйте бесплатно.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/landing.css">
   <script>
     // Anti-FOUC theme init. Runs before <body> paints.
@@ -99,28 +99,42 @@
       <div class="hero-orb hero-orb--2"></div>
       <div class="hero-orb hero-orb--3"></div>
       <div class="hero-grid" aria-hidden="true"></div>
+      <div class="hero-scanline" aria-hidden="true"></div>
+      <div class="hero-papers" aria-hidden="true">
+        <span class="paper paper--1">№2841 · 12 850 ₽</span>
+        <span class="paper paper--2">ТОРГ-12</span>
+        <span class="paper paper--3">qty × price = 2 200</span>
+        <span class="paper paper--4">ИНН 504410008491</span>
+        <span class="paper paper--5">→ 1С УНФ</span>
+      </div>
     </div>
     <div class="container hero-content">
-      <div class="hero-badge" data-animate="fade-up">
+      <div class="hero-eyebrow" data-animate="fade-up">
+        <span class="dot-live"></span>
+        <span class="eyebrow-text">OCR engine: claude-sonnet-4.6 · latency 1.2s · online</span>
+      </div>
+      <div class="hero-badge" data-animate="fade-up" data-delay="1">
         <span class="badge-dot"></span>
         AI-powered OCR для бизнеса
       </div>
-      <h1 data-animate="fade-up" data-delay="1">
-        Скан накладной —<br>
-        <span class="gradient-text">в платёжку за секунды</span>
+      <h1 data-animate="fade-up" data-delay="2" class="hero-headline">
+        <span class="line-mute">Скан</span>
+        <span class="arrow">→</span>
+        <span class="gradient-text">платёжка</span><br>
+        <span class="line-mute">за</span> <span class="big-number">3</span> <span class="line-mute">секунды</span>
       </h1>
-      <p class="hero-sub" data-animate="fade-up" data-delay="2">
+      <p class="hero-sub" data-animate="fade-up" data-delay="3">
         Загрузите фото накладной — получите готовую платёжку, запись в 1С и обновлённые цены на сайте.
         Без ручного ввода, без ошибок.
       </p>
-      <div class="hero-cta" data-animate="fade-up" data-delay="3">
-        <a href="#demo" class="btn-primary">
+      <div class="hero-cta" data-animate="fade-up" data-delay="4">
+        <a href="#demo" class="btn-primary btn-magnetic">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 14V4m0 0L6 8m4-4l4 4M3 14v1a2 2 0 002 2h10a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Загрузить тестовый скан
         </a>
         <a href="#features" class="btn-outline">Узнать больше</a>
       </div>
-      <div class="hero-stats" data-animate="fade-up" data-delay="4">
+      <div class="hero-stats" data-animate="fade-up" data-delay="5">
         <div class="stat">
           <span class="stat-num" data-count="99.2">0</span><span class="stat-suffix">%</span>
           <span class="stat-label">точность OCR</span>
@@ -135,6 +149,35 @@
           <span class="stat-num" data-count="1141">0</span><span class="stat-suffix">+</span>
           <span class="stat-label">накладных обработано</span>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== LIVE TICKER ========== -->
+  <section class="ticker-section" aria-label="Активность за последние минуты">
+    <div class="ticker">
+      <div class="ticker-track">
+        <span class="tick"><b class="ok">✓</b> Накладная №2841 → 1С УНФ · 3.2с</span>
+        <span class="tick"><b class="ok">✓</b> Платёжка ИП Чихинов · 22 893 ₽ · Сбер draft</span>
+        <span class="tick"><b class="ok">✓</b> 14 позиций сопоставлены с каталогом · 0 ручных</span>
+        <span class="tick"><b class="ai">●</b> claude-sonnet-4.6 · vision · 1.1s</span>
+        <span class="tick"><b class="ok">✓</b> Накладная №2842 → 1С УНФ · 2.8с</span>
+        <span class="tick"><b class="ok">✓</b> Telegram уведомление: bugdenes@gmail.com</span>
+        <span class="tick"><b class="ai">●</b> qty × price ≈ total · ok · 14/14</span>
+        <span class="tick"><b class="ok">✓</b> ТОРГ-12 №F-1093 · 8 позиций · 12 850 ₽</span>
+        <span class="tick"><b class="ok">✓</b> DaData → ИНН 504410008491 enriched</span>
+        <span class="tick"><b class="ai">●</b> Pack-transform: 12 шт → 1 короб</span>
+        <!-- duplicate for seamless loop -->
+        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Накладная №2841 → 1С УНФ · 3.2с</span>
+        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Платёжка ИП Чихинов · 22 893 ₽ · Сбер draft</span>
+        <span class="tick" aria-hidden="true"><b class="ok">✓</b> 14 позиций сопоставлены с каталогом · 0 ручных</span>
+        <span class="tick" aria-hidden="true"><b class="ai">●</b> claude-sonnet-4.6 · vision · 1.1s</span>
+        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Накладная №2842 → 1С УНФ · 2.8с</span>
+        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Telegram уведомление: bugdenes@gmail.com</span>
+        <span class="tick" aria-hidden="true"><b class="ai">●</b> qty × price ≈ total · ok · 14/14</span>
+        <span class="tick" aria-hidden="true"><b class="ok">✓</b> ТОРГ-12 №F-1093 · 8 позиций · 12 850 ₽</span>
+        <span class="tick" aria-hidden="true"><b class="ok">✓</b> DaData → ИНН 504410008491 enriched</span>
+        <span class="tick" aria-hidden="true"><b class="ai">●</b> Pack-transform: 12 шт → 1 короб</span>
       </div>
     </div>
   </section>
@@ -179,28 +222,81 @@
         </div>
       </div>
 
-      <!-- Features grid -->
-      <div class="features-grid">
-        <div class="feature-card" data-animate="fade-up">
-          <div class="feature-icon feature-icon--blue">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 8v8m-4-4h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/></svg>
+      <!-- Bento features grid -->
+      <div class="bento-grid">
+        <!-- Tile 1 (wide) — Закупочные цены с мини-чартом -->
+        <div class="bento-tile bento-tile--wide" data-animate="fade-up">
+          <div class="bento-head">
+            <div class="feature-icon feature-icon--blue">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 8v8m-4-4h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/></svg>
+            </div>
+            <span class="bento-tag">закуп · авто</span>
           </div>
-          <h3>Обновление закупочных цен</h3>
-          <p>Автоматическое обновление закупочных цен из каждой накладной. История изменений, сравнение с предыдущими поставками.</p>
+          <h3>Закупочные цены<br>обновляются сами</h3>
+          <p>Каждая накладная сравнивается с предыдущей поставкой. Видишь, как двигается цена у каждого поставщика — без таблиц в Excel.</p>
+          <div class="bento-visual" aria-hidden="true">
+            <svg viewBox="0 0 240 80" preserveAspectRatio="none" class="sparkline">
+              <defs>
+                <linearGradient id="sp-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--accent-blue)" stop-opacity="0.35"/>
+                  <stop offset="100%" stop-color="var(--accent-blue)" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <polyline class="sp-area" points="0,60 30,55 60,48 90,52 120,38 150,42 180,28 210,32 240,18"
+                fill="url(#sp-grad)" stroke="none"/>
+              <polyline class="sp-line" points="0,60 30,55 60,48 90,52 120,38 150,42 180,28 210,32 240,18"
+                fill="none" stroke="var(--accent-blue)" stroke-width="2" stroke-linejoin="round"/>
+              <circle cx="240" cy="18" r="4" fill="var(--accent-blue)"/>
+            </svg>
+            <div class="sparkline-meta">
+              <span class="meta-num">230 ₽ → 240 ₽</span>
+              <span class="meta-delta meta-delta--up">+4.3%</span>
+              <span class="meta-label">за 30 дней</span>
+            </div>
+          </div>
         </div>
-        <div class="feature-card" data-animate="fade-up" data-delay="1">
-          <div class="feature-icon feature-icon--green">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M4 12h16M12 4v16" stroke="currentColor" stroke-width="1.6"/><path d="M7 8l2 2-2 2M13 15h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+
+        <!-- Tile 2 (narrow) — Розничные цены -->
+        <div class="bento-tile" data-animate="fade-up" data-delay="1">
+          <div class="bento-head">
+            <div class="feature-icon feature-icon--green">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M4 12h16M12 4v16" stroke="currentColor" stroke-width="1.6"/></svg>
+            </div>
           </div>
-          <h3>Формирование розничных цен</h3>
-          <p>На основе закупки автоматически рассчитываются розничные цены по вашим наценкам и правилам округления.</p>
+          <h3>Розница<br>по правилам</h3>
+          <p>Наценка, округление до .90, разные правила для категорий — всё считается по формуле сразу при импорте.</p>
+          <div class="bento-formula" aria-hidden="true">
+            <code>230 × 1.35 → 311 → <b>309.90</b></code>
+          </div>
         </div>
-        <div class="feature-card" data-animate="fade-up" data-delay="2">
-          <div class="feature-icon feature-icon--orange">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10h8M8 14h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+
+        <!-- Tile 3 (full-width) — Telegram с фейк-сообщением -->
+        <div class="bento-tile bento-tile--full" data-animate="fade-up" data-delay="2">
+          <div class="bento-split">
+            <div class="bento-text">
+              <div class="bento-head">
+                <div class="feature-icon feature-icon--orange">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <span class="bento-tag">telegram · per-user</span>
+              </div>
+              <h3>Уведомления<br>в Telegram</h3>
+              <p>Свой bot, свой chat_id. Новая накладная, ошибка OCR, расхождение сумм — узнаёшь раньше, чем бухгалтер откроет 1С.</p>
+            </div>
+            <div class="bento-tg" aria-hidden="true">
+              <div class="tg-bubble">
+                <div class="tg-head">
+                  <span class="tg-icon">📄</span>
+                  <span class="tg-title">ScanFlow Bot</span>
+                  <span class="tg-time">10:42</span>
+                </div>
+                <div class="tg-line"><b>Накладная №2841</b></div>
+                <div class="tg-line tg-mute">ИП Чихинов · 22 893 ₽</div>
+                <div class="tg-line tg-ok">✓ 14 позиций сопоставлены</div>
+                <div class="tg-line tg-mute">→ отправлено в 1С УНФ</div>
+              </div>
+            </div>
           </div>
-          <h3>Оповещения в Telegram-бота</h3>
-          <p>Мгновенные уведомления о новых накладных, изменениях цен и ошибках обработки прямо в ваш Telegram.</p>
         </div>
       </div>
     </div>
@@ -394,6 +490,38 @@
     </div>
   </section>
 
+  <!-- ========== INTEGRATIONS MARQUEE ========== -->
+  <section class="integrations-section" aria-label="Поддерживаемые интеграции">
+    <div class="container">
+      <div class="integrations-label" data-animate="fade-up">Работает с</div>
+    </div>
+    <div class="integrations">
+      <div class="integrations-track">
+        <span class="brand brand--1c"><b>1C</b><span>УНФ</span></span>
+        <span class="brand brand--sber">сбер<b>бизнес</b></span>
+        <span class="brand brand--alfa">Α<b>альфа</b></span>
+        <span class="brand brand--tochka">⬤ <b>точка</b></span>
+        <span class="brand brand--tinkoff"><b>T</b>·Бизнес</span>
+        <span class="brand brand--vtb">ВТБ <b>Бизнес</b></span>
+        <span class="brand brand--telegram"><b>◯</b> Telegram</span>
+        <span class="brand brand--claude"><b>✦</b> Claude API</span>
+        <span class="brand brand--gv"><b>G</b> Vision</span>
+        <span class="brand brand--dadata">DaData<b>.ru</b></span>
+        <!-- duplicate for seamless loop -->
+        <span class="brand brand--1c" aria-hidden="true"><b>1C</b><span>УНФ</span></span>
+        <span class="brand brand--sber" aria-hidden="true">сбер<b>бизнес</b></span>
+        <span class="brand brand--alfa" aria-hidden="true">Α<b>альфа</b></span>
+        <span class="brand brand--tochka" aria-hidden="true">⬤ <b>точка</b></span>
+        <span class="brand brand--tinkoff" aria-hidden="true"><b>T</b>·Бизнес</span>
+        <span class="brand brand--vtb" aria-hidden="true">ВТБ <b>Бизнес</b></span>
+        <span class="brand brand--telegram" aria-hidden="true"><b>◯</b> Telegram</span>
+        <span class="brand brand--claude" aria-hidden="true"><b>✦</b> Claude API</span>
+        <span class="brand brand--gv" aria-hidden="true"><b>G</b> Vision</span>
+        <span class="brand brand--dadata" aria-hidden="true">DaData<b>.ru</b></span>
+      </div>
+    </div>
+  </section>
+
   <!-- ========== PRICING ========== -->
   <section class="pricing-section" id="pricing">
     <div class="container">
@@ -483,6 +611,78 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 5v3M8 11h.01M15 8A7 7 0 111 8a7 7 0 0114 0z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         После авторизации вы сможете подключить банк, настроить обмен с 1С и скачать обработчик импорта для 1С:УНФ по приходным накладным.
         Все подключения используют единую структуру: безопасный эндпоинт с фильтрацией по ID и токеном авторизации.
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== FAQ ========== -->
+  <section class="faq-section" id="faq">
+    <div class="container">
+      <div class="section-label" data-animate="fade-up">FAQ</div>
+      <h2 class="section-title" data-animate="fade-up" data-delay="1">
+        Частые <span class="gradient-text">вопросы</span>
+      </h2>
+
+      <div class="faq-list">
+        <details class="faq-item" data-animate="fade-up" data-delay="2">
+          <summary class="faq-question">
+            <span>Сколько стоит распознавание одной накладной?</span>
+            <span class="faq-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="faq-answer">
+            На тарифе «Старт» — 5 распознаваний бесплатно после регистрации, потом по 4 ₽/скан. На «Бизнес» (1 999 ₽/мес) — безлимит для одной организации. Платишь только за фактический объём.
+          </div>
+        </details>
+
+        <details class="faq-item" data-animate="fade-up" data-delay="2">
+          <summary class="faq-question">
+            <span>Что если OCR ошибся? Кто проверяет суммы?</span>
+            <span class="faq-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="faq-answer">
+            Каждая позиция проверяется кросс-валидацией: <code>qty × price ≈ total</code>. Если что-то не сходится, накладная подсвечивается флагом <code>items_total_mismatch</code> и не уходит в 1С автоматом — ждёт твоего ОК. По нашим данным эта проверка ловит ~30% OCR-ошибок до того, как ты их увидишь.
+          </div>
+        </details>
+
+        <details class="faq-item" data-animate="fade-up" data-delay="3">
+          <summary class="faq-question">
+            <span>Какой 1С нужен и что устанавливать?</span>
+            <span class="faq-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="faq-answer">
+            1С:Управление нашей фирмой (УНФ), любая редакция от 1.6. Ставится одна внешняя обработка <code>.epf</code> (скачаешь с лендинга после регистрации). 1С сама забирает одобренные накладные из ScanFlow по REST, создаёт «Приходную накладную» с товарами, контрагентом и фото.
+          </div>
+        </details>
+
+        <details class="faq-item" data-animate="fade-up" data-delay="3">
+          <summary class="faq-question">
+            <span>Как работает отправка в Сбер?</span>
+            <span class="faq-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="faq-answer">
+            Создаём <b>черновик</b> платёжного поручения через СберБизнес API. Документ ложится в твоём СберБизнесе в раздел «Черновики» — ты подписываешь его токеном вручную. ЭП на стороне ScanFlow не делаем — деньги уходят только с твоей подписи.
+          </div>
+        </details>
+
+        <details class="faq-item" data-animate="fade-up" data-delay="4">
+          <summary class="faq-question">
+            <span>Куда уходят фото моих накладных?</span>
+            <span class="faq-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="faq-answer">
+            Фото хранятся на наших серверах в РФ. К ним прикладывается документ в 1С. Через 90 дней оригинал удаляется автоматически — остаётся только распознанная JSON-структура. Бэкап MySQL — ежедневно в 03:00.
+          </div>
+        </details>
+
+        <details class="faq-item" data-animate="fade-up" data-delay="4">
+          <summary class="faq-question">
+            <span>Можно ли своих сотрудников добавить?</span>
+            <span class="faq-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="faq-answer">
+            На «Бизнес» — до 5 пользователей в одной организации. У каждого свой логин, свой API-ключ, свой Telegram-bot для уведомлений. Роли: админ / оператор / только просмотр.
+          </div>
+        </details>
       </div>
     </div>
   </section>

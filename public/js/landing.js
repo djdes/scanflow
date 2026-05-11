@@ -94,6 +94,35 @@
     });
   }
 
+  // ========== Magnetic CTA ==========
+  // Subtle cursor-follow on .btn-magnetic — translates the button toward the
+  // pointer by ~12% of the offset from center. Disabled when the user prefers
+  // reduced motion.
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!prefersReduced) {
+    document.querySelectorAll('.btn-magnetic').forEach((btn) => {
+      btn.addEventListener('mousemove', (e) => {
+        const r = btn.getBoundingClientRect();
+        const dx = (e.clientX - r.left - r.width / 2) * 0.18;
+        const dy = (e.clientY - r.top - r.height / 2) * 0.28;
+        btn.style.transform = `translate(${dx}px, ${dy}px)`;
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.style.transform = '';
+      });
+    });
+  }
+
+  // ========== FAQ Accordion ==========
+  document.querySelectorAll('.faq-item').forEach((item) => {
+    const trigger = item.querySelector('.faq-question');
+    if (!trigger) return;
+    trigger.addEventListener('click', () => {
+      const expanded = item.classList.toggle('open');
+      trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    });
+  });
+
   // ========== Counter Animation ==========
 
   function animateCounters() {
