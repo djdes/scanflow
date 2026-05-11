@@ -81,6 +81,26 @@
     ]
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question",
+        "name": "А ТОРГ-12 устарела, же ЭДО?",
+        "acceptedAnswer": { "@type": "Answer", "text": "С 2025 года электронный документооборот стал обязательным только для маркируемых товаров — табак, обувь, парфюмерия, лекарства, молочка, шины и ещё несколько категорий. Всё остальное по-прежнему можно оформлять бумажной ТОРГ-12, и большинство поставщиков в малом и среднем бизнесе именно так и делают. Особенно — сельское хозяйство, опт продуктов, общепит, региональные дистрибьюторы. Полный переход на ЭДО — это горизонт 5-7 лет, не «уже сейчас». До тех пор ТОРГ-12 остаётся основной формой входящей первички." }
+      },
+      { "@type": "Question",
+        "name": "Что с УПД (универсальным передаточным документом)?",
+        "acceptedAnswer": { "@type": "Answer", "text": "УПД — это «два в одном»: накладная (ТОРГ-12) и счёт-фактура, объединённые в одном бланке. Структура полей очень похожа: те же шапка-таблица-подвал, тот же ОКЕИ, та же графа НДС. Разница в дополнительных реквизитах счёта-фактуры (КПП продавца, страна происхождения товара, номер ГТД) и в признаке функции документа: УПД-1 со статусом «1» — это накладная + счёт-фактура одновременно, УПД-2 со статусом «2» — только накладная. ScanFlow распознаёт оба формата по той же схеме, что и ТОРГ-12 — Claude vision-LLM достаточно гибкий, чтобы не различать их на уровне промпта." }
+      },
+      { "@type": "Question",
+        "name": "Как ScanFlow понимает, что это именно ТОРГ-12?",
+        "acceptedAnswer": { "@type": "Answer", "text": "В основном режиме (Claude vision) — никак, в смысле «нам не нужно классифицировать». LLM видит документ целиком, понимает, что это товарная накладная (по форме таблицы, по заголовкам колонок, по подписям внизу), и достаёт нужные поля независимо от того, ТОРГ-12 это, УПД, или какая-то фирменная форма поставщика. Для legacy-regex-фолбэка у нас есть несколько якорей (заголовок «ТОРГ-12», наличие подвала «Всего наименований», характерные ширины колонок), но в боевом режиме они почти не используются." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="article-page">
 
@@ -108,6 +128,30 @@
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема" aria-haspopup="menu" aria-expanded="false" title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <a href="/#auth" class="btn-ghost">Войти</a>
         <a href="/#demo" class="btn-primary-sm">Попробовать</a>
       </div>

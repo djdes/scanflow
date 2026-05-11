@@ -81,6 +81,26 @@
     ]
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question",
+        "name": "Можно ли вручную склеить накладные, если мердж не сработал?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Да. У каждой накладной в дашборде есть кнопка «Объединить с…»: открывается список последних поступлений того же поставщика, можно выбрать целевую — позиции из текущей перенесутся в неё, флаг file_name обновится на ту страницу, где есть подпись и ИТОГО, а текущая запись помечается как merged_into=<id> и убирается из активной очереди. Оригинальные фотографии при этом сохраняются обе — если потом потребуется развести записи обратно, исходники под рукой." }
+      },
+      { "@type": "Question",
+        "name": "Если за 10 минут не доснял — что делать?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Загрузить позже. ScanFlow создаст вторую запись (потому что окно мерджа уже закрылось), и в дашборде появятся две накладные с одним номером 2841. Откройте любую из них, нажмите «Объединить с…», выберите парную — и они склеятся как при автомерже. Окно в 10 минут — это компромисс: при большем окне (скажем, час) повышается риск, что пакетная загрузка одной поставки случайно склеится с другой накладной того же поставщика, пришедшей в тот же интервал; при меньшем (скажем, минута) — реальные кейсы «сходил на склад за второй страницей и принёс через пять минут» не успевают." }
+      },
+      { "@type": "Question",
+        "name": "А если две накладные пришли в один день от одного поставщика с одинаковым номером?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Бывает у крупных оптовиков с разделением нумерации по складам: на каждом из складов своя сквозная нумерация, и в один день два разных склада одного юрлица могут выписать №2841. По нашему алгоритму они с большой вероятностью склеятся в одну запись в БД — это известное ограничение. Оператор увидит это сразу: позиций в накладной заметно больше ожидаемого, ИТОГО не совпадает с тем, что напечатано ни на одной из страниц. В дашборде есть зеркальная кнопка «Разделить накладную», которая возвращает позиции по двум исходным записям — на основе того, какой кадр их принёс. Исходные фото у нас сохранены, поэтому split-операция всегда обратима." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="article-page">
 
@@ -108,6 +128,30 @@
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема" aria-haspopup="menu" aria-expanded="false" title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <a href="/#auth" class="btn-ghost">Войти</a>
         <a href="/#demo" class="btn-primary-sm">Попробовать</a>
       </div>

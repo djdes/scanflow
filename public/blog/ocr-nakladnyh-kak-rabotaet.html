@@ -80,6 +80,26 @@
     ]
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question",
+        "name": "Можно ли подключить ваш OCR к своему 1С через API?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Да, у нас есть REST с X-API-Key: POST /api/upload принимает файл и возвращает structured JSON с распознанными полями. Документацию интеграции получите после регистрации, она же приходит вместе со скачиваемой внешней обработкой .epf для 1С:УНФ." }
+      },
+      { "@type": "Question",
+        "name": "Что с рукописными накладными?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Печатный текст — 99%+, рукописный (правки от руки поверх печатной формы — типичный случай в общепите) — около 85%. Полностью рукописная накладная — нестандартный кейс, который мы не оптимизируем. Для такого лучше переснять с лучшим освещением или ввести вручную в 1С." }
+      },
+      { "@type": "Question",
+        "name": "А если ваш сервис ляжет — что с моими данными?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Распознанные документы хранятся в нашей MySQL в России, с ежедневными дампами в 03:00. Фото исходников хранятся 90 дней, потом удаляются автоматически. По запросу выгружаем всё в JSON, никаких vendor-lock. Бизнес-критичные данные (контрагенты, номенклатура) синхронизируются с вашей 1С — мы тут только промежуточный слой." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="article-page">
 
@@ -107,6 +127,30 @@
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема" aria-haspopup="menu" aria-expanded="false" title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <a href="/#auth" class="btn-ghost">Войти</a>
         <a href="/#demo" class="btn-primary-sm">Попробовать</a>
       </div>

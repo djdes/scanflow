@@ -80,6 +80,26 @@
     ]
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question",
+        "name": "Что если у меня не Сбер, а другой банк?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Пока поддерживается только СберБизнес. В roadmap — ВТБ Бизнес и Альфа-Бизнес: оба банка имеют публичные API для создания платёжных поручений, и оба используют схожую модель с mTLS + OAuth. Но детали разные: у ВТБ другой формат payload (ближе к ISO 20022), Альфа использует JSON Web Signatures для подписи. Это не «поменять URL», а отдельная интеграция для каждого банка. Будем подключать по мере спроса от клиентов." }
+      },
+      { "@type": "Question",
+        "name": "Кто видит черновик платёжки и как его одобрить?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Черновик попадает в СберБизнес в раздел «Черновики» или «Документы на подпись» — в зависимости от региональной версии интерфейса. Видят его все сотрудники организации, у которых есть права на работу с этим расчётным счётом. Подписывает — тот, у кого есть право «Подпись платёжных документов»: обычно директор или главбух. Подпись делается через токен Сбера: USB-токен, TouchID на маке/iPhone, либо одноразовый пароль из мобильного приложения СберБизнес — это настраивается в банке при выпуске токена и от ScanFlow не зависит." }
+      },
+      { "@type": "Question",
+        "name": "Отзывается ли черновик автоматом, если я его не подписал?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Нет. Черновик живёт в СберБизнесе до тех пор, пока его не подписали или не удалили вручную. Если вы отменили накладную в ScanFlow после того, как успели отправить черновик в Сбер — лучше зайти в банк и удалить черновик руками. У нас нет ручки для удаления уже созданных черновиков из Sber API (с точки зрения API это не баг, а фича — банк не хочет, чтобы внешние сервисы могли отзывать платёжки), поэтому работает только с обеих сторон вручную. На практике это не больно: черновиков накапливается мало, и операция занимает несколько секунд." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="article-page">
 
@@ -107,6 +127,30 @@
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема" aria-haspopup="menu" aria-expanded="false" title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <a href="/#auth" class="btn-ghost">Войти</a>
         <a href="/#demo" class="btn-primary-sm">Попробовать</a>
       </div>

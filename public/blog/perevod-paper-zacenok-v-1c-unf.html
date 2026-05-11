@@ -81,6 +81,26 @@
     ]
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question",
+        "name": "Какая версия УНФ нужна?",
+        "acceptedAnswer": { "@type": "Answer", "text": "1С:Управление нашей фирмой редакции 1.6 и новее. На 1.5 интеграция не поддерживается — там нет нужных методов работы с прикреплёнными файлами через подсистему БСП, а реализовывать собственный обход ФайлХранилище мы сознательно не стали (см. предупреждение выше). Большинство наших клиентов на 1.6.x — это конфигурация, актуальная с 2017 года, до сих пор поддерживаемая и обновляемая." }
+      },
+      { "@type": "Question",
+        "name": "Что если у меня не УНФ, а ERP или Бухгалтерия?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Из коробки — только УНФ. Но REST-контракт открытый, документация приходит после регистрации, и при желании можно написать свою внешнюю обработку под Бухгалтерию предприятия 3.0, Управление торговлей или ERP 2. Структура документа «Приходная (поступление товаров)» в этих конфигурациях концептуально та же; меняется маппинг полей и подсистема файлов (в БСП-конфигурациях она тоже есть, но называется по-разному). Если у вас стоит такая задача — напишите нам, поделимся уже накопленным шаблоном кода." }
+      },
+      { "@type": "Question",
+        "name": "Куда смотреть логи если что-то пошло не так?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Два места. На стороне ScanFlow — это PM2: pm2 logs scanflow на нашем сервере, видны конкретные запросы от 1С с timestamp, статусом и payload. В дашборде у каждой накладной есть кнопка «Показать логи»: она показывает события именно по этому документу — когда распознан, когда подтверждён, когда отдан в 1С, когда подтверждена создание. На стороне 1С — журнал регистрации (Все функции → Журнал регистрации), отфильтрованный по нашей обработке. Большинство проблем — это либо неправильный API-ключ (видно по 401), либо проблема с прикреплением фото (видно в журнале 1С)." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="article-page">
 
@@ -108,6 +128,30 @@
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема" aria-haspopup="menu" aria-expanded="false" title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <a href="/#auth" class="btn-ghost">Войти</a>
         <a href="/#demo" class="btn-primary-sm">Попробовать</a>
       </div>

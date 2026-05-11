@@ -80,6 +80,26 @@
     ]
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question",
+        "name": "А если ИНН ИП?",
+        "acceptedAnswer": { "@type": "Answer", "text": "У индивидуального предпринимателя ИНН на 12 цифр (вместо 10 у юрлица), и DaData возвращает структурно другой ответ. В data.name.short будет ФИО предпринимателя одной строкой — «Иванов Иван Иванович», а в data.fio — структурированный объект с раздельными полями surname, name, patronymic. Поле data.type будет INDIVIDUAL (для юрлица — LEGAL). КПП у ИП пустой — это нормально и так и должно быть. Если случайно записать туда любые цифры, банк при создании платёжки вернёт ошибку валидации реквизитов. Платёжное поручение для ИП работает так же, как для юрлица — единственная разница, что вместо «ООО Ромашка» в поле получателя будет ФИО." }
+      },
+      { "@type": "Question",
+        "name": "Можно ли использовать DaData для проверки контрагента (compliance)?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Нет. DaData — это reference data, не compliance-сервис. Информации о судебных делах, исполнительных производствах, банкротных процедурах, бенефициарах, аффилированных лицах, госконтрактах, лицензиях, проверках регуляторов — у DaData нет. Для KYC, due diligence, антимонопольных и санкционных проверок нужны специализированные продукты: СПАРК-Интерфакс, Контур.Фокус, Чек-Индекс, FIRA, x-COMPLIANCE. У них и базы шире, и юридический фокус другой, и часто есть прямые интеграции с государственными источниками рисков. DaData отлично закрывает свою нишу — «справочная информация для автозаполнения форм», — но за её пределы выходить не нужно." }
+      },
+      { "@type": "Question",
+        "name": "Что если у DaData нет нашего поставщика?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Бывает редко — база DaData синхронизируется с ЕГРЮЛ/ЕГРИП и покрывает практически 100% действующих и исторических организаций. Если случилось «не нашли» — почти всегда это значит, что ИНН распознан с накладной с ошибкой. Проверьте контрольное число (есть стандартный алгоритм для 10- и 12-значных ИНН), сверьте с печатью на накладной, и если действительно очепятка — поправьте руками. Если ИНН правильный, но DaData всё равно не находит — это либо очень свежий ИНН, который ещё не успел индексироваться (бывает в первые часы после регистрации), либо организация ликвидирована давно и выкинута из реестра. В обоих случаях UI ScanFlow показывает «контрагент не найден» и даёт оператору заполнить карточку вручную; результат сохраняется в suppliers с source='manual'." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="article-page">
 
@@ -107,6 +127,30 @@
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
+        <div class="theme-switcher" id="theme-switcher">
+          <button class="theme-toggle" id="theme-toggle" type="button"
+                  aria-label="Тема" aria-haspopup="menu" aria-expanded="false" title="Выбор темы">
+            <span class="icon-sun" aria-hidden="true">☀️</span>
+            <span class="icon-moon" aria-hidden="true">🌙</span>
+          </button>
+          <div class="theme-menu" id="theme-menu" role="menu" aria-hidden="true">
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="light" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">☀️</span>
+              <span class="theme-menu-label">Светлая</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="dark" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">🌙</span>
+              <span class="theme-menu-label">Тёмная</span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="theme-menu-item" role="menuitemradio" data-mode="auto" aria-checked="false">
+              <span class="theme-menu-icon" aria-hidden="true">⏱</span>
+              <span class="theme-menu-label">По&nbsp;времени дня <small>07–19</small></span>
+              <span class="theme-menu-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <a href="/#auth" class="btn-ghost">Войти</a>
         <a href="/#demo" class="btn-primary-sm">Попробовать</a>
       </div>
