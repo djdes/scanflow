@@ -37,6 +37,64 @@ const MOCK_USER = {
   role: 'admin',
 };
 
+// Sample invoices so the dashboard list page has rows to render — needed for
+// чтобы можно было кликать «развернуть» и смотреть фильтры на стат-карточках.
+const MOCK_INVOICES = [
+  {
+    id: 1247,
+    invoice_number: 'УТ-0024519',
+    invoice_date: '2026-04-28',
+    supplier: 'ООО "Продукты Алтая"',
+    total_sum: 47830.5,
+    status: 'sent_to_1c',
+    sber_payment_status: 'created',
+    sber_payment_number: 'PP-2026-0418',
+    items_total_mismatch: 0,
+    file_name: 'inv-2026-04-28-1247.jpg',
+    ocr_engine: 'claude_api',
+    created_at: '2026-04-28T09:14:32Z',
+  },
+  {
+    id: 1246,
+    invoice_number: 'ТН-991/04',
+    invoice_date: '2026-04-27',
+    supplier: 'ИП Бочкарёв А.С.',
+    total_sum: 12450,
+    status: 'processed',
+    sber_payment_status: null,
+    items_total_mismatch: 1,
+    file_name: 'inv-2026-04-27-1246.jpg',
+    ocr_engine: 'claude_api+multipage',
+    created_at: '2026-04-27T16:42:11Z',
+  },
+  {
+    id: 1245,
+    invoice_number: '00-00012',
+    invoice_date: '2026-04-26',
+    supplier: 'АО "Сибирский хлеб"',
+    total_sum: 8120,
+    status: 'processed',
+    sber_payment_status: 'pending',
+    items_total_mismatch: 0,
+    file_name: 'inv-2026-04-26-1245.jpg',
+    ocr_engine: 'claude_api',
+    created_at: '2026-04-26T11:07:55Z',
+  },
+  {
+    id: 1244,
+    invoice_number: 'ТН-7723',
+    invoice_date: '2026-04-25',
+    supplier: 'ООО "Колос"',
+    total_sum: 65240.75,
+    status: 'new',
+    sber_payment_status: null,
+    items_total_mismatch: 0,
+    file_name: 'inv-2026-04-25-1244.jpg',
+    ocr_engine: 'google_vision+claude_api',
+    created_at: '2026-04-25T08:30:00Z',
+  },
+];
+
 const mockTable: Array<{ test: RegExp; handler: (req: express.Request, res: express.Response) => void }> = [
   // Auth — accept any creds
   { test: /^\/api\/auth\/login$/, handler: (_req, res) => res.json(MOCK_USER) },
@@ -54,7 +112,7 @@ const mockTable: Array<{ test: RegExp; handler: (req: express.Request, res: expr
     },
   })},
   { test: /^\/api\/invoices\/pending$/, handler: (_req, res) => res.json({ data: [] }) },
-  { test: /^\/api\/invoices(\?.*)?$/, handler: (_req, res) => res.json({ data: [] }) },
+  { test: /^\/api\/invoices(\?.*)?$/, handler: (_req, res) => res.json({ data: MOCK_INVOICES }) },
   { test: /^\/api\/invoices\/\d+/, handler: (_req, res) => res.status(404).json({ error: 'No data in preview mode' }) },
 
   // Mappings — server wraps in { data: { grouped, unmapped } }
