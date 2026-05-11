@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { loadArticles } from '../seo/articles';
 import { buildSitemapXml } from '../seo/sitemap';
+import { renderListingHtml } from '../seo/blogRender';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth } from './middleware/auth';
@@ -214,8 +215,15 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // GET /blog — canonical listing (no trailing slash).
   // /blog/ → 301 to /blog is handled by middleware near the top of this file,
   // before express.static gets to serve public/blog/index.html.
+  // Cache the listing-HTML-with-substituted-cards in memory; rebuild on every
+  // first request after server start (acceptable for SEO crawl needs).
+  let listingHtmlCache: string | null = null;
   app.get('/blog', (_req, res) => {
-    res.sendFile(path.join(publicDir, 'blog/index.html'));
+    if (!listingHtmlCache) {
+      const raw = fs.readFileSync(path.join(publicDir, 'blog/index.html'), 'utf8');
+      listingHtmlCache = renderListingHtml(raw, loadArticles());
+    }
+    res.type('html').send(listingHtmlCache);
   });
 
   // GET /blog/:slug — serve the matching article HTML or 404. Slug must be
