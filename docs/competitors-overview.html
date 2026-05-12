@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScanFlow vs 10 российских конкурентов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Unbounded:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --surface: #131826;
+      --card: #1a2030;
+      --card-2: #232a3d;
+      --border: rgba(255,255,255,0.08);
+      --border-lit: rgba(255,255,255,0.16);
+      --text: #e8ecf4;
+      --text-dim: #9aa3b8;
+      --text-muted: #5d6680;
+      --accent-blue: #3b82f6;
+      --accent-green: #06d6a0;
+      --accent-purple: #a78bfa;
+      --accent-orange: #fb923c;
+      --gradient: linear-gradient(135deg, #3b82f6 0%, #06d6a0 100%);
+      --gradient-text: linear-gradient(135deg, #60a5fa 0%, #34d399 100%);
+    }
+
+    @media print {
+      :root {
+        --bg: #ffffff;
+        --surface: #f7f8fb;
+        --card: #ffffff;
+        --card-2: #f1f5f9;
+        --border: rgba(15,23,42,0.10);
+        --border-lit: rgba(15,23,42,0.20);
+        --text: #0f172a;
+        --text-dim: #475569;
+        --text-muted: #94a3b8;
+      }
+      body { background: white !important; }
+      .doc { box-shadow: none; }
+      .competitor { break-inside: avoid; page-break-inside: avoid; }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .doc {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 60px 40px;
+    }
+
+    /* === Hero === */
+    .hero {
+      text-align: center;
+      margin-bottom: 56px;
+      position: relative;
+    }
+    .hero__eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+    }
+    .hero__eyebrow::before {
+      content: '';
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 12px var(--accent-green);
+    }
+    .hero h1 {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 44px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+    .hero h1 span {
+      background: var(--gradient-text);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 17px;
+      color: var(--text-dim);
+      max-width: 720px;
+      margin: 0 auto;
+      line-height: 1.55;
+    }
+
+    /* === Bottom-line callout under hero === */
+    .bottom-line {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      max-width: 920px;
+      margin: 32px auto 64px;
+      padding: 22px 28px;
+      background: linear-gradient(90deg, rgba(6,214,160,0.10), rgba(59,130,246,0.10));
+      border: 1px solid rgba(6,214,160,0.35);
+      border-radius: 14px;
+      text-align: left;
+    }
+    @media print {
+      .bottom-line {
+        background: #ecfdf5 !important;
+        border-color: #047857 !important;
+      }
+    }
+    .bottom-line__icon {
+      font-size: 36px;
+      flex-shrink: 0;
+    }
+    .bottom-line__text {
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .bottom-line__text b {
+      color: var(--accent-green);
+      font-weight: 700;
+    }
+
+    /* === Section labels === */
+    .section-label {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent-blue);
+      background: rgba(59,130,246,0.10);
+      padding: 6px 12px;
+      border-radius: 999px;
+      margin-bottom: 16px;
+    }
+    .section h2 {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      margin-bottom: 12px;
+    }
+    .section__sub {
+      color: var(--text-dim);
+      font-size: 15px;
+      margin-bottom: 32px;
+      max-width: 760px;
+    }
+
+    /* === Feature matrix === */
+    .matrix-wrap {
+      overflow-x: auto;
+      margin-bottom: 64px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+    table.matrix {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      background: var(--card);
+    }
+    .matrix th, .matrix td {
+      padding: 12px 14px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+    }
+    .matrix th:last-child, .matrix td:last-child { border-right: none; }
+    .matrix tr:last-child td { border-bottom: none; }
+    .matrix thead th {
+      background: var(--card-2);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding-top: 16px;
+      padding-bottom: 16px;
+    }
+    .matrix thead th:first-child {
+      text-align: left;
+      padding-left: 22px;
+      text-transform: none;
+      font-size: 13px;
+      letter-spacing: 0.01em;
+    }
+    .matrix tbody td:first-child {
+      text-align: left;
+      padding-left: 22px;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text);
+      width: 28%;
+    }
+    .matrix td .num {
+      display: inline-block;
+      width: 22px; height: 22px;
+      background: var(--card-2);
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 6px;
+      line-height: 22px;
+      text-align: center;
+      margin-right: 10px;
+    }
+    .cell-yes { color: var(--accent-green); font-size: 18px; font-weight: 700; }
+    .cell-partial { color: var(--accent-orange); font-size: 18px; font-weight: 700; }
+    .cell-no { color: var(--text-muted); font-size: 18px; }
+
+    .matrix tr.scanflow-row td {
+      background: linear-gradient(90deg, rgba(6,214,160,0.10), rgba(59,130,246,0.10));
+      font-weight: 700;
+    }
+    .matrix tr.scanflow-row td:first-child {
+      color: var(--accent-green);
+    }
+    @media print {
+      .matrix tr.scanflow-row td {
+        background: #ecfdf5 !important;
+      }
+    }
+
+    .matrix-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 24px;
+      padding: 14px 22px;
+      border-top: 1px solid var(--border);
+      background: var(--card);
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .matrix-legend b { color: var(--text); font-weight: 600; }
+
+    /* === Competitor cards === */
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-bottom: 56px;
+    }
+    @media (max-width: 760px) {
+      .cards { grid-template-columns: 1fr; }
+    }
+    .competitor {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 22px;
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 16px;
+      transition: border-color 0.15s ease;
+    }
+    .competitor:hover { border-color: var(--border-lit); }
+    .competitor__num {
+      width: 34px;
+      height: 34px;
+      background: var(--card-2);
+      color: var(--text-dim);
+      border-radius: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .competitor__body { min-width: 0; }
+    .competitor__head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 4px;
+      flex-wrap: wrap;
+    }
+    .competitor__name {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+    .competitor__price {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--accent-blue);
+      padding: 4px 10px;
+      background: rgba(59,130,246,0.10);
+      border: 1px solid rgba(59,130,246,0.25);
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+    .competitor__url {
+      display: block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      text-decoration: none;
+      margin-bottom: 12px;
+      word-break: break-all;
+    }
+    .competitor__url:hover { color: var(--accent-blue); text-decoration: underline; }
+    .competitor__row {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 8px;
+      font-size: 13.5px;
+      line-height: 1.45;
+      margin-bottom: 6px;
+      color: var(--text-dim);
+    }
+    .competitor__row strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .competitor__row .ico {
+      display: flex;
+      align-items: flex-start;
+      padding-top: 2px;
+      color: var(--accent-green);
+      font-weight: 700;
+    }
+    .competitor__row.minus .ico { color: var(--text-muted); }
+
+    /* === ScanFlow distinct card === */
+    .scanflow-card {
+      grid-column: 1 / -1;
+      background: linear-gradient(135deg, rgba(6,214,160,0.10) 0%, rgba(59,130,246,0.10) 100%);
+      border: 1px solid rgba(6,214,160,0.40);
+      padding: 28px 32px;
+      grid-template-columns: 52px 1fr;
+      gap: 22px;
+    }
+    @media print {
+      .scanflow-card {
+        background: #ecfdf5 !important;
+        border-color: #047857 !important;
+      }
+    }
+    .scanflow-card .competitor__num {
+      width: 50px; height: 50px;
+      background: var(--gradient);
+      color: white;
+      font-family: 'Unbounded', sans-serif;
+      font-size: 22px;
+    }
+    .scanflow-card .competitor__name {
+      font-size: 22px;
+      color: var(--accent-green);
+    }
+    .scanflow-card .competitor__price {
+      background: var(--gradient);
+      color: white;
+      border-color: transparent;
+      font-size: 14px;
+    }
+
+    /* === Summary === */
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-bottom: 48px;
+    }
+    @media (max-width: 760px) {
+      .summary { grid-template-columns: 1fr; }
+    }
+    .summary__card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px 22px;
+    }
+    .summary__num {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 40px;
+      font-weight: 800;
+      background: var(--gradient-text);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 6px;
+    }
+    .summary__label {
+      font-size: 14px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    .summary__label b { color: var(--text); font-weight: 600; }
+
+    /* === Strategic position === */
+    .strategy {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px 36px;
+      margin-bottom: 48px;
+    }
+    .strategy h3 {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .strategy ol {
+      list-style: none;
+      counter-reset: strat;
+      padding: 0;
+      margin: 0;
+    }
+    .strategy li {
+      counter-increment: strat;
+      padding-left: 56px;
+      position: relative;
+      margin-bottom: 18px;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-dim);
+    }
+    .strategy li:last-child { margin-bottom: 0; }
+    .strategy li::before {
+      content: counter(strat);
+      position: absolute;
+      left: 0;
+      top: -2px;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: var(--gradient);
+      color: white;
+      font-family: 'Unbounded', sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .strategy li b { color: var(--text); font-weight: 700; }
+
+    .position {
+      margin-top: 28px;
+      padding: 20px 24px;
+      background: var(--card-2);
+      border-left: 3px solid var(--accent-green);
+      border-radius: 0 10px 10px 0;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text);
+      font-style: italic;
+    }
+    .position b { color: var(--accent-green); font-style: normal; font-weight: 700; }
+
+    /* === Footer === */
+    .footer {
+      border-top: 1px solid var(--border);
+      padding-top: 28px;
+      margin-top: 32px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 18px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .footer a { color: var(--text-dim); text-decoration: none; }
+    .footer a:hover { color: var(--accent-blue); }
+  </style>
+</head>
+<body>
+<div class="doc">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="hero__eyebrow">Конкурентный анализ · май 2026</div>
+    <h1>ScanFlow vs 10 российских <span>конкурентов</span></h1>
+    <p>Сервис OCR накладных в России — кто что предлагает, по какой цене, и где наша уникальная позиция. Все цены — публичные данные с сайтов конкурентов, май 2026.</p>
+  </section>
+
+  <div class="bottom-line">
+    <div class="bottom-line__icon">⭐</div>
+    <div class="bottom-line__text">
+      <b>ScanFlow — единственный из 11 сервисов</b>, у кого одновременно
+      нативная интеграция в 1С:УНФ, черновик платёжки в СберБизнес и Telegram-уведомления.
+      Прозрачные цены, freemium-tier, mobile-first, открытый API. Семь из семи ключевых фич.
+    </div>
+  </div>
+
+  <!-- ============ FEATURE MATRIX ============ -->
+  <section class="section">
+    <div class="section-label">Сравнение по фичам</div>
+    <h2>Кто что умеет</h2>
+    <p class="section__sub">7 ключевых функций для бизнеса на 1С:УНФ. ScanFlow — единственная строка с зелёным во всех колонках.</p>
+
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Сервис</th>
+            <th>1С:УНФ<br>нативно</th>
+            <th>Сбер<br>черновик</th>
+            <th>Telegram</th>
+            <th>Mobile<br>first</th>
+            <th>Free<br>tier</th>
+            <th>Прозр.<br>pricing</th>
+            <th>Публ.<br>API</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="num">1</span>1С:РПД</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-partial">~</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-no">—</td></tr>
+          <tr><td><span class="num">2</span>Entera</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-partial">~</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-partial">~</td></tr>
+          <tr><td><span class="num">3</span>Гэндальф «Скан-Загрузка»</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-yes">✓</td><td class="cell-no">—</td></tr>
+          <tr><td><span class="num">4</span>Smart Engines</td><td class="cell-partial">~</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-yes">✓</td></tr>
+          <tr><td><span class="num">5</span>DocsInBox</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-yes">✓</td><td class="cell-partial">~</td></tr>
+          <tr><td><span class="num">6</span>Saby / СБИС</td><td class="cell-partial">~</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-partial">~</td></tr>
+          <tr><td><span class="num">7</span>Контур.Бухгалтерия</td><td class="cell-partial">~</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-partial">~</td><td class="cell-no">—</td><td class="cell-yes">✓</td><td class="cell-no">—</td></tr>
+          <tr><td><span class="num">8</span>CORRECT</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-no">—</td></tr>
+          <tr><td><span class="num">9</span>МойСклад</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-partial">~</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-partial">~</td></tr>
+          <tr><td><span class="num">10</span>Кнап (Knap)</td><td class="cell-yes">✓</td><td class="cell-no">—</td><td class="cell-no">—</td><td class="cell-partial">~</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-no">—</td></tr>
+          <tr class="scanflow-row"><td>⭐ ScanFlow</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td><td class="cell-yes">✓</td></tr>
+        </tbody>
+      </table>
+      <div class="matrix-legend">
+        <span><b style="color: var(--accent-green);">✓</b> — есть</span>
+        <span><b style="color: var(--accent-orange);">~</b> — частично / через интегратор</span>
+        <span><b style="color: var(--text-muted);">—</b> — нет</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMPETITOR CARDS ============ -->
+  <section class="section">
+    <div class="section-label">Кто эти сервисы</div>
+    <h2>10 конкурентов на российском рынке</h2>
+    <p class="section__sub">Краткая карточка по каждому: цена, преимущество, что не делает (или делает плохо).</p>
+
+    <div class="cards">
+      <!-- 1 -->
+      <div class="competitor">
+        <div class="competitor__num">1</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">1С:РПД</span>
+            <span class="competitor__price">от 3 ₽/стр</span>
+          </div>
+          <a class="competitor__url" href="https://ocr.1c.ai/" target="_blank">ocr.1c.ai</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>Официальный продукт 1С</strong>, нативная интеграция в БП/УНФ/Розница. 250 стр/мес бесплатно с подпиской ИТС.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Работает <strong>только внутри 1С-клиента</strong>, нет SaaS-UI, нет Сбера, нет Telegram.</span></div>
+        </div>
+      </div>
+
+      <!-- 2 -->
+      <div class="competitor">
+        <div class="competitor__num">2</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">Entera</span>
+            <span class="competitor__price">от 6 334 ₽/мес</span>
+          </div>
+          <a class="competitor__url" href="https://entera.pro/" target="_blank">entera.pro</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>13+ типов документов</strong>, точность 98%, EDO-интеграция (Диадок, СБИС).</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Дорогая нижняя планка, годовой контракт, нет mobile-first, нет Сбера.</span></div>
+        </div>
+      </div>
+
+      <!-- 3 -->
+      <div class="competitor">
+        <div class="competitor__num">3</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">Гэндальф «Скан-Загрузка»</span>
+            <span class="competitor__price">~1 000 ₽/мес</span>
+          </div>
+          <a class="competitor__url" href="https://gendalf.ru/svc/scan-doc/" target="_blank">gendalf.ru/svc/scan-doc</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>Per-seat безлимит</strong> (12 000 ₽/год), обновления не ломают 1С.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Не SaaS — установка локально, нет облака, нет мобильного сценария.</span></div>
+        </div>
+      </div>
+
+      <!-- 4 -->
+      <div class="competitor">
+        <div class="competitor__num">4</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">Smart Engines</span>
+            <span class="competitor__price">enterprise</span>
+          </div>
+          <a class="competitor__url" href="https://smartengines.ru/raspoznavanie-pervichki/" target="_blank">smartengines.ru/raspoznavanie-pervichki</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>On-premise, Mobile SDK</strong>, до 600K стр/день, клиенты МТС/ВТБ/Альфа.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Не для SMB, нет turnkey 1С:УНФ-коннектора, нужен интегратор.</span></div>
+        </div>
+      </div>
+
+      <!-- 5 -->
+      <div class="competitor">
+        <div class="competitor__num">5</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">DocsInBox</span>
+            <span class="competitor__price">7 900–21 700 ₽/мес</span>
+          </div>
+          <a class="competitor__url" href="https://docsinbox.ru/" target="_blank">docsinbox.ru</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>HoReCa-фокус</strong>: ЭДО + ЕГАИС + Меркурий + накладные в одном окне.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Только рестораны/кафе, дорого для не-HoReCa, не для 1С:УНФ.</span></div>
+        </div>
+      </div>
+
+      <!-- 6 -->
+      <div class="competitor">
+        <div class="competitor__num">6</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">Saby / СБИС</span>
+            <span class="competitor__price">1 500–5 000 ₽</span>
+          </div>
+          <a class="competitor__url" href="https://saby.ru/autorecognition" target="_blank">saby.ru/autorecognition</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>99% точность</strong>, ИИ, проверка чеков в ФНС, HR-документы, своя ЭДО-сеть.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Pricing непрозрачный, заточено под экосистему СБИС, не нативно в УНФ.</span></div>
+        </div>
+      </div>
+
+      <!-- 7 -->
+      <div class="competitor">
+        <div class="competitor__num">7</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">Контур.Бухгалтерия</span>
+            <span class="competitor__price">~1 400 ₽/мес</span>
+          </div>
+          <a class="competitor__url" href="https://kontur.ru/bk/price" target="_blank">kontur.ru/bk/price</a>
+          <div class="competitor__row"><span class="ico">+</span><span>Экосистема Контура (Диадок, Эльба, Экстерн), <strong>1 500 документов</strong> в комплекте за 16 800 ₽/год.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Только в составе бухгалтерии, не отдельный сервис, нет мобильной камеры, нет Сбера-черновиков.</span></div>
+        </div>
+      </div>
+
+      <!-- 8 -->
+      <div class="competitor">
+        <div class="competitor__num">8</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">CORRECT</span>
+            <span class="competitor__price">от 2,30 ₽/стр</span>
+          </div>
+          <a class="competitor__url" href="https://correct.su/1c" target="_blank">correct.su/1c</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>Самая дешёвая per-page цена</strong> на рынке, 50 стр бесплатно, есть УНФ, мобильное приложение.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Малоизвестный бренд, нет ЭДО, нет Сбера, нет Telegram.</span></div>
+        </div>
+      </div>
+
+      <!-- 9 -->
+      <div class="competitor">
+        <div class="competitor__num">9</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">МойСклад</span>
+            <span class="competitor__price">через партнёра</span>
+          </div>
+          <a class="competitor__url" href="https://www.moysklad.ru/" target="_blank">moysklad.ru</a>
+          <div class="competitor__row"><span class="ico">+</span><span>Если уже сидишь в МойСкладе — <strong>приёмка товара полуавтоматическая</strong>.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Не для пользователей 1С:УНФ, нет own-brand OCR, прикручено сбоку.</span></div>
+        </div>
+      </div>
+
+      <!-- 10 -->
+      <div class="competitor">
+        <div class="competitor__num">10</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">Кнап (Knap)</span>
+            <span class="competitor__price">~4 000 ₽/мес</span>
+          </div>
+          <a class="competitor__url" href="https://goknap.com/" target="_blank">goknap.com</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>2 000+ пользователей, 20 млн доков обработано</strong>, электронный архив, ассистент бухгалтера.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Документ-based pricing, нет интеграции со Сбером, нет Telegram, годовые контракты.</span></div>
+        </div>
+      </div>
+
+      <!-- ScanFlow special -->
+      <div class="competitor scanflow-card">
+        <div class="competitor__num">⭐</div>
+        <div class="competitor__body">
+          <div class="competitor__head">
+            <span class="competitor__name">ScanFlow (мы)</span>
+            <span class="competitor__price">0 / 990 / 4 990 ₽</span>
+          </div>
+          <a class="competitor__url" href="https://scanflow.ru" target="_blank">scanflow.ru</a>
+          <div class="competitor__row"><span class="ico">+</span><span><strong>Единственный кто делает 1С:УНФ + СберБизнес-черновик + Telegram-уведомление</strong> в одном окне. Mobile-first (фото с телефона), LLM-маппинг номенклатур, прозрачный freemium-tier 50 стр/мес. Pro 990 ₽/мес — в 6× дешевле Entera, в 4× дешевле Кнапа при сопоставимом UX.</span></div>
+          <div class="competitor__row minus"><span class="ico">−</span><span>Молодой проект, пока только 1С:УНФ (без БП/Розницы), без ЭДО на старте.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ KEY NUMBERS ============ -->
+  <section class="section">
+    <div class="section-label">В трёх цифрах</div>
+    <h2>Где мы выигрываем</h2>
+    <p class="section__sub">Три факта из конкурентного анализа — каждый из них самостоятельно достаточный повод выбрать ScanFlow.</p>
+
+    <div class="summary">
+      <div class="summary__card">
+        <div class="summary__num">7 / 7</div>
+        <div class="summary__label"><b>фич закрыто полностью</b>. У остальных — максимум 5 из 7, и почти всегда без СберБизнеса и Telegram.</div>
+      </div>
+      <div class="summary__card">
+        <div class="summary__num">0 из 10</div>
+        <div class="summary__label">конкурентов делают <b>СберБизнес-черновик платёжки</b> после OCR. Это наша killer-фича, защищённая mTLS+OAuth-сложностью.</div>
+      </div>
+      <div class="summary__card">
+        <div class="summary__num">×6 — ×4</div>
+        <div class="summary__label">дешевле Entera и Кнапа на тарифе <b>Pro 990 ₽/мес</b> при сопоставимом UX и большем функционале.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STRATEGY ============ -->
+  <section class="section">
+    <div class="strategy">
+      <h3>Где «дыры» на рынке — и куда мы заходим</h3>
+      <ol>
+        <li><b>Дыра №1 — СберБизнес.</b> Никто из 10 не делает черновик платёжки после OCR. Защита через mTLS-сертификаты, OAuth, контракт с банком — это не «месяц работы» для копирования.</li>
+        <li><b>Дыра №2 — Telegram-уведомления.</b> Все сидят в email / push / web-UI. Российский SMB-владелец живёт в Telegram, а не в почте — мы ловим его там, где он реально проводит время.</li>
+        <li><b>Pricing-окно.</b> На рынке поляризация: 1С:РПД дёшево (3 ₽/стр), но только внутри 1С-клиента; Entera / Кнап — SaaS, но от 4 000–6 300 ₽/мес минимум. Между ними <b>дыра 1 000–4 000 ₽/мес</b> — туда заходим с Pro 990 ₽/мес и Бизнес 4 990 ₽/мес.</li>
+      </ol>
+
+      <div class="position">
+        <b>Позиционирование одной фразой:</b> «<b>1С:РПД, который живёт вне 1С + отправляет в Сбер + пишет в Telegram</b>». Это говорим на лендинге, в первом письме клиенту, в TG-каналах для бухгалтеров на УНФ.
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div>ScanFlow · конкурентный анализ · май 2026</div>
+    <div>
+      Источники:
+      <a href="https://ocr.1c.ai/" target="_blank">1c.ai</a> ·
+      <a href="https://entera.pro/" target="_blank">entera</a> ·
+      <a href="https://gendalf.ru/svc/scan-doc/" target="_blank">gendalf</a> ·
+      <a href="https://smartengines.ru/" target="_blank">smartengines</a> ·
+      <a href="https://docsinbox.ru/" target="_blank">docsinbox</a> ·
+      <a href="https://saby.ru/autorecognition" target="_blank">saby</a> ·
+      <a href="https://kontur.ru/bk/price" target="_blank">kontur</a> ·
+      <a href="https://correct.su/" target="_blank">correct</a> ·
+      <a href="https://www.moysklad.ru/" target="_blank">moysklad</a> ·
+      <a href="https://goknap.com/" target="_blank">knap</a>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>
