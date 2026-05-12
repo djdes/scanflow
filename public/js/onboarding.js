@@ -14,6 +14,7 @@ const Onboarding = {
   LS_DONE: 'sf-onboarding-done',
   LS_SBER_SKIP: 'sf-onboarding-sber-skip',
   LS_1C_OK: 'sf-onboarding-1c-ok',
+  LS_STATE_CACHE: 'sf-onboarding-state-cache',
 
   _state: { step1: false, step2: false, step3: false },
   _bound: false,
@@ -46,6 +47,8 @@ const Onboarding = {
   },
 
   // Refresh derived state from server + localStorage. Returns boolean trio.
+  // Кеширует результат в localStorage чтобы при следующей перерисовке
+  // баннер появлялся мгновенно без ожидания API.
   async refreshState() {
     let hasInvoices = false;
     let sberConnected = false;
@@ -63,7 +66,25 @@ const Onboarding = {
       step2: sberConnected || localStorage.getItem(this.LS_SBER_SKIP) === '1',
       step3: localStorage.getItem(this.LS_1C_OK) === '1',
     };
+    try {
+      localStorage.setItem(this.LS_STATE_CACHE, JSON.stringify(this._state));
+    } catch { /* quota etc — не критично */ }
     return this._state;
+  },
+
+  // Синхронный чтения для мгновенной первичной отрисовки:
+  // • Шаги 2/3 могут быть закрыты через LS-флаги без API.
+  // • Шаг 1 нельзя узнать без API — берём из кеша прошлого refresh'а.
+  readSyncState() {
+    let cached = { step1: false, step2: false, step3: false };
+    try {
+      const raw = localStorage.getItem(this.LS_STATE_CACHE);
+      if (raw) cached = { ...cached, ...JSON.parse(raw) };
+    } catch { /* malformed cache — ignore */ }
+    // LS-флаги авторитетнее кеша
+    cached.step2 = cached.step2 || localStorage.getItem(this.LS_SBER_SKIP) === '1';
+    cached.step3 = localStorage.getItem(this.LS_1C_OK) === '1';
+    return cached;
   },
 
   // Полная отрисовка состояния: подсветка шагов, прогресс-бар, кнопки.
@@ -165,11 +186,14 @@ const Onboarding = {
 
   // Sticky-баннер на остальных страницах дашборда — показывает прогресс
   // и кнопку «Продолжить». Зовётся из App.route() после каждой навигации.
+  //
+  // Двухфазная отрисовка: сначала мгновенный paint из кеша (нулевая задержка
+  // появления, никаких 200–500мс ожидания API), затем async refresh от
+  // сервера и повторный paint если состояние изменилось.
   async renderBanner(currentHash) {
     const banner = document.getElementById('onboarding-banner');
     if (!banner) return;
 
-    // На самой странице wizard'а баннер не нужен — wizard и так перед глазами
     if (currentHash && currentHash.startsWith('#/onboarding')) {
       banner.hidden = true;
       return;
@@ -179,21 +203,33 @@ const Onboarding = {
       return;
     }
 
-    await this.refreshState();
+    // Фаза 1 — мгновенный paint из synchronous state (LS-флаги + кеш).
+    this._state = this.readSyncState();
+    this._paintBanner();
+
+    // Фаза 2 — async refresh, повторный paint если что-то поменялось.
+    try {
+      const before = JSON.stringify(this._state);
+      await this.refreshState();
+      const after = JSON.stringify(this._state);
+      if (before !== after) this._paintBanner();
+    } catch { /* swallow */ }
+  },
+
+  // Отрисовка из текущего this._state. Не дёргает сеть — только DOM.
+  _paintBanner() {
+    const banner = document.getElementById('onboarding-banner');
+    if (!banner) return;
     const { step1, step2, step3 } = this._state;
     const completed = [step1, step2, step3].filter(Boolean).length;
     if (completed === 3) {
-      // Все шаги фактически выполнены — отмечаем done и прячемся
+      // Все 3 шага сделаны — авто-снимаем wizard
       this.markDone();
       banner.hidden = true;
       return;
     }
-
-    // Обновляем «N из 3 шагов»
     const progressEl = document.getElementById('onboarding-banner-progress');
     if (progressEl) progressEl.textContent = `${completed} из 3 шагов`;
-
-    // Подсветка точек прогресса
     const dotsWrap = document.getElementById('onboarding-banner-dots');
     if (dotsWrap) {
       dotsWrap.querySelectorAll('span[data-step]').forEach((dot) => {
@@ -204,7 +240,6 @@ const Onboarding = {
         dot.classList.toggle('active', !done && n === activeStep);
       });
     }
-
     banner.hidden = false;
   },
 };
