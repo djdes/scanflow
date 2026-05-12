@@ -47,6 +47,12 @@ function getTransport(): { transporter: nodemailer.Transporter; kind: TransportK
         sendmail: true,
         newline: 'unix',
         path: SENDMAIL_PATH,
+        // -t : exim читает To/Cc/Bcc из заголовков (как PHP mail()), а не из argv.
+        // -i : не интерпретировать одиночную точку в начале строки как EOM.
+        // На FastPanel exim4 (configtype='local') только этот режим реально шлёт
+        // outbound на gmail.com — direct argv-инвокация с `-f noreply@...`
+        // молча роняется. Эмпирически проверено diff-тестом T1/T2/T3.
+        args: ['-t', '-i'],
       }),
       kind: 'sendmail',
     };
