@@ -280,7 +280,7 @@ const Invoices = {
         }
       }
       if (data.status === 'sent_to_1c') {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.resetStatus(${data.id})">Сбросить статус (для повторной загрузки)</button>`;
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.resetStatus(${data.id})" title="Сбросить статус «Отправлен», чтобы можно было повторно отправить в 1С">↻ Сбросить статус</button>`;
       }
       if (data.error_message) {
         actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${App.esc(data.error_message)}</div>`;
