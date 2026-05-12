@@ -130,6 +130,9 @@ const App = {
       document.getElementById('view-upload').style.display = 'block';
       this.activateNavTab('upload');
       Upload.init();
+    } else if (hash === '#/onboarding') {
+      document.getElementById('view-onboarding').style.display = 'block';
+      if (window.Onboarding) Onboarding.show();
     } else if (hash === '#/camera') {
       // Legacy bookmark — редирект на объединённую страницу /#/upload
       this.navigate('#/upload');
@@ -196,6 +199,17 @@ const App = {
       const appEl = document.getElementById('app');
       if (appEl) appEl.style.display = 'block';
       this.route();
+      // Onboarding gate: для новых аккаунтов без накладных и без подключённого
+      // Сбера перевести на #/onboarding. У существующих пользователей с
+      // данными shouldShow() сам поставит флаг «done» и больше не дёргает.
+      const hash = window.location.hash || '';
+      const inWizard = hash.startsWith('#/onboarding');
+      const onListOrEmpty = !hash || hash === '#/' || hash === '#/invoices';
+      if (window.Onboarding && !inWizard && onListOrEmpty) {
+        Onboarding.shouldShow().then((show) => {
+          if (show) this.navigate('#/onboarding');
+        });
+      }
     } else {
       // No api-key — uniformly bounce to the landing's login flow.
       window.location.replace('/?login=1');
