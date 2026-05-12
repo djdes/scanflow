@@ -73,7 +73,7 @@ header {
 }
 
 header .header-inner {
-  max-width: 1320px;
+  max-width: 1200px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -234,7 +234,7 @@ nav a.active svg { opacity: 1; }
 
 /* ========== Main Content ========== */
 main {
-  max-width: 1320px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 28px 24px;
 }
