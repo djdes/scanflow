@@ -35,19 +35,10 @@
   <link rel="stylesheet" href="/css/article.css">
 
   <script>
+    // Theme follows local time-of-day: 07:00–19:00 → light, else → dark.
     (function () {
-      function resolveAuto() {
-        var h = new Date().getHours();
-        if (h >= 7 && h < 19) return 'light';
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
-        return 'dark';
-      }
-      try {
-        var raw = localStorage.getItem('sf-theme');
-        var mode = (raw === 'light' || raw === 'dark' || raw === 'auto') ? raw : 'auto';
-        document.documentElement.setAttribute('data-theme', (mode === 'auto') ? resolveAuto() : mode);
-        document.documentElement.setAttribute('data-theme-mode', mode);
-      } catch (_) { document.documentElement.setAttribute('data-theme', 'dark'); }
+      var h = new Date().getHours();
+      document.documentElement.setAttribute('data-theme', (h >= 7 && h < 19) ? 'light' : 'dark');
     })();
   </script>
 

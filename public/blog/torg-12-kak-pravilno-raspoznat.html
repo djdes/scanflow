@@ -36,19 +36,10 @@
   <link rel="stylesheet" href="/css/article.css">
 
   <script>
+    // Theme follows local time-of-day: 07:00–19:00 → light, else → dark.
     (function () {
-      function resolveAuto() {
-        var h = new Date().getHours();
-        if (h >= 7 && h < 19) return 'light';
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
-        return 'dark';
-      }
-      try {
-        var raw = localStorage.getItem('sf-theme');
-        var mode = (raw === 'light' || raw === 'dark' || raw === 'auto') ? raw : 'auto';
-        document.documentElement.setAttribute('data-theme', (mode === 'auto') ? resolveAuto() : mode);
-        document.documentElement.setAttribute('data-theme-mode', mode);
-      } catch (_) { document.documentElement.setAttribute('data-theme', 'dark'); }
+      var h = new Date().getHours();
+      document.documentElement.setAttribute('data-theme', (h >= 7 && h < 19) ? 'light' : 'dark');
     })();
   </script>
 
@@ -128,36 +119,6 @@
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
-        <div class="theme-switcher" id="theme-switcher" role="radiogroup" aria-label="Тема" data-mode="auto">
-          <button class="theme-opt" type="button" data-mode="light" role="radio" aria-checked="false" title="Светлая тема">
-            <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="4"/>
-              <line x1="12" y1="2"  x2="12" y2="4"/>
-              <line x1="12" y1="20" x2="12" y2="22"/>
-              <line x1="2"  y1="12" x2="4"  y2="12"/>
-              <line x1="20" y1="12" x2="22" y2="12"/>
-              <line x1="4.93"  y1="4.93"  x2="6.34"  y2="6.34"/>
-              <line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/>
-              <line x1="4.93"  y1="19.07" x2="6.34"  y2="17.66"/>
-              <line x1="17.66" y1="6.34"  x2="19.07" y2="4.93"/>
-            </svg>
-            <span class="sr-only">Светлая</span>
-          </button>
-          <button class="theme-opt" type="button" data-mode="auto" role="radio" aria-checked="true" title="По времени дня (07–19)">
-            <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="9"/>
-              <path d="M12 3 A9 9 0 0 1 12 21 Z" fill="currentColor" stroke="none"/>
-            </svg>
-            <span class="sr-only">По времени дня</span>
-          </button>
-          <button class="theme-opt" type="button" data-mode="dark" role="radio" aria-checked="false" title="Тёмная тема">
-            <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-            <span class="sr-only">Тёмная</span>
-          </button>
-          <span class="theme-indicator" aria-hidden="true"></span>
-        </div>
         <a href="/#auth" class="btn-ghost">Войти</a>
         <a href="/#demo" class="btn-primary-sm">Попробовать</a>
       </div>

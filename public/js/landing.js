@@ -823,82 +823,20 @@
     });
   }
 
-  // ========== Theme Switcher (segmented pill: Светлая · По времени дня · Тёмная) ==========
-  // Storage key 'sf-theme' holds one of: 'light' | 'dark' | 'auto' (or absent = auto).
-  // Anti-FOUC script in <head> reads the same key before paint.
-  (function setupThemeSwitcher() {
-    const KEY = 'sf-theme';
+  // ========== Theme — pure time-of-day (07:00–19:00 light, else dark) ==========
+  // Anti-FOUC inline script in <head> sets the initial value. Re-check every 60s
+  // so a long-open tab flips at the 7am/7pm boundary without a reload.
+  (function setupAutoTheme() {
     const root = document.documentElement;
-    const switcher = document.getElementById('theme-switcher');
-    if (!switcher) return;
-    const opts = Array.from(switcher.querySelectorAll('.theme-opt'));
-    if (opts.length === 0) return;
-
-    function readMode() {
-      try {
-        const raw = localStorage.getItem(KEY);
-        if (raw === 'light' || raw === 'dark' || raw === 'auto') return raw;
-        // Legacy {value, ts} payload from earlier builds — migrate once.
-        if (raw && raw.charAt(0) === '{') {
-          const saved = JSON.parse(raw);
-          if (saved && (saved.value === 'light' || saved.value === 'dark')) {
-            localStorage.setItem(KEY, saved.value);
-            return saved.value;
-          }
-        }
-      } catch (_) { /* ignore */ }
-      return 'auto';
-    }
-
-    function resolveAuto() {
+    function apply() {
       const h = new Date().getHours();
-      if (h >= 7 && h < 19) return 'light';
-      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
-      return 'dark';
+      root.setAttribute('data-theme', (h >= 7 && h < 19) ? 'light' : 'dark');
     }
+    apply();
+    setInterval(apply, 60 * 1000);
 
-    function applyMode(mode) {
-      const resolved = (mode === 'auto') ? resolveAuto() : mode;
-      root.setAttribute('data-theme', resolved);
-      root.setAttribute('data-theme-mode', mode);
-      switcher.setAttribute('data-mode', mode);
-      opts.forEach((btn) => {
-        btn.setAttribute('aria-checked', btn.dataset.mode === mode ? 'true' : 'false');
-        btn.tabIndex = (btn.dataset.mode === mode) ? 0 : -1;
-      });
-    }
-
-    function setMode(mode) {
-      try {
-        if (mode === 'auto') localStorage.removeItem(KEY);
-        else localStorage.setItem(KEY, mode);
-      } catch (_) { /* private mode — best effort */ }
-      applyMode(mode);
-    }
-
-    opts.forEach((btn) => {
-      btn.addEventListener('click', () => setMode(btn.dataset.mode));
-    });
-
-    // ArrowLeft/ArrowRight cycles through segments, focuses the new one, applies its mode.
-    switcher.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      e.preventDefault();
-      const currentIdx = opts.findIndex((b) => b.getAttribute('aria-checked') === 'true');
-      const delta = e.key === 'ArrowLeft' ? -1 : 1;
-      const nextIdx = (currentIdx + delta + opts.length) % opts.length;
-      const next = opts[nextIdx];
-      setMode(next.dataset.mode);
-      next.focus();
-    });
-
-    // Initial state — reflects whatever the anti-FOUC script applied.
-    applyMode(readMode());
-
-    // Re-evaluate auto theme every 60s. Same as previous build.
-    setInterval(() => {
-      if (readMode() === 'auto') applyMode('auto');
-    }, 60 * 1000);
+    // One-time cleanup: legacy 'sf-theme' localStorage key from the old toggle.
+    try { localStorage.removeItem('sf-theme'); } catch (_) { /* ignore */ }
   })();
 
   // ========== LLM Mapping Demo (interactive before/after) ==========
