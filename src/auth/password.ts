@@ -37,3 +37,22 @@ export function verifyPassword(password: string, stored: string): boolean {
 export function generateApiKey(): string {
   return randomBytes(24).toString('hex');
 }
+
+// Human-typable одноразовый пароль для email-onboarding. Без 0/O/1/l/I —
+// чтобы не путалось в письме у получателя.
+const PWD_ALPHABET = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export function generatePassword(length = 12): string {
+  const buf = randomBytes(length);
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += PWD_ALPHABET[buf[i] % PWD_ALPHABET.length];
+  }
+  return out;
+}
+
+// Magic-link token: 32 hex символа = 128 бит. Хранится в users.magic_token
+// и сравнивается при заходе на GET /magic/:token. Эквивалент сессии в виде
+// одноразовой URL-ссылки в письме.
+export function generateMagicToken(): string {
+  return randomBytes(16).toString('hex');
+}

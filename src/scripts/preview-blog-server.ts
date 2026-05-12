@@ -114,6 +114,29 @@ const mockTable: Array<{ test: RegExp; handler: (req: express.Request, res: expr
     // В preview всегда «успех» — у этой формы нет хранилища пользователей.
     res.status(201).json({ apiKey: MOCK_USER.apiKey, username: u, role: 'user' });
   }},
+  // Email-only регистрация — фронт показывает mail-sent view + пишет письмо
+  // на диск через fakeMailer внутри src/utils/mailer.ts (SMTP не настроен в preview).
+  // В моке только валидируем email и отвечаем 201 — реальный mailer тут не
+  // вызывается, чтобы превью не падало без SMTP.
+  { test: /^\/api\/auth\/register-email$/, handler: (req, res) => {
+    const body = (req as express.Request).body || {};
+    const email = (body.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      res.status(400).json({ error: 'Укажите корректный email' });
+      return;
+    }
+    res.status(201).json({ ok: true, email });
+  }},
+  // /recover — анти-enumeration: всегда 200 (как и в проде).
+  { test: /^\/api\/auth\/recover$/, handler: (req, res) => {
+    const body = (req as express.Request).body || {};
+    const email = (body.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      res.status(400).json({ error: 'Укажите корректный email' });
+      return;
+    }
+    res.status(200).json({ ok: true });
+  }},
 
   // Invoices — server wraps responses in { data: ... }
   { test: /^\/api\/invoices\/stats$/, handler: (_req, res) => res.json({

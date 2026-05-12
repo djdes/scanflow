@@ -19,6 +19,7 @@ import settingsRouter from './routes/settings';
 import debugRouter from './routes/debug';
 import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes/nomenclature';
 import authRouter from './routes/auth';
+import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
 import sberRouter from './routes/sber';
 import suppliersRouter from './routes/suppliers';
@@ -202,6 +203,53 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Mobile camera page (no auth — accessed from phone on local network)
   app.get('/camera', (_req, res) => {
     res.sendFile(path.join(publicDir, 'camera.html'));
+  });
+
+  // GET /magic/:token — one-click вход через magic-ссылку из welcome/recover
+  // письма. На strict-успехе отдаём крошечную HTML-страницу: она кладёт apiKey
+  // в localStorage инлайн-скриптом и редиректит в кабинет. Сам token из URL
+  // не остаётся в browser history (replace() вместо assign()).
+  // Slug-валидация: 32 hex символа — отсекает мусор/SQL до touch'а БД.
+  app.get('/magic/:token', async (req, res) => {
+    const token = req.params.token;
+    if (!/^[a-f0-9]{32}$/.test(token)) {
+      res.status(404).type('html').send('<h1>Ссылка недействительна</h1><p>Если письмо старое, попробуйте восстановить доступ на <a href="/">scanflow.ru</a>.</p>');
+      return;
+    }
+    let user;
+    try {
+      user = await userRepo.findByMagicToken(token);
+    } catch (e) {
+      logger.error('magic-link lookup failed', { error: (e as Error).message });
+      res.status(500).type('html').send('<h1>Внутренняя ошибка</h1>');
+      return;
+    }
+    if (!user) {
+      res.status(404).type('html').send('<h1>Ссылка недействительна</h1><p>Возможно, вы запросили новое письмо — старая ссылка перестала работать. Откройте свежее письмо.</p>');
+      return;
+    }
+    // Bootstrapping page: setItem + replace. apiKey попадает в localStorage
+    // тем же origin'ом — это безопасно. Token из URL не светится ни в
+    // referrer (replace() заменит запись в history), ни в SPA-хеше.
+    const safeApiKey = JSON.stringify(user.api_key);
+    const safeUsername = JSON.stringify(user.username);
+    const safeRole = JSON.stringify(user.role);
+    res.type('html').send(`<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>Входим в ScanFlow…</title>
+<style>body{font-family:-apple-system,sans-serif;background:#f7f9fc;color:#1a1f2e;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}p{font-size:14px;color:#64748b}</style>
+</head><body><p>Открываем кабинет…</p>
+<script>
+  try {
+    localStorage.setItem('apiKey', ${safeApiKey});
+    localStorage.setItem('adminUsername', ${safeUsername});
+    localStorage.setItem('adminRole', ${safeRole});
+    // Onboarding-wizard покажется автоматически, если шаги не завершены.
+    location.replace('/app.html#/onboarding');
+  } catch (e) {
+    document.body.innerHTML = '<p>Не удалось сохранить сессию. Включите cookies/localStorage в браузере и откройте ссылку повторно.</p>';
+  }
+</script>
+</body></html>`);
   });
 
   // ─── SEO + Blog routes (must be before the SPA fallback) ───

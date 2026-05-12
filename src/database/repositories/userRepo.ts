@@ -55,6 +55,31 @@ export const userRepo = {
     await getDb().prepare('UPDATE users SET api_key = ? WHERE id = ?').run(api_key, id);
   },
 
+  async findByEmail(email: string): Promise<User | undefined> {
+    return getDb()
+      .prepare('SELECT * FROM users WHERE email = ? LIMIT 1')
+      .get<User>(email);
+  },
+
+  async findByMagicToken(token: string): Promise<User | undefined> {
+    return getDb()
+      .prepare(
+        `SELECT * FROM users
+           WHERE magic_token = ?
+             AND (magic_token_expires_at IS NULL OR magic_token_expires_at > NOW())
+           LIMIT 1`
+      )
+      .get<User>(token);
+  },
+
+  // Set/clear the magic token. `expiresAt` = null означает «без срока годности»
+  // (живёт до следующей перегенерации через /recover).
+  async setMagicToken(id: number, token: string | null, expiresAt: Date | null = null): Promise<void> {
+    await getDb()
+      .prepare('UPDATE users SET magic_token = ?, magic_token_expires_at = ? WHERE id = ?')
+      .run(token, expiresAt, id);
+  },
+
   async touchLastLogin(id: number): Promise<void> {
     await getDb()
       .prepare(`UPDATE users SET last_login_at = NOW() WHERE id = ?`)

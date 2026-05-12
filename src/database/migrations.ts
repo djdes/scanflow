@@ -561,6 +561,22 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 23,
+    name: 'magic-link token for email-only auth',
+    detect: (exec) => hasColumn(exec, 'users', 'magic_token'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'users', 'magic_token'))) {
+        await exec.query(`ALTER TABLE users ADD COLUMN magic_token VARCHAR(64) NULL`);
+      }
+      if (!(await hasColumn(exec, 'users', 'magic_token_expires_at'))) {
+        await exec.query(`ALTER TABLE users ADD COLUMN magic_token_expires_at DATETIME NULL`);
+      }
+      if (!(await hasIndex(exec, 'users', 'idx_users_magic_token'))) {
+        await exec.query(`CREATE INDEX idx_users_magic_token ON users(magic_token)`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

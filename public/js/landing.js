@@ -555,22 +555,26 @@
   const loginSubmit = document.getElementById('login-submit');
   const loginError = document.getElementById('login-error');
 
-  // Tab switching inside the modal — login | register
+  // Tab switching inside the modal — login | register | recover | mail-sent
+  // Top-tabs подсвечиваются только для login/register. Остальные state'ы
+  // (recover, mail-sent) — оверлей-режимы внутри модалки, без активной табы.
+  const VALID_VIEWS = ['login', 'register', 'recover', 'mail-sent'];
   function switchModalTab(mode) {
     if (!loginModal) return;
-    const target = mode === 'register' ? 'register' : 'login';
+    const target = VALID_VIEWS.includes(mode) ? mode : 'login';
     loginModal.setAttribute('data-mode', target);
     loginModal.querySelectorAll('.login-modal__tabs button[role="tab"]').forEach((btn) => {
-      btn.setAttribute('aria-selected', btn.dataset.tab === target ? 'true' : 'false');
+      const isActive = btn.dataset.tab === target;
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
     loginModal.querySelectorAll('.login-modal__view').forEach((view) => {
       view.hidden = view.dataset.view !== target;
     });
     // clear any stale errors when switching
-    const loginErr = document.getElementById('login-error');
-    const regErr = document.getElementById('register-error');
-    if (loginErr) { loginErr.hidden = true; loginErr.textContent = ''; }
-    if (regErr) { regErr.hidden = true; regErr.textContent = ''; }
+    ['login-error', 'register-error', 'recover-error'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) { el.hidden = true; el.textContent = ''; }
+    });
     // focus first empty input in the target view
     setTimeout(() => {
       const view = loginModal.querySelector(`[data-view="${target}"]`);
@@ -677,108 +681,111 @@
     });
   });
 
-  // Password strength meter — для register-password.
-  // Шкала 0..4 (0=пусто, 1=слабый, 2=ok, 3=хороший, 4=сильный).
-  // Бонусы: длина ≥8 (+1), ≥12 (+1), смешанный регистр (+1), цифры (+1),
-  // специальные символы (+1). Ограничиваем сверху 4.
-  const regPassword = document.getElementById('register-password');
-  const strengthBox = document.getElementById('auth-strength');
-  const strengthLabel = document.getElementById('auth-strength-label');
-  if (regPassword && strengthBox) {
-    const labels = { 0: '', 1: 'Слабый', 2: 'Средний', 3: 'Хороший', 4: 'Сильный' };
-    const compute = (pw) => {
-      if (!pw) return 0;
-      let s = 0;
-      if (pw.length >= 8) s++;
-      if (pw.length >= 12) s++;
-      if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) s++;
-      if (/\d/.test(pw)) s++;
-      if (/[^A-Za-z0-9]/.test(pw)) s++;
-      // если пароль меньше 6 — всегда слабый, не больше 1
-      if (pw.length < 6) return 1;
-      return Math.max(1, Math.min(4, s));
-    };
-    regPassword.addEventListener('input', () => {
-      const level = compute(regPassword.value);
-      if (!regPassword.value) {
-        strengthBox.hidden = true;
-        strengthBox.setAttribute('data-level', '0');
-        return;
-      }
-      strengthBox.hidden = false;
-      strengthBox.setAttribute('data-level', String(level));
-      strengthLabel.textContent = labels[level] || '';
-    });
-  }
+  // Eye-toggle оставлен выше для login-формы (поле пароля).
+  // На регистрации/recover паролей нет — пользователь получит их в письме.
 
-  // === Register form submission ===
+  // === Register form submission — email-only flow ===
+  // Сервер `/api/auth/register-email` сам генерит username/password/magic-token
+  // и отправляет welcome-email. Здесь мы только показываем mail-sent state с
+  // подставленным email. Никакого auto-login: пользователь должен пройти
+  // через email чтобы доказать что адрес рабочий.
   const registerForm = document.getElementById('register-form');
   const registerError = document.getElementById('register-error');
   const registerSubmit = document.getElementById('register-submit');
   if (registerForm) {
     registerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const username = (document.getElementById('register-username').value || '').trim();
       const email = (document.getElementById('register-email').value || '').trim();
-      const password = document.getElementById('register-password').value || '';
-      const password2 = document.getElementById('register-password2').value || '';
-
-      if (!username || !password) return;
-      if (password !== password2) {
-        registerError.textContent = 'Пароли не совпадают';
-        registerError.hidden = false;
-        return;
-      }
-      if (password.length < 6) {
-        registerError.textContent = 'Пароль должен быть не короче 6 символов';
-        registerError.hidden = false;
-        return;
-      }
-      if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
-        registerError.textContent = 'Логин: 3–30 символов, латиница / цифры / _';
-        registerError.hidden = false;
-        return;
-      }
+      if (!email) return;
 
       registerSubmit.disabled = true;
-      registerSubmit.textContent = 'Создаём аккаунт…';
+      const originalLabel = registerSubmit.textContent;
+      registerSubmit.textContent = 'Отправляем письмо…';
       registerError.hidden = true;
 
       try {
-        const resp = await fetch('/api/auth/register', {
+        const resp = await fetch('/api/auth/register-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, email: email || undefined }),
+          body: JSON.stringify({ email }),
         });
         const data = await resp.json().catch(() => ({}));
-        if (resp.status === 409) {
-          registerError.textContent = data.error || 'Этот логин уже занят. Попробуйте другой.';
-          registerError.hidden = false;
-          return;
-        }
-        if (!resp.ok || !data.apiKey) {
+        if (!resp.ok) {
           registerError.textContent = data.error || `Сервер вернул ошибку (${resp.status}).`;
           registerError.hidden = false;
           return;
         }
-        // Auto-login + force onboarding. Чистим возможные старые «done» флаги
-        // от прошлых аккаунтов в этом браузере, чтобы wizard точно открылся
-        // у свежей компании после регистрации.
-        localStorage.setItem('apiKey', data.apiKey);
-        localStorage.setItem('adminUsername', username);
+        // Чистим возможные старые «done» флаги от прошлых аккаунтов в этом
+        // браузере, чтобы wizard точно открылся когда пользователь перейдёт
+        // по magic-ссылке из письма.
         localStorage.removeItem('sf-onboarding-done');
         localStorage.removeItem('sf-onboarding-sber-skip');
         localStorage.removeItem('sf-onboarding-1c-ok');
-        applyAuthState();
-        window.location.href = '/app.html#/onboarding';
+        showMailSentView(email, 'register');
       } catch (err) {
         registerError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
         registerError.hidden = false;
       } finally {
         registerSubmit.disabled = false;
-        registerSubmit.textContent = 'Создать аккаунт';
+        registerSubmit.textContent = originalLabel;
       }
     });
+  }
+
+  // === Recover form submission ===
+  // Анти-enumeration: сервер всегда отвечает 200 — мы показываем тот же
+  // mail-sent state даже если email не зарегистрирован.
+  const recoverForm = document.getElementById('recover-form');
+  const recoverError = document.getElementById('recover-error');
+  const recoverSubmit = document.getElementById('recover-submit');
+  if (recoverForm) {
+    recoverForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = (document.getElementById('recover-email').value || '').trim();
+      if (!email) return;
+
+      recoverSubmit.disabled = true;
+      const originalLabel = recoverSubmit.textContent;
+      recoverSubmit.textContent = 'Отправляем…';
+      recoverError.hidden = true;
+
+      try {
+        const resp = await fetch('/api/auth/recover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        // Не показываем error даже на 400 (только если 5xx) — анти-enum.
+        if (resp.status >= 500) {
+          recoverError.textContent = 'Сервис временно недоступен. Попробуйте позже.';
+          recoverError.hidden = false;
+          return;
+        }
+        if (resp.status === 400) {
+          const data = await resp.json().catch(() => ({}));
+          recoverError.textContent = data.error || 'Проверьте формат email';
+          recoverError.hidden = false;
+          return;
+        }
+        showMailSentView(email, 'recover');
+      } catch (err) {
+        recoverError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
+        recoverError.hidden = false;
+      } finally {
+        recoverSubmit.disabled = false;
+        recoverSubmit.textContent = originalLabel;
+      }
+    });
+  }
+
+  // Показывает финальную страницу «письмо отправлено» с email-ом из формы
+  // и подменяет заголовок под контекст (welcome vs recover).
+  function showMailSentView(email, kind) {
+    const title = document.getElementById('mail-sent-title');
+    const emailSpan = document.getElementById('mail-sent-email');
+    if (title) title.textContent = kind === 'recover' ? 'Проверьте почту' : 'Письмо отправлено';
+    if (emailSpan) emailSpan.textContent = email;
+    switchModalTab('mail-sent');
   }
 
   if (loginForm) {
