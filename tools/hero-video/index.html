@@ -50,7 +50,20 @@
         pointer-events: none;
       }
 
-      /* Beat 1 — eyebrow */
+      /* Brand mark + eyebrow status — visible throughout */
+      .brand {
+        position: absolute; top: 60px; left: 80px;
+        display: flex; align-items: center; gap: 16px;
+        font-family: 'Outfit', sans-serif;
+        font-size: 36px; font-weight: 700;
+        color: var(--text);
+      }
+      .brand-logo {
+        width: 48px; height: 48px;
+        border: 3px solid;
+        border-image: linear-gradient(135deg, #3b82f6, #06d6a0) 1;
+        border-radius: 12px;
+      }
       .eyebrow {
         position: absolute; top: 110px; left: 50%; transform: translateX(-50%);
         display: flex; align-items: center; gap: 18px;
@@ -66,21 +79,6 @@
         box-shadow: 0 0 24px var(--accent-green);
       }
       .eyebrow b { color: var(--accent-green); font-weight: 600; }
-
-      /* Brand mark */
-      .brand {
-        position: absolute; top: 60px; left: 80px;
-        display: flex; align-items: center; gap: 16px;
-        font-family: 'Outfit', sans-serif;
-        font-size: 36px; font-weight: 700;
-        color: var(--text);
-      }
-      .brand-logo {
-        width: 48px; height: 48px;
-        border: 3px solid;
-        border-image: linear-gradient(135deg, #3b82f6, #06d6a0) 1;
-        border-radius: 12px;
-      }
 
       /* Beat 2 — photo polaroid */
       .photo {
@@ -227,8 +225,19 @@
       }
       .out-row b { color: var(--text); font-weight: 600; }
       .out-row.ok { color: var(--accent-green); }
+      .fanout-label {
+        position: absolute;
+        top: 430px; left: 50%; transform: translateX(-50%);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 22px;
+        color: var(--text-dim);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        opacity: 0;
+      }
+      .fanout-label b { color: var(--accent-green); }
 
-      /* Beat 6 — result big number */
+      /* Beat 6 — result + CTA */
       .result-stage {
         position: absolute; inset: 0;
         display: flex; flex-direction: column;
@@ -238,7 +247,7 @@
       .result-num {
         font-family: 'Unbounded', sans-serif;
         font-weight: 900;
-        font-size: 360px;
+        font-size: 320px;
         line-height: 0.9;
         letter-spacing: -0.04em;
         background: var(--gradient);
@@ -251,25 +260,37 @@
         font-weight: 600;
         font-size: 56px;
         color: var(--text);
-        margin-top: 20px;
+        margin-top: 10px;
         letter-spacing: -0.02em;
       }
       .result-sub {
         font-family: 'JetBrains Mono', monospace;
-        font-size: 24px;
+        font-size: 22px;
         color: var(--text-dim);
-        margin-top: 24px;
+        margin-top: 30px;
         letter-spacing: 0.06em;
       }
       .result-sub b { color: var(--accent-green); font-weight: 600; }
-
-      /* connecting lines */
-      .conn-line {
-        position: absolute;
-        top: 480px; left: 960px;
-        width: 2px; height: 60px;
-        background: linear-gradient(180deg, var(--accent-blue), transparent);
-        opacity: 0;
+      .cta-pill {
+        margin-top: 30px;
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        padding: 16px 32px;
+        background: var(--gradient);
+        color: #fff;
+        border-radius: 14px;
+        font-family: 'Unbounded', sans-serif;
+        font-weight: 700;
+        font-size: 24px;
+        letter-spacing: -0.01em;
+        box-shadow: 0 12px 36px rgba(59,130,246,0.40);
+      }
+      .cta-pill .url {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 500;
+        font-size: 20px;
+        opacity: 0.85;
       }
     </style>
   </head>
@@ -278,30 +299,28 @@
       id="root"
       data-composition-id="main"
       data-start="0"
-      data-duration="30"
+      data-duration="18"
       data-width="1920"
       data-height="1080"
     >
-      <!-- Ambient layer (always visible — but treated as clip per framework) -->
-      <div id="bg" class="clip" data-start="0" data-duration="30" data-track-index="0">
+      <!-- Ambient layer — visible throughout -->
+      <div id="bg" class="clip" data-start="0" data-duration="18" data-track-index="0">
         <div class="glow"></div>
         <div class="grid"></div>
       </div>
 
-      <!-- Brand mark — visible throughout -->
-      <div id="brand" class="clip brand" data-start="0" data-duration="30" data-track-index="1">
+      <!-- Brand mark + status eyebrow — visible throughout, no fade-in delay -->
+      <div id="brand" class="clip brand" data-start="0" data-duration="18" data-track-index="1">
         <div class="brand-logo"></div>
         <span>ScanFlow</span>
       </div>
-
-      <!-- Beat 1 (0-3s): eyebrow status line -->
-      <div id="eyebrow" class="clip eyebrow" data-start="0" data-duration="30" data-track-index="2">
+      <div id="eyebrow" class="clip eyebrow" data-start="0" data-duration="18" data-track-index="2">
         <span class="dot"></span>
         <span><b>[</b> OCR ENGINE: CLAUDE-SONNET-4.6 · ONLINE <b>]</b></span>
       </div>
 
-      <!-- Beat 2 (3-7s): invoice photo slides in -->
-      <div id="photo" class="clip photo" data-start="3" data-duration="22" data-track-index="3" style="transform: translate(0, 800px) rotate(-6deg);">
+      <!-- Beat 1 (0–2s): invoice photo slides in immediately -->
+      <div id="photo" class="clip photo" data-start="0" data-duration="13" data-track-index="3" style="transform: translate(0, 800px) rotate(-6deg);">
         <div class="photo-header">ТОВАРНАЯ НАКЛАДНАЯ № 2841</div>
         <div class="photo-row"><span>от 30.01.2026</span><span>ТОРГ-12</span></div>
         <div class="photo-line"></div>
@@ -320,45 +339,43 @@
         <div class="photo-total"><span>Итого</span><span>22 893 ₽</span></div>
       </div>
 
-      <!-- Beat 3 (7-12s): scan beam -->
-      <div id="scan" class="clip scan-beam" data-start="7" data-duration="5" data-track-index="4"></div>
+      <!-- Beat 2 (2–4s): scan beam sweeps + Claude badge + counter -->
+      <div id="scan" class="clip scan-beam" data-start="2" data-duration="3" data-track-index="4"></div>
+      <div id="aibadge" class="clip ai-badge" data-start="2.5" data-duration="5.5" data-track-index="5">claude-sonnet-4.6 · vision</div>
+      <div id="counter" class="clip counter" data-start="2.5" data-duration="5.5" data-track-index="6"><b id="counterval">0.0</b> сек</div>
 
-      <!-- Beat 3 (7-12s): Claude badge + counter -->
-      <div id="aibadge" class="clip ai-badge" data-start="7" data-duration="10" data-track-index="5">claude-sonnet-4.6 · vision</div>
-      <div id="counter" class="clip counter" data-start="7" data-duration="10" data-track-index="6"><b id="counterval">0.0</b> сек</div>
-
-      <!-- Beat 4 (12-17s): JSON typewriter -->
-      <div id="jsonpane" class="clip json-pane" data-start="12" data-duration="12" data-track-index="7" style="opacity: 0;">
+      <!-- Beat 3 (5–9s): JSON typewriter (faster) -->
+      <div id="jsonpane" class="clip json-pane" data-start="5" data-duration="8" data-track-index="7" style="opacity: 0;">
         <span class="json-line" id="jl0"><span class="c">// invoice 2841 — distilled</span></span>
         <span class="json-line" id="jl1">{</span>
         <span class="json-line" id="jl2">  <span class="k">"invoice_number"</span>: <span class="s">"2841"</span>,</span>
-        <span class="json-line" id="jl3">  <span class="k">"date"</span>: <span class="s">"2026-01-30"</span>,</span>
-        <span class="json-line" id="jl4">  <span class="k">"supplier"</span>: <span class="s">"ИП Чихинов Г.А."</span>,</span>
-        <span class="json-line" id="jl5">  <span class="k">"inn"</span>: <span class="s">"504410008491"</span>,</span>
-        <span class="json-line" id="jl6">  <span class="k">"items"</span>: <span class="n">14</span>,</span>
-        <span class="json-line" id="jl7">  <span class="k">"total"</span>: <span class="n">22893</span>,</span>
-        <span class="json-line" id="jl8">  <span class="k">"validated"</span>: <span class="n">true</span>  <span class="c">// qty×price=total</span></span>
-        <span class="json-line" id="jl9">}</span>
+        <span class="json-line" id="jl3">  <span class="k">"supplier"</span>: <span class="s">"ИП Чихинов Г.А."</span>,</span>
+        <span class="json-line" id="jl4">  <span class="k">"inn"</span>: <span class="s">"504410008491"</span>,</span>
+        <span class="json-line" id="jl5">  <span class="k">"items"</span>: <span class="n">14</span>, <span class="c">// сопоставлены с 1С</span></span>
+        <span class="json-line" id="jl6">  <span class="k">"total"</span>: <span class="n">22893</span>,</span>
+        <span class="json-line" id="jl7">  <span class="k">"validated"</span>: <span class="n">true</span>  <span class="c">// qty×price=total</span></span>
+        <span class="json-line" id="jl8">}</span>
       </div>
 
-      <!-- Beat 5 (17-24s): 3 fanout cards -->
-      <div id="out1c" class="clip out-card out-1c" data-start="17" data-duration="11" data-track-index="8">
+      <!-- Beat 4 (9–13s): fanout label + 3 cards -->
+      <div id="fanlbl" class="clip fanout-label" data-start="9" data-duration="4" data-track-index="11">
+        → <b>3 системы</b> · одно фото
+      </div>
+      <div id="out1c" class="clip out-card out-1c" data-start="9" data-duration="4" data-track-index="8">
         <div class="out-icon">1C</div>
         <div class="out-tag">1С:УНФ · приход</div>
         <div class="out-title">Приходная<br>накладная №2841</div>
         <div class="out-row"><b>14</b> позиций · НДС 20%</div>
         <div class="out-row ok">✓ создан документ</div>
       </div>
-
-      <div id="outsber" class="clip out-card out-sber" data-start="17" data-duration="11" data-track-index="9">
+      <div id="outsber" class="clip out-card out-sber" data-start="9" data-duration="4" data-track-index="9">
         <div class="out-icon">₽</div>
         <div class="out-tag">сбербизнес · черновик</div>
         <div class="out-title">Платёжное<br>поручение</div>
         <div class="out-row">ИП Чихинов · <b>22 893 ₽</b></div>
         <div class="out-row ok">✓ ждёт подписи токеном</div>
       </div>
-
-      <div id="outtg" class="clip out-card out-tg" data-start="17" data-duration="11" data-track-index="10">
+      <div id="outtg" class="clip out-card out-tg" data-start="9" data-duration="4" data-track-index="10">
         <div class="out-icon">✈</div>
         <div class="out-tag">telegram · уведомление</div>
         <div class="out-title">Накладная<br>обработана</div>
@@ -366,11 +383,15 @@
         <div class="out-row ok">✓ доставлено</div>
       </div>
 
-      <!-- Beat 6 (24-30s): result stage -->
-      <div id="result" class="clip result-stage" data-start="24" data-duration="6" data-track-index="11">
+      <!-- Beat 5 (13–18s): result + CTA -->
+      <div id="result" class="clip result-stage" data-start="13" data-duration="5" data-track-index="12">
         <div class="result-num">3</div>
         <div class="result-label">секунды</div>
         <div class="result-sub">1 фото → <b>3 системы</b> · полностью автоматически</div>
+        <div class="cta-pill">
+          <span>5 бесплатных распознаваний</span>
+          <span class="url">scanflow.ru</span>
+        </div>
       </div>
     </div>
 
@@ -378,68 +399,66 @@
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
 
-      // Beat 1 (0-3s) — eyebrow fade-in + dot pulse
-      tl.from('#brand', { opacity: 0, y: -20, duration: 0.7, ease: 'power2.out' }, 0)
-        .from('#eyebrow', { opacity: 0, y: 12, duration: 0.7, ease: 'power2.out' }, 0.2)
-        .to('.dot', { opacity: 0.4, duration: 1, repeat: 28, yoyo: true, ease: 'sine.inOut' }, 0);
-
-      // Beat 2 (3-7s) — photo slides in from bottom-right
+      // === Beat 1 (0–2s): photo slides in immediately, brand/eyebrow flash in. ===
+      // Lo-trim hero — no 3s "cold open"; mark+status просто появляются мгновенно.
+      tl.from(['#brand', '#eyebrow'], { opacity: 0, y: -8, duration: 0.4, ease: 'power2.out' }, 0);
+      tl.to('.dot', { opacity: 0.4, duration: 1, repeat: 16, yoyo: true, ease: 'sine.inOut' }, 0);
       tl.to('#photo', {
         x: 0, y: 0, rotation: -4,
-        duration: 1.2,
-        ease: 'back.out(1.4)',
-      }, 3);
+        duration: 1.1, ease: 'back.out(1.4)',
+      }, 0.3);
 
-      // Beat 3 (7-12s) — scan beam sweeps top→bottom over photo + Claude badge + counter
+      // === Beat 2 (2–5s): scan beam sweeps + AI badge + counter ticks 0 → 1.2 ===
       tl.fromTo('#scan',
         { top: 220 },
-        { top: 1000, duration: 4, ease: 'sine.inOut' },
-      3.2);
-      tl.from('#aibadge', { opacity: 0, x: 40, duration: 0.6, ease: 'power2.out' }, 7)
-        .from('#counter', { opacity: 0, x: 40, duration: 0.6, ease: 'power2.out' }, 7.2);
-
-      // Counter ticks 0.0 → 1.2
+        { top: 1000, duration: 2.4, ease: 'sine.inOut' },
+      2);
+      tl.from('#aibadge', { opacity: 0, x: 30, duration: 0.4, ease: 'power2.out' }, 2.5);
+      tl.from('#counter', { opacity: 0, x: 30, duration: 0.4, ease: 'power2.out' }, 2.7);
       const counterObj = { v: 0 };
       tl.to(counterObj, {
-        v: 1.2, duration: 4, ease: 'power1.out',
+        v: 1.2, duration: 2.2, ease: 'power1.out',
         onUpdate: () => {
           const el = document.getElementById('counterval');
           if (el) el.textContent = counterObj.v.toFixed(1);
         }
-      }, 7.5);
+      }, 2.7);
 
-      // Beat 4 (12-17s) — fade Claude badge+counter out, photo dims; JSON pane appears
-      tl.to(['#aibadge', '#counter'], { opacity: 0, duration: 0.4 }, 11.5)
-        .to('#photo', { x: -120, scale: 0.9, opacity: 0.35, duration: 0.6 }, 11.5);
-      tl.to('#jsonpane', { opacity: 1, x: 0, duration: 0.5, ease: 'power2.out' }, 12);
+      // === Beat 3 (5–9s): badge fades, photo dims, JSON typewriter ===
+      tl.to(['#aibadge', '#counter'], { opacity: 0, duration: 0.3 }, 4.7);
+      tl.to('#photo', { x: -120, scale: 0.88, opacity: 0.32, duration: 0.5 }, 4.7);
+      tl.to('#jsonpane', { opacity: 1, duration: 0.35, ease: 'power2.out' }, 5);
 
-      // Typewriter — each line opacity 0→1 with slight delay
-      ['#jl0', '#jl1', '#jl2', '#jl3', '#jl4', '#jl5', '#jl6', '#jl7', '#jl8', '#jl9'].forEach((sel, i) => {
-        tl.to(sel, { opacity: 1, duration: 0.18, ease: 'none' }, 12.4 + i * 0.32);
+      // Typewriter — плотнее, 0.22с на строку вместо 0.32с раньше
+      ['#jl0', '#jl1', '#jl2', '#jl3', '#jl4', '#jl5', '#jl6', '#jl7', '#jl8'].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, duration: 0.14, ease: 'none' }, 5.25 + i * 0.22);
       });
 
-      // Beat 5 (17-24s) — hide photo + JSON, deal out 3 cards
-      tl.to(['#photo', '#jsonpane'], { opacity: 0, scale: 0.85, duration: 0.7 }, 16.8);
+      // === Beat 4 (9–13s): photo + JSON fade, 3 output cards deal out, label ===
+      tl.to(['#photo', '#jsonpane'], { opacity: 0, scale: 0.85, duration: 0.5 }, 8.7);
+      tl.fromTo('#fanlbl', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4 }, 9);
       tl.fromTo('#out1c',
         { opacity: 0, y: 60, scale: 0.92 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)' },
-      17.2);
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: 'back.out(1.4)' },
+      9.1);
       tl.fromTo('#outsber',
         { opacity: 0, y: 60, scale: 0.92 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)' },
-      17.6);
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: 'back.out(1.4)' },
+      9.35);
       tl.fromTo('#outtg',
         { opacity: 0, y: 60, scale: 0.92 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)' },
-      18);
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: 'back.out(1.4)' },
+      9.6);
 
-      // Beat 6 (24-30s) — fade everything down except brand+eyebrow, show big "3 секунды"
-      tl.to(['#out1c', '#outsber', '#outtg'], { opacity: 0, y: -30, duration: 0.6 }, 23.5);
+      // === Beat 5 (13–18s): cards fade, hero result + CTA ===
+      tl.to(['#out1c', '#outsber', '#outtg', '#fanlbl'], { opacity: 0, y: -30, duration: 0.5 }, 12.6);
       tl.fromTo('#result',
         { opacity: 0, scale: 0.7 },
-        { opacity: 1, scale: 1, duration: 0.9, ease: 'back.out(1.4)' },
-      24);
-      tl.to('#result', { opacity: 0, duration: 0.6 }, 29.4);
+        { opacity: 1, scale: 1, duration: 0.8, ease: 'back.out(1.4)' },
+      13);
+      // CTA-pill немного «дышит» в конце для оживления
+      tl.to('.cta-pill', { scale: 1.04, duration: 1.2, repeat: 1, yoyo: true, ease: 'sine.inOut' }, 14);
+      tl.to('#result', { opacity: 0, duration: 0.4 }, 17.5);
 
       window.__timelines['main'] = tl;
     </script>
