@@ -175,6 +175,8 @@ body {
 .logo-icon {
   display: flex;
   align-items: center;
+  color: var(--accent-blue);
+  flex-shrink: 0;
 }
 
 .logo-text {
