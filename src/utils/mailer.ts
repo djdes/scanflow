@@ -2,66 +2,100 @@ import nodemailer from 'nodemailer';
 import { logger } from './logger';
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 
 const SMTP_HOST = process.env.SMTP_HOST || '';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
 const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
 const MAIL_TO = process.env.MAIL_TO || '';
-// Бренд-адрес, видимый получателю.
 const MAIL_FROM = process.env.MAIL_FROM || 'ScanFlow <noreply@scanflow.ru>';
 const SENDMAIL_PATH = process.env.SENDMAIL_PATH || '/usr/sbin/sendmail';
 
-// Три транспорта в порядке убывания приоритета:
-//   1) SMTP-relay — если в env заданы SMTP_HOST/USER/PASS (внешний провайдер
-//      вроде Yandex/Mail.ru/Resend). Используется когда нужен брендовый From
-//      noreply@домен через настроенный DKIM/SPF.
-//   2) sendmail pipe — Linux + /usr/sbin/sendmail (на FastPanel-хостингах
-//      это симлинк на exim4, и per-user PHP mail() через него работает
-//      outbound даже когда exim сконфигурирован как local-only). Это наш
-//      основной production-путь — никаких внешних кредов не требуется.
-//   3) disk-fallback — Windows-дев или сервер без sendmail. Пишем письмо в
-//      logs/emails/<ts>-<to>.html чтобы можно было открыть в браузере.
+interface MailPayload {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+}
 type TransportKind = 'smtp' | 'sendmail' | 'disk';
-let cachedTransport: { transporter: nodemailer.Transporter; kind: TransportKind } | null | undefined;
+interface Sender {
+  send: (msg: MailPayload) => Promise<void>;
+  kind: TransportKind;
+}
 
-function getTransport(): { transporter: nodemailer.Transporter; kind: TransportKind } | null {
-  if (cachedTransport !== undefined) return cachedTransport;
+// MIME-encoded Subject для UTF-8. Если все символы ASCII — оставляем как есть.
+function encodeSubject(s: string): string {
+  if (/^[\x20-\x7E]*$/.test(s)) return s;
+  return `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
+}
+
+// Прямой spawn /usr/sbin/sendmail -t -i, без nodemailer'овской обвязки.
+// Причина: nodemailer.sendmail-transport всегда приклеивает envelope.to в
+// argv (`sendmail -i -t -i recipient@x`), и на FastPanel-exim4 такая
+// инвокация молча роняется. Только то, что генерирует PHP mail() — чистый
+// `sendmail -t -i` с пайпом RFC822 в stdin — реально шлёт outbound.
+// Diff-тест на проде подтвердил: SP1 (ASCII) и SP2 (cyrillic) через
+// этот путь доставляются Gmail.
+async function pipeToSendmail(msg: MailPayload): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(SENDMAIL_PATH, ['-t', '-i'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.once('error', reject);
+    child.once('exit', (code) => code === 0
+      ? resolve()
+      : reject(new Error(`sendmail exit ${code}: ${stderr.slice(0, 200)}`)));
+    const messageId = `<${randomBytes(8).toString('hex')}.${Date.now()}@scanflow.ru>`;
+    const body = [
+      `To: ${msg.to}`,
+      `From: ${msg.from}`,
+      `Subject: ${encodeSubject(msg.subject)}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
+      `Date: ${new Date().toUTCString()}`,
+      `Message-ID: ${messageId}`,
+      '',
+      msg.html,
+    ].join('\r\n');
+    child.stdin.end(body, 'utf8');
+  });
+}
+
+// Sender factory. Три стратегии в порядке убывания приоритета:
+//   1) SMTP-relay — если SMTP_HOST/USER/PASS заданы (Yandex/Resend/прочее)
+//   2) sendmail pipe — Linux + /usr/sbin/sendmail (FastPanel/cPanel-хостинги)
+//   3) disk-fallback — Windows-дев или сервер без mailer'а (writeEmailToDisk)
+let cachedSender: Sender | null | undefined;
+function getSender(): Sender | null {
+  if (cachedSender !== undefined) return cachedSender;
   if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
-    cachedTransport = {
-      transporter: nodemailer.createTransport({
-        host: SMTP_HOST,
-        port: SMTP_PORT,
-        secure: SMTP_PORT === 465,
-        auth: { user: SMTP_USER, pass: SMTP_PASS },
-        tls: { rejectUnauthorized: false },
-      }),
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+      tls: { rejectUnauthorized: false },
+    });
+    cachedSender = {
       kind: 'smtp',
+      send: async (msg) => {
+        await transporter.sendMail(msg);
+      },
     };
     logger.info('Mailer: using SMTP relay', { host: SMTP_HOST, port: SMTP_PORT });
-    return cachedTransport;
+    return cachedSender;
   }
   if (process.platform !== 'win32' && fs.existsSync(SENDMAIL_PATH)) {
-    cachedTransport = {
-      transporter: nodemailer.createTransport({
-        sendmail: true,
-        newline: 'unix',
-        path: SENDMAIL_PATH,
-        // -t : exim читает To/Cc/Bcc из заголовков (как PHP mail()), а не из argv.
-        // -i : не интерпретировать одиночную точку в начале строки как EOM.
-        // На FastPanel exim4 (configtype='local') только этот режим реально шлёт
-        // outbound на gmail.com — direct argv-инвокация с `-f noreply@...`
-        // молча роняется. Эмпирически проверено diff-тестом T1/T2/T3.
-        args: ['-t', '-i'],
-      }),
-      kind: 'sendmail',
-    };
-    logger.info('Mailer: using local sendmail', { path: SENDMAIL_PATH });
-    return cachedTransport;
+    cachedSender = { kind: 'sendmail', send: pipeToSendmail };
+    logger.info('Mailer: using local sendmail (spawn -t -i)', { path: SENDMAIL_PATH });
+    return cachedSender;
   }
-  cachedTransport = null;
-  logger.warn('Mailer: no transport available (no SMTP_HOST, no /usr/sbin/sendmail) — falling back to disk');
-  return cachedTransport;
+  cachedSender = null;
+  logger.warn('Mailer: no transport available — falling back to disk');
+  return cachedSender;
 }
 
 let lastSentAt = 0;
@@ -72,8 +106,8 @@ export async function sendErrorEmail(subject: string, details: string): Promise<
     logger.debug('MAIL_TO not set, skipping error email', { subject });
     return;
   }
-  const t = getTransport();
-  if (!t) return; // no transport — silently skip system emails (don't spam logs)
+  const sender = getSender();
+  if (!sender) return;
 
   const now = Date.now();
   if (now - lastSentAt < MIN_INTERVAL_MS) {
@@ -83,7 +117,7 @@ export async function sendErrorEmail(subject: string, details: string): Promise<
 
   try {
     lastSentAt = now;
-    await t.transporter.sendMail({
+    await sender.send({
       from: SMTP_USER ? `"ScanFlow Errors" <${SMTP_USER}>` : MAIL_FROM,
       to: MAIL_TO,
       subject: `[ScanFlow] ${subject}`,
@@ -93,7 +127,7 @@ export async function sendErrorEmail(subject: string, details: string): Promise<
         <p style="color:#94a3b8;font-size:12px">Сервер: ${process.env.HOSTNAME || 'scan.magday.ru'} · ${new Date().toLocaleString('ru-RU')}</p>
       `,
     });
-    logger.info('Error email sent', { subject, to: MAIL_TO, via: t.kind });
+    logger.info('Error email sent', { subject, to: MAIL_TO, via: sender.kind });
   } catch (err) {
     logger.error('Failed to send error email', { error: (err as Error).message, subject });
   }
@@ -106,21 +140,21 @@ export async function sendErrorEmail(subject: string, details: string): Promise<
 // Throws on failure so the caller can decide whether to retry/log.
 export async function sendNotification(to: string, subject: string, html: string): Promise<void> {
   if (!to) throw new Error('sendNotification: empty `to` address');
-  const t = getTransport();
-  if (!t) throw new Error('Mailer transport not available (no SMTP, no /usr/sbin/sendmail)');
-  await t.transporter.sendMail({
+  const sender = getSender();
+  if (!sender) throw new Error('Mailer transport not available (no SMTP, no /usr/sbin/sendmail)');
+  await sender.send({
     from: MAIL_FROM,
     to,
     subject: `[ScanFlow] ${subject}`,
     html,
   });
-  logger.info('Notification email sent', { subject, to, via: t.kind });
+  logger.info('Notification email sent', { subject, to, via: sender.kind });
 }
 
 // True if any mailer transport is available (SMTP env vars OR sendmail
 // binary on Linux). Used by /api/profile to surface a server-side hint.
 export function smtpConfigured(): boolean {
-  return getTransport() !== null;
+  return getSender() !== null;
 }
 
 // ─── Auth (welcome / recover) email ──────────────────────────────────────────
@@ -149,21 +183,15 @@ export async function sendAuthEmail(payload: AuthEmailPayload): Promise<void> {
     : 'Восстановление доступа к ScanFlow';
   const html = renderAuthEmailHtml({ kind, username, password, magicUrl });
 
-  const t = getTransport();
-  if (!t) {
-    // Нет ни SMTP, ни sendmail (Windows-дев). Пишем на диск.
+  const sender = getSender();
+  if (!sender) {
     await writeEmailToDisk(to, subject, html);
     logger.info('Auth email written to disk (no transport)', { to, kind });
     return;
   }
 
-  await t.transporter.sendMail({
-    from: MAIL_FROM,
-    to,
-    subject,
-    html,
-  });
-  logger.info('Auth email sent', { to, kind, via: t.kind });
+  await sender.send({ from: MAIL_FROM, to, subject, html });
+  logger.info('Auth email sent', { to, kind, via: sender.kind });
 }
 
 async function writeEmailToDisk(to: string, subject: string, html: string): Promise<void> {
