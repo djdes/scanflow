@@ -136,11 +136,27 @@ const OnboardingHint = {
       if (e.key === 'Escape') this._dismiss();
     });
 
-    // Расчёт позиций
-    this._reflow(target, cfg);
+    // Первичный расчёт + несколько отложенных, потому что:
+    // • Onboarding-баннер «Продолжить» рендерится async после route() — он
+    //   появляется через ~50–200мс после нас и сдвигает контент.
+    // • Sber-actions фетчит статус и перерисовывает кнопки — тоже async.
+    // Запускаем reflow при rAF, t=100, t=350, t=700 мс — этого достаточно
+    // чтобы поймать оба сценария без overhead'а постоянного поллинга.
+    const scheduleReflow = () => this._reflow(target, cfg);
+    requestAnimationFrame(scheduleReflow);
+    this._reflowTimers = [100, 350, 700].map((ms) => setTimeout(scheduleReflow, ms));
+
+    // MutationObserver на body — ловит появление баннеров / модалок /
+    // нотификаций, которые двигают layout уже после первичной отрисовки.
+    this._mo = new MutationObserver(() => {
+      cancelAnimationFrame(this._resizeRaf);
+      this._resizeRaf = requestAnimationFrame(scheduleReflow);
+    });
+    this._mo.observe(document.body, { childList: true, subtree: false, attributes: true, attributeFilter: ['hidden', 'style'] });
+
     window.addEventListener('resize', this._onResize = () => {
       cancelAnimationFrame(this._resizeRaf);
-      this._resizeRaf = requestAnimationFrame(() => this._reflow(target, cfg));
+      this._resizeRaf = requestAnimationFrame(scheduleReflow);
     });
     window.addEventListener('scroll', this._onResize, { passive: true });
   },
@@ -231,7 +247,7 @@ const OnboardingHint = {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
 
-  _dismiss() {
+  _teardown() {
     if (this._overlay) {
       this._overlay.remove();
       this._overlay = null;
@@ -245,21 +261,21 @@ const OnboardingHint = {
       window.removeEventListener('resize', this._onResize);
       window.removeEventListener('scroll', this._onResize);
     }
+    if (this._mo) { this._mo.disconnect(); this._mo = null; }
+    if (this._reflowTimers) {
+      this._reflowTimers.forEach(clearTimeout);
+      this._reflowTimers = null;
+    }
+  },
+
+  _dismiss() {
+    this._teardown();
     this.clear();
   },
 
   // Внешний dismiss (без чистки флага) — используется при смене страницы
   dismiss() {
-    if (this._overlay) {
-      this._overlay.remove();
-      this._overlay = null;
-    }
-    this._activeTarget = null;
-    if (this._onKey) document.removeEventListener('keydown', this._onKey);
-    if (this._onResize) {
-      window.removeEventListener('resize', this._onResize);
-      window.removeEventListener('scroll', this._onResize);
-    }
+    this._teardown();
   },
 };
 
