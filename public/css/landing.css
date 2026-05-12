@@ -3387,43 +3387,182 @@ body {
   line-height: 1.5;
 }
 
+.login-modal__sub {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin: 0 0 18px;
+  line-height: 1.55;
+}
+
+/* Perks list — small benefits row under the register heading */
+.auth-perks {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.auth-perks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.auth-perks svg {
+  color: var(--accent-green);
+  flex-shrink: 0;
+}
+
 .login-modal__form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-/* Style BOTH text and password inputs identically — раньше стилизовался только
-   password, из-за чего поле логина рендерилось браузерным дефолтом. */
-.login-modal__form input {
+/* Input group: leading icon + input + optional trailing button */
+.auth-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-field__icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.auth-field input {
   width: 100%;
-  padding: 14px 16px;
+  padding: 14px 16px 14px 44px;
   background: var(--surface-tint);
   border: 1px solid var(--border-lit);
   border-radius: 12px;
   color: var(--text);
   font-family: var(--font);
-  font-size: 15px;
+  font-size: 14.5px;
   outline: none;
   transition: all 0.15s ease;
   box-sizing: border-box;
 }
 
-.login-modal__form input[type="password"] {
+.auth-field--password input { padding-right: 44px; }
+
+.auth-field input[type="password"] {
   font-family: var(--mono);
   letter-spacing: 0.5px;
 }
 
-.login-modal__form input:focus {
-  border-color: rgba(59, 130, 246, 0.5);
-  background: rgba(59, 130, 246, 0.05);
+.auth-field input:focus {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.04);
   box-shadow: 0 0 0 3px var(--accent-blue-glow);
 }
 
-.login-modal__form input::placeholder {
+.auth-field input:focus + .auth-field__icon,
+.auth-field input:focus ~ .auth-field__icon { /* not used but harmless */
+  color: var(--accent-blue);
+}
+
+.auth-field:focus-within .auth-field__icon { color: var(--accent-blue); }
+
+.auth-field input::placeholder {
   color: var(--text-muted);
   font-family: var(--font);
   letter-spacing: 0;
+}
+
+/* Eye toggle: show/hide password */
+.auth-field__toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-field__toggle:hover {
+  background: var(--surface-tint-strong);
+  color: var(--text);
+}
+
+.auth-field__toggle:active {
+  transform: translateY(-50%) scale(0.94);
+}
+
+/* Password strength meter */
+.auth-strength {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+  margin-top: -4px;
+}
+
+.auth-strength[hidden] { display: none; }
+
+.auth-strength__bar {
+  flex: 1;
+  height: 4px;
+  background: var(--surface-tint-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.auth-strength__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.25s ease;
+}
+
+.auth-strength[data-level="1"] .auth-strength__fill { width: 25%; background: #ef4444; }
+.auth-strength[data-level="2"] .auth-strength__fill { width: 50%; background: var(--accent-orange); }
+.auth-strength[data-level="3"] .auth-strength__fill { width: 75%; background: var(--accent-blue); }
+.auth-strength[data-level="4"] .auth-strength__fill { width: 100%; background: var(--accent-green); }
+
+.auth-strength__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  width: 80px;
+  text-align: right;
+  font-variant: tabular-nums;
+}
+
+.auth-strength[data-level="1"] .auth-strength__label { color: #ef4444; }
+.auth-strength[data-level="2"] .auth-strength__label { color: var(--accent-orange); }
+.auth-strength[data-level="3"] .auth-strength__label { color: var(--accent-blue); }
+.auth-strength[data-level="4"] .auth-strength__label { color: var(--accent-green); }
+
+/* Lg button inside modal — больше воздуха, иконка слева */
+.login-modal__form .btn-lg {
+  padding: 14px 22px;
+  font-size: 15px;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .login-modal__error {

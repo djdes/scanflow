@@ -624,6 +624,56 @@
     });
   });
 
+  // Eye-toggle: показать/скрыть пароль на всех `data-toggle-password` кнопках.
+  // Переключает type input'а и подменяет SVG (открытый глаз ↔ перечёркнутый).
+  document.querySelectorAll('[data-toggle-password]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.getAttribute('data-toggle-password'));
+      if (!target) return;
+      const showing = target.type === 'text';
+      target.type = showing ? 'password' : 'text';
+      btn.setAttribute('aria-label', showing ? 'Показать пароль' : 'Скрыть пароль');
+      const eye = btn.querySelector('.ico-eye');
+      const eyeOff = btn.querySelector('.ico-eye-off');
+      if (eye) eye.style.display = showing ? '' : 'none';
+      if (eyeOff) eyeOff.style.display = showing ? 'none' : '';
+    });
+  });
+
+  // Password strength meter — для register-password.
+  // Шкала 0..4 (0=пусто, 1=слабый, 2=ok, 3=хороший, 4=сильный).
+  // Бонусы: длина ≥8 (+1), ≥12 (+1), смешанный регистр (+1), цифры (+1),
+  // специальные символы (+1). Ограничиваем сверху 4.
+  const regPassword = document.getElementById('register-password');
+  const strengthBox = document.getElementById('auth-strength');
+  const strengthLabel = document.getElementById('auth-strength-label');
+  if (regPassword && strengthBox) {
+    const labels = { 0: '', 1: 'Слабый', 2: 'Средний', 3: 'Хороший', 4: 'Сильный' };
+    const compute = (pw) => {
+      if (!pw) return 0;
+      let s = 0;
+      if (pw.length >= 8) s++;
+      if (pw.length >= 12) s++;
+      if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) s++;
+      if (/\d/.test(pw)) s++;
+      if (/[^A-Za-z0-9]/.test(pw)) s++;
+      // если пароль меньше 6 — всегда слабый, не больше 1
+      if (pw.length < 6) return 1;
+      return Math.max(1, Math.min(4, s));
+    };
+    regPassword.addEventListener('input', () => {
+      const level = compute(regPassword.value);
+      if (!regPassword.value) {
+        strengthBox.hidden = true;
+        strengthBox.setAttribute('data-level', '0');
+        return;
+      }
+      strengthBox.hidden = false;
+      strengthBox.setAttribute('data-level', String(level));
+      strengthLabel.textContent = labels[level] || '';
+    });
+  }
+
   // === Register form submission ===
   const registerForm = document.getElementById('register-form');
   const registerError = document.getElementById('register-error');
@@ -674,11 +724,16 @@
           registerError.hidden = false;
           return;
         }
-        // Auto-login: store key, refresh auth state, send to dashboard → onboarding.
+        // Auto-login + force onboarding. Чистим возможные старые «done» флаги
+        // от прошлых аккаунтов в этом браузере, чтобы wizard точно открылся
+        // у свежей компании после регистрации.
         localStorage.setItem('apiKey', data.apiKey);
         localStorage.setItem('adminUsername', username);
+        localStorage.removeItem('sf-onboarding-done');
+        localStorage.removeItem('sf-onboarding-sber-skip');
+        localStorage.removeItem('sf-onboarding-1c-ok');
         applyAuthState();
-        window.location.href = '/app.html';
+        window.location.href = '/app.html#/onboarding';
       } catch (err) {
         registerError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
         registerError.hidden = false;
