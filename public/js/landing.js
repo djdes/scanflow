@@ -170,55 +170,60 @@
     statsObserver.observe(heroStats);
   }
 
-  // ========== Mindmap SVG Lines ==========
+  // ========== Pipeline-flow connector lines ==========
+  // Рисуем 4 кривые: source→brain (одна) и brain→каждый output (три).
+  // Используем cubic Bezier с горизонтальными контрольными точками — линии
+  // плавно расходятся, не пересекают друг друга.
 
-  function drawMindmapLines() {
-    const svg = document.querySelector('.mindmap-lines');
-    const container = document.querySelector('.mindmap');
+  function drawPipelineLines() {
+    const svg = document.querySelector('.pipeline-flow__lines');
+    const container = document.querySelector('.pipeline-flow');
     if (!svg || !container) return;
 
-    const center = container.querySelector('[data-mm="center"]');
-    const outputs = container.querySelectorAll('.mm-node--output');
-    if (!center || !outputs.length) return;
+    const source = container.querySelector('[data-pf="source"]');
+    const brain = container.querySelector('[data-pf="brain"]');
+    const outputs = container.querySelectorAll('.pf-node--out');
+    if (!source || !brain || !outputs.length) return;
 
-    const containerRect = container.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const rightOf = (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.right - cRect.left, y: r.top + r.height / 2 - cRect.top };
+    };
+    const leftOf = (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left - cRect.left, y: r.top + r.height / 2 - cRect.top };
+    };
 
-    function getCenter(el) {
-      const rect = el.getBoundingClientRect();
-      return {
-        x: rect.left + rect.width / 2 - containerRect.left,
-        y: rect.top + rect.height / 2 - containerRect.top,
-      };
+    const paths = [];
+    // source → brain
+    {
+      const a = rightOf(source);
+      const b = leftOf(brain);
+      const cx = (a.x + b.x) / 2;
+      paths.push(`<path data-to="brain" d="M${a.x} ${a.y} C ${cx} ${a.y}, ${cx} ${b.y}, ${b.x} ${b.y}" />`);
     }
-
-    // Build SVG content
-    let svgContent = `<defs>
-      <linearGradient id="mm-line-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.6"/>
-        <stop offset="100%" stop-color="#06d6a0" stop-opacity="0.6"/>
-      </linearGradient>
-    </defs>`;
-
-    const cPt = getCenter(center);
-
-    outputs.forEach((node, i) => {
-      const nPt = getCenter(node);
-      const delay = 0.5 + i * 0.2;
-      svgContent += `<line x1="${cPt.x}" y1="${cPt.y}" x2="${nPt.x}" y2="${nPt.y}"
-        style="animation-delay:${delay}s" />`;
+    // brain → каждый output
+    const brainRight = rightOf(brain);
+    outputs.forEach((out) => {
+      const target = leftOf(out);
+      const cx = (brainRight.x + target.x) / 2;
+      const key = out.dataset.pf || '';
+      paths.push(`<path data-to="${key}" d="M${brainRight.x} ${brainRight.y} C ${cx} ${brainRight.y}, ${cx} ${target.y}, ${target.x} ${target.y}" />`);
     });
 
-    svg.innerHTML = svgContent;
+    svg.setAttribute('viewBox', `0 0 ${cRect.width} ${cRect.height}`);
+    svg.innerHTML = paths.join('\n');
   }
 
   // Draw after layout
   window.addEventListener('load', () => {
-    setTimeout(drawMindmapLines, 300);
+    setTimeout(drawPipelineLines, 300);
   });
 
   window.addEventListener('resize', () => {
-    clearTimeout(window._mmResize);
-    window._mmResize = setTimeout(drawMindmapLines, 200);
+    clearTimeout(window._pfResize);
+    window._pfResize = setTimeout(drawPipelineLines, 200);
   });
 
   // ========== Demo Upload ==========
