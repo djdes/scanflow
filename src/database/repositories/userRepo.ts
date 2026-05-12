@@ -31,13 +31,19 @@ export const userRepo = {
       .get<User>(apiKey);
   },
 
-  async create(data: { username: string; password_hash: string; api_key: string; role?: string }): Promise<number> {
+  async create(data: {
+    username: string;
+    password_hash: string;
+    api_key: string;
+    role?: string;
+    email?: string | null;
+  }): Promise<number> {
     const result = await getDb()
       .prepare(
-        `INSERT INTO users (username, password_hash, api_key, role)
-         VALUES (?, ?, ?, ?)`
+        `INSERT INTO users (username, password_hash, api_key, role, email)
+         VALUES (?, ?, ?, ?, ?)`
       )
-      .run(data.username, data.password_hash, data.api_key, data.role ?? 'user');
+      .run(data.username, data.password_hash, data.api_key, data.role ?? 'user', data.email ?? null);
     return Number(result.lastInsertRowid);
   },
 

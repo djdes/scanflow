@@ -476,12 +476,27 @@
     if (e.key === 'apiKey' || e.key === 'adminUsername') applyAuthState();
   });
 
-  // Bottom CTA "Войти в кабинет" (logged-out variant) opens the modal.
-  // The "Открыть кабинет" link is a plain anchor — no JS needed.
+  // Bottom CTA (logged-out variant): «Создать аккаунт» → модалка с табой
+  // register; «Уже есть? Войти» → та же модалка с табой login.
+  // Залогиненный вариант «Открыть кабинет» — простой anchor, без JS.
+  const ctaRegisterBtn = document.getElementById('auth-cta-register');
+  if (ctaRegisterBtn) {
+    ctaRegisterBtn.addEventListener('click', () => openLogin('register'));
+  }
   const ctaLoginBtn = document.getElementById('auth-cta-login');
   if (ctaLoginBtn) {
-    ctaLoginBtn.addEventListener('click', () => openLogin());
+    ctaLoginBtn.addEventListener('click', () => openLogin('login'));
   }
+
+  // Pricing card buttons «Зарегистрироваться» / «Начать работу» (href="#auth")
+  // — теперь открывают модалку регистрации напрямую, без скролла к секции
+  // с кнопкой (две клика — лишнее трение).
+  document.querySelectorAll('.pricing-card a[href="#auth"]').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      openLogin('register');
+    });
+  });
 
   // Logout from the bottom CTA — clears creds and re-renders the CTA card.
   const ctaLogoutBtn = document.getElementById('auth-cta-logout');
@@ -503,16 +518,41 @@
   const loginSubmit = document.getElementById('login-submit');
   const loginError = document.getElementById('login-error');
 
-  function openLogin() {
+  // Tab switching inside the modal — login | register
+  function switchModalTab(mode) {
+    if (!loginModal) return;
+    const target = mode === 'register' ? 'register' : 'login';
+    loginModal.setAttribute('data-mode', target);
+    loginModal.querySelectorAll('.login-modal__tabs button[role="tab"]').forEach((btn) => {
+      btn.setAttribute('aria-selected', btn.dataset.tab === target ? 'true' : 'false');
+    });
+    loginModal.querySelectorAll('.login-modal__view').forEach((view) => {
+      view.hidden = view.dataset.view !== target;
+    });
+    // clear any stale errors when switching
+    const loginErr = document.getElementById('login-error');
+    const regErr = document.getElementById('register-error');
+    if (loginErr) { loginErr.hidden = true; loginErr.textContent = ''; }
+    if (regErr) { regErr.hidden = true; regErr.textContent = ''; }
+    // focus first empty input in the target view
+    setTimeout(() => {
+      const view = loginModal.querySelector(`[data-view="${target}"]`);
+      const first = view && view.querySelector('input');
+      if (first && !first.value) first.focus();
+    }, 50);
+  }
+
+  function openLogin(mode) {
     if (!loginModal) return;
     loginModal.classList.add('open');
     loginModal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('login-open');
+    switchModalTab(mode || 'login');
     const savedUser = localStorage.getItem('adminUsername');
     if (savedUser && loginUsername) loginUsername.value = savedUser;
     setTimeout(() => {
       const target = (loginUsername && !loginUsername.value) ? loginUsername : loginPassword;
-      if (target) target.focus();
+      if (target && mode !== 'register') target.focus();
     }, 50);
     if (loginError) {
       loginError.hidden = true;
@@ -534,19 +574,21 @@
     });
   }
 
-  // Dashboard redirects un-authed users here with ?login=1 — auto-open модалку
-  // и очистим query чтобы перезагрузка не дёргала её снова. Если пришли с
-  // причиной (например «ключ устарел») — покажем её в модалке как hint.
+  // Dashboard / pricing redirects un-authed users here with ?login=1 (or
+  // ?login=1&mode=register для CTA «Создать аккаунт»). Авто-открываем модалку
+  // нужной табы и чистим query чтобы reload её не дёргал.
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.get('login') === '1' && !readApiKey()) {
       const reason = params.get('reason');
+      const mode = params.get('mode') === 'register' ? 'register' : 'login';
       params.delete('login');
       params.delete('reason');
+      params.delete('mode');
       const qs = params.toString();
       history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
       setTimeout(() => {
-        openLogin();
+        openLogin(mode);
         if (reason && loginError) {
           loginError.textContent = reason;
           loginError.hidden = false;
@@ -570,6 +612,82 @@
       closeLogin();
     }
   });
+
+  // Tab buttons + inline «Зарегистрироваться / Войти» switch links
+  document.querySelectorAll('.login-modal__tabs button[role="tab"]').forEach((btn) => {
+    btn.addEventListener('click', () => switchModalTab(btn.dataset.tab));
+  });
+  document.querySelectorAll('[data-switch-tab]').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchModalTab(link.getAttribute('data-switch-tab'));
+    });
+  });
+
+  // === Register form submission ===
+  const registerForm = document.getElementById('register-form');
+  const registerError = document.getElementById('register-error');
+  const registerSubmit = document.getElementById('register-submit');
+  if (registerForm) {
+    registerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = (document.getElementById('register-username').value || '').trim();
+      const email = (document.getElementById('register-email').value || '').trim();
+      const password = document.getElementById('register-password').value || '';
+      const password2 = document.getElementById('register-password2').value || '';
+
+      if (!username || !password) return;
+      if (password !== password2) {
+        registerError.textContent = 'Пароли не совпадают';
+        registerError.hidden = false;
+        return;
+      }
+      if (password.length < 6) {
+        registerError.textContent = 'Пароль должен быть не короче 6 символов';
+        registerError.hidden = false;
+        return;
+      }
+      if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
+        registerError.textContent = 'Логин: 3–30 символов, латиница / цифры / _';
+        registerError.hidden = false;
+        return;
+      }
+
+      registerSubmit.disabled = true;
+      registerSubmit.textContent = 'Создаём аккаунт…';
+      registerError.hidden = true;
+
+      try {
+        const resp = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, email: email || undefined }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.status === 409) {
+          registerError.textContent = data.error || 'Этот логин уже занят. Попробуйте другой.';
+          registerError.hidden = false;
+          return;
+        }
+        if (!resp.ok || !data.apiKey) {
+          registerError.textContent = data.error || `Сервер вернул ошибку (${resp.status}).`;
+          registerError.hidden = false;
+          return;
+        }
+        // Auto-login: store key, refresh auth state, send to dashboard → onboarding.
+        localStorage.setItem('apiKey', data.apiKey);
+        localStorage.setItem('adminUsername', username);
+        applyAuthState();
+        window.location.href = '/app.html';
+      } catch (err) {
+        registerError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
+        registerError.hidden = false;
+      } finally {
+        registerSubmit.disabled = false;
+        registerSubmit.textContent = 'Создать аккаунт';
+      }
+    });
+  }
 
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {

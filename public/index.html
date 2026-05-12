@@ -1180,18 +1180,18 @@
         <div class="auth-box-content">
           <!-- logged-out state -->
           <div class="auth-cta" data-auth-state="out">
-            <h2>Начните за 30&nbsp;секунд</h2>
-            <p>Войдите по логину и паролю — отдельная регистрация не нужна, доступ выдаём вручную после оплаты тарифа.</p>
+            <h2>Создайте аккаунт за 30&nbsp;секунд</h2>
+            <p>5 бесплатных распознаваний — после регистрации мастер настройки за 3 шага подключит банк и 1С.</p>
             <div class="auth-cta__buttons">
-              <button type="button" class="btn-primary btn-lg" id="auth-cta-login">
+              <button type="button" class="btn-primary btn-lg" id="auth-cta-register">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                 </svg>
-                Войти в кабинет
+                Создать аккаунт
               </button>
-              <a href="#pricing" class="btn-outline btn-lg">Выбрать тариф</a>
+              <button type="button" class="btn-outline btn-lg" id="auth-cta-login">Уже есть? Войти</button>
             </div>
-            <p class="auth-cta__small">Уже клиент с api-ключом? Войдите тем же логином — система пустит без повторной настройки.</p>
+            <p class="auth-cta__small">Без оплаты на старте. Тариф выбираете когда упрётесь в лимит — нажмите «Тарифы» в шапке.</p>
           </div>
 
           <!-- logged-in state — toggled by landing.js when localStorage.apiKey present -->
@@ -1220,27 +1220,53 @@
     </div>
   </section>
 
-  <!-- ========== LOGIN MODAL ========== -->
-  <div class="login-modal" id="login-modal" aria-hidden="true">
+  <!-- ========== LOGIN / REGISTER MODAL ========== -->
+  <div class="login-modal" id="login-modal" aria-hidden="true" data-mode="login">
     <div class="login-modal__backdrop" data-close-login></div>
     <div class="login-modal__card" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
       <button class="login-modal__close" data-close-login aria-label="Закрыть">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 4l10 10M14 4L4 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
-      <div class="login-modal__icon">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 1a4 4 0 00-4 4v4H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2v-9a2 2 0 00-2-2h-2V5a4 4 0 00-4-4zm2 8h-4V5a2 2 0 114 0v4z" fill="currentColor"/></svg>
+
+      <!-- Tabs: switch between Login and Register -->
+      <div class="login-modal__tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="true" data-tab="login" id="auth-tab-login">Вход</button>
+        <button type="button" role="tab" aria-selected="false" data-tab="register" id="auth-tab-register">Регистрация</button>
       </div>
-      <h3 id="login-modal-title">Вход в ScanFlow</h3>
-      <p>Введите логин и пароль, чтобы открыть кабинет.</p>
-      <form class="login-modal__form" id="login-form" autocomplete="on">
-        <input type="text" id="login-username" placeholder="Логин" autocomplete="username" required>
-        <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password" required>
-        <button type="submit" class="btn-primary btn-block" id="login-submit">
-          Войти
-        </button>
-        <div class="login-modal__error" id="login-error" hidden></div>
-        <div class="login-modal__hint">Ещё нет доступа? <a href="#pricing" data-close-login>Выберите тариф</a></div>
-      </form>
+
+      <!-- Login view -->
+      <div class="login-modal__view" data-view="login">
+        <div class="login-modal__icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 1a4 4 0 00-4 4v4H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2v-9a2 2 0 00-2-2h-2V5a4 4 0 00-4-4zm2 8h-4V5a2 2 0 114 0v4z" fill="currentColor"/></svg>
+        </div>
+        <h3 id="login-modal-title">Вход в ScanFlow</h3>
+        <p>Введите логин и пароль, чтобы открыть кабинет.</p>
+        <form class="login-modal__form" id="login-form" autocomplete="on">
+          <input type="text" id="login-username" placeholder="Логин" autocomplete="username" required>
+          <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password" required>
+          <button type="submit" class="btn-primary btn-block" id="login-submit">Войти</button>
+          <div class="login-modal__error" id="login-error" hidden></div>
+          <div class="login-modal__hint">Ещё нет аккаунта? <a href="#" data-switch-tab="register">Зарегистрироваться</a></div>
+        </form>
+      </div>
+
+      <!-- Register view -->
+      <div class="login-modal__view" data-view="register" hidden>
+        <div class="login-modal__icon login-modal__icon--accent">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16m-8-8h16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </div>
+        <h3>Создать аккаунт</h3>
+        <p>30 секунд — и вы в кабинете. После регистрации мастер настройки проведёт по 3 шагам.</p>
+        <form class="login-modal__form" id="register-form" autocomplete="on">
+          <input type="text" id="register-username" placeholder="Логин (3–30 символов: a-z, 0-9, _)" autocomplete="username" pattern="[a-zA-Z0-9_]{3,30}" required>
+          <input type="email" id="register-email" placeholder="Email (для восстановления, опционально)" autocomplete="email">
+          <input type="password" id="register-password" placeholder="Пароль (минимум 6 символов)" autocomplete="new-password" minlength="6" required>
+          <input type="password" id="register-password2" placeholder="Повторите пароль" autocomplete="new-password" minlength="6" required>
+          <button type="submit" class="btn-primary btn-block" id="register-submit">Создать аккаунт</button>
+          <div class="login-modal__error" id="register-error" hidden></div>
+          <div class="login-modal__hint">Уже есть аккаунт? <a href="#" data-switch-tab="login">Войти</a></div>
+        </form>
+      </div>
     </div>
   </div>
 

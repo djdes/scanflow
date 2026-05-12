@@ -98,6 +98,22 @@ const MOCK_INVOICES = [
 const mockTable: Array<{ test: RegExp; handler: (req: express.Request, res: express.Response) => void }> = [
   // Auth — accept any creds
   { test: /^\/api\/auth\/login$/, handler: (_req, res) => res.json(MOCK_USER) },
+  // Register — мок без БД: примитивная валидация и сразу возвращаем «созданного»
+  // юзера с теми же креденшалами что и MOCK_USER, чтобы фронт smoke-тестировался.
+  { test: /^\/api\/auth\/register$/, handler: (req, res) => {
+    const body = (req as express.Request).body || {};
+    const u = (body.username || '').trim();
+    if (!/^[a-zA-Z0-9_]{3,30}$/.test(u)) {
+      res.status(400).json({ error: 'Логин: 3–30 символов, латиница, цифры, _' });
+      return;
+    }
+    if (typeof body.password !== 'string' || body.password.length < 6) {
+      res.status(400).json({ error: 'Пароль должен быть не короче 6 символов' });
+      return;
+    }
+    // В preview всегда «успех» — у этой формы нет хранилища пользователей.
+    res.status(201).json({ apiKey: MOCK_USER.apiKey, username: u, role: 'user' });
+  }},
 
   // Invoices — server wraps responses in { data: ... }
   { test: /^\/api\/invoices\/stats$/, handler: (_req, res) => res.json({

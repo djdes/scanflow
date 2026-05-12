@@ -3315,6 +3315,43 @@ body {
   color: var(--text);
 }
 
+/* Tabs strip — Вход / Регистрация at the top of the modal */
+.login-modal__tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.login-modal__tabs button {
+  background: transparent;
+  border: none;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.login-modal__tabs button:hover { color: var(--text); }
+
+.login-modal__tabs button[aria-selected="true"] {
+  background: var(--bg-card);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px var(--border-lit);
+}
+
+/* Each modal view (login or register) — only one visible at a time. */
+.login-modal__view { display: block; }
+.login-modal__view[hidden] { display: none; }
+
 .login-modal__icon {
   width: 56px;
   height: 56px;
@@ -3326,6 +3363,12 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--accent-blue);
+}
+
+.login-modal__icon--accent {
+  background: linear-gradient(135deg, rgba(6, 214, 160, 0.18), rgba(59, 130, 246, 0.14));
+  border-color: rgba(6, 214, 160, 0.35);
+  color: var(--accent-green);
 }
 
 .login-modal__card h3 {
