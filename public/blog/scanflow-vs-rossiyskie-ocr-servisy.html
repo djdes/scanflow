@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>ScanFlow vs 10 российских OCR-сервисов: что выбрать в 2026</title>
+  <meta name="description" content="Сравнение ScanFlow с 1С:РПД, Entera, Гэндальф, Smart Engines, DocsInBox, СБИС, Контур, CORRECT, МойСклад и Кнап. Цены, фичи, кто даёт бесплатное распознавание и отправку в 1С.">
+  <link rel="canonical" href="https://scanflow.ru/blog/scanflow-vs-rossiyskie-ocr-servisy">
+  <meta name="robots" content="index, follow">
+
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="ScanFlow vs 10 российских OCR-сервисов">
+  <meta property="og:description" content="Полное сравнение цен, фич и интеграций с 1С у 10 российских OCR-сервисов. С таблицей и карточками.">
+  <meta property="og:url" content="https://scanflow.ru/blog/scanflow-vs-rossiyskie-ocr-servisy">
+  <meta property="og:image" content="https://scanflow.ru/og/default.svg">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="article:published_time" content="2026-05-12">
+  <meta property="article:section" content="Сравнение">
+  <meta property="article:tag" content="ocr">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ScanFlow vs 10 российских OCR-сервисов">
+  <meta name="twitter:description" content="Сравнение цен, фич и интеграций с 1С у 10 сервисов.">
+  <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/article.css">
+
+  <script>
+    (function () {
+      function resolveAuto() {
+        var h = new Date().getHours();
+        if (h >= 7 && h < 19) return 'light';
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+        return 'dark';
+      }
+      try {
+        var raw = localStorage.getItem('sf-theme');
+        var mode = (raw === 'light' || raw === 'dark' || raw === 'auto') ? raw : 'auto';
+        document.documentElement.setAttribute('data-theme', (mode === 'auto') ? resolveAuto() : mode);
+        document.documentElement.setAttribute('data-theme-mode', mode);
+      } catch (_) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    })();
+  </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "ScanFlow vs 10 российских OCR-сервисов: что выбрать в 2026",
+    "description": "Сравнение ScanFlow с 10 российскими OCR-сервисами для распознавания накладных. Цены, фичи, интеграция с 1С.",
+    "image": "https://scanflow.ru/og/default.svg",
+    "datePublished": "2026-05-12",
+    "dateModified": "2026-05-12",
+    "author": { "@type": "Organization", "name": "ScanFlow" },
+    "publisher": {
+      "@type": "Organization",
+      "name": "ScanFlow",
+      "logo": { "@type": "ImageObject", "url": "https://scanflow.ru/og/default.svg" }
+    },
+    "mainEntityOfPage": "https://scanflow.ru/blog/scanflow-vs-rossiyskie-ocr-servisy"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Главная", "item": "https://scanflow.ru/" },
+      { "@type": "ListItem", "position": 2, "name": "Блог",    "item": "https://scanflow.ru/blog" },
+      { "@type": "ListItem", "position": 3, "name": "Сравнение с конкурентами" }
+    ]
+  }
+  </script>
+</head>
+<body class="article-page">
+
+  <div class="read-progress" id="read-progress" aria-hidden="true"></div>
+  <div class="grain-overlay" aria-hidden="true"></div>
+
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+            <rect x="3" y="3" width="34" height="34" rx="8" stroke="url(#logo-grad)" stroke-width="2.5"/>
+            <line x1="11" y1="14" x2="29" y2="14" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round"/>
+            <line x1="11" y1="20" x2="25" y2="20" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+            <line x1="11" y1="26" x2="21" y2="26" stroke="url(#logo-grad)" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+            <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#06d6a0"/></linearGradient></defs>
+          </svg>
+        </div>
+        <span class="logo-text">ScanFlow</span>
+      </a>
+      <nav class="main-nav" id="main-nav">
+        <a href="/#features">Возможности</a>
+        <a href="/#demo">Демо</a>
+        <a href="/#pricing">Тарифы</a>
+        <a href="/blog" aria-current="page">Блог</a>
+      </nav>
+      <div class="header-actions">
+        <a href="/#auth" class="btn-ghost">Войти</a>
+        <a href="/#demo" class="btn-primary-sm">Попробовать</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="article-hero">
+      <div class="hero-papers" aria-hidden="true">
+        <span class="paper paper--1">10 конкурентов</span>
+        <span class="paper paper--3">7 / 7 фич</span>
+      </div>
+      <div class="container">
+        <nav class="article-breadcrumb" aria-label="Хлебные крошки">
+          <a href="/">Главная</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <a href="/blog">Блог</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <span>Сравнение с конкурентами</span>
+        </nav>
+        <div class="article-tags">
+          <span class="article-tag">Сравнение</span>
+        </div>
+        <h1>ScanFlow vs <span class="gradient-text">10 российских OCR-сервисов</span>: что выбрать в 2026</h1>
+        <div class="article-meta">
+          <span>автор <b>Команда ScanFlow</b></span>
+          <span class="sep">·</span>
+          <span><b>6 мин</b> чтения</span>
+          <span class="sep">·</span>
+          <span>12 мая 2026</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="container article-layout">
+      <article class="article-prose">
+
+        <details class="article-toc-mobile">
+          <summary>Содержание</summary>
+          <ol>
+            <li><a href="#bottom-line">Главное за 30 секунд</a></li>
+            <li><a href="#matrix">Сравнительная таблица</a></li>
+            <li><a href="#players">Кто эти 10 сервисов</a></li>
+            <li><a href="#free">Бесплатное распознавание</a></li>
+            <li><a href="#free-1c">Бесплатно + сразу в 1С</a></li>
+            <li><a href="#why-us">Почему ScanFlow</a></li>
+            <li><a href="#choose">Что выбрать в зависимости от задачи</a></li>
+          </ol>
+        </details>
+
+<!-- BODY PROSE START -->
+
+        <p>В России рынок OCR накладных вырос плотно: 1С официально выпустила свой сервис, появились SaaS-стартапы вроде Entera и Кнап, а интеграторы (Гэндальф, CORRECT) предлагают локальные обработки для 1С. Перед малым бизнесом — задача выбора: где платить, где есть бесплатное распознавание, кто реально автоматизирует отправку в 1С, а кто только распознаёт текст.</p>
+
+        <p>Мы изучили <strong>10 российских сервисов</strong>, которые работают именно с первичной документацией (накладные, УПД, счета). Ниже — таблица, карточки и две основные секции: «у кого есть permanent freemium» и «у кого распознавание + отправка в 1С работает бесплатно». В конце — где себя позиционирует <a href="/">ScanFlow</a>.</p>
+
+        <h2 id="bottom-line">Главное за 30 секунд</h2>
+
+        <div class="compare-bottom-line">
+          <div class="compare-bottom-line__icon">⭐</div>
+          <div class="compare-bottom-line__text">
+            <strong>ScanFlow — единственный из 11 сервисов</strong>, у кого одновременно нативная интеграция в 1С:УНФ, черновик платёжки в СберБизнес и Telegram-уведомления. Прозрачные цены, permanent freemium, mobile-first, открытый API. Семь из семи ключевых фич.
+          </div>
+        </div>
+
+        <h2 id="matrix">Сравнительная таблица по 7 ключевым фичам</h2>
+
+        <p>Семь функций, которые реально нужны бизнесу на 1С:УНФ. ScanFlow — единственная строка с зелёным во всех колонках.</p>
+
+        <div class="compare-matrix-wrap">
+          <table class="compare-matrix">
+            <thead>
+              <tr>
+                <th>Сервис</th>
+                <th title="Нативная интеграция в 1С:УНФ">УНФ нат</th>
+                <th title="Создание черновика платёжки в СберБизнес">Сбер черн</th>
+                <th>Telegram</th>
+                <th title="Фото с телефона как первый сценарий">Mobile first</th>
+                <th title="Постоянный бесплатный план, не trial">Free tier</th>
+                <th title="Публичная цена на сайте">Прозр. цена</th>
+                <th title="Открытое API для интеграций">Публ. API</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="compare-num">1</span>1С:РПД</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-mid">~</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td></tr>
+              <tr><td><span class="compare-num">2</span>Entera</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-mid">~</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-mid">~</td></tr>
+              <tr><td><span class="compare-num">3</span>Гэндальф</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td></tr>
+              <tr><td><span class="compare-num">4</span>Smart Engines</td><td class="cmp-mid">~</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td></tr>
+              <tr><td><span class="compare-num">5</span>DocsInBox</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td><td class="cmp-mid">~</td></tr>
+              <tr><td><span class="compare-num">6</span>Saby / СБИС</td><td class="cmp-mid">~</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-mid">~</td></tr>
+              <tr><td><span class="compare-num">7</span>Контур.Бухгалтерия</td><td class="cmp-mid">~</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-mid">~</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td></tr>
+              <tr><td><span class="compare-num">8</span>CORRECT</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td></tr>
+              <tr><td><span class="compare-num">9</span>МойСклад</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-mid">~</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-mid">~</td></tr>
+              <tr><td><span class="compare-num">10</span>Кнап (Knap)</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td><td class="cmp-no">—</td><td class="cmp-mid">~</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-no">—</td></tr>
+              <tr class="compare-matrix__us"><td>⭐ ScanFlow</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td><td class="cmp-yes">✓</td></tr>
+            </tbody>
+          </table>
+          <div class="compare-matrix__legend">
+            <span><b>✓</b> есть</span>
+            <span><b>~</b> частично / через интегратор</span>
+            <span><b>—</b> нет</span>
+          </div>
+        </div>
+
+        <h2 id="players">Кто эти 10 сервисов</h2>
+
+        <p>По каждому — цена, главное преимущество и слабое место. Все цифры взяты с публичных сайтов сервисов на май 2026.</p>
+
+        <div class="compare-cards">
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">1</span>
+              <div class="compare-card__title">
+                <strong>1С:РПД</strong>
+                <a href="https://ocr.1c.ai/" target="_blank" rel="noopener">ocr.1c.ai</a>
+              </div>
+              <span class="compare-card__price">от 3 ₽/стр</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> Официальный продукт 1С, нативная интеграция в БП/УНФ/Розница. 250 страниц/мес бесплатно с подпиской ИТС.</li>
+              <li class="minus"><b>−</b> Работает только внутри 1С-клиента, нет SaaS-UI, нет Сбера и Telegram, ИТС-подписка платная.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">2</span>
+              <div class="compare-card__title">
+                <strong>Entera</strong>
+                <a href="https://entera.pro/" target="_blank" rel="noopener">entera.pro</a>
+              </div>
+              <span class="compare-card__price">от 6 334 ₽/мес</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> 13+ типов документов, точность 98%, EDO-интеграция с Диадоком и СБИС.</li>
+              <li class="minus"><b>−</b> Высокая нижняя планка, годовой контракт, нет mobile-first сценария, нет Сбера.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">3</span>
+              <div class="compare-card__title">
+                <strong>Гэндальф «Скан-Загрузка»</strong>
+                <a href="https://gendalf.ru/svc/scan-doc/" target="_blank" rel="noopener">gendalf.ru</a>
+              </div>
+              <span class="compare-card__price">~1 000 ₽/мес</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> Per-seat безлимит (12 000 ₽/год за рабочее место), обновления не ломают 1С.</li>
+              <li class="minus"><b>−</b> Не SaaS — установка локально в 1С, нет облачного интерфейса, нет мобильного сценария.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">4</span>
+              <div class="compare-card__title">
+                <strong>Smart Engines</strong>
+                <a href="https://smartengines.ru/raspoznavanie-pervichki/" target="_blank" rel="noopener">smartengines.ru</a>
+              </div>
+              <span class="compare-card__price">enterprise</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> On-premise развёртывание, Mobile SDK, до 600K страниц/день, клиенты МТС/ВТБ/Альфа.</li>
+              <li class="minus"><b>−</b> Не для SMB, нет turnkey 1С:УНФ-коннектора, нужен интегратор, цена скрыта.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">5</span>
+              <div class="compare-card__title">
+                <strong>DocsInBox</strong>
+                <a href="https://docsinbox.ru/" target="_blank" rel="noopener">docsinbox.ru</a>
+              </div>
+              <span class="compare-card__price">7 900–21 700 ₽/мес</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> HoReCa-фокус: ЭДО + ЕГАИС + Меркурий + накладные в одном кабинете.</li>
+              <li class="minus"><b>−</b> Только рестораны и кафе, для не-HoReCa дорого, не работает с 1С:УНФ.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">6</span>
+              <div class="compare-card__title">
+                <strong>Saby / СБИС</strong>
+                <a href="https://saby.ru/autorecognition" target="_blank" rel="noopener">saby.ru/autorecognition</a>
+              </div>
+              <span class="compare-card__price">1 500–5 000 ₽</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> 99% точность, ИИ-распознавание, проверка чеков в ФНС, HR-документы, своя ЭДО-сеть.</li>
+              <li class="minus"><b>−</b> Pricing непрозрачный, заточено под экосистему СБИС/Saby, не нативно в 1С:УНФ.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">7</span>
+              <div class="compare-card__title">
+                <strong>Контур.Бухгалтерия</strong>
+                <a href="https://kontur.ru/bk/price" target="_blank" rel="noopener">kontur.ru/bk/price</a>
+              </div>
+              <span class="compare-card__price">~1 400 ₽/мес</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> Экосистема Контура (Диадок, Эльба, Экстерн), 1 500 документов в комплекте за 16 800 ₽/год.</li>
+              <li class="minus"><b>−</b> Распознавание только в составе платной бухгалтерии, нет мобильной камеры, нет Сбера.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">8</span>
+              <div class="compare-card__title">
+                <strong>CORRECT</strong>
+                <a href="https://correct.su/1c" target="_blank" rel="noopener">correct.su/1c</a>
+              </div>
+              <span class="compare-card__price">от 2,30 ₽/стр</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> Самая дешёвая per-page цена на российском рынке, 50 страниц бесплатно (permanent), поддержка УНФ, есть мобильное приложение.</li>
+              <li class="minus"><b>−</b> Малоизвестный бренд без крупных кейсов, нет ЭДО, нет Сбера и Telegram.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">9</span>
+              <div class="compare-card__title">
+                <strong>МойСклад</strong>
+                <a href="https://www.moysklad.ru/" target="_blank" rel="noopener">moysklad.ru</a>
+              </div>
+              <span class="compare-card__price">через партнёра</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> Если уже работаете в МойСкладе — приёмка товара полуавтоматическая через OCR-партнёра.</li>
+              <li class="minus"><b>−</b> Не для пользователей 1С:УНФ, нет own-brand OCR, прикручено сбоку, цена партнёра не публична.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card">
+            <div class="compare-card__head">
+              <span class="compare-card__num">10</span>
+              <div class="compare-card__title">
+                <strong>Кнап (Knap)</strong>
+                <a href="https://goknap.com/" target="_blank" rel="noopener">goknap.com</a>
+              </div>
+              <span class="compare-card__price">~4 000 ₽/мес</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> 2 000+ пользователей, 20 млн обработанных документов, электронный архив, AI-ассистент бухгалтера.</li>
+              <li class="minus"><b>−</b> Документ-based pricing (не по страницам), 150 документов trial 30 дней, нет Сбера и Telegram.</li>
+            </ul>
+          </div>
+
+          <div class="compare-card compare-card--us">
+            <div class="compare-card__head">
+              <span class="compare-card__num compare-card__num--us">⭐</span>
+              <div class="compare-card__title">
+                <strong>ScanFlow</strong>
+                <a href="/">scanflow.ru</a>
+              </div>
+              <span class="compare-card__price compare-card__price--us">0 / 990 / 4 990 ₽</span>
+            </div>
+            <ul>
+              <li class="plus"><b>+</b> Единственный кто делает 1С:УНФ + СберБизнес-черновик + Telegram-уведомление в одном окне. Mobile-first (фото с телефона), LLM-маппинг номенклатур, прозрачный freemium 50 стр/мес. Pro 990 ₽/мес — в&nbsp;6× дешевле Entera, в&nbsp;4× дешевле Кнапа.</li>
+              <li class="minus"><b>−</b> Молодой проект, пока только 1С:УНФ (без БП и Розницы), без ЭДО на старте.</li>
+            </ul>
+          </div>
+
+        </div>
+
+        <h2 id="free">У кого есть бесплатное распознавание накладных</h2>
+
+        <p>Вопрос практический: я хочу взять и попробовать без оплаты, можно ли? Из 10 конкурентов реально бесплатное распознавание (для документов под 1С) есть у пяти, но «бесплатное» у всех означает разное:</p>
+
+        <ul>
+          <li><strong>1С:РПД</strong> — 250 стр/мес бесплатно, но только при платной подписке <strong>ИТС</strong> (~13 000 ₽/год). Без ИТС бесплатных страниц нет.</li>
+          <li><strong>Entera</strong> — 10 документов <em>trial</em>, разовый, не возобновляется.</li>
+          <li><strong>CORRECT</strong> — <strong>50 страниц/мес permanent freemium</strong>. Настоящий бесплатный план.</li>
+          <li><strong>Кнап</strong> — 150 документов <em>trial 30 дней</em>, потом полная оплата.</li>
+          <li><strong>ScanFlow</strong> — пока идёт открытая бета, всё бесплатно. После релиза — 50 стр/мес permanent на тарифе «Старт».</li>
+        </ul>
+
+        <p>Остальные пять — Гэндальф, Smart Engines, DocsInBox, СБИС, Контур.Бухгалтерия, МойСклад — бесплатного OCR не дают вовсе: либо платно с первого дня, либо бесплатно только в рамках платных бухгалтерских тарифов.</p>
+
+        <div class="callout callout--tip">
+          <span class="callout-icon">💡</span>
+          <div>
+            <p><strong>По-настоящему permanent freemium без trial и без скрытой подписки — только два сервиса:</strong> CORRECT и ScanFlow. Остальные дают либо trial 10–150 документов на месяц, либо требуют годовую ИТС/тариф.</p>
+          </div>
+        </div>
+
+        <h2 id="free-1c">Бесплатное распознавание + сразу отправка в 1С</h2>
+
+        <p>Это уже более узкий вопрос. Распознать накладную — это полдела. Куда более ценно: распознали — и сразу появилась «Приходная накладная» в 1С, без ручной перебивки. Кто это даёт бесплатно?</p>
+
+        <table class="compare-mini-table">
+          <thead><tr><th>Сервис</th><th>Free OCR</th><th>Отправка в 1С бесплатно</th><th>Итог</th></tr></thead>
+          <tbody>
+            <tr><td>1С:РПД</td><td>250 стр (с ИТС)</td><td>да, прямо внутри 1С</td><td><span class="cmp-mid">только с платной ИТС</span></td></tr>
+            <tr><td>Entera</td><td>10 trial</td><td>да, через настройку коннектора</td><td><span class="cmp-mid">trial only</span></td></tr>
+            <tr><td>CORRECT</td><td>50 стр/мес</td><td>да, есть готовая интеграция с УНФ</td><td><span class="cmp-yes">permanent</span></td></tr>
+            <tr><td>Кнап</td><td>150 doc trial</td><td>да, через расширение в 1С</td><td><span class="cmp-mid">trial only</span></td></tr>
+            <tr><td><strong>ScanFlow</strong></td><td>50 стр/мес</td><td>да, через .epf обработку из кабинета</td><td><span class="cmp-yes">permanent</span></td></tr>
+          </tbody>
+        </table>
+
+        <p>Получается, что <strong>реально permanent free «фото → 1С» на российском рынке доступно у двух сервисов</strong> — у CORRECT и ScanFlow. Остальные — либо trial, либо нужно платить.</p>
+
+        <h2 id="why-us">Почему ScanFlow выбирают, даже когда CORRECT дешевле</h2>
+
+        <p>На странице сравнения CORRECT и ScanFlow часто получается тонкое решение: оба permanent free, оба интегрируются с УНФ, у CORRECT дешевле per-page тариф (2,30 ₽ против ~1 ₽/стр у нашего Pro). Так почему мы?</p>
+
+        <p>Три уникальных угла, которые есть только у ScanFlow:</p>
+
+        <div class="compare-strategy">
+          <ol>
+            <li><b>СберБизнес-черновик.</b> Никто из 10 (включая CORRECT) не делает автоматический черновик платёжного поручения в банке после распознавания накладной. Защищено сложностью: mTLS-сертификаты + OAuth + контракт со Сбером — это не «месяц работы» для копирования.</li>
+            <li><b>Telegram-уведомления.</b> Все конкуренты сидят в email/push/web-UI. Российский SMB-владелец живёт в Telegram, а не в почте. Мы ловим его «накладная распознана, проверь» прямо в DM боссу.</li>
+            <li><b>Mobile-first фото.</b> Сделал кадр на ходу, отправил — через секунду документ в кабинете. У большинства конкурентов (Гэндальф, Entera, Кнап) сценарий построен вокруг сканера и компьютера, мобильный сценарий «прикручен».</li>
+          </ol>
+        </div>
+
+        <h2 id="choose">Что выбрать в зависимости от задачи</h2>
+
+        <p>Чтобы упростить выбор:</p>
+
+        <ul>
+          <li><strong>Уже плачу за 1С:ИТС, и весь учёт в 1С</strong> → берите 1С:РПД, оно встроено и бесплатные 250 стр уже включены в вашу подписку.</li>
+          <li><strong>Большая команда бухгалтерии, нужны 13+ типов документов, готов платить от 6 000 ₽/мес</strong> → Entera или Кнап. Зрелые продукты, есть EDO.</li>
+          <li><strong>Только рестораны/кафе, нужен ЕГАИС + Меркурий</strong> → DocsInBox, специализированный для HoReCa.</li>
+          <li><strong>Хочу сначала бесплатно попробовать, потом возможно купить</strong> → CORRECT или ScanFlow. Permanent free, без trial-таймера.</li>
+          <li><strong>Нужно фото с телефона + автоматическая платёжка в Сбер + Telegram-уведомления</strong> → ScanFlow, мы единственные. Бесплатно сейчас в бете.</li>
+        </ul>
+
+        <p>Хотите проверить как пайплайн работает на ваших накладных? <a href="/#auth">Зарегистрируйтесь</a> — сейчас всё бесплатно во время открытой беты, ставите <code>.epf</code> обработку в 1С:УНФ за 5 минут и получаете «Приходную накладную» автоматом.</p>
+
+<!-- BODY PROSE END -->
+
+      </article>
+
+      <aside class="article-toc" id="article-toc-desktop" aria-label="Содержание">
+        <div class="article-toc-label">Содержание</div>
+        <ol>
+          <li><a href="#bottom-line">Главное за 30 секунд</a></li>
+          <li><a href="#matrix">Сравнительная таблица</a></li>
+          <li><a href="#players">Кто эти 10 сервисов</a></li>
+          <li><a href="#free">Бесплатное распознавание</a></li>
+          <li><a href="#free-1c">Бесплатно + сразу в 1С</a></li>
+          <li><a href="#why-us">Почему ScanFlow</a></li>
+          <li><a href="#choose">Что выбрать в зависимости от задачи</a></li>
+        </ol>
+      </aside>
+    </div>
+
+    <footer class="article-footer">
+      <div class="container">
+        <div class="article-cta">
+          <h2>Хотите проверить на своих накладных?</h2>
+          <p>Сейчас сервис в открытой бете — все тарифы бесплатно. Регистрация за 30 секунд, без карты, без обязательств.</p>
+          <a href="/#auth" class="btn-primary">Начать бесплатно</a>
+        </div>
+
+        <div class="related-articles">
+          <h3>Читать дальше</h3>
+          <div class="related-grid">
+            <a class="blog-card" href="/blog/ocr-nakladnyh-kak-rabotaet">
+              <div class="blog-card-tags"><span class="blog-card-tag">OCR</span></div>
+              <h3>Как работает OCR накладных в 2026</h3>
+              <p class="blog-card-desc">Сравнение классической OCR-цепочки и vision-LLM на реальных накладных.</p>
+              <div class="blog-card-meta"><b>7 мин</b> · 11 мая 2026</div>
+            </a>
+            <a class="blog-card" href="/blog/perevod-paper-zacenok-v-1c-unf">
+              <div class="blog-card-tags"><span class="blog-card-tag">1С:УНФ</span></div>
+              <h3>От фото накладной до приходной в 1С:УНФ</h3>
+              <p class="blog-card-desc">Полный пайплайн: что забирает 1С через REST, как сопоставляется номенклатура.</p>
+              <div class="blog-card-meta"><b>8 мин</b> · 11 мая 2026</div>
+            </a>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2026 ScanFlow · OCR накладных для российского бизнеса</p>
+    </div>
+  </footer>
+
+  <script src="/js/landing.js"></script>
+  <script src="/js/article.js" defer></script>
+</body>
+</html>

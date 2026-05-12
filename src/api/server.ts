@@ -45,7 +45,10 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // redirect:false disables the automatic /dir → /dir/ 301 that express.static
   // applies when a directory matches the URL — otherwise GET /blog would 301
   // to /blog/ before our explicit /blog route gets a chance to run.
-  app.use(express.static(publicDir, { redirect: false }));
+  // index:false — without this express.static auto-serves public/index.html
+  // for GET /, which preempts our app.get('/', ...) route below where we
+  // inject the blog-preview cards into the landing.
+  app.use(express.static(publicDir, { redirect: false, index: false }));
 
   // Middleware
   // CORS: only allow configured origins. With no CORS_ORIGINS env var the

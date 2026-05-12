@@ -2,6 +2,15 @@
   "_schema": "Each article has slug, title (≤60), description (140-160), tags[], date (YYYY-MM-DD), readingMinutes (int), ogImage (path), updated? (YYYY-MM-DD optional). 'tags' use the slugs in docs/.../seo-blog-content-design.md tag taxonomy.",
   "articles": [
     {
+      "slug": "scanflow-vs-rossiyskie-ocr-servisy",
+      "title": "ScanFlow vs 10 российских OCR-сервисов: что выбрать в 2026",
+      "description": "Сравнение ScanFlow с 1С:РПД, Entera, Гэндальф, Smart Engines, DocsInBox, СБИС, Контур, CORRECT, МойСклад и Кнап. Цены, фичи, бесплатное распознавание и отправка в 1С.",
+      "tags": ["ocr", "1c-unf"],
+      "date": "2026-05-12",
+      "readingMinutes": 6,
+      "ogImage": "/og/default.svg"
+    },
+    {
       "slug": "ocr-nakladnyh-kak-rabotaet",
       "title": "Как работает OCR накладных в 2026: от Google Vision к Claude Sonnet 4.6",
       "description": "Сравнение классической OCR-цепочки и vision-LLM на реальных накладных. Цифры из продакшена ScanFlow.",

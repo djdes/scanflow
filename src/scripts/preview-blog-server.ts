@@ -183,7 +183,9 @@ app.use('/api', (req, res, next) => {
   return res.json({ ok: true, preview: true });
 });
 
-app.use(express.static(publicDir, { redirect: false }));
+// index:false — иначе express.static сам отдаёт index.html для GET / и
+// перехватывает кастомный route ниже (где инжектятся blog-preview карточки).
+app.use(express.static(publicDir, { redirect: false, index: false }));
 
 // /sitemap.xml
 app.get('/sitemap.xml', (_req, res) => {

@@ -572,3 +572,307 @@
   text-align: center;
   margin-top: 24px;
 }
+
+/* ============================================================
+   Compare blog article — matrix, cards, summary
+   Используется только внутри статьи /blog/scanflow-vs-rossiyskie-ocr-servisy.
+   ============================================================ */
+
+.compare-bottom-line {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 24px 0 32px;
+  padding: 18px 22px;
+  background: linear-gradient(90deg, rgba(6,214,160,0.10), rgba(59,130,246,0.10));
+  border: 1px solid rgba(6,214,160,0.35);
+  border-radius: 12px;
+}
+[data-theme="light"] .compare-bottom-line {
+  background: linear-gradient(90deg, rgba(6,214,160,0.10), rgba(59,130,246,0.08));
+}
+.compare-bottom-line__icon {
+  font-size: 32px;
+  flex-shrink: 0;
+}
+.compare-bottom-line__text {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.compare-bottom-line__text strong {
+  color: var(--accent-green);
+  font-weight: 700;
+}
+
+/* === Feature matrix === */
+.compare-matrix-wrap {
+  margin: 24px -8px 40px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow-x: auto;
+  background: var(--bg-card);
+}
+.compare-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.compare-matrix th, .compare-matrix td {
+  padding: 11px 12px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+.compare-matrix th:last-child, .compare-matrix td:last-child { border-right: none; }
+.compare-matrix tr:last-child td { border-bottom: none; }
+.compare-matrix thead th {
+  background: var(--surface-tint);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+.compare-matrix thead th:first-child {
+  text-align: left;
+  padding-left: 18px;
+  text-transform: none;
+  font-size: 13px;
+}
+.compare-matrix tbody td:first-child {
+  text-align: left;
+  padding-left: 18px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.compare-num {
+  display: inline-block;
+  width: 22px; height: 22px;
+  background: var(--surface-tint-strong);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 6px;
+  line-height: 22px;
+  text-align: center;
+  margin-right: 10px;
+}
+.cmp-yes { color: var(--accent-green); font-size: 17px; font-weight: 700; }
+.cmp-mid { color: var(--accent-orange); font-size: 17px; font-weight: 700; }
+.cmp-no { color: var(--text-muted); font-size: 17px; }
+.compare-matrix tr.compare-matrix__us td {
+  background: linear-gradient(90deg, rgba(6,214,160,0.10), rgba(59,130,246,0.10));
+  font-weight: 700;
+}
+.compare-matrix tr.compare-matrix__us td:first-child { color: var(--accent-green); }
+.compare-matrix__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.compare-matrix__legend b { color: var(--text); margin-right: 4px; }
+
+/* === Competitor cards grid === */
+.compare-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin: 24px -8px 40px;
+}
+@media (max-width: 720px) {
+  .compare-cards { grid-template-columns: 1fr; }
+}
+.compare-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  transition: border-color 0.15s ease;
+}
+.compare-card:hover { border-color: var(--border-lit); }
+.compare-card__head {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.compare-card__num {
+  width: 28px; height: 28px;
+  background: var(--surface-tint-strong);
+  color: var(--text-dim);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.compare-card__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.compare-card__title strong {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.compare-card__title a {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.compare-card__title a:hover { color: var(--accent-blue); }
+.compare-card__price {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  padding: 4px 10px;
+  background: rgba(59,130,246,0.10);
+  border: 1px solid rgba(59,130,246,0.25);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.compare-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.compare-card li {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 8px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-bottom: 5px;
+  color: var(--text-dim);
+}
+.compare-card li b {
+  font-weight: 700;
+}
+.compare-card li.plus b { color: var(--accent-green); }
+.compare-card li.minus b { color: var(--text-muted); }
+
+/* ScanFlow card highlighted */
+.compare-card--us {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, rgba(6,214,160,0.08) 0%, rgba(59,130,246,0.08) 100%);
+  border: 1px solid rgba(6,214,160,0.40);
+  padding: 22px 24px;
+}
+.compare-card__num--us {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, #3b82f6, #06d6a0);
+  color: #fff;
+  font-size: 16px;
+}
+.compare-card--us .compare-card__title strong {
+  color: var(--accent-green);
+  font-size: 17px;
+}
+.compare-card__price--us {
+  background: linear-gradient(135deg, #3b82f6, #06d6a0);
+  color: #fff;
+  border-color: transparent;
+  font-size: 12.5px;
+}
+
+/* === Mini comparison table (free + 1c) === */
+.compare-mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0 24px;
+  font-size: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.compare-mini-table th,
+.compare-mini-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.compare-mini-table tr:last-child td { border-bottom: none; }
+.compare-mini-table thead th {
+  background: var(--surface-tint);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.compare-mini-table tbody td { color: var(--text); }
+.compare-mini-table .cmp-yes,
+.compare-mini-table .cmp-mid,
+.compare-mini-table .cmp-no {
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-block;
+}
+.compare-mini-table .cmp-yes { background: rgba(6,214,160,0.12); color: var(--accent-green); }
+.compare-mini-table .cmp-mid { background: rgba(251,146,60,0.12); color: var(--accent-orange); }
+
+/* === Strategy box (numbered list with gradient circles) === */
+.compare-strategy {
+  margin: 18px 0 24px;
+  padding: 24px 28px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.compare-strategy ol {
+  list-style: none;
+  counter-reset: cmp-strat;
+  padding: 0;
+  margin: 0;
+}
+.compare-strategy li {
+  counter-increment: cmp-strat;
+  padding-left: 52px;
+  position: relative;
+  margin-bottom: 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.compare-strategy li:last-child { margin-bottom: 0; }
+.compare-strategy li::before {
+  content: counter(cmp-strat);
+  position: absolute;
+  left: 0;
+  top: -2px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6, #06d6a0);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.compare-strategy li b { color: var(--text); font-weight: 700; }
