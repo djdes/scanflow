@@ -14,6 +14,7 @@ import fs from 'fs';
 import { loadArticles } from '../seo/articles';
 import { buildSitemapXml } from '../seo/sitemap';
 import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
+import { sendAuthEmail } from '../utils/mailer';
 
 const app = express();
 const publicDir = path.resolve(process.cwd(), 'public');
@@ -114,27 +115,48 @@ const mockTable: Array<{ test: RegExp; handler: (req: express.Request, res: expr
     // В preview всегда «успех» — у этой формы нет хранилища пользователей.
     res.status(201).json({ apiKey: MOCK_USER.apiKey, username: u, role: 'user' });
   }},
-  // Email-only регистрация — фронт показывает mail-sent view + пишет письмо
-  // на диск через fakeMailer внутри src/utils/mailer.ts (SMTP не настроен в preview).
-  // В моке только валидируем email и отвечаем 201 — реальный mailer тут не
-  // вызывается, чтобы превью не падало без SMTP.
-  { test: /^\/api\/auth\/register-email$/, handler: (req, res) => {
+  // Email-only регистрация — preview вызывает реальный sendAuthEmail с
+  // фейковыми creds. Без SMTP mailer.ts падает в dev-fallback и пишет HTML
+  // в logs/emails/<ts>-<email>.html — открой файл чтобы посмотреть верстку
+  // (вместо реального письма которое некуда отправить).
+  { test: /^\/api\/auth\/register-email$/, handler: async (req, res) => {
     const body = (req as express.Request).body || {};
     const email = (body.email || '').trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
       res.status(400).json({ error: 'Укажите корректный email' });
       return;
+    }
+    try {
+      await sendAuthEmail({
+        to: email,
+        kind: 'welcome',
+        username: email.split('@')[0],
+        password: 'PreviewPwd1234',
+        magicUrl: 'http://localhost:' + PORT + '/magic/preview-token-not-real-just-for-display',
+      });
+    } catch (e) {
+      // dev-fallback ничего не должен бросать; на всякий — продолжаем.
     }
     res.status(201).json({ ok: true, email });
   }},
-  // /recover — анти-enumeration: всегда 200 (как и в проде).
-  { test: /^\/api\/auth\/recover$/, handler: (req, res) => {
+  // /recover — анти-enumeration: всегда 200 (как и в проде). Тоже дёргает
+  // mailer для preview-визуализации письма.
+  { test: /^\/api\/auth\/recover$/, handler: async (req, res) => {
     const body = (req as express.Request).body || {};
     const email = (body.email || '').trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
       res.status(400).json({ error: 'Укажите корректный email' });
       return;
     }
+    try {
+      await sendAuthEmail({
+        to: email,
+        kind: 'recover',
+        username: email.split('@')[0],
+        password: 'PreviewPwd1234',
+        magicUrl: 'http://localhost:' + PORT + '/magic/preview-token-not-real-just-for-display',
+      });
+    } catch (e) { /* dev-fallback never throws */ }
     res.status(200).json({ ok: true });
   }},
 
