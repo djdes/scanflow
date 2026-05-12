@@ -11,7 +11,7 @@
 
   <meta property="og:type" content="website">
   <meta property="og:title" content="ScanFlow — OCR накладных за 3 секунды">
-  <meta property="og:description" content="Фото накладной → приходная в 1С:УНФ + черновик платёжки в Сбере. OCR на Claude Sonnet 4.6, точность 99.2%.">
+  <meta property="og:description" content="Фото накладной → приходная в 1С:УНФ + черновик платёжки в Сбере. OCR на Claude Sonnet 4.6, кросс-валидация qty×price=total, ШТ→КГ авто-пересчёт.">
   <meta property="og:url" content="https://scanflow.ru/">
   <meta property="og:image" content="https://scanflow.ru/og/default.svg">
   <meta property="og:site_name" content="ScanFlow">
@@ -19,7 +19,7 @@
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="ScanFlow — OCR накладных за 3 секунды">
-  <meta name="twitter:description" content="OCR на Claude Sonnet 4.6 + интеграция с 1С:УНФ и СберБизнесом. Бесплатные 5 сканов.">
+  <meta name="twitter:description" content="OCR на Claude Sonnet 4.6 + интеграция с 1С:УНФ и СберБизнесом. Сейчас в открытой бете — бесплатно.">
   <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
 
   <link rel="icon" href="/favicon.ico" sizes="any">
@@ -59,10 +59,13 @@
     "name": "ScanFlow",
     "applicationCategory": "BusinessApplication",
     "operatingSystem": "Web",
-    "offers": [
-      { "@type": "Offer", "name": "Старт", "price": "0", "priceCurrency": "RUB" },
-      { "@type": "Offer", "name": "Бизнес", "price": "1999", "priceCurrency": "RUB" }
-    ]
+    "offers": {
+      "@type": "Offer",
+      "name": "Открытая бета",
+      "price": "0",
+      "priceCurrency": "RUB",
+      "description": "Полный доступ бесплатно во время беты — биллинг включится после релиза."
+    }
   }
   </script>
 
@@ -224,20 +227,21 @@
       </div>
       <div class="hero-stats" data-animate="fade-up" data-delay="5">
         <div class="stat">
-          <span class="stat-num" data-count="99.2">0</span><span class="stat-suffix">%</span>
-          <span class="stat-label">точность OCR</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat">
           <span class="stat-num" data-count="3">0</span><span class="stat-suffix"> сек</span>
-          <span class="stat-label">на обработку</span>
+          <span class="stat-label">на одну накладную*</span>
         </div>
         <div class="stat-divider"></div>
         <div class="stat">
-          <span class="stat-num" data-count="1141">0</span><span class="stat-suffix">+</span>
-          <span class="stat-label">накладных обработано</span>
+          <span class="stat-num" data-count="3">0</span><span class="stat-suffix">»</span>
+          <span class="stat-label">пайплайн: 1С + Сбер + Telegram</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <span class="stat-num" data-count="14">0</span><span class="stat-suffix">+</span>
+          <span class="stat-label">позиций на одной странице</span>
         </div>
       </div>
+      <p class="hero-stats__footnote">* для накладных до 5–7 позиций; многостраничные с десятками строк — 30–120 сек.</p>
     </div>
   </section>
 
@@ -842,9 +846,9 @@
         </div>
       </div>
 
-      <!-- Model strip -->
+      <!-- Model strip — модель меняется в Настройки → claude_model. -->
       <div class="mapping-models" data-animate="fade-up" data-delay="4">
-        <div class="mapping-models__label">Под капотом — лучшие LLM от Anthropic, выбирайте под задачу</div>
+        <div class="mapping-models__label">Один запрос делает всё — OCR + структурирование + маппинг. Модель выбираете в настройках.</div>
         <ul class="mapping-models__list">
           <li class="mapping-models__chip mapping-models__chip--accent">
             <span class="mapping-models__chip-name">Claude Sonnet 4.6</span>
@@ -852,15 +856,15 @@
           </li>
           <li class="mapping-models__chip">
             <span class="mapping-models__chip-name">Claude Haiku 4.5 <span class="mapping-models__nano">«нано»</span></span>
-            <span class="mapping-models__chip-note">самая быстрая и дешёвая — для массового маппинга</span>
+            <span class="mapping-models__chip-note">для больших объёмов · дешевле и быстрее</span>
           </li>
           <li class="mapping-models__chip">
-            <span class="mapping-models__chip-name">Claude Opus 4</span>
-            <span class="mapping-models__chip-note">для самых неочевидных совпадений</span>
+            <span class="mapping-models__chip-name">Claude Opus / любой Anthropic</span>
+            <span class="mapping-models__chip-note">впиши model ID в настройках — без ограничений</span>
           </li>
           <li class="mapping-models__chip mapping-models__chip--ocr">
-            <span class="mapping-models__chip-name">Google Vision · Tesseract</span>
-            <span class="mapping-models__chip-note">OCR-слой перед нейросетью</span>
+            <span class="mapping-models__chip-name">Google Vision + Tesseract</span>
+            <span class="mapping-models__chip-note">опциональный hybrid-режим без LLM</span>
           </li>
         </ul>
       </div>
@@ -945,8 +949,8 @@
             </div>
             <div class="result-total" id="result-total"></div>
             <div class="result-cta">
-              <p>Понравилось? Зарегистрируйтесь и получите <strong>5 бесплатных сканов</strong></p>
-              <a href="#pricing" class="btn-primary btn-sm">Выбрать тариф</a>
+              <p>Понравилось? Зарегистрируйтесь — пока <strong>сервис в бете</strong>, всё бесплатно.</p>
+              <a href="#auth" class="btn-primary btn-sm">Создать аккаунт</a>
             </div>
           </div>
         </div>
@@ -986,95 +990,66 @@
     </div>
   </section>
 
-  <!-- ========== PRICING ========== -->
+  <!-- ========== PRICING (Beta access — honest, no fictional tiers) ========== -->
   <section class="pricing-section" id="pricing">
     <div class="container">
-      <div class="section-label" data-animate="fade-up">Тарифы</div>
+      <div class="section-label" data-animate="fade-up">Доступ</div>
       <h2 class="section-title" data-animate="fade-up" data-delay="1">
-        Простое и <span class="gradient-text">прозрачное</span> ценообразование
+        Сейчас в <span class="gradient-text">открытой бете</span> — бесплатно
       </h2>
+      <p class="section-sub" data-animate="fade-up" data-delay="2">
+        Биллинг ещё не включён. После регистрации получаешь полный функционал — распознавание,
+        выгрузку в 1С:УНФ, черновики платёжек в Сбер, Telegram-уведомления — без лимитов
+        и без оплаты. Платные тарифы появятся когда мы выйдем из беты — мы заранее напишем
+        и оставим всем тестовым аккаунтам бонусы.
+      </p>
 
-      <div class="pricing-grid">
-        <!-- Free -->
-        <div class="pricing-card" data-animate="fade-up" data-delay="2">
+      <div class="pricing-grid pricing-grid--single">
+        <!-- Beta — single tier -->
+        <div class="pricing-card pricing-card--featured" data-animate="fade-up" data-delay="3">
+          <div class="pricing-popular">Бета · доступно сейчас</div>
           <div class="pricing-header">
-            <h3>Старт</h3>
+            <h3>Полный доступ</h3>
             <div class="pricing-price">
               <span class="price-amount">0</span>
               <span class="price-currency">₽</span>
             </div>
-            <p class="pricing-period">после регистрации</p>
+            <p class="pricing-period">пока идёт бета</p>
           </div>
           <ul class="pricing-features">
             <li>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              5 бесплатных сканов
+              Распознавание накладных без лимита
             </li>
             <li>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Распознавание ТОРГ-12, Счёт
+              ТОРГ-12, УПД, счёт-фактура, счёт на оплату
             </li>
             <li>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Просмотр результатов
+              Многостраничные накладные → 1 документ
             </li>
-            <li class="disabled">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-              Выгрузка в 1С
+            <li>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Выгрузка в 1С:УНФ + .epf обработка
             </li>
-            <li class="disabled">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-              Подключение банка
+            <li>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Черновик платёжки в СберБизнес
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Telegram-уведомления (свой bot)
             </li>
           </ul>
-          <a href="#auth" class="btn-outline btn-block">Зарегистрироваться</a>
-        </div>
-
-        <!-- Pro -->
-        <div class="pricing-card pricing-card--featured" data-animate="fade-up" data-delay="3">
-          <div class="pricing-popular">Популярный</div>
-          <div class="pricing-header">
-            <h3>Бизнес</h3>
-            <div class="pricing-price">
-              <span class="price-amount">1 999</span>
-              <span class="price-currency">₽</span>
-            </div>
-            <p class="pricing-period">в месяц</p>
-          </div>
-          <ul class="pricing-features">
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <strong>20 платёжек</strong> в месяц
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Распознавание всех типов
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Выгрузка в 1С:УНФ
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Подключение банка
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Обработчик импорта для УНФ
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Telegram-уведомления
-            </li>
-          </ul>
-          <a href="#auth" class="btn-primary btn-block">Начать работу</a>
+          <a href="#auth" class="btn-primary btn-block">Создать аккаунт</a>
         </div>
       </div>
 
       <div class="pricing-note" data-animate="fade-up" data-delay="4">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 5v3M8 11h.01M15 8A7 7 0 111 8a7 7 0 0114 0z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-        После авторизации вы сможете подключить банк, настроить обмен с 1С и скачать обработчик импорта для 1С:УНФ по приходным накладным.
-        Все подключения используют единую структуру: безопасный эндпоинт с фильтрацией по ID и токеном авторизации.
+        Платежи в банк создаются как <strong>черновики</strong> — подписание токеном остаётся
+        на вашей стороне. ScanFlow только готовит документ, не списывает деньги.
       </div>
     </div>
   </section>
@@ -1094,7 +1069,7 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            На тарифе «Старт» — 5 распознаваний бесплатно после регистрации, потом по 4 ₽/скан. На «Бизнес» (1 999 ₽/мес) — безлимит для одной организации. Платишь только за фактический объём.
+            Сейчас сервис в открытой бете — распознавание бесплатно, лимитов нет. Платные тарифы появятся когда мы выйдем из беты; мы заранее предупредим и сохраним бонусы для тестовых аккаунтов.
           </div>
         </details>
 
@@ -1134,7 +1109,7 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            Фото хранятся на наших серверах в РФ. К ним прикладывается документ в 1С. Через 90 дней оригинал удаляется автоматически — остаётся только распознанная JSON-структура. Бэкап MySQL — ежедневно в 03:00.
+            Фото хранятся на серверах в РФ (хостинг scanflow.ru). К каждому документу в 1С автоматически прикрепляется оригинал фото. Через 90 дней неактуальные оригиналы удаляются с диска — остаётся распознанная структура в БД. Дамп MySQL делаем вручную через <code>mysqldump</code> перед апдейтами и по запросу клиента.
           </div>
         </details>
 
@@ -1144,7 +1119,7 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            На «Бизнес» — до 5 пользователей в одной организации. У каждого свой логин, свой API-ключ, свой Telegram-bot для уведомлений. Роли: админ / оператор / только просмотр.
+            Сейчас один аккаунт на инсталляцию: один логин, один API-ключ, свой Telegram-bot для уведомлений. Multi-user с ролями (админ / оператор / просмотр) и общей организацией — в дорожной карте, появится ближе к выходу из беты.
           </div>
         </details>
       </div>
@@ -1181,7 +1156,7 @@
           <!-- logged-out state -->
           <div class="auth-cta" data-auth-state="out">
             <h2>Создайте аккаунт за 30&nbsp;секунд</h2>
-            <p>5 бесплатных распознаваний — после регистрации мастер настройки за 3 шага подключит банк и 1С.</p>
+            <p>Сервис в открытой бете — распознавание без лимитов, бесплатно. После регистрации мастер настройки за 3 шага подключит 1С и Сбер.</p>
             <div class="auth-cta__buttons">
               <button type="button" class="btn-primary btn-lg" id="auth-cta-register">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -1191,7 +1166,7 @@
               </button>
               <button type="button" class="btn-outline btn-lg" id="auth-cta-login">Уже есть? Войти</button>
             </div>
-            <p class="auth-cta__small">Без оплаты на старте. Тариф выбираете когда упрётесь в лимит — нажмите «Тарифы» в шапке.</p>
+            <p class="auth-cta__small">Платные тарифы появятся когда выйдем из беты. Тестовые аккаунты получат бонусы.</p>
           </div>
 
           <!-- logged-in state — toggled by landing.js when localStorage.apiKey present -->
@@ -1275,8 +1250,8 @@
         <h3>Создать аккаунт</h3>
         <p class="login-modal__sub">30 секунд — и кабинет открыт. Сразу после регистрации мастер настройки проведёт по 3 шагам.</p>
         <ul class="auth-perks">
-          <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>5 бесплатных распознаваний</li>
-          <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Без оплаты на старте</li>
+          <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Бесплатно во время беты, без лимитов</li>
+          <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Кросс-проверка qty × price = total на каждой строке</li>
           <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Подключение 1С и Сбера за 2 минуты</li>
         </ul>
         <form class="login-modal__form" id="register-form" autocomplete="on">
@@ -1370,7 +1345,7 @@
         {
           "@type": "Question",
           "name": "Сколько стоит распознавание одной накладной?",
-          "acceptedAnswer": { "@type": "Answer", "text": "На тарифе «Старт» — 5 распознаваний бесплатно после регистрации, потом по 4 ₽/скан. На «Бизнес» (1 999 ₽/мес) — безлимит для одной организации. Платишь только за фактический объём." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Сейчас сервис в открытой бете — распознавание бесплатно, лимитов нет. Платные тарифы появятся когда мы выйдем из беты; мы заранее предупредим и сохраним бонусы для тестовых аккаунтов." }
         },
         {
           "@type": "Question",
@@ -1390,12 +1365,12 @@
         {
           "@type": "Question",
           "name": "Куда уходят фото моих накладных?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Фото хранятся на наших серверах в РФ. К ним прикладывается документ в 1С. Через 90 дней оригинал удаляется автоматически — остаётся только распознанная JSON-структура. Бэкап MySQL — ежедневно в 03:00." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Фото хранятся на серверах в РФ (хостинг scanflow.ru). К каждому документу в 1С автоматически прикрепляется оригинал фото. Через 90 дней неактуальные оригиналы удаляются с диска — остаётся распознанная структура в БД. Дамп MySQL делаем вручную через mysqldump перед апдейтами и по запросу клиента." }
         },
         {
           "@type": "Question",
           "name": "Можно ли своих сотрудников добавить?",
-          "acceptedAnswer": { "@type": "Answer", "text": "На «Бизнес» — до 5 пользователей в одной организации. У каждого свой логин, свой API-ключ, свой Telegram-bot для уведомлений. Роли: админ / оператор / только просмотр." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Сейчас один аккаунт на инсталляцию: один логин, один API-ключ, свой Telegram-bot для уведомлений. Multi-user с ролями (админ / оператор / просмотр) и общей организацией — в дорожной карте, появится ближе к выходу из беты." }
         }
       ]
     }

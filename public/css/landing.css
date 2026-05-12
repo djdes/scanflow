@@ -669,6 +669,18 @@ body {
   flex-wrap: wrap;
 }
 
+.hero-stats__footnote {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.4;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+  font-family: var(--mono);
+}
+
 .stat {
   display: flex;
   flex-direction: column;
