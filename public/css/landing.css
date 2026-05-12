@@ -1318,6 +1318,438 @@ body {
   .merge-arrow { transform: rotate(90deg); }
 }
 
+/* ========== 3-step Flow (mock screenshots: upload → recognize → send) ========== */
+
+.flow-section {
+  padding: 100px 0;
+  position: relative;
+}
+
+.flow-section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(59,130,246,0.05) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.flow-section .container { position: relative; }
+
+.flow-track {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: stretch;
+  gap: 0;
+  margin: 56px auto 0;
+  max-width: 1180px;
+}
+
+/* Card frame — looks like a screenshot of the actual app */
+.flow-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.20);
+  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+
+[data-theme="light"] .flow-card {
+  box-shadow: 0 12px 36px rgba(15,23,42,0.08);
+}
+
+.flow-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-lit);
+  box-shadow: 0 16px 50px rgba(59,130,246,0.16);
+}
+
+/* Window chrome (mac-style traffic lights + url) */
+.flow-card__chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-tint);
+}
+
+.flow-card__dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.55;
+}
+.flow-card__dot:nth-child(1) { background: #ff5f57; opacity: 0.85; }
+.flow-card__dot:nth-child(2) { background: #ffbd2e; opacity: 0.85; }
+.flow-card__dot:nth-child(3) { background: #28c940; opacity: 0.85; }
+
+.flow-card__url {
+  margin-left: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Card body */
+.flow-card__body {
+  padding: 24px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+.flow-card__step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.flow-card__num {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient);
+  color: var(--on-accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(59,130,246,0.30);
+}
+
+.flow-card__title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+/* Step status pill at the bottom of each card */
+.flow-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  align-self: flex-start;
+  margin-top: auto;
+}
+
+.flow-card__status--ok {
+  background: rgba(6,214,160,0.12);
+  color: var(--accent-green);
+  border: 1px solid rgba(6,214,160,0.30);
+}
+
+.flow-card__status--ai {
+  background: rgba(167,139,250,0.12);
+  color: var(--accent-purple);
+  border: 1px solid rgba(167,139,250,0.30);
+}
+
+.flow-card__status--done {
+  background: var(--gradient);
+  color: var(--on-accent);
+  border: 1px solid transparent;
+  box-shadow: 0 4px 14px rgba(59,130,246,0.30);
+}
+
+/* === Step 1: photo paper mock === */
+.flow-photo {
+  position: relative;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f6f3eb 0%, #ece6d4 100%);
+  padding: 18px 16px 16px;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.5),
+    0 4px 12px rgba(0,0,0,0.10);
+  /* Slight rotation so it looks like a snapped photo */
+  transform: rotate(-1deg);
+  font-family: 'Courier New', var(--mono);
+  color: #2a2820;
+  min-height: 220px;
+}
+
+[data-theme="light"] .flow-photo {
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.6),
+    0 6px 18px rgba(15,23,42,0.10);
+}
+
+.flow-photo__paper { font-size: 11.5px; line-height: 1.55; }
+
+.flow-photo__title {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-align: center;
+  margin-bottom: 10px;
+  color: #1a1810;
+}
+
+.flow-photo__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.flow-photo__row--mute { color: #6b6650; font-size: 10px; }
+
+.flow-photo__row--total {
+  font-weight: 700;
+  font-size: 13px;
+  color: #1a1810;
+}
+
+.flow-photo__divider {
+  height: 1px;
+  background: rgba(42,40,32,0.20);
+  margin: 8px 0;
+}
+
+.flow-photo__line {
+  height: 8px;
+  width: 100%;
+  margin: 4px 0;
+  background: rgba(42,40,32,0.18);
+  border-radius: 2px;
+}
+.flow-photo__line--80 { width: 80%; }
+.flow-photo__line--60 { width: 60%; }
+.flow-photo__line--90 { width: 90%; }
+
+.flow-photo__badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 3px 8px;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+  transform: rotate(1deg);
+}
+
+/* === Step 2: recognized fields + mini items table === */
+.flow-fields {
+  background: var(--surface-tint);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ff-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.ff-key {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ff-val { color: var(--text); font-weight: 500; }
+.ff-val--mono { font-family: var(--mono); font-size: 11.5px; }
+
+.ff-row--total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.ff-row--total .ff-val {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-green);
+}
+
+.flow-mini-table {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.fm-row {
+  display: grid;
+  grid-template-columns: 1fr auto 20px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fm-row:last-child { border-bottom: none; }
+
+.fm-name { color: var(--text); }
+.fm-qty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.fm-hit {
+  color: var(--accent-green);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.fm-row--more {
+  background: var(--surface-tint);
+  color: var(--text-dim);
+  font-style: italic;
+}
+.fm-row--more .fm-name { color: var(--text-dim); }
+
+/* === Step 3: output destinations === */
+.flow-outputs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.flow-output {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.flow-output__icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.02em;
+}
+
+.flow-output__icon--1c {
+  background: rgba(251,146,60,0.16);
+  color: var(--accent-orange);
+  border: 1px solid rgba(251,146,60,0.30);
+}
+.flow-output__icon--sber {
+  background: rgba(6,214,160,0.16);
+  color: var(--accent-green);
+  border: 1px solid rgba(6,214,160,0.30);
+}
+.flow-output__icon--tg {
+  background: rgba(59,130,246,0.16);
+  color: var(--accent-blue);
+  border: 1px solid rgba(59,130,246,0.30);
+}
+
+.flow-output__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.flow-output__main strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-output__main small {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.flow-output__check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6,214,160,0.18);
+  color: var(--accent-green);
+  border-radius: 50%;
+  border: 1px solid rgba(6,214,160,0.35);
+}
+
+/* Arrow between cards (desktop horizontal) */
+.flow-arrow {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  color: var(--text-muted);
+}
+
+.flow-arrow__label {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+/* Mobile / narrow: stack vertically, rotate arrows */
+@media (max-width: 960px) {
+  .flow-track {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .flow-arrow {
+    transform: rotate(90deg);
+    margin: 12px 0;
+  }
+
+  .flow-section { padding: 64px 0; }
+}
+
 /* ========== AI Advantages Section ========== */
 
 .ai-section {

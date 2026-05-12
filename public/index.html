@@ -460,6 +460,162 @@
     </div>
   </section>
 
+  <!-- ========== 3-STEP FLOW (mock screenshots) ========== -->
+  <section class="flow-section" id="flow">
+    <div class="container">
+      <div class="section-label" data-animate="fade-up">В 3 шага</div>
+      <h2 class="section-title" data-animate="fade-up" data-delay="1">
+        Фото → распознали → отправили <span class="gradient-text">сами</span>
+      </h2>
+      <p class="section-sub" data-animate="fade-up" data-delay="2">
+        Так это выглядит в реальном кабинете: загрузили фото с телефона, через 3 секунды
+        видишь распознанную накладную, ещё через секунду она уже в 1С, платёжка в Сбере и
+        уведомление в Telegram.
+      </p>
+
+      <div class="flow-track">
+        <!-- Step 1: загрузил фото -->
+        <article class="flow-card flow-card--upload" data-animate="fade-up" data-delay="2">
+          <div class="flow-card__chrome">
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__url">scanflow.ru / #/upload</span>
+          </div>
+          <div class="flow-card__body">
+            <div class="flow-card__step">
+              <span class="flow-card__num">1</span>
+              <h3 class="flow-card__title">Загрузил фото</h3>
+            </div>
+            <div class="flow-photo" aria-hidden="true">
+              <div class="flow-photo__paper">
+                <div class="flow-photo__title">ТОВАРНАЯ НАКЛАДНАЯ</div>
+                <div class="flow-photo__row"><span>№ 2841</span><span>от 11.05.2026</span></div>
+                <div class="flow-photo__row"><span>ИП Чихинов Г.А.</span></div>
+                <div class="flow-photo__row flow-photo__row--mute"><span>ИНН 504410008491</span></div>
+                <div class="flow-photo__divider"></div>
+                <div class="flow-photo__line"></div>
+                <div class="flow-photo__line flow-photo__line--80"></div>
+                <div class="flow-photo__line"></div>
+                <div class="flow-photo__line flow-photo__line--60"></div>
+                <div class="flow-photo__line flow-photo__line--90"></div>
+                <div class="flow-photo__divider"></div>
+                <div class="flow-photo__row flow-photo__row--total"><span>ИТОГО</span><span>22 893,00 ₽</span></div>
+              </div>
+              <div class="flow-photo__badge">JPG · 247 KB</div>
+            </div>
+            <div class="flow-card__status flow-card__status--ok">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Загружено · 1 файл
+            </div>
+          </div>
+        </article>
+
+        <!-- Arrow 1→2 -->
+        <div class="flow-arrow" aria-hidden="true">
+          <span class="flow-arrow__label">3 сек</span>
+          <svg width="48" height="20" viewBox="0 0 48 20" fill="none">
+            <path d="M2 10h42m-6-6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+
+        <!-- Step 2: распознали -->
+        <article class="flow-card flow-card--recognize" data-animate="fade-up" data-delay="3">
+          <div class="flow-card__chrome">
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__url">scanflow.ru / #/invoices/2841</span>
+          </div>
+          <div class="flow-card__body">
+            <div class="flow-card__step">
+              <span class="flow-card__num">2</span>
+              <h3 class="flow-card__title">Распознали за 3&nbsp;сек</h3>
+            </div>
+            <div class="flow-fields" aria-hidden="true">
+              <div class="ff-row"><span class="ff-key">Номер</span><span class="ff-val">2841</span></div>
+              <div class="ff-row"><span class="ff-key">Дата</span><span class="ff-val">11.05.2026</span></div>
+              <div class="ff-row"><span class="ff-key">Поставщик</span><span class="ff-val">ИП Чихинов Г.А.</span></div>
+              <div class="ff-row"><span class="ff-key">ИНН</span><span class="ff-val ff-val--mono">504410008491</span></div>
+              <div class="ff-row ff-row--total"><span class="ff-key">Итого</span><span class="ff-val">22&nbsp;893,00&nbsp;₽</span></div>
+            </div>
+            <div class="flow-mini-table" aria-hidden="true">
+              <div class="fm-row"><span class="fm-name">Картофель сетка 5кг</span><span class="fm-qty">12 × 35 ₽</span><span class="fm-hit">✓</span></div>
+              <div class="fm-row"><span class="fm-name">Морковь молодая</span><span class="fm-qty">8 × 28 ₽</span><span class="fm-hit">✓</span></div>
+              <div class="fm-row fm-row--more"><span class="fm-name">+ 12 позиций</span><span class="fm-qty"></span><span class="fm-hit">✓</span></div>
+            </div>
+            <div class="flow-card__status flow-card__status--ai">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.39 5.45L20 8.7l-4.18 3.83L17 18.5 12 15.77 7 18.5l1.18-5.97L4 8.7l5.61-1.25L12 2z" fill="currentColor"/></svg>
+              Claude Sonnet 4.6 · 14 позиций сопоставлены
+            </div>
+          </div>
+        </article>
+
+        <!-- Arrow 2→3 -->
+        <div class="flow-arrow" aria-hidden="true">
+          <span class="flow-arrow__label">сразу</span>
+          <svg width="48" height="20" viewBox="0 0 48 20" fill="none">
+            <path d="M2 10h42m-6-6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+
+        <!-- Step 3: отправили -->
+        <article class="flow-card flow-card--send" data-animate="fade-up" data-delay="4">
+          <div class="flow-card__chrome">
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__dot"></span>
+            <span class="flow-card__url">scanflow.ru / inbox</span>
+          </div>
+          <div class="flow-card__body">
+            <div class="flow-card__step">
+              <span class="flow-card__num">3</span>
+              <h3 class="flow-card__title">Отправили автоматически</h3>
+            </div>
+            <ul class="flow-outputs" aria-hidden="true">
+              <li class="flow-output">
+                <span class="flow-output__icon flow-output__icon--1c">1С</span>
+                <div class="flow-output__main">
+                  <strong>Приходная №2841 создана</strong>
+                  <small>1С:УНФ · 14 позиций · 22 893 ₽</small>
+                </div>
+                <span class="flow-output__check">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+              </li>
+              <li class="flow-output">
+                <span class="flow-output__icon flow-output__icon--sber">Сб</span>
+                <div class="flow-output__main">
+                  <strong>Черновик платёжки готов</strong>
+                  <small>СберБизнес · к подписанию токеном</small>
+                </div>
+                <span class="flow-output__check">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+              </li>
+              <li class="flow-output">
+                <span class="flow-output__icon flow-output__icon--tg">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M14 2L1 8l4 1.5L7 14l2-3 4 2 1-11z" fill="currentColor"/></svg>
+                </span>
+                <div class="flow-output__main">
+                  <strong>Уведомление отправлено</strong>
+                  <small>Telegram · 10:42</small>
+                </div>
+                <span class="flow-output__check">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+              </li>
+            </ul>
+            <div class="flow-card__status flow-card__status--done">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Готово · твой ход — продать товар
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
   <!-- ========== AI ADVANTAGES ========== -->
   <section class="ai-section" id="ai">
     <div class="container">
