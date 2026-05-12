@@ -1916,7 +1916,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--modal-scrim);
+  /* раньше использовался --modal-scrim (полупрозрачный backdrop для модалок),
+     из-за этого в светлой теме поле становилось тёмно-серым и text-muted
+     на нём не читался. surface-tint даёт нейтральную подложку в обеих темах. */
+  background: var(--surface-tint);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px 16px;
@@ -1932,7 +1935,7 @@ body {
 }
 
 .ai-conversion__from {
-  color: var(--text-muted);
+  color: var(--text-dim);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
