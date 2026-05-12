@@ -513,6 +513,30 @@
     });
   }
 
+  // ========== Scan-types tabs ==========
+  // Простое переключение табов: клик по кнопке → активный класс + показ
+  // соответствующего panel'а, остальные hidden. Keyboard accessible: стрелки
+  // в режиме role="tablist" не обязательны для MVP — клик/таб работают.
+  (function initScanTabs() {
+    const strip = document.querySelector('.scan-tabs__strip');
+    if (!strip) return;
+    const btns = strip.querySelectorAll('.scan-tabs__btn');
+    const panels = document.querySelectorAll('.scan-tabs__panel');
+    btns.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        btns.forEach((b) => {
+          const on = b === btn;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        panels.forEach((p) => {
+          p.hidden = p.dataset.panel !== tab;
+        });
+      });
+    });
+  })();
+
   // ========== Login Modal ==========
 
   const loginModal = document.getElementById('login-modal');

@@ -200,30 +200,27 @@
       </div>
     </div>
     <div class="container hero-content">
-      <div class="hero-eyebrow" data-animate="fade-up">
-        <span class="dot-live"></span>
-        <span class="eyebrow-text">OCR engine: claude-sonnet-4.6 · latency 1.2s · online</span>
-      </div>
-      <div class="hero-badge" data-animate="fade-up" data-delay="1">
+      <div class="hero-badge" data-animate="fade-up">
         <span class="badge-dot"></span>
-        AI-powered OCR для бизнеса
+        Открытая бета · бесплатно
       </div>
-      <h1 data-animate="fade-up" data-delay="2" class="hero-headline">
-        <span class="line-mute">Скан</span>
+      <h1 data-animate="fade-up" data-delay="1" class="hero-headline">
+        <span class="line-mute">Фото накладной</span>
         <span class="arrow">→</span>
-        <span class="gradient-text">платёжка</span><br>
+        <span class="gradient-text">приходная в 1С</span><br>
         <span class="line-mute">за</span> <span class="big-number">3</span> <span class="line-mute">секунды</span>
       </h1>
-      <p class="hero-sub" data-animate="fade-up" data-delay="3">
-        Загрузите фото накладной — получите готовую платёжку, запись в 1С и обновлённые цены на сайте.
-        Без ручного ввода, без ошибок.
+      <p class="hero-sub" data-animate="fade-up" data-delay="2">
+        Сфотографировал ТОРГ-12 / УПД / счёт — получил готовую «Приходную накладную» в 1С:УНФ,
+        черновик платёжки в СберБизнес и уведомление в Telegram. AI распознаёт, проверяет суммы,
+        мапит товары с твоим каталогом 1С.
       </p>
-      <div class="hero-cta" data-animate="fade-up" data-delay="4">
+      <div class="hero-cta" data-animate="fade-up" data-delay="3">
         <a href="#try" class="btn-primary btn-magnetic">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 14V4m0 0L6 8m4-4l4 4M3 14v1a2 2 0 002 2h10a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Загрузить тестовый скан
+          Попробовать на своей накладной
         </a>
-        <a href="#features" class="btn-outline">Узнать больше</a>
+        <a href="#scan-types" class="btn-outline">Что можно сканировать →</a>
       </div>
       <div class="hero-stats" data-animate="fade-up" data-delay="5">
         <div class="stat">
@@ -262,31 +259,156 @@
     </div>
   </section>
 
-  <!-- ========== LIVE TICKER ========== -->
-  <section class="ticker-section" aria-label="Активность за последние минуты">
-    <div class="ticker">
-      <div class="ticker-track">
-        <span class="tick"><b class="ok">✓</b> Накладная №2841 → 1С УНФ · 3.2с</span>
-        <span class="tick"><b class="ok">✓</b> Платёжка ИП Чихинов · 22 893 ₽ · Сбер draft</span>
-        <span class="tick"><b class="ok">✓</b> 14 позиций сопоставлены с каталогом · 0 ручных</span>
-        <span class="tick"><b class="ai">●</b> claude-sonnet-4.6 · vision · 1.1s</span>
-        <span class="tick"><b class="ok">✓</b> Накладная №2842 → 1С УНФ · 2.8с</span>
-        <span class="tick"><b class="ok">✓</b> Telegram уведомление: bugdenes@gmail.com</span>
-        <span class="tick"><b class="ai">●</b> qty × price ≈ total · ok · 14/14</span>
-        <span class="tick"><b class="ok">✓</b> ТОРГ-12 №F-1093 · 8 позиций · 12 850 ₽</span>
-        <span class="tick"><b class="ok">✓</b> DaData → ИНН 504410008491 enriched</span>
-        <span class="tick"><b class="ai">●</b> Pack-transform: 12 шт → 1 короб</span>
-        <!-- duplicate for seamless loop -->
-        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Накладная №2841 → 1С УНФ · 3.2с</span>
-        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Платёжка ИП Чихинов · 22 893 ₽ · Сбер draft</span>
-        <span class="tick" aria-hidden="true"><b class="ok">✓</b> 14 позиций сопоставлены с каталогом · 0 ручных</span>
-        <span class="tick" aria-hidden="true"><b class="ai">●</b> claude-sonnet-4.6 · vision · 1.1s</span>
-        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Накладная №2842 → 1С УНФ · 2.8с</span>
-        <span class="tick" aria-hidden="true"><b class="ok">✓</b> Telegram уведомление: bugdenes@gmail.com</span>
-        <span class="tick" aria-hidden="true"><b class="ai">●</b> qty × price ≈ total · ok · 14/14</span>
-        <span class="tick" aria-hidden="true"><b class="ok">✓</b> ТОРГ-12 №F-1093 · 8 позиций · 12 850 ₽</span>
-        <span class="tick" aria-hidden="true"><b class="ok">✓</b> DaData → ИНН 504410008491 enriched</span>
-        <span class="tick" aria-hidden="true"><b class="ai">●</b> Pack-transform: 12 шт → 1 короб</span>
+  <!-- ========== SCAN TYPES (tabs by document type — DocsInBox pattern) ========== -->
+  <section class="scan-types" id="scan-types">
+    <div class="container">
+      <div class="section-label" data-animate="fade-up">Что можно сканировать</div>
+      <h2 class="section-title" data-animate="fade-up" data-delay="1">
+        4 типа документов — <span class="gradient-text">из коробки</span>
+      </h2>
+      <p class="section-sub" data-animate="fade-up" data-delay="2">
+        Фотографируйте с телефона или скидывайте сканы из почты — AI сам определит тип
+        и вытащит нужные поля. Любой формат: JPG, PNG, PDF, HEIC.
+      </p>
+
+      <div class="scan-tabs" data-animate="fade-up" data-delay="3">
+        <div class="scan-tabs__strip" role="tablist">
+          <button type="button" role="tab" class="scan-tabs__btn active" data-tab="torg12" aria-selected="true">
+            <span class="scan-tabs__badge">ТОРГ-12</span>
+            <span class="scan-tabs__label">Товарная накладная</span>
+          </button>
+          <button type="button" role="tab" class="scan-tabs__btn" data-tab="upd" aria-selected="false">
+            <span class="scan-tabs__badge">УПД</span>
+            <span class="scan-tabs__label">Универсальный передаточный</span>
+          </button>
+          <button type="button" role="tab" class="scan-tabs__btn" data-tab="schet" aria-selected="false">
+            <span class="scan-tabs__badge">Счёт</span>
+            <span class="scan-tabs__label">Счёт на оплату</span>
+          </button>
+          <button type="button" role="tab" class="scan-tabs__btn" data-tab="sf" aria-selected="false">
+            <span class="scan-tabs__badge">СФ</span>
+            <span class="scan-tabs__label">Счёт-фактура</span>
+          </button>
+        </div>
+
+        <!-- Panel: ТОРГ-12 -->
+        <div class="scan-tabs__panel" data-panel="torg12">
+          <div class="scan-mock" aria-hidden="true">
+            <div class="scan-mock__paper">
+              <div class="scan-mock__head">ТОВАРНАЯ НАКЛАДНАЯ № 2841</div>
+              <div class="scan-mock__row"><span>от 30.01.2026</span><span>ТОРГ-12</span></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row"><span>Поставщик</span><b>ИП Чихинов Г.А.</b></div>
+              <div class="scan-mock__row"><span>ИНН</span><b>504410008491</b></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>Баклажаны</span><span>2 484 ₽</span></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>Грибы шампиньоны</span><span>900 ₽</span></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>Картофель мини</span><span>754 ₽</span></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>… + 11 позиций</span></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row scan-mock__row--total"><span>Итого</span><span>22 893 ₽</span></div>
+            </div>
+          </div>
+          <div class="scan-fields">
+            <h3>Распознаётся автоматически</h3>
+            <ul>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Номер накладной и дата</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Поставщик: наименование, ИНН, КПП, адрес</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Позиции: наименование, количество, цена, сумма, НДС</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Кросс-проверка <code>qty × price = total</code> на каждой строке</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Маппинг товаров с вашим каталогом 1С (LLM)</li>
+            </ul>
+            <div class="scan-fields__out">→ <strong>1С:УНФ:</strong> «Приходная накладная» с фото-вложением</div>
+          </div>
+        </div>
+
+        <!-- Panel: УПД -->
+        <div class="scan-tabs__panel" data-panel="upd" hidden>
+          <div class="scan-mock" aria-hidden="true">
+            <div class="scan-mock__paper">
+              <div class="scan-mock__head">УНИВЕРСАЛЬНЫЙ ПЕРЕДАТОЧНЫЙ ДОКУМЕНТ</div>
+              <div class="scan-mock__row"><span>УПД № 1093</span><span>от 28.04.2026</span></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>Статус</span><b>«1» — счёт-фактура + первичка</b></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row"><span>Продавец</span><b>ООО «АРТПЛАСТ»</b></div>
+              <div class="scan-mock__row"><span>ИНН/КПП</span><b>7724333890 / 772401001</b></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>Бутылка ПЭТ 0,33 л</span><span>8 213 ₽</span></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>… + 9 позиций</span></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row scan-mock__row--total"><span>Итого с НДС</span><span>35 269,50 ₽</span></div>
+            </div>
+          </div>
+          <div class="scan-fields">
+            <h3>Распознаётся автоматически</h3>
+            <ul>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Номер УПД, дата, статус («1» / «2»)</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Продавец + покупатель с реквизитами</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Все позиции + ставки НДС (0/10/20%)</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Сумма НДС и сумма без НДС отдельно</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Дата приёма груза и подпись грузополучателя</li>
+            </ul>
+            <div class="scan-fields__out">→ <strong>1С:УНФ:</strong> «Приходная накладная» с правильным разделением НДС</div>
+          </div>
+        </div>
+
+        <!-- Panel: Счёт -->
+        <div class="scan-tabs__panel" data-panel="schet" hidden>
+          <div class="scan-mock" aria-hidden="true">
+            <div class="scan-mock__paper">
+              <div class="scan-mock__head">СЧЁТ НА ОПЛАТУ № 247</div>
+              <div class="scan-mock__row"><span>от 12.05.2026</span></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row"><span>Поставщик</span><b>ООО «Сибирский хлеб»</b></div>
+              <div class="scan-mock__row"><span>ИНН</span><b>5404123456</b></div>
+              <div class="scan-mock__row"><span>Р/с</span><b>40702810…0123</b></div>
+              <div class="scan-mock__row"><span>Банк</span><b>Сбербанк</b></div>
+              <div class="scan-mock__row"><span>БИК</span><b>044525225</b></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>Хлеб «Бородинский» × 50</span><span>4 250 ₽</span></div>
+              <div class="scan-mock__row scan-mock__row--total"><span>К оплате</span><span>8 120 ₽</span></div>
+            </div>
+          </div>
+          <div class="scan-fields">
+            <h3>Распознаётся автоматически</h3>
+            <ul>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Реквизиты получателя: ИНН, КПП, расчётный счёт</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Банк + БИК + корреспондентский счёт</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Сумма к оплате</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Назначение платежа (если указано в счёте)</li>
+            </ul>
+            <div class="scan-fields__out">→ <strong>СберБизнес:</strong> черновик платёжного поручения, ждёт подписи токеном</div>
+          </div>
+        </div>
+
+        <!-- Panel: Счёт-фактура -->
+        <div class="scan-tabs__panel" data-panel="sf" hidden>
+          <div class="scan-mock" aria-hidden="true">
+            <div class="scan-mock__paper">
+              <div class="scan-mock__head">СЧЁТ-ФАКТУРА № F-1093</div>
+              <div class="scan-mock__row"><span>от 28.04.2026</span></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row"><span>Продавец</span><b>АО «Продукты Алтая»</b></div>
+              <div class="scan-mock__row"><span>ИНН/КПП</span><b>2225001234 / 222501001</b></div>
+              <div class="scan-mock__row"><span>Грузоотправитель</span><b>тот же</b></div>
+              <div class="scan-mock__row"><span>Грузополучатель</span><b>ИП Иванов И.И.</b></div>
+              <div class="scan-mock__sep"></div>
+              <div class="scan-mock__row scan-mock__row--mute"><span>14 позиций · НДС 10/20%</span></div>
+              <div class="scan-mock__row scan-mock__row--total"><span>Сумма НДС</span><span>6 360,07 ₽</span></div>
+            </div>
+          </div>
+          <div class="scan-fields">
+            <h3>Распознаётся автоматически</h3>
+            <ul>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Номер счёт-фактуры и дата выписки</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Продавец + покупатель + грузоотправитель / получатель</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Позиции с разделением ставок НДС (0/10/20%)</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Сумма НДС отдельно — для подачи к вычету</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Подпись и расшифровка руководителя</li>
+            </ul>
+            <div class="scan-fields__out">→ <strong>1С:УНФ:</strong> прикрепляется к приходной накладной для книги покупок</div>
+          </div>
+        </div>
       </div>
     </div>
   </section>

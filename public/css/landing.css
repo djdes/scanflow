@@ -751,6 +751,235 @@ body {
 
 /* ========== Mindmap ========== */
 
+/* === Scan-types tabs section ===
+   Главный ответ на «что можно сканировать?» — табы по типу документа.
+   Слева мок-документ нужного типа, справа список распознаваемых полей. */
+.scan-types {
+  padding: 100px 0;
+  position: relative;
+}
+
+.scan-types::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(59,130,246,0.06) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.scan-types .container { position: relative; }
+
+.scan-tabs {
+  margin: 48px auto 0;
+  max-width: 1080px;
+}
+
+.scan-tabs__strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+}
+
+.scan-tabs__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 18px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font);
+  color: var(--text-dim);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+
+.scan-tabs__btn:hover { background: var(--surface-tint); color: var(--text); }
+.scan-tabs__btn:active { transform: scale(0.98); }
+
+.scan-tabs__btn.active {
+  background: var(--gradient);
+  color: var(--on-accent);
+  box-shadow: 0 4px 14px rgba(59,130,246,0.30);
+}
+
+.scan-tabs__btn.active .scan-tabs__label { opacity: 0.95; }
+.scan-tabs__btn.active .scan-tabs__badge { background: rgba(255,255,255,0.20); color: #fff; border-color: rgba(255,255,255,0.35); }
+
+.scan-tabs__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--surface-tint-strong);
+  color: var(--text);
+  border: 1px solid var(--border-lit);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.scan-tabs__label {
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* Panel — 2-col grid: mock left, fields right */
+.scan-tabs__panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr;
+  gap: 36px;
+  align-items: start;
+  padding: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  animation: scan-tab-in 0.3s ease-out;
+}
+
+.scan-tabs__panel[hidden] { display: none; }
+
+@keyframes scan-tab-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Mock paper — copy of the hero-video paper style */
+.scan-mock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.scan-mock__paper {
+  background: linear-gradient(180deg, #f6f3eb 0%, #ece6d4 100%);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 10px;
+  padding: 22px 20px;
+  width: 100%;
+  max-width: 380px;
+  font-family: 'Courier New', var(--mono);
+  font-size: 12.5px;
+  color: #2a2820;
+  line-height: 1.55;
+  transform: rotate(-1deg);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.5),
+    0 12px 28px rgba(0,0,0,0.15);
+}
+
+[data-theme="light"] .scan-mock__paper {
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.6),
+    0 14px 32px rgba(15,23,42,0.10);
+}
+
+.scan-mock__head {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-align: center;
+  margin-bottom: 10px;
+  color: #1a1810;
+}
+
+.scan-mock__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.scan-mock__row b { font-weight: 700; }
+.scan-mock__row--mute { color: #6b6650; font-size: 11px; }
+.scan-mock__row--total { font-weight: 700; font-size: 13.5px; color: #1a1810; }
+
+.scan-mock__sep {
+  height: 1px;
+  background: rgba(42,40,32,0.20);
+  margin: 8px 0;
+}
+
+/* Fields list — what gets extracted */
+.scan-fields h3 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0 0 18px;
+}
+
+.scan-fields ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scan-fields li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.scan-fields li svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: var(--accent-green);
+}
+
+.scan-fields li code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 1px 6px;
+  background: var(--surface-tint);
+  border-radius: 4px;
+}
+
+.scan-fields__out {
+  padding: 14px 18px;
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-green);
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.scan-fields__out strong { color: var(--accent-green); font-weight: 600; }
+
+/* Mobile / narrow */
+@media (max-width: 880px) {
+  .scan-tabs__strip { grid-template-columns: repeat(2, 1fr); }
+  .scan-tabs__panel { grid-template-columns: 1fr; gap: 24px; }
+  .scan-mock { padding: 0; }
+  .scan-mock__paper { max-width: 100%; transform: none; }
+}
+
+@media (max-width: 480px) {
+  .scan-tabs__strip { grid-template-columns: 1fr 1fr; }
+  .scan-tabs__btn { padding: 10px 12px; }
+  .scan-tabs__label { font-size: 12px; }
+}
+
 .mindmap-section {
   padding: 100px 0;
   position: relative;
