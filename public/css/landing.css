@@ -781,6 +781,15 @@ body {
 .mindmap-lines line:nth-child(2) { stroke: #14b8a6; }
 .mindmap-lines line:nth-child(3) { stroke: #a78bfa; }
 
+/* === Mindmap nodes ===
+   Раньше анимация использовала `filter: blur(4px) → 0` — это очень
+   дорогая GPU-операция, заметно лагала на маломощных карточках.
+   Плюс центральная нода держит `translate(-50%, -50%)` (трюк
+   центрирования), и обычный `transform: translateY(-2px)` на hover
+   ломал её позицию (центр прыгал). Решение:
+   • простой opacity + translateY fade-in (без blur — копеечный для GPU);
+   • hover-эффект через box-shadow + border, без transform на центре;
+   • на output-нодах translate-конфликта нет, оставили лёгкий lift. */
 .mm-node {
   position: absolute;
   display: flex;
@@ -793,33 +802,46 @@ body {
   font-weight: 600;
   font-size: 15px;
   white-space: nowrap;
-  transition: var(--transition);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   cursor: default;
   opacity: 0;
-  animation: mmNodeIn 0.5s ease forwards;
+  animation: mmNodeIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: opacity, transform;
 }
 
-.mm-node:hover {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 30px var(--accent-blue-glow);
-  transform: translateY(-2px);
+@keyframes mmNodeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .mm-node--center {
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
+  /* Центрирование через translate(-50%, -50%) — анимация задаётся
+     отдельным keyframe, чтобы не конфликтовать с центрирующим transform'ом. */
+  transform: translate(-50%, calc(-50% + 10px));
   background: linear-gradient(135deg, var(--bg-card) 0%, rgba(59,130,246,0.08) 100%);
   border-color: rgba(59,130,246,0.2);
   padding: 18px 28px;
   font-size: 17px;
   z-index: 2;
-  animation-delay: 0.2s;
+  animation: mmCenterIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.15s forwards;
 }
 
-.mm-node--center.visible {
-  opacity: 1;
-  transform: translate(-50%, -50%);
+@keyframes mmCenterIn {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+/* Hover: лёгкий бордер + свечение, БЕЗ transform — иначе центр прыгнет. */
+.mm-node:hover {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 30px var(--accent-blue-glow);
+}
+
+/* Output-ноды можно лифтить — у них нет translate-центрирования. */
+.mm-node--output:hover {
+  transform: translateY(-2px);
 }
 
 .mm-node--output {
@@ -829,33 +851,32 @@ body {
 .mm-node--output:nth-child(3) { /* pay */
   top: 10px;
   left: 5%;
-  animation-delay: 0.5s;
+  animation-delay: 0.4s;
 }
 
 .mm-node--output:nth-child(4) { /* 1c */
   top: 10px;
   right: 5%;
-  animation-delay: 0.7s;
+  animation-delay: 0.55s;
 }
 
-.mm-node--output:nth-child(5) { /* site */
+.mm-node--output:nth-child(5) { /* telegram */
   bottom: 10px;
   left: 50%;
-  transform: translateX(-50%);
-  animation-delay: 0.9s;
+  /* Та же логика: центрирование через translateX отделено от анимации. */
+  transform: translate(-50%, 10px);
+  animation: mmBottomIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.7s forwards;
 }
 
-.mm-node--output:nth-child(5).visible {
-  opacity: 1;
-  transform: translateX(-50%);
+@keyframes mmBottomIn {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
-@keyframes mmNodeIn {
-  from { opacity: 0; filter: blur(4px); }
-  to { opacity: 1; filter: blur(0); }
+.mm-node--output:nth-child(5):hover {
+  /* Сохраняем translateX центрирования при hover-лифте. */
+  transform: translate(-50%, -2px);
 }
-
-/* Lines use static opacity + transition instead of animation */
 
 .mm-icon {
   display: flex;
