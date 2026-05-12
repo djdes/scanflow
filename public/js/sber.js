@@ -16,7 +16,7 @@ const Sber = {
       card.innerHTML = '<p>● <strong>Не подключено</strong></p>';
       actions.innerHTML = `
         <div style="display:flex;gap:8px;margin-bottom:16px">
-          <button class="btn btn-primary" onclick="window.location.href='/api/sber/authorize?key='+encodeURIComponent(App.apiKey)">Подключить через OAuth</button>
+          <button id="sber-connect-oauth" class="btn btn-primary" onclick="window.location.href='/api/sber/authorize?key='+encodeURIComponent(App.apiKey)">Подключить через OAuth</button>
           <button class="btn btn-outline" onclick="Sber.toggleSeedForm()">Ввести токены вручную</button>
         </div>
         <div id="sber-seed-form" style="display:none"></div>

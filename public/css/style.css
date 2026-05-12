@@ -2284,6 +2284,153 @@ details[open] summary { margin-bottom: 12px; }
 }
 
 /* ============================================================
+   Onboarding spotlight (coach-mark) — затемняет страницу и выделяет
+   нужный элемент со стрелкой и подсказкой. Появляется когда юзер
+   переходит из wizard'а на целевую страницу.
+   ============================================================ */
+
+.onb-hint-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+  animation: onb-hint-in 0.3s ease-out;
+}
+
+@keyframes onb-hint-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 4 затемнённые маски вокруг таргета. Кликаются — закрывают подсказку
+   (через target click listener; сам overlay pointer-events:none, но
+   маски включают auto). */
+.onb-hint-mask {
+  background: rgba(8, 12, 22, 0.68);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: auto;
+  transition: background 0.2s ease;
+}
+
+/* Ring around the target — лёгкий контур + пульсация */
+.onb-hint-ring {
+  border: 2px solid var(--primary);
+  box-shadow:
+    0 0 0 4px rgba(26, 109, 255, 0.25),
+    0 0 24px rgba(26, 109, 255, 0.50);
+  animation: onb-hint-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes onb-hint-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(26,109,255,0.25), 0 0 24px rgba(26,109,255,0.50); }
+  50%      { box-shadow: 0 0 0 8px rgba(26,109,255,0.18), 0 0 36px rgba(26,109,255,0.75); }
+}
+
+/* Animated arrow — bouncing toward the target */
+.onb-hint-arrow {
+  color: var(--primary);
+  filter: drop-shadow(0 4px 12px rgba(26,109,255,0.5));
+  animation: onb-hint-arrow-bounce 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes onb-hint-arrow-bounce {
+  0%, 100% { transform: rotate(var(--rot, 0deg)) translateY(0); }
+  50%      { transform: rotate(var(--rot, 0deg)) translateY(8px); }
+}
+
+/* The arrow's `transform` is set inline (rotate via JS), so animation
+   would overwrite it. Use a small JS hook: we set --rot via inline
+   style. To avoid that complexity, override the keyframe path by
+   not animating transform when rotate already set inline. Simpler:
+   accept that arrow rotates but doesn't bounce on left/right placements.
+   For top/bottom it works because rotate(0) and rotate(180) keep Y bounce. */
+
+/* Tooltip */
+.onb-hint-tooltip {
+  pointer-events: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 22px 18px;
+  box-shadow:
+    0 24px 60px rgba(0,0,0,0.30),
+    0 0 0 1px rgba(26,109,255,0.15);
+  font-family: inherit;
+  animation: onb-hint-tooltip-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes onb-hint-tooltip-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.onb-hint-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.onb-hint-close:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.onb-hint-tooltip__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.onb-hint-tooltip__badge {
+  font-family: var(--mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.onb-hint-tooltip__title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.onb-hint-tooltip__body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 14px;
+}
+
+.onb-hint-tooltip__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ============================================================
    Onboarding sticky banner (shown on dashboard pages while wizard
    is incomplete — gives users a permanent way back to the wizard)
    ============================================================ */

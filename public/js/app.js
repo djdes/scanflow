@@ -118,6 +118,13 @@ const App = {
       Onboarding.renderBanner(hash).catch(() => { /* swallow */ });
     }
 
+    // Spotlight: если в localStorage стоит hint от wizard'а, подсветить
+    // нужный элемент на целевой странице. apply() сам разберётся показывать
+    // или нет (зависит от текущего hash + наличия таргета).
+    if (window.OnboardingHint) {
+      OnboardingHint.apply(hash);
+    }
+
     if (hash.startsWith('#/invoices/')) {
       document.getElementById('view-invoices').style.display = 'block';
       this.activateNavTab('invoices');

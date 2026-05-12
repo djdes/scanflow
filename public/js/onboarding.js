@@ -113,6 +113,15 @@ const Onboarding = {
     if (this._bound) return;
     this._bound = true;
 
+    // Любой CTA-линк с `data-onboarding-cta="..."` ставит hint в localStorage
+    // перед навигацией — onboarding-hint.js потом подсветит нужный элемент
+    // на целевой странице.
+    document.querySelectorAll('[data-onboarding-cta]').forEach((el) => {
+      el.addEventListener('click', () => {
+        localStorage.setItem('sf-onboarding-hint', el.dataset.onboardingCta);
+      });
+    });
+
     const skipAll = document.getElementById('onboarding-skip-all');
     if (skipAll) {
       skipAll.addEventListener('click', () => {

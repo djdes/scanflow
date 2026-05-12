@@ -219,7 +219,7 @@
               <h3>Отсканируйте первую накладную</h3>
               <p>Загрузите фото или PDF любой накладной — за 3 секунды получите распознанные позиции, поставщика и сумму. Это твой первый тест системы.</p>
               <div class="onboarding-step__actions">
-                <a href="#/upload" class="btn btn-primary">
+                <a href="#/upload" class="btn btn-primary" data-onboarding-cta="upload">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                   Загрузить накладную
                 </a>
@@ -245,7 +245,7 @@
               <h3>Подключите банк — черновики платёжек автоматом</h3>
               <p>Подключите СберБизнес — из каждой одобренной накладной автоматически появится черновик платёжного поручения. Подписание токеном остаётся на твоей стороне, ScanFlow только готовит документ.</p>
               <div class="onboarding-step__actions">
-                <a href="#/sber" class="btn btn-primary" data-action="connect-sber">
+                <a href="#/sber" class="btn btn-primary" data-action="connect-sber" data-onboarding-cta="sber">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 6h10M3 10h10M3 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
                   Подключить СберБизнес
                 </a>
@@ -808,5 +808,6 @@
 <script src="/js/sber.js"></script>
 <script src="/js/suppliers.js"></script>
 <script src="/js/onboarding.js"></script>
+<script src="/js/onboarding-hint.js"></script>
 </body>
 </html>
