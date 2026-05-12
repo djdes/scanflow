@@ -234,6 +234,8 @@ body {
   align-items: center;
   gap: 6px;
 }
+/* hidden-атрибут перебивается inline-flex выше — возвращаем приоритет встроенному `hidden`. */
+.btn-with-icon[hidden] { display: none; }
 
 .btn-primary-sm {
   text-decoration: none;
