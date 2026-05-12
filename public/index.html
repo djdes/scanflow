@@ -4,22 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <title>ScanFlow — OCR накладных за 3 секунды для 1С:УНФ и СберБизнеса</title>
-  <meta name="description" content="Сканируйте фото бумажных накладных, получайте готовую приходную в 1С:УНФ, черновик платёжки в СберБизнесе и уведомления в Telegram. Без ручного ввода, без ошибок.">
+  <title>ScanFlow — фото накладной → 1С:УНФ + СберБизнес автоматически</title>
+  <meta name="description" content="Хватит вводить накладные руками. Сфотографируй ТОРГ-12, УПД или счёт — получи готовую приходную в 1С:УНФ, черновик платёжки в СберБизнесе и Telegram-уведомление. Сейчас бесплатно во время беты.">
   <link rel="canonical" href="https://scanflow.ru/">
   <meta name="robots" content="index, follow">
 
   <meta property="og:type" content="website">
-  <meta property="og:title" content="ScanFlow — OCR накладных за 3 секунды">
-  <meta property="og:description" content="Фото накладной → приходная в 1С:УНФ + черновик платёжки в Сбере. OCR на Claude Sonnet 4.6, кросс-валидация qty×price=total, ШТ→КГ авто-пересчёт.">
+  <meta property="og:title" content="ScanFlow — фото накладной → 1С:УНФ + СберБизнес">
+  <meta property="og:description" content="Хватит вводить накладные руками. Сфотографируй — получи готовую приходную в 1С:УНФ, черновик платёжки в Сбере и Telegram. Бесплатно во время беты.">
   <meta property="og:url" content="https://scanflow.ru/">
   <meta property="og:image" content="https://scanflow.ru/og/default.svg">
   <meta property="og:site_name" content="ScanFlow">
   <meta property="og:locale" content="ru_RU">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="ScanFlow — OCR накладных за 3 секунды">
-  <meta name="twitter:description" content="OCR на Claude Sonnet 4.6 + интеграция с 1С:УНФ и СберБизнесом. Сейчас в открытой бете — бесплатно.">
+  <meta name="twitter:title" content="ScanFlow — фото накладной → 1С:УНФ + СберБизнес">
+  <meta name="twitter:description" content="Хватит вводить накладные руками. AI распознаёт ТОРГ-12 / УПД / счёт → 1С:УНФ + Сбер + Telegram. Сейчас бесплатно во время беты.">
   <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
 
   <link rel="icon" href="/favicon.ico" sizes="any">
@@ -204,41 +204,36 @@
         <span class="badge-dot"></span>
         Открытая бета · бесплатно
       </div>
-      <h1 data-animate="fade-up" data-delay="1" class="hero-headline">
-        <span class="line-mute">Фото накладной</span>
-        <span class="arrow">→</span>
-        <span class="gradient-text">приходная в 1С</span><br>
-        <span class="line-mute">за</span> <span class="big-number">3</span> <span class="line-mute">секунды</span>
+      <h1 data-animate="fade-up" data-delay="1" class="hero-headline hero-headline--compact">
+        <span class="line-action">Хватит вводить накладные</span>
+        <span class="line-result">руками <span class="gradient-text">— сфотографируй</span></span>
       </h1>
       <p class="hero-sub" data-animate="fade-up" data-delay="2">
-        Сфотографировал ТОРГ-12 / УПД / счёт — получил готовую «Приходную накладную» в 1С:УНФ,
-        черновик платёжки в СберБизнес и уведомление в Telegram. AI распознаёт, проверяет суммы,
-        мапит товары с твоим каталогом 1С.
+        ScanFlow распознаёт <strong>ТОРГ-12, УПД, счёт-фактуру и счёт на оплату</strong> с фото на телефоне
+        и сам создаёт документы: приходную в&nbsp;<strong>1С:УНФ</strong>, черновик платёжки в&nbsp;<strong>СберБизнес</strong>
+        и уведомление в&nbsp;<strong>Telegram</strong>. Без ручного ввода, проверка сумм автоматом.
       </p>
       <div class="hero-cta" data-animate="fade-up" data-delay="3">
-        <a href="#try" class="btn-primary btn-magnetic">
+        <a href="#" data-action="hero-register" class="btn-primary btn-magnetic">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 14V4m0 0L6 8m4-4l4 4M3 14v1a2 2 0 002 2h10a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Попробовать на своей накладной
+          Начать бесплатно
         </a>
         <a href="#scan-types" class="btn-outline">Что можно сканировать →</a>
       </div>
-      <div class="hero-stats" data-animate="fade-up" data-delay="5">
-        <div class="stat">
-          <span class="stat-num" data-count="3">0</span><span class="stat-suffix"> сек</span>
-          <span class="stat-label">на одну накладную*</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat">
-          <span class="stat-num" data-count="3">0</span><span class="stat-suffix">»</span>
-          <span class="stat-label">пайплайн: 1С + Сбер + Telegram</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat">
-          <span class="stat-num" data-count="14">0</span><span class="stat-suffix">+</span>
-          <span class="stat-label">позиций на одной странице</span>
-        </div>
-      </div>
-      <p class="hero-stats__footnote">* для накладных до 5–7 позиций; многостраничные с десятками строк — 30–120 сек.</p>
+      <ul class="hero-trust" data-animate="fade-up" data-delay="4">
+        <li>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Без карты, без обязательств
+        </li>
+        <li>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Регистрация за 30 секунд
+        </li>
+        <li>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Серверы и фото — в РФ
+        </li>
+      </ul>
     </div>
   </section>
 
@@ -1140,63 +1135,102 @@
     </div>
   </section>
 
-  <!-- ========== PRICING (Beta access — honest, no fictional tiers) ========== -->
+  <!-- ========== PRICING (3 tiers + Enterprise, currently all free in beta) ========== -->
   <section class="pricing-section" id="pricing">
     <div class="container">
-      <div class="section-label" data-animate="fade-up">Доступ</div>
+      <div class="section-label" data-animate="fade-up">Тарифы</div>
       <h2 class="section-title" data-animate="fade-up" data-delay="1">
-        Сейчас в <span class="gradient-text">открытой бете</span> — бесплатно
+        Прозрачные цены — <span class="gradient-text">без звонков-продаж</span>
       </h2>
       <p class="section-sub" data-animate="fade-up" data-delay="2">
-        Биллинг ещё не включён. После регистрации получаешь полный функционал — распознавание,
-        выгрузку в 1С:УНФ, черновики платёжек в Сбер, Telegram-уведомления — без лимитов
-        и без оплаты. Платные тарифы появятся когда мы выйдем из беты — мы заранее напишем
-        и оставим всем тестовым аккаунтам бонусы.
+        Платите за реальный объём страниц. Безлимит у конкурентов — фикция: спрятан лимит fair-use.
+        У нас — открытая шкала. Цены ниже среднего по рынку в 3–6&nbsp;раз.
       </p>
 
-      <div class="pricing-grid pricing-grid--single">
-        <!-- Beta — single tier -->
-        <div class="pricing-card pricing-card--featured" data-animate="fade-up" data-delay="3">
-          <div class="pricing-popular">Бета · доступно сейчас</div>
+      <div class="beta-banner" data-animate="fade-up" data-delay="2">
+        <span class="beta-banner__icon">🎁</span>
+        <span class="beta-banner__text">
+          <strong>Сейчас идёт открытая бета — все тарифы доступны бесплатно.</strong>
+          Биллинг включится после релиза; тестовые аккаунты получат бонусы.
+        </span>
+      </div>
+
+      <div class="pricing-grid">
+        <!-- Старт -->
+        <div class="pricing-card" data-animate="fade-up" data-delay="3">
           <div class="pricing-header">
-            <h3>Полный доступ</h3>
+            <h3>Старт</h3>
             <div class="pricing-price">
               <span class="price-amount">0</span>
               <span class="price-currency">₽</span>
             </div>
-            <p class="pricing-period">пока идёт бета</p>
+            <p class="pricing-period">бессрочно · после регистрации</p>
           </div>
           <ul class="pricing-features">
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Распознавание накладных без лимита
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              ТОРГ-12, УПД, счёт-фактура, счёт на оплату
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Многостраничные накладные → 1 документ
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Выгрузка в 1С:УНФ + .epf обработка
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Черновик платёжки в СберБизнес
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Telegram-уведомления (свой bot)
-            </li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><strong>50&nbsp;страниц</strong> в месяц</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Все 4 типа документов</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Многостраничные накладные</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Выгрузка в 1С:УНФ</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Telegram-уведомления</li>
+            <li class="muted">Без СберБизнес-интеграции</li>
           </ul>
-          <a href="#auth" class="btn-primary btn-block">Создать аккаунт</a>
+          <a href="#auth" class="btn-outline btn-block">Создать аккаунт</a>
+        </div>
+
+        <!-- Pro (featured) -->
+        <div class="pricing-card pricing-card--featured" data-animate="fade-up" data-delay="3">
+          <div class="pricing-popular">Популярный</div>
+          <div class="pricing-header">
+            <h3>Pro</h3>
+            <div class="pricing-price">
+              <span class="price-amount">990</span>
+              <span class="price-currency">₽</span>
+            </div>
+            <p class="pricing-period">в месяц · до 1 000 страниц</p>
+          </div>
+          <ul class="pricing-features">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><strong>1 000&nbsp;страниц</strong> в месяц</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Всё из «Старт»</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><strong>СберБизнес</strong> — черновики платёжек</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>LLM-маппинг с каталогом 1С</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Приоритетная поддержка в Telegram</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>≈ 1 ₽ за страницу — дешевле 1С:РПД (3 ₽/стр)</li>
+          </ul>
+          <a href="#auth" class="btn-primary btn-block">Начать с Pro</a>
+        </div>
+
+        <!-- Business -->
+        <div class="pricing-card" data-animate="fade-up" data-delay="4">
+          <div class="pricing-header">
+            <h3>Бизнес</h3>
+            <div class="pricing-price">
+              <span class="price-amount">4&nbsp;990</span>
+              <span class="price-currency">₽</span>
+            </div>
+            <p class="pricing-period">в месяц · до 10 000 страниц</p>
+          </div>
+          <ul class="pricing-features">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><strong>10 000&nbsp;страниц</strong> в месяц</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Всё из «Pro»</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Webhook на свои события</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>SLA 99,9% · ответ &lt;&nbsp;4 часа</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Помощь с настройкой 1С</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>≈ 0,5 ₽ за страницу</li>
+          </ul>
+          <a href="#auth" class="btn-outline btn-block">Создать аккаунт</a>
         </div>
       </div>
 
-      <div class="pricing-note" data-animate="fade-up" data-delay="4">
+      <!-- Enterprise card — slim, below the 3 main tiers -->
+      <div class="pricing-enterprise" data-animate="fade-up" data-delay="5">
+        <div class="pricing-enterprise__main">
+          <h4>Enterprise · от 30 000 ₽/мес</h4>
+          <p>Безлимит, on-premise развёртывание, изолированный экземпляр, кастомные интеграции (1С:Бухгалтерия, 1С:Розница, любой ERP), SSO, юридическое сопровождение.</p>
+        </div>
+        <a href="mailto:hi@scanflow.ru?subject=Enterprise" class="btn-outline">Связаться</a>
+      </div>
+
+      <div class="pricing-note" data-animate="fade-up" data-delay="6">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 5v3M8 11h.01M15 8A7 7 0 111 8a7 7 0 0114 0z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         Платежи в банк создаются как <strong>черновики</strong> — подписание токеном остаётся
         на вашей стороне. ScanFlow только готовит документ, не списывает деньги.

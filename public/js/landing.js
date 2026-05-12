@@ -503,6 +503,14 @@
     });
   });
 
+  // Hero CTA «Начать бесплатно» — открывает модалку регистрации.
+  document.querySelectorAll('[data-action="hero-register"]').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      openLogin('register');
+    });
+  });
+
   // Logout from the bottom CTA — clears creds and re-renders the CTA card.
   const ctaLogoutBtn = document.getElementById('auth-cta-logout');
   if (ctaLogoutBtn) {
