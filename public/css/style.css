@@ -2284,6 +2284,133 @@ details[open] summary { margin-bottom: 12px; }
 }
 
 /* ============================================================
+   Onboarding sticky banner (shown on dashboard pages while wizard
+   is incomplete — gives users a permanent way back to the wizard)
+   ============================================================ */
+
+.onboarding-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  margin: 16px 24px 0;
+  background: linear-gradient(135deg, var(--primary-soft), var(--success-soft));
+  border: 1px solid rgba(26,109,255,0.25);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: var(--text);
+  font-family: var(--font);
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.onboarding-banner[hidden] { display: none; }
+
+.onboarding-banner:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(26,109,255,0.18);
+  border-color: rgba(26,109,255,0.40);
+}
+
+.onboarding-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(26,109,255,0.10), transparent 40%);
+  pointer-events: none;
+}
+
+.onboarding-banner__icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(26,109,255,0.30);
+}
+
+.onboarding-banner__text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.onboarding-banner__text strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.onboarding-banner__progress {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant: tabular-nums;
+}
+
+.onboarding-banner__dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-banner__dots span[data-step] {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: var(--transition);
+}
+
+.onboarding-banner__dots span[data-step].active {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px rgba(26,109,255,0.20);
+}
+
+.onboarding-banner__dots span[data-step].done {
+  background: var(--success);
+}
+
+.onboarding-banner__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--card);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border-hover);
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+
+.onboarding-banner:hover .onboarding-banner__cta {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+@media (max-width: 720px) {
+  .onboarding-banner {
+    margin: 12px 12px 0;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .onboarding-banner__dots { display: none; }
+  .onboarding-banner__cta { padding: 6px 10px; font-size: 12px; }
+}
+
+/* ============================================================
    Onboarding Wizard (#view-onboarding)
    ============================================================ */
 

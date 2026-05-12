@@ -112,6 +112,12 @@ const App = {
     // Remove active tab
     document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
 
+    // Onboarding banner — пересчитываем на каждой навигации. JS внутри сам
+    // решает показывать или скрывать в зависимости от текущего hash и состояния.
+    if (window.Onboarding) {
+      Onboarding.renderBanner(hash).catch(() => { /* swallow */ });
+    }
+
     if (hash.startsWith('#/invoices/')) {
       document.getElementById('view-invoices').style.display = 'block';
       this.activateNavTab('invoices');

@@ -26,20 +26,20 @@ const Onboarding = {
     localStorage.setItem(this.LS_DONE, '1');
   },
 
-  // Решение «показывать ли wizard». Вызывается из App.init() до первой
-  // навигации. Wizard только для свежих аккаунтов (0 накладных). У всех
-  // у кого есть хоть одна накладная — wizard молча помечается done, чтобы
-  // существующий админ не вылетел в onboarding после первого деплоя.
+  // Решение «делать ли AUTO-redirect на wizard» при заходе в кабинет.
+  // Только для свежих аккаунтов (0 накладных). У всех у кого есть данные —
+  // нет авто-редиректа (но banner будет показан с прогрессом, пока юзер
+  // не дойдёт сам до «Готово» или не нажмёт «Пропустить wizard»).
+  //
+  // Важно: НЕ помечаем `done` тут. Иначе юзер, прошедший Шаг 1, потеряет
+  // напоминание про Шаги 2/3. markDone делает либо finish-кнопка, либо
+  // «Пропустить wizard».
   async shouldShow() {
     if (this.isDone()) return false;
     try {
       const stats = await App.apiJson('/invoices/stats').catch(() => null);
       const hasInvoices = stats && stats.data && (stats.data.total || 0) > 0;
-      if (hasInvoices) {
-        this.markDone();
-        return false;
-      }
-      return true;
+      return !hasInvoices;
     } catch (e) {
       return false;
     }
@@ -152,6 +152,51 @@ const Onboarding = {
   show() {
     this.bind();
     this.render();
+  },
+
+  // Sticky-баннер на остальных страницах дашборда — показывает прогресс
+  // и кнопку «Продолжить». Зовётся из App.route() после каждой навигации.
+  async renderBanner(currentHash) {
+    const banner = document.getElementById('onboarding-banner');
+    if (!banner) return;
+
+    // На самой странице wizard'а баннер не нужен — wizard и так перед глазами
+    if (currentHash && currentHash.startsWith('#/onboarding')) {
+      banner.hidden = true;
+      return;
+    }
+    if (this.isDone()) {
+      banner.hidden = true;
+      return;
+    }
+
+    await this.refreshState();
+    const { step1, step2, step3 } = this._state;
+    const completed = [step1, step2, step3].filter(Boolean).length;
+    if (completed === 3) {
+      // Все шаги фактически выполнены — отмечаем done и прячемся
+      this.markDone();
+      banner.hidden = true;
+      return;
+    }
+
+    // Обновляем «N из 3 шагов»
+    const progressEl = document.getElementById('onboarding-banner-progress');
+    if (progressEl) progressEl.textContent = `${completed} из 3 шагов`;
+
+    // Подсветка точек прогресса
+    const dotsWrap = document.getElementById('onboarding-banner-dots');
+    if (dotsWrap) {
+      dotsWrap.querySelectorAll('span[data-step]').forEach((dot) => {
+        const n = Number(dot.dataset.step);
+        const done = (n === 1 && step1) || (n === 2 && step2) || (n === 3 && step3);
+        dot.classList.toggle('done', done);
+        const activeStep = step1 ? (step2 ? 3 : 2) : 1;
+        dot.classList.toggle('active', !done && n === activeStep);
+      });
+    }
+
+    banner.hidden = false;
   },
 };
 
