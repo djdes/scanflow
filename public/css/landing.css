@@ -599,14 +599,117 @@ body {
   margin-bottom: 28px;
 }
 
-/* Compact statement-style headline: одна короткая фраза в 1-2 строки,
-   с accent-фрагментом через .gradient-text. Megaplan-стиль, не доминирует. */
-.hero h1.hero-headline--compact {
-  font-size: clamp(30px, 4.2vw, 56px);
-  line-height: 1.08;
+/* SEO-style headline: короткая фраза с ключевыми словами, не доминирует над
+   4-шаговым блоком ниже. Megaplan-стиль. */
+.hero h1.hero-headline--seo {
+  font-size: clamp(28px, 3.6vw, 48px);
+  line-height: 1.1;
   max-width: 880px;
-  margin: 0 auto 24px;
+  margin: 0 auto 40px;
   color: var(--text);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+/* 4-step process flow under H1 — horizontal на desktop, 2x2 grid на mobile,
+   stack на самых маленьких. Каждая карточка: номер + иконка + title + 1 line text. */
+.hero-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto 40px;
+  max-width: 1080px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  text-align: left;
+}
+
+.hero-steps__item {
+  position: relative;
+  padding: 20px 18px 18px;
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: var(--transition);
+}
+
+.hero-steps__item:hover {
+  border-color: var(--border-lit);
+  background: var(--surface-tint-strong);
+  transform: translateY(-2px);
+}
+
+.hero-steps__num {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+.hero-steps__num::before {
+  content: 'STEP ';
+}
+
+.hero-steps__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(59,130,246,0.1);
+  color: var(--accent-blue);
+  margin-bottom: 16px;
+}
+
+.hero-steps__icon--ai {
+  background: var(--gradient);
+  color: #fff;
+  box-shadow: 0 4px 16px var(--accent-blue-glow);
+}
+
+.hero-steps__icon--blue {
+  background: rgba(59,130,246,0.1);
+  color: var(--accent-blue);
+}
+
+.hero-steps__icon--green {
+  background: rgba(16,185,129,0.1);
+  color: var(--accent-green);
+}
+
+.hero-steps__title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.hero-steps__text {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.hero-steps__soon {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent-blue);
+  background: rgba(59,130,246,0.1);
+  border-radius: 4px;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 /* Trust list under CTA — крошечные «без карты, в РФ, и т.д.» */
@@ -754,7 +857,10 @@ body {
 }
 
 .hero-email-form__secondary {
-  padding: 14px 24px;
+  display: inline-flex;
+  align-items: center;
+  margin: 12px auto 0;
+  font-size: 13px;
 }
 
 .hero-stats {
@@ -3712,6 +3818,36 @@ body {
 
   .hero-email-form__secondary {
     align-self: center;
+  }
+
+  .hero-steps {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .hero-steps__item {
+    padding: 16px 14px;
+  }
+
+  .hero-steps__num {
+    top: 10px;
+    right: 12px;
+    font-size: 10px;
+  }
+
+  .hero-steps__icon {
+    width: 38px;
+    height: 38px;
+    margin-bottom: 12px;
+  }
+
+  .hero-steps__title {
+    font-size: 15px;
+  }
+
+  .hero-steps__text {
+    font-size: 12px;
   }
 
   .stat-divider {
