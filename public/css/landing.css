@@ -716,6 +716,60 @@ body {
   margin-bottom: 64px;
 }
 
+/* Hero inline email form — primary CTA above the secondary outline button */
+.hero-email-form {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto 12px;
+}
+
+.hero-email-form__input {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 16px;
+  font-family: var(--font);
+  font-size: 16px;
+  color: var(--text);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-lit);
+  border-radius: var(--radius-lg);
+  outline: none;
+  transition: var(--transition);
+}
+
+.hero-email-form__input::placeholder {
+  color: var(--text-muted);
+}
+
+.hero-email-form__input:focus {
+  border-color: var(--accent-blue, #3b82f6);
+  box-shadow: 0 0 0 3px var(--accent-blue-glow);
+}
+
+.hero-email-form__input:invalid:not(:placeholder-shown) {
+  border-color: #ef4444;
+}
+
+.hero-email-form__submit {
+  flex-shrink: 0;
+  padding: 14px 24px;
+}
+
+.hero-email-form__error {
+  max-width: 480px;
+  margin: -4px auto 16px;
+  font-size: 14px;
+  color: #ef4444;
+  text-align: center;
+}
+
+.hero-email-form__secondary {
+  font-size: 14px;
+  padding: 10px 20px;
+}
+
 .hero-stats {
   display: flex;
   align-items: center;
@@ -3658,6 +3712,19 @@ body {
   .hero-cta .btn-primary,
   .hero-cta .btn-outline {
     justify-content: center;
+  }
+
+  .hero-email-form {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .hero-email-form__submit {
+    width: 100%;
+  }
+
+  .hero-email-form__secondary {
+    align-self: center;
   }
 
   .stat-divider {
