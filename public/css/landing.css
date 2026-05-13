@@ -618,16 +618,43 @@ body {
   margin-bottom: 28px;
 }
 
-/* SEO-style headline: короткая фраза с ключевыми словами, не доминирует над
-   4-шаговым блоком ниже. Megaplan-стиль. */
+/* SEO-style headline: короткая фраза с ключевыми словами. С анимированным
+   gradient-акцентом на ключевом слове — "вау"-эффект на первом экране. */
 .hero h1.hero-headline--seo {
-  font-size: clamp(28px, 3.6vw, 48px);
-  line-height: 1.1;
-  max-width: 880px;
-  margin: 0 auto 40px;
+  font-size: clamp(36px, 5.5vw, 72px);
+  line-height: 1.05;
+  max-width: 980px;
+  margin: 0 auto 44px;
   color: var(--text);
   font-weight: 800;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
+}
+
+/* Переливающийся градиент: 5-стоповый цикличный gradient + animated
+   background-position для шиммер-эффекта. Респектим prefers-reduced-motion. */
+.gradient-text--shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--accent-blue) 0%,
+    var(--accent-green) 25%,
+    var(--accent-purple) 50%,
+    var(--accent-green) 75%,
+    var(--accent-blue) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shimmer 5s linear infinite;
+}
+
+@keyframes gradient-shimmer {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gradient-text--shimmer { animation: none; }
 }
 
 /* 4-step process flow under H1 — horizontal на desktop, 2x2 grid на mobile,
