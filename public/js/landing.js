@@ -549,6 +549,7 @@
         localStorage.removeItem('sf-onboarding-done');
         localStorage.removeItem('sf-onboarding-sber-skip');
         localStorage.removeItem('sf-onboarding-1c-ok');
+        heroEmailForm.reset();
         openLogin('register');
         showMailSentView(email, 'register');
       } catch (err) {
