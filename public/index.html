@@ -152,11 +152,24 @@
         и уведомление в&nbsp;<strong>Telegram</strong>. Без ручного ввода, проверка сумм автоматом.
       </p>
       <div class="hero-cta" data-animate="fade-up" data-delay="3">
-        <a href="#" data-action="hero-register" class="btn-primary btn-magnetic">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 14V4m0 0L6 8m4-4l4 4M3 14v1a2 2 0 002 2h10a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Начать бесплатно
+        <form class="hero-email-form" id="hero-email-form" novalidate>
+          <input
+            type="email"
+            id="hero-email-input"
+            class="hero-email-form__input"
+            placeholder="ваш@email.com"
+            autocomplete="email"
+            required
+            aria-label="Email для регистрации"
+          >
+          <button type="submit" id="hero-email-submit" class="btn-primary hero-email-form__submit">
+            Получить доступ
+          </button>
+        </form>
+        <p class="hero-email-form__error" id="hero-email-error" role="alert" hidden></p>
+        <a href="#" data-action="hero-register" class="btn-outline hero-email-form__secondary">
+          Попробовать →
         </a>
-        <a href="#scan-types" class="btn-outline">Что можно сканировать →</a>
       </div>
       <ul class="hero-trust" data-animate="fade-up" data-delay="4">
         <li>
