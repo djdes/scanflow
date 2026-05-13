@@ -511,6 +511,56 @@
     });
   });
 
+  // Hero inline email-form: дублирует логику модальной регистрации, но без
+  // открытия модалки сначала. На успех — переключаем модалку в state mail-sent
+  // (через showMailSentView), чтобы пользователь увидел стандартный экран
+  // «проверь почту». Endpoint и поведение совпадают с register-form в модалке.
+  const heroEmailForm = document.getElementById('hero-email-form');
+  const heroEmailInput = document.getElementById('hero-email-input');
+  const heroEmailSubmit = document.getElementById('hero-email-submit');
+  const heroEmailError = document.getElementById('hero-email-error');
+  if (heroEmailForm) {
+    heroEmailForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = (heroEmailInput.value || '').trim();
+      if (!email) return;
+      if (!heroEmailForm.checkValidity()) {
+        heroEmailInput.reportValidity();
+        return;
+      }
+
+      heroEmailSubmit.disabled = true;
+      const originalLabel = heroEmailSubmit.textContent;
+      heroEmailSubmit.textContent = 'Отправляем…';
+      heroEmailError.hidden = true;
+
+      try {
+        const resp = await fetch('/api/auth/register-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          heroEmailError.textContent = data.error || `Сервер вернул ошибку (${resp.status}).`;
+          heroEmailError.hidden = false;
+          return;
+        }
+        localStorage.removeItem('sf-onboarding-done');
+        localStorage.removeItem('sf-onboarding-sber-skip');
+        localStorage.removeItem('sf-onboarding-1c-ok');
+        openLogin('register');
+        showMailSentView(email, 'register');
+      } catch (err) {
+        heroEmailError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
+        heroEmailError.hidden = false;
+      } finally {
+        heroEmailSubmit.disabled = false;
+        heroEmailSubmit.textContent = originalLabel;
+      }
+    });
+  }
+
   // Logout from the bottom CTA — clears creds and re-renders the CTA card.
   const ctaLogoutBtn = document.getElementById('auth-cta-logout');
   if (ctaLogoutBtn) {
