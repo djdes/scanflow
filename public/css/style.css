@@ -324,6 +324,9 @@ section { display: none; }
 .stat-card:nth-child(2)::before { background: var(--success); }
 .stat-card:nth-child(3)::before { background: var(--warning); }
 .stat-card:nth-child(4)::before { background: var(--error); }
+.stat-card.sber-unpaid-card { cursor: default; margin-left: auto; }
+.stat-card.sber-unpaid-card::before { background: #21a038; }
+.stat-card.sber-unpaid-card .stat-value { font-size: 22px; }
 
 .stat-card:hover {
   box-shadow: var(--shadow);

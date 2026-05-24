@@ -22,11 +22,17 @@ const Invoices = {
           <span class="stat-value">${value || 0}</span>
           <span class="stat-label">${label}</span>
         </button>`;
+      const sber = data.sberUnsent || { count: 0, totalSum: 0 };
+      const fmtSum = Number(sber.totalSum).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       container.innerHTML = [
         cardHtml('all',        data.total || 0,            'Всего'),
         cardHtml('processed',  counts.processed || 0,      'Обработано'),
         cardHtml('sent_to_1c', counts.sent_to_1c || 0,     'Отправлено в 1С'),
         cardHtml('error',      counts.error || 0,          'Ошибки'),
+        `<div class="stat-card sber-unpaid-card" title="Накладные за 30 дней без платежа в Сбербанк">
+          <span class="stat-value">${fmtSum} ₽</span>
+          <span class="stat-label">Не оплачено (${sber.count} шт.)</span>
+        </div>`,
       ].join('');
     } catch (e) {
       console.error('Failed to load stats', e);

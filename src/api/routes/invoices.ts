@@ -73,7 +73,27 @@ router.get('/stats', async (_req: Request, res: Response) => {
   const db = getDb();
   const byStatus = await db.prepare('SELECT status, COUNT(*) as count FROM invoices GROUP BY status').all();
   const totalRow = await db.prepare('SELECT COUNT(*) as count FROM invoices').get<{ count: number }>();
-  res.json({ data: { byStatus, total: totalRow?.count ?? 0 } });
+
+  // Sum of invoices NOT sent to Sber in the last 30 days (payable backlog)
+  const sberUnsent = await db.prepare(
+    `SELECT COUNT(*) as count, COALESCE(SUM(i.total_sum), 0) as total_sum
+     FROM invoices i
+     LEFT JOIN sber_payments sp ON sp.invoice_id = i.id
+     WHERE i.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+       AND sp.id IS NULL
+       AND i.status IN ('processed', 'sent_to_1c')`
+  ).get<{ count: number; total_sum: number }>();
+
+  res.json({
+    data: {
+      byStatus,
+      total: totalRow?.count ?? 0,
+      sberUnsent: {
+        count: sberUnsent?.count ?? 0,
+        totalSum: sberUnsent?.total_sum ?? 0,
+      },
+    },
+  });
 });
 
 // GET /api/invoices — list all invoices
