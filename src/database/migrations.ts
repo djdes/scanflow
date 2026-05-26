@@ -400,13 +400,14 @@ const MIGRATIONS: Migration[] = [
           'approved_for_1c',
           'sent_to_1c',
         ]);
-        // ALTER TABLE doesn't accept ? bindings; the JSON output here contains
-        // only ASCII identifiers and brackets — no single quotes — so inlining
-        // is safe. Keep the defensive replace just in case the list grows.
-        const safe = defaultEvents.replace(/'/g, "''");
+        // Vanilla MySQL forbids DEFAULT on TEXT/BLOB columns; MariaDB (≥10.2)
+        // allows it. To work on both: add as NULL, backfill, then enforce NOT NULL.
+        await exec.query(`ALTER TABLE users ADD COLUMN notify_events TEXT NULL`);
         await exec.query(
-          `ALTER TABLE users ADD COLUMN notify_events TEXT NOT NULL DEFAULT '${safe}'`
+          `UPDATE users SET notify_events = ? WHERE notify_events IS NULL`,
+          [defaultEvents],
         );
+        await exec.query(`ALTER TABLE users MODIFY COLUMN notify_events TEXT NOT NULL`);
       }
 
       const mailTo = (process.env.MAIL_TO || '').trim();
