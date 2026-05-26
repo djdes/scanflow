@@ -133,9 +133,10 @@ describe('recomputeMedianForGuid', () => {
     await recomputeMedianForGuid(GUID);
     await recomputeMedianForGuid(GUID);
 
-    const [rows] = await (await import('../../src/database/db')).getPool()
-      .query<any[]>('SELECT COUNT(*) AS c FROM nomenclature_price_stats WHERE onec_guid = ?', [GUID]);
-    expect(rows[0].c).toBe(1);
+    const row = await getDb()
+      .prepare('SELECT COUNT(*) AS c FROM nomenclature_price_stats WHERE onec_guid = ?')
+      .get<{ c: number }>(GUID);
+    expect(row!.c).toBe(1);
   });
 
   it('deletes the row when invoices vanish (samples falls below 3)', async () => {
@@ -165,6 +166,7 @@ describe('recomputeMedianForGuids (batch)', () => {
       await insertItem(inv, { price, guid: G1 });
       await insertItem(inv, { price: price * 2, guid: G2 });
     }
+    // null/empty deliberately passed to confirm the runtime filter (TS would normally reject).
     await recomputeMedianForGuids([G1, G2, null as unknown as string, '']);
     expect((await getStats(G1))!.median_price).toBe(20);
     expect((await getStats(G2))!.median_price).toBe(40);

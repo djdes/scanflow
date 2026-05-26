@@ -98,20 +98,22 @@ export async function recomputeMedianForGuids(guids: Array<string | null | undef
  * One-time backfill called from migration 24. Walks every distinct
  * onec_guid in invoice_items and rebuilds price_stats. Idempotent.
  */
-export async function backfillAllStats(): Promise<{ processed: number }> {
+export async function backfillAllStats(): Promise<{ scanned: number; written: number }> {
   const rows = await getDb().prepare(
     `SELECT DISTINCT onec_guid FROM invoice_items
      WHERE onec_guid IS NOT NULL AND onec_guid != ''`,
   ).all<{ onec_guid: string }>();
-  let processed = 0;
+  let scanned = 0;
+  let written = 0;
   for (const { onec_guid } of rows) {
     try {
-      await recomputeMedianForGuid(onec_guid);
-      processed++;
+      const result = await recomputeMedianForGuid(onec_guid);
+      scanned++;
+      if (result) written++;
     } catch (err) {
       logger.warn('priceStats: backfill recompute failed', { guid: onec_guid, error: (err as Error).message });
     }
   }
-  logger.info('priceStats: backfill complete', { processed });
-  return { processed };
+  logger.info('priceStats: backfill complete', { scanned, written });
+  return { scanned, written };
 }
