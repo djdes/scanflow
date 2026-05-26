@@ -194,14 +194,31 @@ router.get('/:id/photos/:filename', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const raw = await invoiceRepo.getWithItems(id);
-  const invoice = raw ? { ...(await enrichInvoiceWithSupplier(raw)), items: raw.items } : raw;
-
-  if (!invoice) {
+  if (!raw) {
     res.status(404).json({ error: 'Invoice not found' });
     return;
   }
+  const enriched = { ...(await enrichInvoiceWithSupplier(raw)), items: raw.items };
+  enriched.items = enriched.items.map((item: any) => {
+    const hasStats = item.median_price != null && item.median_samples != null && item.median_samples >= 3;
+    const unitsMatch = item.unit && item.median_price_unit && item.unit === item.median_price_unit;
+    const priceValid = typeof item.price === 'number' && item.price > 0;
 
-  res.json({ data: invoice });
+    let price_deviation_pct: number | null = null;
+    if (hasStats && unitsMatch && priceValid && item.median_price > 0) {
+      price_deviation_pct = ((item.price - item.median_price) / item.median_price) * 100;
+    }
+
+    return {
+      ...item,
+      median_price: hasStats ? item.median_price : null,
+      median_price_unit: hasStats ? item.median_price_unit : null,
+      median_samples: hasStats ? item.median_samples : null,
+      price_deviation_pct,
+    };
+  });
+
+  res.json({ data: enriched });
 });
 
 // PATCH /api/invoices/:id — отредактировать header-поля накладной.

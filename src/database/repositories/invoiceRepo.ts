@@ -363,10 +363,19 @@ export const invoiceRepo = {
     ).run(mappedName, confidence, itemId);
   },
 
-  async getWithItems(id: number): Promise<(Invoice & { items: InvoiceItem[] }) | undefined> {
+  async getWithItems(id: number): Promise<(Invoice & { items: Array<InvoiceItem & { median_price: number | null; median_price_unit: string | null; median_samples: number | null }> }) | undefined> {
     const invoice = await this.getById(id);
     if (!invoice) return undefined;
-    const items = await this.getItems(id);
+    const items = await getDb().prepare(
+      `SELECT ii.*,
+              ps.median_price       AS median_price,
+              ps.price_unit         AS median_price_unit,
+              ps.samples            AS median_samples
+       FROM invoice_items ii
+       LEFT JOIN nomenclature_price_stats ps ON ps.onec_guid = ii.onec_guid
+       WHERE ii.invoice_id = ?
+       ORDER BY ii.id`
+    ).all<InvoiceItem & { median_price: number | null; median_price_unit: string | null; median_samples: number | null }>(id);
     return { ...invoice, items };
   },
 
