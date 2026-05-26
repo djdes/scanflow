@@ -578,6 +578,24 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 24,
+    name: 'nomenclature_price_stats: median price per GUID',
+    detect: (exec) => hasTable(exec, 'nomenclature_price_stats'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS nomenclature_price_stats (
+          onec_guid    VARCHAR(64) NOT NULL PRIMARY KEY,
+          median_price DOUBLE      NOT NULL,
+          price_unit   VARCHAR(32) NOT NULL,
+          samples      INT         NOT NULL,
+          updated_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      const { backfillAllStats } = await import('../pricing/priceStats');
+      await backfillAllStats();
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

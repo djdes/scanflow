@@ -7,8 +7,8 @@ const GUID = 'aaaa-bbbb-cccc-dddd';
 
 async function insertInvoice(date: string): Promise<number> {
   const r = await getDb().prepare(
-    `INSERT INTO invoices (file_name, status, invoice_date) VALUES (?, 'processed', ?)`,
-  ).run(`f-${date}`, date);
+    `INSERT INTO invoices (file_name, file_path, status, invoice_date) VALUES (?, ?, 'processed', ?)`,
+  ).run(`f-${date}`, `/test/${date}`, date);
   return Number(r.lastInsertRowid);
 }
 
