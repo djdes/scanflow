@@ -46,6 +46,7 @@ export async function resetDb(): Promise<mysql.Pool> {
   // TRUNCATE all data tables in FK-safe order. migration_history is left
   // untouched so we don't re-run schema changes between tests.
   const tables = [
+    'nomenclature_price_stats',
     'sber_payments',
     'invoice_items',
     'invoices',
