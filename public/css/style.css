@@ -2879,3 +2879,14 @@ details[open] summary { margin-bottom: 12px; }
   .onboarding-progress__dots .dot-label { display: none; }
   .onboarding-progress__line { left: 18%; right: 18%; top: 15px; }
 }
+
+/* === Price-anomaly heatmap on invoice item rows === */
+.row-price-good     { background: rgba(6, 214, 160, 0.08); }
+.row-price-warn     { background: rgba(251, 191, 36, 0.10); }
+.row-price-alert    { background: rgba(251, 146, 60, 0.13); }
+.row-price-anomaly  { background: rgba(239, 68, 68, 0.15); }
+
+.muted {
+  color: var(--text-muted, #888);
+  font-size: 0.85em;
+}

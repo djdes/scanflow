@@ -327,7 +327,7 @@ const Invoices = {
           // esc() also escapes quotes, which is what we need for value="..."
           const safeName = App.esc(currentName);
           return `
-          <tr data-item-id="${item.id}">
+          <tr data-item-id="${item.id}" class="${Invoices._rowClassForDeviation(item.price_deviation_pct)}">
             <td>${i + 1}</td>
             <td>${App.esc(item.original_name || '')}</td>
             <td>
@@ -362,6 +362,7 @@ const Invoices = {
                      data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="price"
                      onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
             </td>
+            ${Invoices._medianCell(item)}
             <td style="text-align:right">
               <input type="text" inputmode="decimal" class="item-edit item-edit-total"
                      value="${item.total != null ? Number(item.total).toFixed(2).replace('.', ',') : ''}"
@@ -374,7 +375,7 @@ const Invoices = {
         `;
         }).join('');
       } else {
-        itemsTbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">Товары не найдены</div></td></tr>';
+        itemsTbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">Товары не найдены</div></td></tr>';
       }
 
       // OCR text
@@ -387,6 +388,24 @@ const Invoices = {
   },
 
   // Guard mutating actions against double-clicks / duplicate submissions.
+  // Map a price-deviation percentage to a row class.
+  _rowClassForDeviation(pct) {
+    if (pct == null) return '';
+    if (pct <= -10) return 'row-price-good';
+    if (pct <= 10) return '';
+    if (pct <= 25) return 'row-price-warn';
+    if (pct <= 50) return 'row-price-alert';
+    return 'row-price-anomaly';
+  },
+
+  // Format the «Обычная» cell. Returns the cell HTML.
+  _medianCell(item) {
+    if (item.median_price == null) return '<td></td>';
+    const price = Number(item.median_price).toFixed(2).replace('.', ',');
+    const samples = item.median_samples ?? 0;
+    return `<td style="text-align:right"><div>${price} ₽</div><small class="muted">${samples} поставок</small></td>`;
+  },
+
   // Each action claims a unique token; subsequent clicks while it's active
   // are dropped. Public so other modules (mappings.js, etc.) can reuse.
   _busy: new Set(),
