@@ -4,6 +4,7 @@ import {
   extractDigitSequence,
   suppliersMatch,
 } from '../../utils/invoiceNumber';
+import { recomputeMedianForGuids } from '../../pricing/priceStats';
 
 export interface Invoice {
   id: number;
@@ -89,6 +90,16 @@ export interface CreateInvoiceItemData {
   vat_rate?: number;
   mapping_confidence?: number;
   onec_guid?: string | null;
+}
+
+/**
+ * Fire-and-forget recompute of median price stats for the given GUIDs.
+ * Errors are logged but never re-thrown — the parent invoice write has
+ * already committed by the time we get here, and a failed stats refresh
+ * must not surface as a user-visible failure.
+ */
+function triggerStatsRecompute(guids: Array<string | null | undefined>): void {
+  void recomputeMedianForGuids(guids).catch(() => { /* logged inside */ });
 }
 
 export const invoiceRepo = {
@@ -270,9 +281,11 @@ export const invoiceRepo = {
       mapping_confidence: data.mapping_confidence ?? 0,
       onec_guid: data.onec_guid ?? null,
     });
-    return (await db
+    const created = (await db
       .prepare('SELECT * FROM invoice_items WHERE id = ?')
       .get<InvoiceItem>(Number(result.lastInsertRowid)))!;
+    triggerStatsRecompute([created.onec_guid]);
+    return created;
   },
 
   async getItems(invoiceId: number): Promise<InvoiceItem[]> {
@@ -289,9 +302,12 @@ export const invoiceRepo = {
 
   async mapItem(itemId: number, onecGuid: string | null, mappedName: string | null): Promise<InvoiceItem | undefined> {
     const db = getDb();
+    const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null }>(itemId);
     await db.prepare(
       `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name) WHERE id = ?`
     ).run(onecGuid, mappedName, itemId);
+    triggerStatsRecompute([prev?.onec_guid, onecGuid]);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
   },
 
@@ -301,9 +317,13 @@ export const invoiceRepo = {
     unit: string | null,
     price: number | null,
   ): Promise<void> {
-    await getDb().prepare(
+    const db = getDb();
+    await db.prepare(
       `UPDATE invoice_items SET quantity = ?, unit = ?, price = ? WHERE id = ?`
     ).run(quantity, unit, price, itemId);
+    const after = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null }>(itemId);
+    triggerStatsRecompute([after?.onec_guid]);
   },
 
   async updateItemFields(
@@ -318,13 +338,23 @@ export const invoiceRepo = {
     if ('total' in fields) { sets.push('total = ?'); vals.push(fields.total); }
     if (sets.length === 0) return;
     vals.push(itemId);
-    await getDb().prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    const db = getDb();
+    await db.prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    if ('price' in fields || 'unit' in fields) {
+      const after = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
+        .get<{ onec_guid: string | null }>(itemId);
+      triggerStatsRecompute([after?.onec_guid]);
+    }
   },
 
   async updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number): Promise<void> {
-    await getDb().prepare(
+    const db = getDb();
+    const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null }>(itemId);
+    await db.prepare(
       `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ? WHERE id = ?`
     ).run(onecGuid, mappedName, confidence, itemId);
+    triggerStatsRecompute([prev?.onec_guid, onecGuid]);
   },
 
   async updateItemMappingName(itemId: number, mappedName: string, confidence: number): Promise<void> {
@@ -572,16 +602,26 @@ export const invoiceRepo = {
   },
 
   async deleteItems(invoiceId: number): Promise<void> {
-    await getDb().prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(invoiceId);
+    const db = getDb();
+    const guids = await db.prepare(
+      'SELECT DISTINCT onec_guid FROM invoice_items WHERE invoice_id = ? AND onec_guid IS NOT NULL'
+    ).all<{ onec_guid: string }>(invoiceId);
+    await db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(invoiceId);
+    triggerStatsRecompute(guids.map(g => g.onec_guid));
   },
 
   async delete(id: number): Promise<{ file_name: string | null }> {
     const invoice = await this.getById(id);
     const fileName = invoice?.file_name ?? null;
-    await getDb().transaction(async (txn) => {
+    const db = getDb();
+    const guids = await db.prepare(
+      'SELECT DISTINCT onec_guid FROM invoice_items WHERE invoice_id = ? AND onec_guid IS NOT NULL'
+    ).all<{ onec_guid: string }>(id);
+    await db.transaction(async (txn) => {
       await txn.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(id);
       await txn.prepare('DELETE FROM invoices WHERE id = ?').run(id);
     });
+    triggerStatsRecompute(guids.map(g => g.onec_guid));
     return { file_name: fileName };
   },
 
