@@ -150,14 +150,19 @@ export const invoiceRepo = {
   },
 
   async getAll(status?: string, limit: number = 100, offset: number = 0): Promise<Invoice[]> {
+    // mysql2's named-placeholder mode (our pool default) can't bind LIMIT/OFFSET
+    // as params — server rejects with "Incorrect arguments to mysqld_stmt_execute".
+    // Inline the integers after a safe Math.floor/clamp so it's not a literal injection.
+    const lim = Math.max(1, Math.min(500, Math.floor(limit)));
+    const off = Math.max(0, Math.floor(offset));
     if (status) {
       return getDb()
-        .prepare('SELECT * FROM invoices WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
-        .all<Invoice>(status, limit, offset);
+        .prepare(`SELECT * FROM invoices WHERE status = ? ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`)
+        .all<Invoice>(status);
     }
     return getDb()
-      .prepare('SELECT * FROM invoices ORDER BY created_at DESC LIMIT ? OFFSET ?')
-      .all<Invoice>(limit, offset);
+      .prepare(`SELECT * FROM invoices ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`)
+      .all<Invoice>();
   },
 
   async getPending(): Promise<Invoice[]> {
