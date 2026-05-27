@@ -21,6 +21,122 @@ const Suppliers = {
     }
     const addBtn = document.getElementById('supplier-add-btn');
     if (addBtn) addBtn.onclick = () => SberModal.open({}, async (data) => Suppliers.create(data));
+    this._bindExtractPanel();
+  },
+
+  _bindExtractPanel() {
+    const openBtn = document.getElementById('supplier-extract-btn');
+    const panel = document.getElementById('supplier-extract-panel');
+    const closeBtn = document.getElementById('supplier-extract-close');
+    const input = document.getElementById('supplier-extract-input');
+    const pickLink = document.getElementById('supplier-extract-pick');
+    const dropzone = document.getElementById('supplier-extract-dropzone');
+    if (!openBtn || !panel || !input) return;
+
+    openBtn.onclick = () => { panel.style.display = 'block'; };
+    closeBtn.onclick = () => { panel.style.display = 'none'; };
+    pickLink.onclick = (e) => { e.preventDefault(); input.click(); };
+    dropzone.onclick = () => input.click();
+
+    input.onchange = (e) => this._handleFiles(Array.from(e.target.files || []));
+    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.style.background = '#eef4ff'; };
+    dropzone.ondragleave = () => { dropzone.style.background = '#fbfcfe'; };
+    dropzone.ondrop = (e) => {
+      e.preventDefault();
+      dropzone.style.background = '#fbfcfe';
+      this._handleFiles(Array.from(e.dataTransfer.files || []));
+    };
+  },
+
+  async _handleFiles(files) {
+    if (!files.length) return;
+    const queue = document.getElementById('supplier-extract-queue');
+    // Process sequentially — Claude API for 5+ photos in parallel risks rate limit
+    for (const file of files) {
+      const card = this._addQueueCard(queue, file.name);
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch(App.apiBase + '/suppliers/extract-from-photo', {
+          method: 'POST',
+          headers: { 'X-API-Key': App.getApiKey() },
+          body: fd,
+        });
+        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+        const { extracted } = await res.json();
+        this._renderExtractedCard(card, file.name, extracted);
+      } catch (err) {
+        this._renderFailedCard(card, file.name, err.message);
+      }
+    }
+  },
+
+  _addQueueCard(queue, fileName) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.padding = '12px';
+    card.innerHTML = `<div><strong>${App.esc(fileName)}</strong> <span class="muted">— распознаю…</span></div>`;
+    queue.appendChild(card);
+    return card;
+  },
+
+  _renderFailedCard(card, fileName, errMsg) {
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>${App.esc(fileName)}</strong> <span style="color:#c62828">— ошибка: ${App.esc(errMsg)}</span></div>
+        <button class="btn btn-ghost" onclick="this.closest('.card').remove()">×</button>
+      </div>`;
+  },
+
+  _renderExtractedCard(card, fileName, ex) {
+    const fields = [
+      { key: 'inn',               label: 'ИНН',           ph: '10 или 12 цифр' },
+      { key: 'name',              label: 'Название',      ph: '' },
+      { key: 'kpp',               label: 'КПП',           ph: '9 цифр' },
+      { key: 'bank_bic',          label: 'БИК',           ph: '9 цифр' },
+      { key: 'account',           label: 'Счёт',          ph: '20 цифр' },
+      { key: 'bank_corr_account', label: 'Корсчёт',       ph: '20 цифр' },
+      { key: 'address',           label: 'Адрес',         ph: '' },
+    ];
+    const rows = fields.map(f => `
+      <label style="display:flex;gap:8px;align-items:center;margin:4px 0">
+        <span style="width:90px;font-size:12px;color:#667">${f.label}</span>
+        <input type="text" data-key="${f.key}" value="${App.esc(ex[f.key] || '')}" placeholder="${f.ph}"
+               style="flex:1;padding:4px 8px;font-size:13px;border:1px solid #d0d7e2;border-radius:4px">
+      </label>
+    `).join('');
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong>${App.esc(fileName)}</strong>
+        <button class="btn btn-ghost" data-action="skip">Пропустить</button>
+      </div>
+      <div>${rows}</div>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button class="btn btn-primary" data-action="save">Сохранить</button>
+        <span class="card-status muted"></span>
+      </div>`;
+    const status = card.querySelector('.card-status');
+    card.querySelector('[data-action=skip]').onclick = () => card.remove();
+    card.querySelector('[data-action=save]').onclick = async () => {
+      const payload = {};
+      card.querySelectorAll('input[data-key]').forEach(i => {
+        const v = i.value.trim();
+        if (v) payload[i.dataset.key] = v;
+      });
+      status.textContent = 'Сохраняю…';
+      try {
+        const res = await App.api('/suppliers/merge', { method: 'POST', body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+        const { mode } = await res.json();
+        status.textContent = mode === 'created' ? '✓ Создан' : mode === 'merged' ? '✓ Пустые поля дозаполнены' : '✓ Без изменений (уже полный)';
+        status.style.color = '#0d9f6e';
+        await this.refresh();
+        setTimeout(() => card.remove(), 1500);
+      } catch (err) {
+        status.textContent = '✗ ' + err.message;
+        status.style.color = '#c62828';
+      }
+    };
   },
 
   async refresh() {

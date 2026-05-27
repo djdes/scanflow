@@ -76,6 +76,32 @@ export const supplierRepo = {
     return (await this.findByInn(input.inn))!;
   },
 
+  /**
+   * Like upsert but only fills NULL/empty fields on existing rows. Used by
+   * bulk supplier extraction from photos — multiple uploads of similar
+   * payment slips shouldn't overwrite user-corrected data.
+   */
+  async mergeEmpty(input: CreateSupplierInput): Promise<{ supplier: Supplier; mode: 'created' | 'merged' | 'unchanged' }> {
+    const existing = await this.findByInn(input.inn);
+    if (!existing) {
+      return { supplier: await this.create(input), mode: 'created' };
+    }
+    const patch: Partial<CreateSupplierInput> = {};
+    for (const [k, raw] of Object.entries(input)) {
+      if (k === 'inn') continue;
+      if (raw == null || raw === '') continue;
+      const current = (existing as unknown as Record<string, unknown>)[k];
+      if (current == null || current === '') {
+        (patch as Record<string, unknown>)[k] = raw;
+      }
+    }
+    if (Object.keys(patch).length === 0) {
+      return { supplier: existing, mode: 'unchanged' };
+    }
+    await this.update(input.inn, patch);
+    return { supplier: (await this.findByInn(input.inn))!, mode: 'merged' };
+  },
+
   async update(inn: string, patch: Partial<CreateSupplierInput>): Promise<void> {
     const sets: string[] = [];
     const vals: unknown[] = [];
