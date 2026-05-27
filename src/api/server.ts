@@ -18,6 +18,7 @@ import webhookRouter from './routes/webhook';
 import settingsRouter from './routes/settings';
 import debugRouter from './routes/debug';
 import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes/nomenclature';
+import dispatcherRouter, { setMapper as setDispatcherMapper } from './routes/dispatcher';
 import authRouter from './routes/auth';
 import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
@@ -111,6 +112,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setMapper(mapper);
   setNomenclatureMapper(mapper);
   setInvoicesMapper(mapper);
+  setDispatcherMapper(mapper);
   setFileWatcher(fileWatcher);
   setInvoicesFileWatcher(fileWatcher);
 
@@ -189,6 +191,12 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // API routes (with auth)
   // NOTE: /api/errors and /api/reprocess-errors moved under /api/debug/* which
   // is already protected by apiKeyAuth. See src/api/routes/debug.ts.
+  // Dispatcher callbacks — token-authenticated inside (no apiKeyAuth).
+  // Must be mounted before /api/invoices to avoid path collision (it isn't,
+  // since path differs — /api/dispatcher/* vs /api/invoices/* — but order
+  // costs nothing).
+  app.use('/api/dispatcher', dispatcherRouter);
+
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
   app.use('/api/upload', apiKeyAuth, uploadLimiter, uploadRouter);
