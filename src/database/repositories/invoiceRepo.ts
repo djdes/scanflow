@@ -535,13 +535,35 @@ export const invoiceRepo = {
   },
 
   async markStaleAsFailed(staleMinutes: number = 5): Promise<number> {
+    // Don't sweep dispatcher rows here — their lifetime is governed by
+    // dispatcher_started_at via markStaleDispatchersAsFailed below.
     const result = await getDb().prepare(
       `UPDATE invoices
        SET status = 'error',
            error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)')
        WHERE status NOT IN ('processed', 'sent_to_1c', 'duplicate', 'error')
+       AND dispatcher_token IS NULL
        AND created_at < (NOW() - INTERVAL ${staleMinutes} MINUTE)`
     ).run();
+    return result.changes;
+  },
+
+  /**
+   * Sweep dispatcher-mode invoices stuck in ocr_processing longer than
+   * `staleMinutes` minutes. The dispatcher is supposed to call back within
+   * ~30s of claiming the task; 15 min is a generous timeout that covers
+   * Claude API slowness + queue delay.
+   */
+  async markStaleDispatchersAsFailed(staleMinutes: number = 15): Promise<number> {
+    const result = await getDb().prepare(
+      `UPDATE invoices
+       SET status = 'error',
+           error_message = COALESCE(error_message, ?),
+           dispatcher_token = NULL,
+           dispatcher_started_at = NULL
+       WHERE dispatcher_started_at IS NOT NULL
+       AND dispatcher_started_at < (NOW() - INTERVAL ${staleMinutes} MINUTE)`
+    ).run(`Dispatcher timeout (>${staleMinutes} min, callback never arrived)`);
     return result.changes;
   },
 

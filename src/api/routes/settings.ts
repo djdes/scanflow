@@ -28,8 +28,8 @@ router.put('/analyzer', async (req: Request, res: Response) => {
   try {
     const { mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber } = req.body;
 
-    if (!mode || !['hybrid', 'claude_api'].includes(mode)) {
-      res.status(400).json({ error: 'Invalid mode. Must be "hybrid" or "claude_api"' });
+    if (!mode || !['hybrid', 'claude_api', 'dispatcher'].includes(mode)) {
+      res.status(400).json({ error: 'Invalid mode. Must be "hybrid", "claude_api" or "dispatcher"' });
       return;
     }
 

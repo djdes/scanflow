@@ -126,6 +126,16 @@ async function main(): Promise<void> {
   cron.schedule('0 */6 * * *', () => {
     checkDiskSpace().catch(err => logger.error('disk space check failed', { error: (err as Error).message }));
   });
+
+  // Dispatcher-mode timeout sweep: every 5 min, mark any invoice whose
+  // dispatcher_started_at is older than 15 min as error. Without this,
+  // a crashed Claude Code dispatcher session would leave invoices stuck
+  // in ocr_processing forever.
+  cron.schedule('*/5 * * * *', () => {
+    invoiceRepo.markStaleDispatchersAsFailed(15)
+      .then(n => { if (n > 0) logger.warn('Dispatcher timeout sweep: marked as error', { count: n }); })
+      .catch(err => logger.error('dispatcher timeout sweep failed', { error: (err as Error).message }));
+  });
   checkDiskSpace().catch(err => logger.error('initial disk space check failed', { error: (err as Error).message }));
 
   // Run one backup immediately on startup — captures current state

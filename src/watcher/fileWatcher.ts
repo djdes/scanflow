@@ -488,13 +488,22 @@ export class FileWatcher {
         // Anything else is a misconfig — log loudly and fall back to hybrid so
         // we never silently downgrade to regex parsing without visibility.
         const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-        const KNOWN_MODES = ['claude_api', 'hybrid'] as const;
+        const KNOWN_MODES = ['claude_api', 'hybrid', 'dispatcher'] as const;
         if (!KNOWN_MODES.includes(analyzerConfig.mode as typeof KNOWN_MODES[number])) {
           logger.error('Unknown analyzer_config.mode — falling back to hybrid', {
             mode: analyzerConfig.mode,
             knownModes: KNOWN_MODES,
             invoiceId: invoice.id,
           });
+        }
+
+        if (analyzerConfig.mode === 'dispatcher') {
+          // Dispatcher mode: create task in ProjectsFlow, await async callback.
+          // Don't run any local OCR — the dispatcher Claude Code session does it.
+          const { dispatchInvoice } = await import('../dispatcher/createTask');
+          await dispatchInvoice(invoice.id, fileName);
+          logger.info('Dispatcher task created, awaiting callback', { invoiceId: invoice.id });
+          return invoice.id; // status stays 'ocr_processing'; callback handler completes it
         }
 
         if (analyzerConfig.mode === 'claude_api') {
