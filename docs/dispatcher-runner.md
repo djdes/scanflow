@@ -8,15 +8,18 @@
 
 ## Что нужно один раз настроить
 
-1. **На сервере ScanFlow** в `.env`:
-   ```
-   PROJECTSFLOW_API_URL=https://projectsflow.ru/api
-   PROJECTSFLOW_AGENT_TOKEN=pfat_<ваш-токен>
-   PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85
-   PUBLIC_BASE_URL=https://scanflow.ru
-   ```
+В админке ScanFlow (`/#/settings`):
+1. Выбрать режим **«Диспетчер (через ProjectsFlow)»**.
+2. Вставить `pfat_*` токен (Agent token из ProjectsFlow) в поле «ProjectsFlow agent token».
+3. Сохранить.
 
-2. **В админке ScanFlow** (`/#/settings`) — выбрать **«Диспетчер (через ProjectsFlow)»** и сохранить.
+Опционально на сервере в `.env` можно переопределить дефолты:
+```
+PUBLIC_BASE_URL=https://scanflow.ru                                           # куда dispatcher шлёт callback
+PROJECTSFLOW_API_URL=https://projectsflow.ru/api                              # API-эндпоинт ProjectsFlow
+PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85          # ID проекта Scanflow в PF
+```
+Эти три обычно не нужно менять. Токен `PROJECTSFLOW_AGENT_TOKEN` env — fallback на случай если в БД ничего нет; UI имеет приоритет.
 
 ## Как запустить диспетчер
 

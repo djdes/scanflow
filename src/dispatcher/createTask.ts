@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import { getDb } from '../database/db';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+import { invoiceRepo } from '../database/repositories/invoiceRepo';
 
 export class DispatcherConfigError extends Error {
   constructor(message: string) {
@@ -79,19 +80,26 @@ ScanFlow OCR job for invoice #${args.invoiceId}.
 }
 
 export async function dispatchInvoice(invoiceId: number, photoFileName: string): Promise<void> {
-  if (!config.projectsflowToken) {
-    throw new DispatcherConfigError('PROJECTSFLOW_AGENT_TOKEN is not set');
+  // Token: DB takes precedence over env (UI-editable in /#/settings).
+  // Falls back to env for back-compat with installs that haven't migrated
+  // settings via the UI yet.
+  const cfg = await invoiceRepo.getAnalyzerConfig();
+  const token = cfg.projectsflow_token || config.projectsflowToken;
+  if (!token) {
+    throw new DispatcherConfigError(
+      'ProjectsFlow agent token is not set. Configure in /#/settings → Диспетчер.',
+    );
   }
   if (!config.projectsflowScanflowProjectId) {
     throw new DispatcherConfigError('PROJECTSFLOW_SCANFLOW_PROJECT_ID is not set');
   }
 
-  const token = generateToken();
-  const photoUrl = `${config.publicBaseUrl}/api/dispatcher/photo/${invoiceId}?token=${token}`;
+  const perTaskToken = generateToken();
+  const photoUrl = `${config.publicBaseUrl}/api/dispatcher/photo/${invoiceId}?token=${perTaskToken}`;
   const callbackUrl = `${config.publicBaseUrl}/api/dispatcher/result/${invoiceId}`;
 
-  // Reserve the token in DB BEFORE posting to PF so a fast callback can't
-  // race the local UPDATE.
+  // Reserve the per-task token in DB BEFORE posting to PF so a fast callback
+  // can't race the local UPDATE.
   await getDb()
     .prepare(
       `UPDATE invoices
@@ -100,9 +108,9 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
              status = 'ocr_processing'
        WHERE id = ?`,
     )
-    .run(token, invoiceId);
+    .run(perTaskToken, invoiceId);
 
-  const description = buildDescription({ invoiceId, photoUrl, callbackUrl, token });
+  const description = buildDescription({ invoiceId, photoUrl, callbackUrl, token: perTaskToken });
   const apiUrl = `${config.projectsflowApiUrl}/agent/projects/${encodeURIComponent(
     config.projectsflowScanflowProjectId,
   )}/tasks`;
@@ -113,7 +121,7 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.projectsflowToken}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ description, status: 'backlog' }),
     });

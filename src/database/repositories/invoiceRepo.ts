@@ -670,10 +670,10 @@ export const invoiceRepo = {
     return { byStatus, total: totalRow?.count ?? 0 };
   },
 
-  async getAnalyzerConfig(): Promise<{ mode: string; anthropic_api_key: string | null; claude_model: string; llm_mapper_enabled: boolean; auto_send_1c: boolean; auto_send_sber: boolean }> {
+  async getAnalyzerConfig(): Promise<{ mode: string; anthropic_api_key: string | null; claude_model: string; llm_mapper_enabled: boolean; auto_send_1c: boolean; auto_send_sber: boolean; projectsflow_token: string | null }> {
     const row = await getDb()
-      .prepare('SELECT mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber FROM analyzer_config WHERE id = 1')
-      .get<{ mode: string; anthropic_api_key: string | null; claude_model: string | null; llm_mapper_enabled: number | null; auto_send_1c: number | null; auto_send_sber: number | null }>();
+      .prepare('SELECT mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber, projectsflow_token FROM analyzer_config WHERE id = 1')
+      .get<{ mode: string; anthropic_api_key: string | null; claude_model: string | null; llm_mapper_enabled: number | null; auto_send_1c: number | null; auto_send_sber: number | null; projectsflow_token: string | null }>();
     return {
       mode: row?.mode ?? 'hybrid',
       anthropic_api_key: row?.anthropic_api_key ?? null,
@@ -681,6 +681,7 @@ export const invoiceRepo = {
       llm_mapper_enabled: (row?.llm_mapper_enabled ?? 1) === 1,
       auto_send_1c: (row?.auto_send_1c ?? 0) === 1,
       auto_send_sber: (row?.auto_send_sber ?? 0) === 1,
+      projectsflow_token: row?.projectsflow_token ?? null,
     };
   },
 
@@ -691,6 +692,7 @@ export const invoiceRepo = {
     llmMapperEnabled?: boolean,
     autoSend1c?: boolean,
     autoSendSber?: boolean,
+    projectsflowToken?: string | null,
   ): Promise<void> {
     const sets: string[] = ['mode = ?'];
     const vals: unknown[] = [mode];
@@ -699,6 +701,7 @@ export const invoiceRepo = {
     if (llmMapperEnabled !== undefined) { sets.push('llm_mapper_enabled = ?'); vals.push(llmMapperEnabled ? 1 : 0); }
     if (autoSend1c !== undefined) { sets.push('auto_send_1c = ?'); vals.push(autoSend1c ? 1 : 0); }
     if (autoSendSber !== undefined) { sets.push('auto_send_sber = ?'); vals.push(autoSendSber ? 1 : 0); }
+    if (projectsflowToken !== undefined) { sets.push('projectsflow_token = ?'); vals.push(projectsflowToken); }
     await getDb().prepare(`UPDATE analyzer_config SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
   },
 

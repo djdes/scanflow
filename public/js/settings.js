@@ -13,16 +13,27 @@ const Settings = {
           document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
           document.getElementById('api-key-status').style.color = 'var(--green)';
         }
+        const pfStatus = document.getElementById('pf-token-status');
+        if (pfStatus) {
+          pfStatus.textContent = data.has_projectsflow_token ? 'PF-токен сохранён' : 'PF-токен не задан';
+          pfStatus.style.color = data.has_projectsflow_token ? 'var(--green)' : 'var(--text-muted, #888)';
+        }
         if (data.claude_model) {
           document.getElementById('settings-claude-model').value = data.claude_model;
         }
         const llmCb = document.getElementById('settings-llm-mapper');
         if (llmCb) llmCb.checked = !!data.llm_mapper_enabled;
+        Settings._refreshModeVisibility();
       }
       this.loaded = true;
     } catch (e) {
       console.error('Failed to load settings', e);
     }
+
+    // Mode radio change → toggle conditional sections
+    document.querySelectorAll('input[name="analyzer-mode"]').forEach(r => {
+      r.addEventListener('change', () => Settings._refreshModeVisibility());
+    });
 
     // Auto-send toggles — обе берутся из analyzer_config
     try {
@@ -65,6 +76,10 @@ const Settings = {
     if (apiKeyInput.value.trim()) {
       body.anthropic_api_key = apiKeyInput.value.trim();
     }
+    const pfTokenInput = document.getElementById('settings-pf-token');
+    if (pfTokenInput && pfTokenInput.value.trim()) {
+      body.projectsflow_token = pfTokenInput.value.trim();
+    }
 
     try {
       const res = await App.api('/settings/analyzer', { method: 'PUT', body });
@@ -72,6 +87,11 @@ const Settings = {
         App.notify('Настройки сохранены', 'success');
         document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
         apiKeyInput.value = '';
+        if (pfTokenInput && pfTokenInput.value.trim()) {
+          document.getElementById('pf-token-status').textContent = 'PF-токен сохранён';
+          document.getElementById('pf-token-status').style.color = 'var(--green)';
+          pfTokenInput.value = '';
+        }
       } else {
         const data = await res.json();
         App.notify(data.error || 'Ошибка сохранения', 'error');
@@ -79,6 +99,15 @@ const Settings = {
     } catch (e) {
       App.notify('Ошибка: ' + e.message, 'error');
     }
+  },
+
+  // Show/hide API-key block (only for claude_api) vs PF-token block (only for dispatcher).
+  _refreshModeVisibility() {
+    const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value || 'claude_api';
+    const apiGroup = document.getElementById('api-key-group');
+    const pfGroup = document.getElementById('pf-token-group');
+    if (apiGroup) apiGroup.style.display = (mode === 'dispatcher') ? 'none' : '';
+    if (pfGroup)  pfGroup.style.display  = (mode === 'dispatcher') ? '' : 'none';
   },
 
   async saveAutoSend() {

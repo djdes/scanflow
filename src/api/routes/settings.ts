@@ -12,6 +12,7 @@ router.get('/analyzer', async (_req: Request, res: Response) => {
       data: {
         mode: config.mode,
         has_api_key: !!config.anthropic_api_key,
+        has_projectsflow_token: !!config.projectsflow_token,
         claude_model: config.claude_model,
         llm_mapper_enabled: config.llm_mapper_enabled,
         auto_send_1c: config.auto_send_1c,
@@ -26,7 +27,7 @@ router.get('/analyzer', async (_req: Request, res: Response) => {
 // PUT /api/settings/analyzer — update analyzer config
 router.put('/analyzer', async (req: Request, res: Response) => {
   try {
-    const { mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber } = req.body;
+    const { mode, anthropic_api_key, projectsflow_token, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber } = req.body;
 
     if (!mode || !['hybrid', 'claude_api', 'dispatcher'].includes(mode)) {
       res.status(400).json({ error: 'Invalid mode. Must be "hybrid", "claude_api" or "dispatcher"' });
@@ -43,9 +44,16 @@ router.put('/analyzer', async (req: Request, res: Response) => {
         res.status(400).json({ error: 'Anthropic API key is required for Claude API mode' });
         return;
       }
-      await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber);
+      await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber, projectsflow_token);
+    } else if (mode === 'dispatcher' && !projectsflow_token) {
+      const current = await invoiceRepo.getAnalyzerConfig();
+      if (!current.projectsflow_token) {
+        res.status(400).json({ error: 'ProjectsFlow agent token (pfat_*) is required for Dispatcher mode' });
+        return;
+      }
+      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber, undefined);
     } else {
-      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber);
+      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber, projectsflow_token);
     }
 
     logger.info('Analyzer config updated', { mode, llmMapperEnabled: llmFlag, autoSend1c: auto1c, autoSendSber: autoSber });
