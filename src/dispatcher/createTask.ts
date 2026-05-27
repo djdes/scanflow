@@ -23,6 +23,7 @@ import { getDb } from '../database/db';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
+import { buildPrompt } from '../ocr/claudeApiAnalyzer';
 
 export class DispatcherConfigError extends Error {
   constructor(message: string) {
@@ -48,9 +49,11 @@ function buildDescription(args: {
   callbackUrl: string;
   token: string;
 }): string {
-  // YAML frontmatter is parsed by the dispatcher session. The text below it
-  // is the instruction the human-readable kanban viewer reads — it also tells
-  // the LLM (in case the dispatcher is naive) what to do with the YAML.
+  // Full OCR prompt (the SAME one we use locally in claude_api mode) is
+  // embedded so the dispatcher Claude session has explicit rules — including
+  // pack_size extraction (1/12, *48, etc.) so quantities come back in
+  // canonical units, not in "коробок"/"упак".
+  const ocrPrompt = buildPrompt();
   return `---
 type: scanflow_ocr
 invoice_id: ${args.invoiceId}
@@ -62,21 +65,34 @@ expected_format: invoice_json
 
 ScanFlow OCR job for invoice #${args.invoiceId}.
 
-**Действие для диспетчера:**
+## Действие для диспетчера
 
-1. Скачай фото из \`photo_url\` (он публичный по токену).
-2. Прогони через Claude (этой же сессии) с инвойс-промптом — извлеки JSON по схеме \`ParsedInvoiceData\` (invoice_type / invoice_number / invoice_date / supplier / supplier_inn / total_sum / vat_sum / items[]).
-3. POST на \`callback_url\` с телом:
-   \`\`\`json
-   {"token":"${args.token}","success":true,"data":<распарсенный JSON>}
+1. **Скачай** фото из \`photo_url\` (публичный по токену, без X-API-Key). Сохрани локально, например \`data/photo_${args.invoiceId}.jpg\`.
+2. **OCR** через свою Claude-сессию по полному промпту ниже (раздел «OCR prompt»). Получишь JSON \`ParsedInvoiceData\`.
+3. **Сохрани JSON в файл** (например \`data/result_${args.invoiceId}.json\`). НЕ передавай тело через \`curl -d "..."\` — Windows bash ломает UTF-8.
+4. **POST** на \`callback_url\` с правильной кодировкой:
+   \`\`\`bash
+   curl -X POST '${args.callbackUrl}' \\
+     -H 'Content-Type: application/json; charset=utf-8' \\
+     --data-binary @data/result_${args.invoiceId}.json
    \`\`\`
-   Или при ошибке:
+   Тело файла должно быть:
+   \`\`\`json
+   {"token":"${args.token}","success":true,"data":<JSON со схемой ParsedInvoiceData>}
+   \`\`\`
+   При ошибке:
    \`\`\`json
    {"token":"${args.token}","success":false,"error":"описание"}
    \`\`\`
-4. Помеси PF-задачу как done.
+5. **Помеси PF-задачу как done** через \`mcp__projectsflow__pf_move_task\`.
 
-Описание схемы JSON и стандартный промпт — в \`src/ocr/claudeApiAnalyzer.ts:buildPrompt()\` репозитория ScanFlow.`;
+**Важно:** если callback вернул 400 «encoding-broken» — пересохрани JSON через \`Write\` tool в UTF-8 файл, retry. Токен остаётся валидным.
+
+---
+
+## OCR prompt (применяй к фото)
+
+${ocrPrompt}`;
 }
 
 export async function dispatchInvoice(invoiceId: number, photoFileName: string): Promise<void> {

@@ -82,7 +82,7 @@ async function withRetry<T>(
  * catalog, we skip that section entirely — backwards-compatible with
  * LLM-mapper-off mode.
  */
-function buildPrompt(catalog?: CatalogEntry[]): string {
+export function buildPrompt(catalog?: CatalogEntry[]): string {
   let catalogBlock = '';
   if (catalog && catalog.length > 0) {
     // Format: "[idx] name (unit)" — compact, keeps token count under control.

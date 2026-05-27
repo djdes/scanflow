@@ -15,6 +15,8 @@ import { validateDispatcherToken, clearDispatcherState } from '../../dispatcher/
 import { logger } from '../../utils/logger';
 import { ParsedInvoiceData, ParsedInvoiceItem } from '../../ocr/types';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
+import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 
 const router = Router();
 let mapper: NomenclatureMapper | null = null;
@@ -113,29 +115,55 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       vat_sum: data.vat_sum ?? undefined,
     });
     for (const it of data.items as ParsedInvoiceItem[]) {
-      const inserted = await invoiceRepo.addItem({
-        invoice_id: id,
-        original_name: it.name ?? '',
-        mapped_name: undefined,
-        quantity: it.quantity ?? undefined,
-        unit: it.unit ?? undefined,
-        price: it.price ?? undefined,
-        total: it.total ?? undefined,
-        vat_rate: it.vat_rate ?? undefined,
-        mapping_confidence: 0,
-        onec_guid: undefined,
-      });
-      // Best-effort fuzzy mapping (same flow as ordinary OCR path)
+      // 1) Resolve mapping (1C catalog match) + apply pack-size transform.
+      //    Dispatcher returns qty/unit/price AS WRITTEN on the invoice
+      //    (e.g. "5 кор × 7.5кг"). resolveAndApplyPackTransform expands
+      //    that to canonical 1C unit (e.g. 37.5 кг × 1010₽/кг) using the
+      //    pack_size hint Claude extracted from the name ("9-12", "1/12",
+      //    "*48", etc.) OR the learned mapping in nomenclature_mappings.
+      let transformedItem = {
+        quantity: it.quantity ?? null,
+        unit: it.unit ?? null,
+        price: it.price ?? null,
+        total: it.total ?? null,
+      };
+      let mapping: Awaited<ReturnType<NomenclatureMapper['map']>> | null = null;
       if (mapper && it.name) {
         try {
-          const m = await mapper.map(it.name);
-          if (m && m.onec_guid) {
-            await invoiceRepo.updateItemMapping(inserted.id, m.onec_guid, m.mapped_name, m.confidence ?? 0);
-          }
+          mapping = await mapper.map(it.name);
         } catch (err) {
           logger.warn('dispatcher result: mapping failed', { itemName: it.name, error: (err as Error).message });
         }
       }
+      if (mapping && mapping.onec_guid) {
+        const onec = await onecNomenclatureRepo.getByGuid(mapping.onec_guid);
+        const hintedPackSize = it.pack_size ?? mapping.pack_size;
+        const hintedPackUnit = it.pack_size ? 'шт' : mapping.pack_unit;
+        const r = resolveAndApplyPackTransform(
+          transformedItem,
+          it.name ?? '',
+          hintedPackSize,
+          hintedPackUnit,
+          mapping.mapped_name,
+          onec?.unit ?? null,
+        );
+        transformedItem = r.item;
+      }
+
+      // 2) Persist the (possibly transformed) item.
+      const inserted = await invoiceRepo.addItem({
+        invoice_id: id,
+        original_name: it.name ?? '',
+        mapped_name: mapping?.mapped_name ?? undefined,
+        quantity: transformedItem.quantity ?? undefined,
+        unit: transformedItem.unit ?? undefined,
+        price: transformedItem.price ?? undefined,
+        total: transformedItem.total ?? undefined,
+        vat_rate: it.vat_rate ?? undefined,
+        mapping_confidence: mapping?.confidence ?? 0,
+        onec_guid: mapping?.onec_guid ?? undefined,
+      });
+      void inserted; // for await/lint
     }
     await invoiceRepo.updateStatus(id, 'processed');
     await clearDispatcherState(id);
