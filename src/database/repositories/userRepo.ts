@@ -38,12 +38,31 @@ export const userRepo = {
     role?: string;
     email?: string | null;
   }): Promise<number> {
+    // notify_events is NOT NULL with no DEFAULT (migration 18 cross-DB fix
+    // dropped the literal default for MySQL compat). Provide a seed value
+    // on INSERT so the row passes the constraint.
+    const defaultNotifyEvents = JSON.stringify([
+      'photo_uploaded',
+      'invoice_recognized',
+      'recognition_error',
+      'suspicious_total',
+      'invoice_edited',
+      'approved_for_1c',
+      'sent_to_1c',
+    ]);
     const result = await getDb()
       .prepare(
-        `INSERT INTO users (username, password_hash, api_key, role, email)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO users (username, password_hash, api_key, role, email, notify_events)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(data.username, data.password_hash, data.api_key, data.role ?? 'user', data.email ?? null);
+      .run(
+        data.username,
+        data.password_hash,
+        data.api_key,
+        data.role ?? 'user',
+        data.email ?? null,
+        defaultNotifyEvents,
+      );
     return Number(result.lastInsertRowid);
   },
 
