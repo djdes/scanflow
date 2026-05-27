@@ -357,10 +357,7 @@ const Invoices = {
                      onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
             </td>
             <td style="text-align:right">
-              <input type="text" inputmode="decimal" class="item-edit item-edit-price"
-                     value="${item.price != null ? Number(item.price).toFixed(2).replace('.', ',') : ''}"
-                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="price"
-                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
+              ${Invoices._priceCell(item)}
             </td>
             ${Invoices._medianCell(item)}
             <td style="text-align:right">
@@ -388,6 +385,16 @@ const Invoices = {
   },
 
   // Guard mutating actions against double-clicks / duplicate submissions.
+  // Render «Цена» as read-only «X,XX ₽/<unit>». Per-unit cost = item.price
+  // (OCR parses price as total/qty per ScanFlow convention, so it's already
+  // per-unit). Falls back to «—» when price is null.
+  _priceCell(item) {
+    if (item.price == null) return '<span class="muted">—</span>';
+    const v = Number(item.price).toFixed(2).replace('.', ',');
+    const u = item.unit ? `/${App.esc(item.unit)}` : '';
+    return `<span class="price-readonly">${v} ₽${u}</span>`;
+  },
+
   // Map a price-deviation percentage to a row class.
   _rowClassForDeviation(pct) {
     if (pct == null) return '';

@@ -2880,6 +2880,13 @@ details[open] summary { margin-bottom: 12px; }
   .onboarding-progress__line { left: 18%; right: 18%; top: 15px; }
 }
 
+/* === Read-only «Цена» display (per-unit cost) === */
+.price-readonly {
+  font-variant-numeric: tabular-nums;
+  color: var(--text, inherit);
+  white-space: nowrap;
+}
+
 /* === Price-anomaly heatmap on invoice item rows === */
 .row-price-good     { background: rgba(6, 214, 160, 0.08); }
 .row-price-warn     { background: rgba(251, 191, 36, 0.10); }
