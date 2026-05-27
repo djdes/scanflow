@@ -125,7 +125,10 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ description, status: 'backlog' }),
+      // status='todo' lands the task in the ВОРКЕР (worker) column —
+      // that's where the dispatcher Claude Code session picks them up.
+      // 'backlog' would put it in ЧЕРНОВИКИ (drafts) where it'd be ignored.
+      body: JSON.stringify({ description, status: 'todo' }),
     });
   } catch (err) {
     logger.error('dispatcher: PF API unreachable', { error: (err as Error).message, invoiceId });
