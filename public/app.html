@@ -486,6 +486,13 @@
                 <div class="radio-desc">Claude сам читает фото и извлекает данные. Быстрее, один запрос.</div>
               </div>
             </label>
+            <label class="radio-label">
+              <input type="radio" name="analyzer-mode" value="dispatcher">
+              <div>
+                <strong>Диспетчер (через ProjectsFlow)</strong>
+                <div class="radio-desc">ScanFlow ставит задачу в ProjectsFlow, ваша Claude Code сессия с Max-подпиской её подбирает и обрабатывает. Без оплаты Anthropic API. Требует запущенный диспетчер-агент — см. <code>docs/dispatcher-runner.md</code>.</div>
+              </div>
+            </label>
           </div>
         </div>
         <div class="form-group" id="api-key-group">
