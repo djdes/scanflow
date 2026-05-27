@@ -627,6 +627,16 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 27,
+    name: 'dispatcher mode: projectsflow_project_id on analyzer_config',
+    detect: (exec) => hasColumn(exec, 'analyzer_config', 'projectsflow_project_id'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'projectsflow_project_id'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN projectsflow_project_id VARCHAR(64) NULL`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

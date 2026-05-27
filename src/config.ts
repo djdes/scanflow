@@ -55,10 +55,8 @@ export const config = {
   publicBaseUrl: envStr('PUBLIC_BASE_URL', 'https://scanflow.ru'),
   projectsflowApiUrl: envStr('PROJECTSFLOW_API_URL', 'https://projectsflow.ru/api'),
   projectsflowToken: envStr('PROJECTSFLOW_AGENT_TOKEN', ''),
-  projectsflowScanflowProjectId: envStr(
-    'PROJECTSFLOW_SCANFLOW_PROJECT_ID',
-    '55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85',
-  ),
+  // No default — install-specific. Set via UI (/#/settings → Диспетчер) or via env.
+  projectsflowScanflowProjectId: envStr('PROJECTSFLOW_SCANFLOW_PROJECT_ID', ''),
 
   // Debug
   debug: envBool('DEBUG', false),

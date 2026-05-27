@@ -80,18 +80,20 @@ ScanFlow OCR job for invoice #${args.invoiceId}.
 }
 
 export async function dispatchInvoice(invoiceId: number, photoFileName: string): Promise<void> {
-  // Token: DB takes precedence over env (UI-editable in /#/settings).
-  // Falls back to env for back-compat with installs that haven't migrated
-  // settings via the UI yet.
+  // Both token and project_id: DB takes precedence over env (UI-editable
+  // in /#/settings → Диспетчер). Env fallback is for back-compat.
   const cfg = await invoiceRepo.getAnalyzerConfig();
   const token = cfg.projectsflow_token || config.projectsflowToken;
+  const projectId = cfg.projectsflow_project_id || config.projectsflowScanflowProjectId;
   if (!token) {
     throw new DispatcherConfigError(
       'ProjectsFlow agent token is not set. Configure in /#/settings → Диспетчер.',
     );
   }
-  if (!config.projectsflowScanflowProjectId) {
-    throw new DispatcherConfigError('PROJECTSFLOW_SCANFLOW_PROJECT_ID is not set');
+  if (!projectId) {
+    throw new DispatcherConfigError(
+      'ProjectsFlow project ID is not set. Configure in /#/settings → Диспетчер.',
+    );
   }
 
   const perTaskToken = generateToken();
@@ -112,7 +114,7 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
 
   const description = buildDescription({ invoiceId, photoUrl, callbackUrl, token: perTaskToken });
   const apiUrl = `${config.projectsflowApiUrl}/agent/projects/${encodeURIComponent(
-    config.projectsflowScanflowProjectId,
+    projectId,
   )}/tasks`;
 
   let resp: Response;

@@ -18,6 +18,10 @@ const Settings = {
           pfStatus.textContent = data.has_projectsflow_token ? 'PF-токен сохранён' : 'PF-токен не задан';
           pfStatus.style.color = data.has_projectsflow_token ? 'var(--green)' : 'var(--text-muted, #888)';
         }
+        const pfProjectInput = document.getElementById('settings-pf-project-id');
+        if (pfProjectInput && data.projectsflow_project_id) {
+          pfProjectInput.value = data.projectsflow_project_id;
+        }
         if (data.claude_model) {
           document.getElementById('settings-claude-model').value = data.claude_model;
         }
@@ -80,6 +84,10 @@ const Settings = {
     if (pfTokenInput && pfTokenInput.value.trim()) {
       body.projectsflow_token = pfTokenInput.value.trim();
     }
+    const pfProjectInput = document.getElementById('settings-pf-project-id');
+    if (pfProjectInput && pfProjectInput.value.trim()) {
+      body.projectsflow_project_id = pfProjectInput.value.trim();
+    }
 
     try {
       const res = await App.api('/settings/analyzer', { method: 'PUT', body });
@@ -115,6 +123,8 @@ const Settings = {
     const pfGroup = document.getElementById('pf-token-group');
     if (apiGroup) apiGroup.style.display = (mode === 'dispatcher') ? 'none' : '';
     if (pfGroup)  pfGroup.style.display  = (mode === 'dispatcher') ? '' : 'none';
+    const pfProjectGroup = document.getElementById('pf-project-group');
+    if (pfProjectGroup) pfProjectGroup.style.display = (mode === 'dispatcher') ? '' : 'none';
     const modelGroup = document.getElementById('settings-claude-model')?.closest('.form-group');
     if (modelGroup) modelGroup.style.display = (mode === 'dispatcher') ? 'none' : '';
   },
