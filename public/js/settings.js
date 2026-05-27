@@ -85,12 +85,17 @@ const Settings = {
       const res = await App.api('/settings/analyzer', { method: 'PUT', body });
       if (res.ok) {
         App.notify('Настройки сохранены', 'success');
-        document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
-        apiKeyInput.value = '';
+        if (apiKeyInput.value.trim()) {
+          document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
+          apiKeyInput.value = ''; // API keys stay password-style, clear after save
+        }
         if (pfTokenInput && pfTokenInput.value.trim()) {
-          document.getElementById('pf-token-status').textContent = 'PF-токен сохранён';
-          document.getElementById('pf-token-status').style.color = 'var(--green)';
-          pfTokenInput.value = '';
+          const status = document.getElementById('pf-token-status');
+          if (status) {
+            status.textContent = 'PF-токен сохранён';
+            status.style.color = 'var(--green)';
+          }
+          // Don't clear pf-token input — user wants to see what they saved.
         }
       } else {
         const data = await res.json();
@@ -101,13 +106,17 @@ const Settings = {
     }
   },
 
-  // Show/hide API-key block (only for claude_api) vs PF-token block (only for dispatcher).
+  // Show/hide API-key block (only for claude_api), PF-token block (only for dispatcher),
+  // and Claude model dropdown (irrelevant in dispatcher — model is decided by the
+  // Claude Code session running the dispatcher, not by ScanFlow config).
   _refreshModeVisibility() {
     const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value || 'claude_api';
     const apiGroup = document.getElementById('api-key-group');
     const pfGroup = document.getElementById('pf-token-group');
     if (apiGroup) apiGroup.style.display = (mode === 'dispatcher') ? 'none' : '';
     if (pfGroup)  pfGroup.style.display  = (mode === 'dispatcher') ? '' : 'none';
+    const modelGroup = document.getElementById('settings-claude-model')?.closest('.form-group');
+    if (modelGroup) modelGroup.style.display = (mode === 'dispatcher') ? 'none' : '';
   },
 
   async saveAutoSend() {
