@@ -41,7 +41,9 @@ async function addItem(
   ).run(invoiceId, opts.unit, opts.price, opts.price, opts.guid);
 }
 
-describe('GET /api/invoices/:id (price stats)', () => {
+// Skip in CI when DB_HOST is not set. Local dev: set DB_HOST=127.0.0.1 +
+// DB_PASSWORD + DB_NAME=scanflow_test before running.
+describe.runIf((process.env.DB_NAME || '').includes('test'))('GET /api/invoices/:id (price stats)', () => {
   const GUID = 'gid-flour';
   beforeEach(async () => { await resetDb(); });
   afterAll(async () => { await closeTestDb(); });

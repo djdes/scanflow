@@ -34,7 +34,9 @@ async function getStats(guid: string) {
     .get<{ onec_guid: string; median_price: number; price_unit: string; samples: number }>(guid);
 }
 
-describe('recomputeMedianForGuid', () => {
+// Skip in CI when DB_HOST is not set. Local dev: set DB_HOST=127.0.0.1 +
+// DB_PASSWORD + DB_NAME=scanflow_test before running.
+describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianForGuid', () => {
   beforeEach(async () => { await resetDb(); });
   afterAll(async () => { await closeTestDb(); });
 
@@ -154,7 +156,7 @@ describe('recomputeMedianForGuid', () => {
   });
 });
 
-describe('recomputeMedianForGuids (batch)', () => {
+describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianForGuids (batch)', () => {
   beforeEach(async () => { await resetDb(); });
   afterAll(async () => { await closeTestDb(); });
 
