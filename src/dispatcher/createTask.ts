@@ -48,51 +48,41 @@ function buildDescription(args: {
   photoUrl: string;
   callbackUrl: string;
   token: string;
+  promptUrl: string;
 }): string {
-  // Full OCR prompt (the SAME one we use locally in claude_api mode) is
-  // embedded so the dispatcher Claude session has explicit rules — including
-  // pack_size extraction (1/12, *48, etc.) so quantities come back in
-  // canonical units, not in "коробок"/"упак".
-  const ocrPrompt = buildPrompt();
+  // PF has a 5000-char limit on description. Keep this lean; the full OCR
+  // prompt is served separately via GET /api/dispatcher/prompt (URL in YAML).
   return `---
 type: scanflow_ocr
 invoice_id: ${args.invoiceId}
 photo_url: ${args.photoUrl}
 callback_url: ${args.callbackUrl}
+prompt_url: ${args.promptUrl}
 token: ${args.token}
 expected_format: invoice_json
 ---
 
 ScanFlow OCR job for invoice #${args.invoiceId}.
 
-## Действие для диспетчера
+## Шаги
 
-1. **Скачай** фото из \`photo_url\` (публичный по токену, без X-API-Key). Сохрани локально, например \`data/photo_${args.invoiceId}.jpg\`.
-2. **OCR** через свою Claude-сессию по полному промпту ниже (раздел «OCR prompt»). Получишь JSON \`ParsedInvoiceData\`.
-3. **Сохрани JSON в файл** (например \`data/result_${args.invoiceId}.json\`). НЕ передавай тело через \`curl -d "..."\` — Windows bash ломает UTF-8.
-4. **POST** на \`callback_url\` с правильной кодировкой:
+1. **Скачай фото** из \`photo_url\` → \`data/photo_${args.invoiceId}.jpg\`.
+2. **Скачай OCR-промпт** из \`prompt_url\` (plain text). Применяй его к фото — в нём правила распознавания шапки, таблицы, ед. изм. и \`pack_size\`.
+3. **Распознавание** даст JSON \`ParsedInvoiceData\` (invoice_type / invoice_number / invoice_date / supplier / supplier_inn / total_sum / vat_sum / items[] с полями name, quantity, unit, price, total, vat_rate, row_no, pack_size).
+4. **Сохрани JSON в файл** \`data/result_${args.invoiceId}.json\` — оборачивая в:
+   \`\`\`json
+   {"token":"${args.token}","success":true,"data":<JSON>}
+   \`\`\`
+   На ошибку: \`{"token":"${args.token}","success":false,"error":"описание"}\`.
+5. **POST на callback** (важно \`--data-binary @file\`, не \`-d\` — Windows bash ломает UTF-8):
    \`\`\`bash
    curl -X POST '${args.callbackUrl}' \\
      -H 'Content-Type: application/json; charset=utf-8' \\
      --data-binary @data/result_${args.invoiceId}.json
    \`\`\`
-   Тело файла должно быть:
-   \`\`\`json
-   {"token":"${args.token}","success":true,"data":<JSON со схемой ParsedInvoiceData>}
-   \`\`\`
-   При ошибке:
-   \`\`\`json
-   {"token":"${args.token}","success":false,"error":"описание"}
-   \`\`\`
-5. **Помеси PF-задачу как done** через \`mcp__projectsflow__pf_move_task\`.
+6. **Закрой PF-задачу** через \`mcp__projectsflow__pf_move_task\` со \`targetStatus: 'done'\`.
 
-**Важно:** если callback вернул 400 «encoding-broken» — пересохрани JSON через \`Write\` tool в UTF-8 файл, retry. Токен остаётся валидным.
-
----
-
-## OCR prompt (применяй к фото)
-
-${ocrPrompt}`;
+**На 400 «encoding-broken»** — пересохрани JSON через Write tool, повтори. Токен валиден 15 мин с момента создания задачи.`;
 }
 
 export async function dispatchInvoice(invoiceId: number, photoFileName: string): Promise<void> {
@@ -115,6 +105,7 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
   const perTaskToken = generateToken();
   const photoUrl = `${config.publicBaseUrl}/api/dispatcher/photo/${invoiceId}?token=${perTaskToken}`;
   const callbackUrl = `${config.publicBaseUrl}/api/dispatcher/result/${invoiceId}`;
+  const promptUrl = `${config.publicBaseUrl}/api/dispatcher/prompt`;
 
   // Reserve the per-task token in DB BEFORE posting to PF so a fast callback
   // can't race the local UPDATE.
@@ -128,7 +119,7 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
     )
     .run(perTaskToken, invoiceId);
 
-  const description = buildDescription({ invoiceId, photoUrl, callbackUrl, token: perTaskToken });
+  const description = buildDescription({ invoiceId, photoUrl, callbackUrl, token: perTaskToken, promptUrl });
   const apiUrl = `${config.projectsflowApiUrl}/agent/projects/${encodeURIComponent(
     projectId,
   )}/tasks`;

@@ -17,6 +17,7 @@ import { ParsedInvoiceData, ParsedInvoiceItem } from '../../ocr/types';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
+import { buildPrompt } from '../../ocr/claudeApiAnalyzer';
 
 const router = Router();
 let mapper: NomenclatureMapper | null = null;
@@ -30,6 +31,16 @@ function contentTypeFor(filePath: string): string {
     : ext === '.tiff' || ext === '.tif' ? 'image/tiff'
     : 'image/jpeg';
 }
+
+// GET /api/dispatcher/prompt — serve the OCR system prompt as plain text.
+// The dispatcher Claude Code session fetches this URL and uses it verbatim
+// when analysing the photo. We can't embed the full prompt in the PF task
+// description because PF has a 5000-char limit on description.
+router.get('/prompt', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(buildPrompt());
+});
 
 router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
   const id = parseInt(req.params.invoiceId as string, 10);
