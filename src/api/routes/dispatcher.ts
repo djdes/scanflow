@@ -79,6 +79,20 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
   }
   const data = body.data;
 
+  // Defensive: if the dispatcher lost Cyrillic encoding somewhere, the payload
+  // arrives full of U+FFFD (Unicode replacement char). Silently storing
+  // ◇◇◇◇ in supplier/name is worse than failing loud — refuse.
+  const FFFD = '�';
+  const checkFields = [data.supplier, data.supplier_address, data.invoice_type, ...data.items.map(i => i?.name ?? '')];
+  const totalFFFD = checkFields.reduce((acc, v) => acc + (typeof v === 'string' ? (v.match(new RegExp(FFFD, 'g')) || []).length : 0), 0);
+  if (totalFFFD >= 5) {
+    logger.warn('dispatcher result: payload looks encoding-broken (≥5 U+FFFD chars)', { invoiceId: id, totalFFFD });
+    await invoiceRepo.updateStatus(id, 'error',
+      `Dispatcher payload has ${totalFFFD} replacement chars — Cyrillic encoding lost upstream. Re-run with UTF-8-safe transport.`);
+    await clearDispatcherState(id);
+    return res.status(400).json({ error: 'encoding-broken payload rejected', totalFFFD });
+  }
+
   try {
     await invoiceRepo.updateInvoiceData(id, {
       invoice_type: data.invoice_type ?? undefined,

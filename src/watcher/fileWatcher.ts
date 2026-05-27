@@ -500,6 +500,21 @@ export class FileWatcher {
         if (analyzerConfig.mode === 'dispatcher') {
           // Dispatcher mode: create task in ProjectsFlow, await async callback.
           // Don't run any local OCR — the dispatcher Claude Code session does it.
+          // Move the file from inbox → processed BEFORE dispatching so the
+          // photo endpoint can serve it (we won't reach the normal move-on-success
+          // path below since we early-return).
+          const processedPath = path.join(config.processedDir, fileName);
+          try {
+            if (fs.existsSync(filePath) && !fs.existsSync(processedPath)) {
+              fs.renameSync(filePath, processedPath);
+            }
+          } catch (e) {
+            // Watcher race / antivirus lock — log and proceed with whatever path exists.
+            logger.warn('Dispatcher mode: file move failed, continuing', {
+              from: filePath, to: processedPath, error: (e as Error).message,
+            });
+          }
+          await invoiceRepo.updateFilePath(invoice.id, processedPath);
           const { dispatchInvoice } = await import('../dispatcher/createTask');
           await dispatchInvoice(invoice.id, fileName);
           logger.info('Dispatcher task created, awaiting callback', { invoiceId: invoice.id });

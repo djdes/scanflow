@@ -228,6 +228,10 @@ export const invoiceRepo = {
       .run(id);
   },
 
+  async updateFilePath(id: number, filePath: string): Promise<void> {
+    await getDb().prepare('UPDATE invoices SET file_path = ? WHERE id = ?').run(filePath, id);
+  },
+
   async updateStatus(id: number, status: string, errorMessage?: string): Promise<void> {
     const db = getDb();
     if (errorMessage) {
