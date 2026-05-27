@@ -68,6 +68,42 @@ interface DispatcherResultBody {
   error?: string;
 }
 
+/**
+ * Find an existing invoice that the CURRENT one is a continuation of
+ * (multi-page invoice — one PDF/scan split across multiple upload events).
+ * Mirrors fileWatcher's strategies A/C/D, the ones that cover dispatcher's
+ * upload paths. Strategy B (mobile camera `photo_N_*` filenames) and B2
+ * (row_no continuation) are not ported — they're edge cases.
+ *
+ * Returns the existing invoice row if a match is found, else null.
+ */
+async function findMultiPageTarget(
+  currentInvoiceId: number,
+  parsed: ParsedInvoiceData,
+): Promise<{ id: number; invoice_number: string | null; supplier: string | null; total_sum: number | null; vat_sum: number | null } | null> {
+  // A) match by invoice_number (within last 10 min)
+  if (parsed.invoice_number) {
+    const e = await invoiceRepo.findRecentByNumber(
+      parsed.invoice_number,
+      parsed.supplier ?? undefined,
+      10,
+    );
+    if (e && e.id !== currentInvoiceId) return e;
+  }
+  // C) same supplier within 5 min AND current page has no invoice_number
+  //    (page-2 of a multi-page where the number was only on page-1).
+  if (parsed.supplier && !parsed.invoice_number) {
+    const e = await invoiceRepo.findRecentBySupplier(parsed.supplier, currentInvoiceId, 5);
+    if (e) return e;
+  }
+  // D) no metadata at all → continuation of most recent in last 2 min.
+  if (!parsed.invoice_number && !parsed.supplier) {
+    const e = await invoiceRepo.findMostRecentProcessedForContinuation(currentInvoiceId, 2);
+    if (e) return e;
+  }
+  return null;
+}
+
 router.post('/result/:invoiceId', async (req: Request, res: Response) => {
   const id = parseInt(req.params.invoiceId as string, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid invoice id' });
@@ -112,19 +148,43 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
   }
 
   try {
-    await invoiceRepo.updateInvoiceData(id, {
-      invoice_type: data.invoice_type ?? undefined,
-      invoice_number: data.invoice_number ?? undefined,
-      invoice_date: data.invoice_date ?? undefined,
-      supplier: data.supplier ?? undefined,
-      supplier_inn: data.supplier_inn ?? undefined,
-      supplier_bik: data.supplier_bik ?? undefined,
-      supplier_account: data.supplier_account ?? undefined,
-      supplier_corr_account: data.supplier_corr_account ?? undefined,
-      supplier_address: data.supplier_address ?? undefined,
-      total_sum: data.total_sum ?? undefined,
-      vat_sum: data.vat_sum ?? undefined,
-    });
+    // Multi-page merge: if this is a continuation of a recently-processed
+    // invoice, append items to that target instead of leaving an orphan row.
+    const mergeTarget = await findMultiPageTarget(id, data);
+    const targetInvoiceId = mergeTarget?.id ?? id;
+    const isMerge = !!mergeTarget;
+
+    if (isMerge) {
+      logger.info('dispatcher result: multi-page merge', {
+        currentInvoiceId: id, targetInvoiceId, supplier: data.supplier, number: data.invoice_number,
+      });
+      // Backfill missing header fields onto the existing invoice. Don't
+      // overwrite — first page is canonical for everything except total_sum
+      // (which only appears on the LAST page).
+      await invoiceRepo.updateInvoiceData(targetInvoiceId, {
+        invoice_number: mergeTarget.invoice_number ? undefined : (data.invoice_number ?? undefined),
+        supplier: mergeTarget.supplier ? undefined : (data.supplier ?? undefined),
+        total_sum: data.total_sum != null ? data.total_sum : (mergeTarget.total_sum == null ? undefined : undefined),
+        vat_sum: data.vat_sum != null ? data.vat_sum : (mergeTarget.vat_sum == null ? undefined : undefined),
+      });
+      // Items will be appended to targetInvoiceId below. Mark the current
+      // row as duplicate so it's hidden from the dashboard and not re-pickable.
+      await invoiceRepo.updateStatus(id, 'duplicate');
+    } else {
+      await invoiceRepo.updateInvoiceData(id, {
+        invoice_type: data.invoice_type ?? undefined,
+        invoice_number: data.invoice_number ?? undefined,
+        invoice_date: data.invoice_date ?? undefined,
+        supplier: data.supplier ?? undefined,
+        supplier_inn: data.supplier_inn ?? undefined,
+        supplier_bik: data.supplier_bik ?? undefined,
+        supplier_account: data.supplier_account ?? undefined,
+        supplier_corr_account: data.supplier_corr_account ?? undefined,
+        supplier_address: data.supplier_address ?? undefined,
+        total_sum: data.total_sum ?? undefined,
+        vat_sum: data.vat_sum ?? undefined,
+      });
+    }
     for (const it of data.items as ParsedInvoiceItem[]) {
       // 1) Resolve mapping (1C catalog match) + apply pack-size transform.
       //    Dispatcher returns qty/unit/price AS WRITTEN on the invoice
@@ -161,9 +221,10 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         transformedItem = r.item;
       }
 
-      // 2) Persist the (possibly transformed) item.
+      // 2) Persist the (possibly transformed) item — onto target invoice
+      //    (which is `id` when standalone, `mergeTarget.id` when multi-page).
       const inserted = await invoiceRepo.addItem({
-        invoice_id: id,
+        invoice_id: targetInvoiceId,
         original_name: it.name ?? '',
         mapped_name: mapping?.mapped_name ?? undefined,
         quantity: transformedItem.quantity ?? undefined,
@@ -176,10 +237,14 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       });
       void inserted; // for await/lint
     }
-    await invoiceRepo.updateStatus(id, 'processed');
+    if (!isMerge) {
+      await invoiceRepo.updateStatus(id, 'processed');
+    }
     await clearDispatcherState(id);
-    logger.info('dispatcher result: invoice processed', { invoiceId: id, items: data.items.length });
-    res.json({ ok: true, status: 'processed' });
+    logger.info('dispatcher result: invoice processed', {
+      invoiceId: id, targetInvoiceId, items: data.items.length, merged: isMerge,
+    });
+    res.json({ ok: true, status: isMerge ? 'merged' : 'processed', targetInvoiceId });
   } catch (err) {
     logger.error('dispatcher result: write failed', { invoiceId: id, error: (err as Error).message });
     res.status(500).json({ error: (err as Error).message });
