@@ -49,6 +49,17 @@ export const config = {
   webhook1cToken: envStr('WEBHOOK_1C_TOKEN', ''),
   webhookEnabled: envBool('WEBHOOK_ENABLED', false),
 
+  // Dispatcher mode (analyzer_config.mode === 'dispatcher')
+  // ScanFlow creates tasks in ProjectsFlow; user's Claude Code session
+  // processes them via MCP and calls back. See docs/dispatcher-runner.md.
+  publicBaseUrl: envStr('PUBLIC_BASE_URL', 'https://scanflow.ru'),
+  projectsflowApiUrl: envStr('PROJECTSFLOW_API_URL', 'https://projectsflow.ru/api'),
+  projectsflowToken: envStr('PROJECTSFLOW_AGENT_TOKEN', ''),
+  projectsflowScanflowProjectId: envStr(
+    'PROJECTSFLOW_SCANFLOW_PROJECT_ID',
+    '55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85',
+  ),
+
   // Debug
   debug: envBool('DEBUG', false),
   logLevel: envStr('LOG_LEVEL', 'info'),

@@ -596,6 +596,27 @@ const MIGRATIONS: Migration[] = [
       await backfillAllStats();
     },
   },
+  {
+    version: 25,
+    name: 'dispatcher mode: task_id + token + started_at on invoices',
+    detect: (exec) => hasColumn(exec, 'invoices', 'dispatcher_task_id'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'dispatcher_task_id'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN dispatcher_task_id VARCHAR(64) NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'dispatcher_token'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN dispatcher_token CHAR(64) NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'dispatcher_started_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN dispatcher_started_at DATETIME NULL`);
+      }
+      if (!(await hasIndex(exec, 'invoices', 'idx_invoices_dispatcher_started'))) {
+        await exec.query(
+          `CREATE INDEX idx_invoices_dispatcher_started ON invoices (dispatcher_started_at)`,
+        );
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
