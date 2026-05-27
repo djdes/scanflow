@@ -22,13 +22,34 @@ let pool: mysql.Pool | null = null;
 let migrated = false;
 
 export async function resetDb(): Promise<mysql.Pool> {
+  // SAFETY GUARD — DO NOT REMOVE.
+  // On 2026-05-26 this helper truncated prod MariaDB because dotenv (loaded
+  // transitively via src/database/db.ts → src/config.ts) populated
+  // process.env.DB_NAME='scanflow' before the `||` fallback could fire.
+  // resetDb() unconditionally TRUNCATEs every data table — if we ever point
+  // at prod again it wipes the business. Two hard checks below stop that.
+  const dbHost = process.env.DB_HOST || '';
+  const dbName = process.env.DB_NAME || '';
+  if (dbHost !== '127.0.0.1' && dbHost !== 'localhost') {
+    throw new Error(
+      `tests/helpers/db.ts: refusing to operate against DB_HOST="${dbHost}" — ` +
+      `tests must point at 127.0.0.1 or localhost ONLY (incident 2026-05-26).`,
+    );
+  }
+  if (!dbName.includes('test')) {
+    throw new Error(
+      `tests/helpers/db.ts: refusing to operate against DB_NAME="${dbName}" — ` +
+      `schema name must contain "test" (incident 2026-05-26).`,
+    );
+  }
+
   if (!pool) {
     pool = mysql.createPool({
-      host: process.env.DB_HOST || '192.168.33.3',
+      host: dbHost,
       port: Number(process.env.DB_PORT || 3306),
       user: process.env.DB_USER || 'scanflow',
       password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'scanflow_test',
+      database: dbName,
       waitForConnections: true,
       connectionLimit: 5,
       charset: 'utf8mb4',

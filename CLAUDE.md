@@ -121,6 +121,7 @@ First start with empty `users` table prints a one-time random admin password to 
 14. **`sber_payments.invoice_id` UNIQUE = one payment per invoice.** This is intentional double-click protection. If частичные оплаты понадобятся — это отдельная фича с миграцией, не «ослабить constraint».
 15. **Все DB-обращения теперь async.** Каждый метод репозиториев (`invoiceRepo.*`, `mappingRepo.*`, `userRepo.*`, …) возвращает Promise; забыл `await` — TypeScript ругнётся, но в runtime это будет «невидимый» баг. Транзакции: `await getDb().transaction(async (txn) => { … })`. Никаких `db.transaction(() => {…})()` синхронных — сразу TypeError.
 16. **Schema changes — только через миграции** в `src/database/migrations.ts`. Каждая миграция должна быть idempotent (`CREATE TABLE IF NOT EXISTS`, `hasColumn` guards) — MySQL DDL не транзакционна, поэтому частичный фейл должен переигрываться без ошибок.
+17. **🔥 ТЕСТЫ НИКОГДА НЕ КОННЕКТЯТСЯ К ЧЕМУ-ТО, КРОМЕ `127.0.0.1`/`localhost`.** `tests/helpers/db.ts` имеет sanity-guard в начале `resetDb()`, который throw'нет при `DB_HOST != localhost` или при `DB_NAME` без подстроки `"test"`. **Не отключать.** Контекст: 2026-05-26 прогон тестов стёр прод-MariaDB через каскад «`src/config.ts` грузит `dotenv` как side-effect → `process.env.DB_NAME` становится `scanflow` (прод) → `resetDb()` делает `TRUNCATE` каждой таблицы». Если делаете новый test helper или integration-скрипт с DDL — обязан вызвать тот же guard или не работать совсем без явного `.env.test`.
 
 ## API surface (mounted in `src/api/server.ts`)
 
