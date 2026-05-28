@@ -128,9 +128,10 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(res.body.status).toBe('merged');
     expect(res.body.targetInvoiceId).toBe(page1);
 
-    // page-2 becomes a duplicate, no items of its own
+    // page-2 becomes a duplicate LINKED to page-1, no items of its own
     const p2 = await getInvoice(page2);
     expect(p2?.status).toBe('duplicate');
+    expect(p2?.duplicate_of).toBe(page1);
     expect(await itemCount(page2)).toBe(0);
 
     // page-1 now holds both items and the recalculated total

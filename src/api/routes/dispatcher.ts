@@ -321,9 +321,10 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         total_sum: data.total_sum != null ? data.total_sum : (mergeTarget.total_sum == null ? undefined : undefined),
         vat_sum: data.vat_sum != null ? data.vat_sum : (mergeTarget.vat_sum == null ? undefined : undefined),
       });
-      // Items will be appended to targetInvoiceId below. Mark the current
-      // row as duplicate so it's hidden from the dashboard and not re-pickable.
-      await invoiceRepo.updateStatus(id, 'duplicate');
+      // Items will be appended to targetInvoiceId below. Mark the current row
+      // as a duplicate OF the target — markAsDuplicate sets duplicate_of so the
+      // UI shows the "🔁 #N" link instead of a blank, badge-less orphan row.
+      await invoiceRepo.markAsDuplicate(id, targetInvoiceId);
     } else {
       await invoiceRepo.updateInvoiceData(id, {
         invoice_type: data.invoice_type ?? undefined,
