@@ -596,6 +596,33 @@ export const invoiceRepo = {
     return undefined;
   },
 
+  /**
+   * Reverse multi-page lookup: find recently-processed standalone pages from
+   * the same supplier that carry NO invoice_number — i.e. continuation pages
+   * that landed before this header page (race-ordered dispatcher callbacks).
+   * Returns all matches (a header may have several continuation pages).
+   */
+  async findNumberlessOrphansBySupplier(supplier: string, excludeId: number, withinMinutes: number = 5): Promise<Invoice[]> {
+    const candidates = await getDb().prepare(
+      `SELECT * FROM invoices
+       WHERE supplier IS NOT NULL AND supplier != ''
+       AND (invoice_number IS NULL OR invoice_number = '')
+       AND id != ?
+       AND duplicate_of IS NULL
+       AND status = 'processed'
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
+       ORDER BY created_at ASC`
+    ).all<Invoice>(excludeId);
+    return candidates.filter(c => c.supplier && suppliersMatch(supplier, c.supplier));
+  },
+
+  /** Reassign every item from one invoice to another (multi-page merge). */
+  async moveItemsToInvoice(fromInvoiceId: number, toInvoiceId: number): Promise<void> {
+    await getDb()
+      .prepare('UPDATE invoice_items SET invoice_id = ? WHERE invoice_id = ?')
+      .run(toInvoiceId, fromInvoiceId);
+  },
+
   async appendFileName(id: number, newFileName: string): Promise<void> {
     const invoice = await this.getById(id);
     if (invoice) {

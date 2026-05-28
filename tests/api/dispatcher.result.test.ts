@@ -140,6 +140,52 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(p1?.items_total_mismatch).toBe(0); // 100 (page1) + 150 (page2) == 250 → no mismatch
   });
 
+  it('reverse-merges: numbered header absorbs a numberless orphan that finalised first', async () => {
+    // Simulate the dispatcher callback race: the continuation page (no number)
+    // called back FIRST and finalised standalone, carrying the grand total.
+    const orphanR = await getDb().prepare(
+      `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, total_sum)
+       VALUES ('p2.jpg', '/test/p2.jpg', 'processed', 'АО "ОПТИКОМ"', NULL, 42962.28)`
+    ).run();
+    const orphan = Number(orphanR.lastInsertRowid);
+    await getDb().prepare(
+      `INSERT INTO invoice_items (invoice_id, original_name, quantity, unit, price, total, mapping_confidence)
+       VALUES (?, 'Средство для мытья посуды', 8, 'шт', 294.91, 2359.28, 0)`
+    ).run(orphan);
+
+    // Now the header page (with number) calls back.
+    const header = await createPending({ supplier: null, number: null });
+    const res = await request(app).post(`/api/dispatcher/result/${header}`).send({
+      token: TOKEN,
+      success: true,
+      data: {
+        supplier: 'АО "ОПТИКОМ"',
+        invoice_number: '1/236334',
+        invoice_date: '2026-05-26',
+        total_sum: 40603,
+        items: [
+          { name: 'Бутылка 300 мл', quantity: 800, unit: 'шт', price: 12.18, total: 9744 },
+          { name: 'Стакан 420 мл', quantity: 1000, unit: 'шт', price: 5, total: 5000 },
+        ],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    // The orphan is reclaimed as a duplicate of the header.
+    const orphanInv = await getInvoice(orphan);
+    expect(orphanInv?.status).toBe('duplicate');
+    expect(orphanInv?.duplicate_of).toBe(header);
+    expect(await itemCount(orphan)).toBe(0);
+
+    // Header now holds its own 2 items + the orphan's 1, with the grand total.
+    expect(await itemCount(header)).toBe(3);
+    const h = await getInvoice(header);
+    expect(h?.total_sum).toBe(42962.28); // grand total from the continuation page
+    // Σitems = 9744 + 5000 + 2359.28 = 17103.28 ≠ 42962.28 → flagged (this
+    // partial fixture omits most page-1 items, so mismatch is expected here).
+    expect(h?.items_total_mismatch).toBe(1);
+  });
+
   it('marks invoice as error and keeps no items on success=false', async () => {
     const id = await createPending();
     const res = await request(app).post(`/api/dispatcher/result/${id}`).send({ token: TOKEN, success: false, error: 'не распознал' });

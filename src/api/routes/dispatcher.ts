@@ -164,6 +164,36 @@ async function findMultiPageTarget(
   return null;
 }
 
+/**
+ * Reverse multi-page merge. Dispatcher OCRs each page as an independent PF
+ * task, so callbacks arrive UNORDERED — a numberless continuation page can be
+ * processed (standalone) before its header page exists. findMultiPageTarget's
+ * forward strategies only fire from the continuation's side; the numbered
+ * header has no way to reclaim an already-finalised orphan. This closes that
+ * gap: once a header page lands, pull in recent numberless same-supplier
+ * orphans, moving their items in and marking them duplicate.
+ *
+ * Returns the absorbed orphan ids (empty if none).
+ */
+async function absorbNumberlessOrphans(headerInvoiceId: number, headerSupplier: string): Promise<number[]> {
+  const orphans = await invoiceRepo.findNumberlessOrphansBySupplier(headerSupplier, headerInvoiceId, 5);
+  if (!orphans.length) return [];
+
+  const header = await invoiceRepo.getById(headerInvoiceId);
+  let grandTotal: number | null = header?.total_sum ?? null;
+  const absorbed: number[] = [];
+  for (const o of orphans) {
+    await invoiceRepo.moveItemsToInvoice(o.id, headerInvoiceId);
+    await invoiceRepo.markAsDuplicate(o.id, headerInvoiceId);
+    // The continuation/last page carries the cumulative grand total; adopt the
+    // largest document total across header + continuation pages.
+    if (o.total_sum != null && (grandTotal == null || o.total_sum > grandTotal)) grandTotal = o.total_sum;
+    absorbed.push(o.id);
+  }
+  if (grandTotal != null) await invoiceRepo.updateInvoiceData(headerInvoiceId, { total_sum: grandTotal });
+  return absorbed;
+}
+
 router.post('/result/:invoiceId', async (req: Request, res: Response) => {
   const id = parseInt(req.params.invoiceId as string, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid invoice id' });
@@ -313,6 +343,18 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
 
     if (!isMerge) {
       await invoiceRepo.updateStatus(id, 'processed');
+
+      // Reverse multi-page merge: a numberless continuation page may have
+      // called back FIRST and finalised standalone. If this is its header
+      // (has a number + supplier), reclaim it now.
+      if (data.invoice_number && data.supplier) {
+        const absorbed = await absorbNumberlessOrphans(id, canonicalizeSupplierName(data.supplier));
+        if (absorbed.length) {
+          await invoiceRepo.recalculateTotal(id);
+          logger.info('dispatcher result: absorbed numberless continuation pages', { headerInvoiceId: id, absorbed });
+        }
+      }
+
       // Telegram notifications (background context → recipient = first user).
       // Merge case is intentionally silent: page-1 already notified the user.
       const finalInvoice = await invoiceRepo.getById(id);
