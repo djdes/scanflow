@@ -186,6 +186,79 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(h?.items_total_mismatch).toBe(1);
   });
 
+  it('cumulative-total merge: links pages with DIFFERENT OCR numbers via grand total', async () => {
+    // Page 1 already processed: number 17-0315110, 2 items summing to 82261.77.
+    const p1R = await getDb().prepare(
+      `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum)
+       VALUES ('p1.jpg','/t/p1.jpg','processed','ООО "Свит Лайф"','17-0315110','2026-05-26', 82261.77)`
+    ).run();
+    const p1 = Number(p1R.lastInsertRowid);
+    await getDb().prepare(
+      `INSERT INTO invoice_items (invoice_id, original_name, quantity, unit, price, total, mapping_confidence)
+       VALUES (?, 'Навага', 1, 'кг', 80261.77, 80261.77, 0), (?, 'Камбала', 1, 'кг', 2000, 2000, 0)`
+    ).run(p1, p1);
+
+    // Page 2 callback: DIFFERENT number 17-0315111, 1 item (1024.5), grand total 83286.27.
+    const p2 = await createPending();
+    const res = await request(app).post(`/api/dispatcher/result/${p2}`).send({
+      token: TOKEN,
+      success: true,
+      data: {
+        supplier: 'ООО "Свит Лайф"',
+        invoice_number: '17-0315111',
+        total_sum: 83286.27, // = 82261.77 + 1024.50 (cumulative)
+        items: [{ name: 'Анчоусы', quantity: 6, unit: 'шт', price: 170.75, total: 1024.5 }],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('merged');
+    expect(res.body.targetInvoiceId).toBe(p1); // p1 canonical (has date)
+
+    const page2 = await getInvoice(p2);
+    expect(page2?.status).toBe('duplicate');
+    expect(page2?.duplicate_of).toBe(p1);
+
+    expect(await itemCount(p1)).toBe(3);
+    const h = await getInvoice(p1);
+    expect(h?.total_sum).toBe(83286.27);
+    expect(h?.items_total_mismatch).toBe(0); // 80261.77+2000+1024.5 == 83286.27
+  });
+
+  it('does NOT merge two genuinely separate same-supplier invoices', async () => {
+    // Two complete standalone invoices from the same supplier, each total ≈ own items.
+    const aR = await getDb().prepare(
+      `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum)
+       VALUES ('a.jpg','/t/a.jpg','processed','ООО "Свит Лайф"','17-0315110','2026-05-26', 5000)`
+    ).run();
+    const a = Number(aR.lastInsertRowid);
+    await getDb().prepare(
+      `INSERT INTO invoice_items (invoice_id, original_name, quantity, unit, price, total, mapping_confidence)
+       VALUES (?, 'Товар A', 1, 'кг', 5000, 5000, 0)`
+    ).run(a);
+
+    const b = await createPending();
+    const res = await request(app).post(`/api/dispatcher/result/${b}`).send({
+      token: TOKEN,
+      success: true,
+      data: {
+        supplier: 'ООО "Свит Лайф"',
+        invoice_number: '17-0315111', // sequential but a DIFFERENT real invoice
+        total_sum: 3000,
+        items: [{ name: 'Товар B', quantity: 1, unit: 'кг', price: 3000, total: 3000 }],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('processed'); // NOT merged
+    expect(res.body.targetInvoiceId).toBe(b);
+    expect((await getInvoice(a))?.status).toBe('processed');
+    expect((await getInvoice(b))?.status).toBe('processed');
+    expect((await getInvoice(b))?.duplicate_of).toBeNull();
+    expect(await itemCount(a)).toBe(1);
+    expect(await itemCount(b)).toBe(1);
+  });
+
   it('marks invoice as error and keeps no items on success=false', async () => {
     const id = await createPending();
     const res = await request(app).post(`/api/dispatcher/result/${id}`).send({ token: TOKEN, success: false, error: 'не распознал' });

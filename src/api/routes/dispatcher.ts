@@ -194,6 +194,62 @@ async function absorbNumberlessOrphans(headerInvoiceId: number, headerSupplier: 
   return absorbed;
 }
 
+/**
+ * Cumulative-total multi-page reconciliation. Handles the case where OCR read a
+ * DIFFERENT invoice_number on each page (e.g. a page suffix or a misread last
+ * digit: 17-0315110 vs 17-0315111), so neither the number nor numberless
+ * strategies can link the pages.
+ *
+ * Signal: the last page of a multi-page invoice prints the CUMULATIVE grand
+ * total. So for a recent same-supplier sibling Y, if
+ *     max(X.total, Y.total) ≈ Σ(X.items) + Σ(Y.items)
+ * then X and Y are pages of one invoice. This is arithmetically self-guarding:
+ * two genuinely separate invoices each have total ≈ their own items, so the
+ * equation only holds if one "total" is ~0 — which never happens for a real
+ * standalone invoice. So it will NOT merge two distinct invoices.
+ *
+ * Canonical page = the one with an invoice_date (falls back to invoice_number,
+ * then the one with more items). The other is absorbed. Returns the canonical
+ * invoice id if a merge happened, else null.
+ */
+async function reconcileCumulativeTotalPages(currentId: number): Promise<number | null> {
+  const current = await invoiceRepo.getById(currentId);
+  if (!current || !current.supplier) return null;
+  const currentItems = await invoiceRepo.getItems(currentId);
+  const currentItemsSum = currentItems.reduce((s, it) => s + (it.total ?? 0), 0);
+
+  const candidates = await invoiceRepo.findRecentSupplierPagesForReconcile(current.supplier, currentId, 5);
+  for (const y of candidates) {
+    const combined = currentItemsSum + y.items_sum;
+    const grand = Math.max(current.total_sum ?? 0, y.total_sum ?? 0);
+    if (grand <= 0) continue;
+    const tol = Math.max(1, grand * 0.005);
+    if (Math.abs(grand - combined) > tol) continue;
+    // Both pages must each be only PART of the whole (their own items < grand),
+    // otherwise one of them already is the complete invoice.
+    if (currentItemsSum >= grand - tol && y.items_sum >= grand - tol) continue;
+
+    // Pick canonical: prefer the page that has a date, then a number, then more items.
+    const yHasDate = !!y.invoice_date, cHasDate = !!current.invoice_date;
+    const yHasNum = !!y.invoice_number, cHasNum = !!current.invoice_number;
+    let canonicalId: number, otherId: number;
+    if (yHasDate !== cHasDate) { canonicalId = yHasDate ? y.id : currentId; }
+    else if (yHasNum !== cHasNum) { canonicalId = yHasNum ? y.id : currentId; }
+    else { canonicalId = y.items_count >= currentItems.length ? y.id : currentId; }
+    otherId = canonicalId === y.id ? currentId : y.id;
+
+    await invoiceRepo.moveItemsToInvoice(otherId, canonicalId);
+    await invoiceRepo.markAsDuplicate(otherId, canonicalId);
+    await invoiceRepo.updateInvoiceData(canonicalId, { total_sum: grand });
+    await invoiceRepo.recalculateTotal(canonicalId);
+    logger.info('dispatcher result: cumulative-total page merge', {
+      canonicalId, otherId, grand, combined,
+    });
+    return canonicalId;
+  }
+  return null;
+}
+
 router.post('/result/:invoiceId', async (req: Request, res: Response) => {
   const id = parseInt(req.params.invoiceId as string, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid invoice id' });
@@ -341,6 +397,9 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     // OCR blunder (e.g. "165 229,2" → 1652292) would slip in unvalidated.
     await invoiceRepo.recalculateTotal(targetInvoiceId);
 
+    let finalTargetId = targetInvoiceId;
+    let mergedAway = false; // true when THIS page became a duplicate of another
+
     if (!isMerge) {
       await invoiceRepo.updateStatus(id, 'processed');
 
@@ -355,38 +414,51 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         }
       }
 
+      // Cumulative-total reconciliation: links pages whose OCR'd invoice
+      // numbers DIFFER (e.g. 17-0315110 vs 17-0315111), detected via the
+      // grand-total = Σ all items relationship. May make THIS page the
+      // canonical (absorbing an earlier sibling) or a duplicate of one.
+      const reconCanonical = await reconcileCumulativeTotalPages(id);
+      if (reconCanonical && reconCanonical !== id) {
+        finalTargetId = reconCanonical;
+        mergedAway = true;
+      }
+
       // Telegram notifications (background context → recipient = first user).
-      // Merge case is intentionally silent: page-1 already notified the user.
-      const finalInvoice = await invoiceRepo.getById(id);
-      if (finalInvoice) {
-        emitNotification('invoice_recognized', {
-          invoice_id: finalInvoice.id,
-          invoice_number: finalInvoice.invoice_number,
-          supplier: finalInvoice.supplier,
-          total_sum: finalInvoice.total_sum,
-        }, null).catch(() => {});
-        if (finalInvoice.items_total_mismatch === 1) {
-          const finalItems = await invoiceRepo.getItems(finalInvoice.id);
-          const itemsTotal = finalItems.reduce((s, it) => s + (it.total ?? 0), 0);
-          emitNotification('suspicious_total', {
+      // Skip when this page merged away or absorbed siblings silently — the
+      // canonical page is what the user already saw / will see.
+      if (!mergedAway) {
+        const finalInvoice = await invoiceRepo.getById(id);
+        if (finalInvoice) {
+          emitNotification('invoice_recognized', {
             invoice_id: finalInvoice.id,
             invoice_number: finalInvoice.invoice_number,
             supplier: finalInvoice.supplier,
             total_sum: finalInvoice.total_sum,
-            items_total: itemsTotal,
           }, null).catch(() => {});
+          if (finalInvoice.items_total_mismatch === 1) {
+            const finalItems = await invoiceRepo.getItems(finalInvoice.id);
+            const itemsTotal = finalItems.reduce((s, it) => s + (it.total ?? 0), 0);
+            emitNotification('suspicious_total', {
+              invoice_id: finalInvoice.id,
+              invoice_number: finalInvoice.invoice_number,
+              supplier: finalInvoice.supplier,
+              total_sum: finalInvoice.total_sum,
+              items_total: itemsTotal,
+            }, null).catch(() => {});
+          }
         }
       }
     }
 
     // Auto-send hooks (1C approve + Sber), mirroring fileWatcher step 8.
-    await runAutoSendHooks(targetInvoiceId);
+    await runAutoSendHooks(finalTargetId);
 
     await clearDispatcherState(id);
     logger.info('dispatcher result: invoice processed', {
-      invoiceId: id, targetInvoiceId, items: data.items.length, merged: isMerge,
+      invoiceId: id, targetInvoiceId: finalTargetId, items: data.items.length, merged: isMerge || mergedAway,
     });
-    res.json({ ok: true, status: isMerge ? 'merged' : 'processed', targetInvoiceId });
+    res.json({ ok: true, status: (isMerge || mergedAway) ? 'merged' : 'processed', targetInvoiceId: finalTargetId });
   } catch (err) {
     logger.error('dispatcher result: write failed', { invoiceId: id, error: (err as Error).message });
     res.status(500).json({ error: (err as Error).message });

@@ -623,6 +623,31 @@ export const invoiceRepo = {
       .run(toInvoiceId, fromInvoiceId);
   },
 
+  /**
+   * Recent same-supplier processed invoices with their item-sum + item-count,
+   * for cumulative-total multi-page reconciliation (different invoice_number
+   * on each page, so number/numberless strategies can't link them).
+   */
+  async findRecentSupplierPagesForReconcile(
+    supplier: string, excludeId: number, withinMinutes: number = 5,
+  ): Promise<Array<{ id: number; invoice_number: string | null; invoice_date: string | null; supplier: string | null; total_sum: number | null; items_sum: number; items_count: number }>> {
+    const rows = await getDb().prepare(
+      `SELECT i.id, i.invoice_number, i.invoice_date, i.supplier, i.total_sum,
+              (SELECT COALESCE(SUM(total), 0) FROM invoice_items WHERE invoice_id = i.id) AS items_sum,
+              (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS items_count
+         FROM invoices i
+        WHERE i.supplier IS NOT NULL AND i.supplier != ''
+          AND i.id != ?
+          AND i.duplicate_of IS NULL
+          AND i.status = 'processed'
+          AND i.created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
+        ORDER BY i.created_at ASC`
+    ).all<{ id: number; invoice_number: string | null; invoice_date: string | null; supplier: string | null; total_sum: number | null; items_sum: number; items_count: number }>(excludeId);
+    return rows
+      .filter(r => r.supplier && suppliersMatch(supplier, r.supplier))
+      .map(r => ({ ...r, items_sum: Number(r.items_sum), items_count: Number(r.items_count) }));
+  },
+
   async appendFileName(id: number, newFileName: string): Promise<void> {
     const invoice = await this.getById(id);
     if (invoice) {
