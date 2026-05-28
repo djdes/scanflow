@@ -18,10 +18,70 @@ import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt } from '../../ocr/claudeApiAnalyzer';
+import { emit as emitNotification } from '../../notifications/events';
+import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
+import { userRepo } from '../../database/repositories/userRepo';
+import { getDb } from '../../database/db';
+import { config } from '../../config';
 
 const router = Router();
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void { mapper = m; }
+
+/**
+ * Post-processing parity with fileWatcher step 8: auto-approve for 1C and/or
+ * auto-send to Sber if the user enabled those toggles. No-op unless the
+ * invoice is 'processed' and not a duplicate. Never throws.
+ */
+async function runAutoSendHooks(targetInvoiceId: number): Promise<void> {
+  try {
+    const finalInv = await invoiceRepo.getById(targetInvoiceId);
+    const cfg = await invoiceRepo.getAnalyzerConfig();
+    const canAutoSend = !!finalInv && finalInv.status === 'processed' && finalInv.duplicate_of == null;
+    if (!canAutoSend) return;
+
+    const whCfg = await getDb()
+      .prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1')
+      .get<{ auto_send_1c: number }>();
+    const wantAuto1c = (whCfg?.auto_send_1c === 1) || cfg.auto_send_1c;
+    if (wantAuto1c) {
+      await invoiceRepo.approveForOneC(targetInvoiceId);
+      logger.info('dispatcher: auto-approved for 1C', { id: targetInvoiceId });
+    }
+    if (cfg.auto_send_sber) {
+      await autoSendSber(targetInvoiceId);
+    }
+  } catch (e) {
+    logger.warn('dispatcher: auto-send hooks failed', { id: targetInvoiceId, error: (e as Error).message });
+  }
+}
+
+// Loopback POST to /send-sber (reuses the full endpoint logic: verified-supplier
+// check, payer details, payment row, Sber API call). Admin api_key from DB.
+async function autoSendSber(invoiceId: number): Promise<void> {
+  try {
+    const adminId = await userRepo.firstUserId();
+    if (!adminId) { logger.warn('dispatcher auto-send Sber: no admin user', { invoiceId }); return; }
+    const row = await getDb().prepare('SELECT api_key FROM users WHERE id = ?').get<{ api_key: string }>(adminId);
+    const apiKey = row?.api_key;
+    if (!apiKey) { logger.warn('dispatcher auto-send Sber: admin has no api_key', { invoiceId }); return; }
+    const url = `http://127.0.0.1:${config.apiPort}/api/invoices/${invoiceId}/send-sber`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { payment_number?: string };
+      logger.info('dispatcher: auto-sent to Sber', { invoiceId, paymentNumber: d.payment_number ?? null });
+    } else {
+      const text = await res.text().catch(() => '');
+      logger.warn('dispatcher: auto-send Sber rejected', { invoiceId, status: res.status, body: text.slice(0, 300) });
+    }
+  } catch (err) {
+    logger.warn('dispatcher: auto-send Sber error', { invoiceId, error: (err as Error).message });
+  }
+}
 
 function contentTypeFor(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -120,6 +180,14 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     await invoiceRepo.updateStatus(id, 'error', msg);
     await clearDispatcherState(id);
     logger.warn('dispatcher result: error reported', { invoiceId: id, error: msg });
+    const errInv = await invoiceRepo.getById(id);
+    emitNotification('recognition_error', {
+      invoice_id: id,
+      invoice_number: errInv?.invoice_number ?? null,
+      supplier: errInv?.supplier ?? null,
+      total_sum: errInv?.total_sum ?? null,
+      error_message: msg,
+    }, null).catch(() => {});
     return res.json({ ok: true, status: 'error' });
   }
 
@@ -163,7 +231,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       // (which only appears on the LAST page).
       await invoiceRepo.updateInvoiceData(targetInvoiceId, {
         invoice_number: mergeTarget.invoice_number ? undefined : (data.invoice_number ?? undefined),
-        supplier: mergeTarget.supplier ? undefined : (data.supplier ?? undefined),
+        supplier: mergeTarget.supplier ? undefined : (data.supplier ? canonicalizeSupplierName(data.supplier) : undefined),
         total_sum: data.total_sum != null ? data.total_sum : (mergeTarget.total_sum == null ? undefined : undefined),
         vat_sum: data.vat_sum != null ? data.vat_sum : (mergeTarget.vat_sum == null ? undefined : undefined),
       });
@@ -175,7 +243,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         invoice_type: data.invoice_type ?? undefined,
         invoice_number: data.invoice_number ?? undefined,
         invoice_date: data.invoice_date ?? undefined,
-        supplier: data.supplier ?? undefined,
+        supplier: data.supplier ? canonicalizeSupplierName(data.supplier) : undefined,
         supplier_inn: data.supplier_inn ?? undefined,
         supplier_bik: data.supplier_bik ?? undefined,
         supplier_account: data.supplier_account ?? undefined,
@@ -237,9 +305,41 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       });
       void inserted; // for await/lint
     }
+    // Recalculate total + items_total_mismatch flag (must-not-break #3 —
+    // cross-validate Σitems.total ≈ total_sum). Runs for BOTH the merge target
+    // (sum now includes appended page) and standalone. Without it, a Claude
+    // OCR blunder (e.g. "165 229,2" → 1652292) would slip in unvalidated.
+    await invoiceRepo.recalculateTotal(targetInvoiceId);
+
     if (!isMerge) {
       await invoiceRepo.updateStatus(id, 'processed');
+      // Telegram notifications (background context → recipient = first user).
+      // Merge case is intentionally silent: page-1 already notified the user.
+      const finalInvoice = await invoiceRepo.getById(id);
+      if (finalInvoice) {
+        emitNotification('invoice_recognized', {
+          invoice_id: finalInvoice.id,
+          invoice_number: finalInvoice.invoice_number,
+          supplier: finalInvoice.supplier,
+          total_sum: finalInvoice.total_sum,
+        }, null).catch(() => {});
+        if (finalInvoice.items_total_mismatch === 1) {
+          const finalItems = await invoiceRepo.getItems(finalInvoice.id);
+          const itemsTotal = finalItems.reduce((s, it) => s + (it.total ?? 0), 0);
+          emitNotification('suspicious_total', {
+            invoice_id: finalInvoice.id,
+            invoice_number: finalInvoice.invoice_number,
+            supplier: finalInvoice.supplier,
+            total_sum: finalInvoice.total_sum,
+            items_total: itemsTotal,
+          }, null).catch(() => {});
+        }
+      }
     }
+
+    // Auto-send hooks (1C approve + Sber), mirroring fileWatcher step 8.
+    await runAutoSendHooks(targetInvoiceId);
+
     await clearDispatcherState(id);
     logger.info('dispatcher result: invoice processed', {
       invoiceId: id, targetInvoiceId, items: data.items.length, merged: isMerge,
