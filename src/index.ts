@@ -13,6 +13,7 @@ import { cleanupOldRequestLogs } from './api/middleware/requestLog';
 import { cleanupOldPhotos } from './utils/photoRetention';
 import { checkDiskSpace } from './utils/diskMonitor';
 import { invoiceRepo } from './database/repositories/invoiceRepo';
+import { supplierExtractJobRepo } from './database/repositories/supplierExtractJobRepo';
 import { seedAdminUser } from './auth/seedAdmin';
 import { startDigestWorker } from './notifications/digestWorker';
 
@@ -135,6 +136,9 @@ async function main(): Promise<void> {
     invoiceRepo.markStaleDispatchersAsFailed(15)
       .then(n => { if (n > 0) logger.warn('Dispatcher timeout sweep: marked as error', { count: n }); })
       .catch(err => logger.error('dispatcher timeout sweep failed', { error: (err as Error).message }));
+    supplierExtractJobRepo.markStaleAsFailed(15)
+      .then(n => { if (n > 0) logger.warn('Supplier-extract timeout sweep: marked as error', { count: n }); })
+      .catch(err => logger.error('supplier-extract timeout sweep failed', { error: (err as Error).message }));
   });
   checkDiskSpace().catch(err => logger.error('initial disk space check failed', { error: (err as Error).message }));
 

@@ -11,13 +11,14 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
-import { validateDispatcherToken, clearDispatcherState } from '../../dispatcher/createTask';
+import { supplierExtractJobRepo } from '../../database/repositories/supplierExtractJobRepo';
+import { validateDispatcherToken, clearDispatcherState, validateSupplierJobToken } from '../../dispatcher/createTask';
 import { logger } from '../../utils/logger';
 import { ParsedInvoiceData, ParsedInvoiceItem } from '../../ocr/types';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
-import { buildPrompt } from '../../ocr/claudeApiAnalyzer';
+import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
 import { emit as emitNotification } from '../../notifications/events';
 import { canonicalizeSupplierName, normalizeInvoiceNumber } from '../../utils/invoiceNumber';
 import { userRepo } from '../../database/repositories/userRepo';
@@ -119,6 +120,83 @@ router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
   res.setHeader('Content-Type', contentTypeFor(row.file_path));
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(row.file_path).pipe(res);
+});
+
+// ─── Supplier-requisite extraction (suppliers page "Распознать с фото") ───
+// Mirrors the invoice flow but targets supplier_extract_jobs + a lean prompt.
+
+interface SupplierRequisites {
+  inn?: string | null; kpp?: string | null; name?: string | null;
+  bank_bic?: string | null; account?: string | null;
+  bank_corr_account?: string | null; bank_name?: string | null; address?: string | null;
+}
+interface SupplierResultBody { token?: string; success?: boolean; data?: SupplierRequisites; error?: string; }
+
+// GET /api/dispatcher/prompt-supplier — lean payee-requisites prompt (plain text).
+router.get('/prompt-supplier', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(buildSupplierPrompt());
+});
+
+// GET /api/dispatcher/photo-job/:jobId?token= — serve the job's document (image or PDF).
+router.get('/photo-job/:jobId', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.jobId as string, 10);
+  const token = (req.query.token as string | undefined) ?? '';
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid job id' });
+
+  const job = await validateSupplierJobToken(id, token);
+  if (!job) {
+    logger.warn('dispatcher photo-job: token invalid or job not processing', { jobId: id });
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  if (!fs.existsSync(job.file_path)) {
+    logger.warn('dispatcher photo-job: file missing on disk', { jobId: id, path: job.file_path });
+    return res.status(404).json({ error: 'document file missing' });
+  }
+  res.setHeader('Content-Type', job.content_type || contentTypeFor(job.file_path));
+  res.setHeader('Cache-Control', 'no-store');
+  fs.createReadStream(job.file_path).pipe(res);
+});
+
+// POST /api/dispatcher/supplier-result/:jobId — store extracted requisites.
+router.post('/supplier-result/:jobId', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.jobId as string, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid job id' });
+
+  const body = (req.body ?? {}) as SupplierResultBody;
+  const job = await validateSupplierJobToken(id, body.token ?? '');
+  if (!job) {
+    logger.warn('dispatcher supplier-result: token invalid or already processed', { jobId: id });
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  if (body.success === false || body.error) {
+    const msg = (body.error || 'dispatcher reported failure').slice(0, 1000);
+    await supplierExtractJobRepo.setError(id, msg);
+    fs.promises.unlink(job.file_path).catch(() => { /* best-effort */ });
+    logger.warn('dispatcher supplier-result: error reported', { jobId: id, error: msg });
+    return res.json({ ok: true, status: 'error' });
+  }
+  if (!body.success || !body.data || typeof body.data !== 'object') {
+    return res.status(400).json({ error: 'success=true requires data object' });
+  }
+
+  const d = body.data;
+  const extracted = {
+    inn: d.inn ?? null,
+    kpp: d.kpp ?? null,
+    name: d.name ?? null,
+    bank_bic: d.bank_bic ?? null,
+    account: d.account ?? null,
+    bank_corr_account: d.bank_corr_account ?? null,
+    bank_name: d.bank_name ?? null,
+    address: d.address ?? null,
+  };
+  await supplierExtractJobRepo.setResult(id, JSON.stringify(extracted));
+  fs.promises.unlink(job.file_path).catch(() => { /* best-effort */ });
+  logger.info('dispatcher supplier-result: requisites stored', { jobId: id, inn: extracted.inn });
+  res.json({ ok: true, status: 'done' });
 });
 
 interface DispatcherResultBody {

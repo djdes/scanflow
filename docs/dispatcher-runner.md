@@ -35,10 +35,18 @@ PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85          #
 >
 > 1. Через MCP `mcp__projectsflow__pf_list_tasks` получи задачи проекта `Scanflow` (project_id `55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85`) в статусе `backlog` или `todo`.
 >
-> 2. Для каждой задачи, чьё `description` начинается с YAML-блока `type: scanflow_ocr`:
->    - Распарси YAML — там `invoice_id`, `photo_url`, `callback_url`, `token`.
->    - **Скачай фото** через `WebFetch` или `fetch(photo_url)` (это HTTPS со встроенным токеном — без X-API-Key).
->    - **Прогони фото** через свою vision-способность с промптом для русских товарных накладных (см. ниже).
+> 2. Обрабатывай задачи ДВУХ типов (смотри YAML-поле `type` в начале `description`):
+>    **`type: scanflow_ocr`** — распознавание товарной накладной, и
+>    **`type: scanflow_supplier_requisites`** — распознавание реквизитов поставщика
+>    (со счёта/платёжки/накладной, для страницы «Поставщики»).
+>    Для любой из них следуй шагам, описанным В САМОЙ ЗАДАЧЕ (`description`), они
+>    самодостаточны. Общий алгоритм:
+>    - Распарси YAML — там `photo_url`, `callback_url`, `prompt_url`, `token`
+>      (+ `invoice_id` или `job_id`).
+>    - **Скачай документ** из `photo_url` (HTTPS со встроенным токеном, без X-API-Key).
+>      Это может быть фото ИЛИ PDF — `scanflow_supplier_requisites` принимает оба.
+>    - **Скачай промпт** из `prompt_url` (plain text) и примени его к документу.
+>      У каждого типа свой промпт: `/prompt` для накладных, `/prompt-supplier` для реквизитов.
 >    - **POST на `callback_url`** с телом:
 >      ```json
 >      {"token":"<тот же token из задачи>","success":true,"data":<распарсенный JSON>}
@@ -84,7 +92,7 @@ PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85          #
 После вставки промпта Claude:
 - запросит MCP-инструменты `pf_list_tasks` / `pf_update_task`
 - начнёт цикл
-- для каждой найденной задачи `type: scanflow_ocr` — скачает фото, распознает, отправит callback, закроет задачу
+- для каждой задачи `type: scanflow_ocr` (накладные) или `type: scanflow_supplier_requisites` (реквизиты поставщика) — скачает документ, распознает по промпту из `prompt_url`, отправит callback, закроет задачу
 
 Latency: ~30-60 сек на накладную (queue check + OCR + callback). Для 50/день этого достаточно.
 

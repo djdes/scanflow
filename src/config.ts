@@ -32,6 +32,9 @@ export const config = {
   inboxDir: path.resolve(envStr('INBOX_DIR', './data/inbox')),
   processedDir: path.resolve(envStr('PROCESSED_DIR', './data/processed')),
   failedDir: path.resolve(envStr('FAILED_DIR', './data/failed')),
+  // Persistent staging for async supplier-requisite extraction jobs (dispatcher
+  // downloads the file minutes later, so it must outlive the request).
+  supplierExtractDir: path.resolve(envStr('SUPPLIER_EXTRACT_DIR', './data/supplier_extracts')),
 
   // MySQL/MariaDB
   dbHost: envStr('DB_HOST', '192.168.33.3'),

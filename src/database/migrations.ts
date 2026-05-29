@@ -647,6 +647,27 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 29,
+    name: 'supplier_extract_jobs — async requisite recognition via dispatcher',
+    detect: (exec) => hasTable(exec, 'supplier_extract_jobs'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS supplier_extract_jobs (
+          id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          token        CHAR(64)     NOT NULL,
+          task_id      VARCHAR(64)  NULL,
+          status       VARCHAR(20)  NOT NULL DEFAULT 'processing',
+          file_name    VARCHAR(255) NOT NULL,
+          file_path    TEXT         NOT NULL,
+          content_type VARCHAR(64)  NOT NULL DEFAULT 'image/jpeg',
+          result_json  TEXT         NULL,
+          error        TEXT         NULL,
+          created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

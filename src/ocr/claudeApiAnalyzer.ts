@@ -82,6 +82,40 @@ async function withRetry<T>(
  * catalog, we skip that section entirely — backwards-compatible with
  * LLM-mapper-off mode.
  */
+/**
+ * Lean prompt for extracting ONLY the payee (получатель) requisites from a
+ * document — invoice, счёт, or платёжное поручение. Used by the dispatcher
+ * "Распознать реквизиты с фото" flow on the suppliers page. The dispatcher
+ * Claude Code session fetches this verbatim via GET /api/dispatcher/prompt-supplier.
+ */
+export function buildSupplierPrompt(): string {
+  return `Ты — ассистент по распознаванию банковских реквизитов российских контрагентов.
+
+На фото/в PDF — счёт, накладная или платёжное поручение. Извлеки реквизиты ПОЛУЧАТЕЛЯ
+(поставщика, продавца, «Получатель»), НЕ плательщика/покупателя.
+
+Если это платёжное поручение — бери блок «Получатель» (а не «Плательщик»).
+Если счёт/накладная — бери реквизиты поставщика (продавца), обычно в шапке.
+
+Верни СТРОГО один JSON-объект без markdown-обёртки и без комментариев:
+{
+  "inn": "ИНН получателя, 10 или 12 цифр, иначе null",
+  "kpp": "КПП, 9 цифр, иначе null",
+  "name": "наименование организации/ИП, иначе null",
+  "bank_bic": "БИК банка получателя, 9 цифр, иначе null",
+  "account": "расчётный счёт получателя, 20 цифр, иначе null",
+  "bank_corr_account": "корреспондентский счёт банка, 20 цифр, иначе null",
+  "bank_name": "наименование банка, иначе null",
+  "address": "юридический адрес, иначе null"
+}
+
+Правила:
+- Только цифры в inn/kpp/bic/account/corr_account (без пробелов и знаков).
+- Если поле не нашёл — ставь null, НЕ выдумывай.
+- Кириллицу сохраняй как есть (UTF-8), не транслитерируй.
+- Никакого текста вне JSON.`;
+}
+
 export function buildPrompt(catalog?: CatalogEntry[]): string {
   let catalogBlock = '';
   if (catalog && catalog.length > 0) {

@@ -51,24 +51,53 @@ const Suppliers = {
   async _handleFiles(files) {
     if (!files.length) return;
     const queue = document.getElementById('supplier-extract-queue');
-    // Process sequentially — Claude API for 5+ photos in parallel risks rate limit
+    // Upload sequentially (sync claude_api mode for 5+ photos risks rate limit);
+    // dispatcher jobs poll in the background so multiple recognise in parallel.
     for (const file of files) {
       const card = this._addQueueCard(queue, file.name);
       try {
         const fd = new FormData();
         fd.append('file', file);
-        const res = await fetch(App.apiBase + '/suppliers/extract-from-photo', {
-          method: 'POST',
-          headers: { 'X-API-Key': App.getApiKey() },
-          body: fd,
-        });
-        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
-        const { extracted } = await res.json();
-        this._renderExtractedCard(card, file.name, extracted);
+        const res = await App.api('/suppliers/extract-from-photo', { method: 'POST', body: fd });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
+        if (payload.jobId) {
+          // Dispatcher mode — async. Show progress and poll for the result.
+          this._setQueueCardProcessing(card, file.name);
+          this._pollExtractStatus(payload.jobId, card, file.name);
+        } else {
+          this._renderExtractedCard(card, file.name, payload.extracted || {});
+        }
       } catch (err) {
         this._renderFailedCard(card, file.name, err.message);
       }
     }
+  },
+
+  _setQueueCardProcessing(card, fileName) {
+    card.innerHTML = `<div><strong>${App.esc(fileName)}</strong> <span class="muted">— распознаётся через диспетчер, это может занять несколько минут…</span></div>`;
+  },
+
+  // Poll extract-status until the dispatcher answers. ~5s interval, ~16 min cap
+  // (the server marks jobs stale → error after 15 min, so this rarely hits MAX).
+  async _pollExtractStatus(jobId, card, fileName) {
+    const POLL_MS = 5000;
+    const MAX = 200;
+    for (let i = 0; i < MAX; i++) {
+      await new Promise(r => setTimeout(r, POLL_MS));
+      let data;
+      try {
+        const res = await fetch(App.baseUrl + `/suppliers/extract-status/${jobId}`, { headers: { 'X-API-Key': App.apiKey } });
+        data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      } catch (err) {
+        this._renderFailedCard(card, fileName, err.message);
+        return;
+      }
+      if (data.status === 'done') { this._renderExtractedCard(card, fileName, data.extracted || {}); return; }
+      if (data.status === 'error') { this._renderFailedCard(card, fileName, data.error || 'не распознано'); return; }
+    }
+    this._renderFailedCard(card, fileName, 'таймаут распознавания');
   },
 
   _addQueueCard(queue, fileName) {
