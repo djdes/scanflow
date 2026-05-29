@@ -50,7 +50,19 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // index:false — without this express.static auto-serves public/index.html
   // for GET /, which preempts our app.get('/', ...) route below where we
   // inject the blog-preview cards into the landing.
-  app.use(express.static(publicDir, { redirect: false, index: false }));
+  // no-cache on the SPA shell + its JS/CSS so a deploy is picked up on the
+  // next reload (the browser still revalidates via ETag → cheap 304 when
+  // unchanged). Without this the dashboard kept serving stale invoices.js /
+  // style.css after deploys, hiding new features until a manual Ctrl+F5.
+  app.use(express.static(publicDir, {
+    redirect: false,
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (/\.(html|js|css)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
 
   // Middleware
   // CORS: only allow configured origins. With no CORS_ORIGINS env var the
