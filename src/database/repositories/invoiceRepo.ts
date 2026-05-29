@@ -48,6 +48,7 @@ export interface InvoiceItem {
   vat_rate: number | null;
   mapping_confidence: number;
   onec_guid: string | null;
+  row_no: number | null;
 }
 
 export interface CreateInvoiceData {
@@ -90,6 +91,7 @@ export interface CreateInvoiceItemData {
   vat_rate?: number;
   mapping_confidence?: number;
   onec_guid?: string | null;
+  row_no?: number | null;
 }
 
 /**
@@ -276,8 +278,8 @@ export const invoiceRepo = {
   async addItem(data: CreateInvoiceItemData): Promise<InvoiceItem> {
     const db = getDb();
     const result = await db.prepare(`
-      INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence, onec_guid)
-      VALUES (:invoice_id, :original_name, :mapped_name, :quantity, :unit, :price, :total, :vat_rate, :mapping_confidence, :onec_guid)
+      INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence, onec_guid, row_no)
+      VALUES (:invoice_id, :original_name, :mapped_name, :quantity, :unit, :price, :total, :vat_rate, :mapping_confidence, :onec_guid, :row_no)
     `).run({
       invoice_id: data.invoice_id,
       original_name: data.original_name,
@@ -289,6 +291,7 @@ export const invoiceRepo = {
       vat_rate: data.vat_rate ?? null,
       mapping_confidence: data.mapping_confidence ?? 0,
       onec_guid: data.onec_guid ?? null,
+      row_no: data.row_no ?? null,
     });
     const created = (await db
       .prepare('SELECT * FROM invoice_items WHERE id = ?')
@@ -596,26 +599,6 @@ export const invoiceRepo = {
     return undefined;
   },
 
-  /**
-   * Reverse multi-page lookup: find recently-processed standalone pages from
-   * the same supplier that carry NO invoice_number — i.e. continuation pages
-   * that landed before this header page (race-ordered dispatcher callbacks).
-   * Returns all matches (a header may have several continuation pages).
-   */
-  async findNumberlessOrphansBySupplier(supplier: string, excludeId: number, withinMinutes: number = 5): Promise<Invoice[]> {
-    const candidates = await getDb().prepare(
-      `SELECT * FROM invoices
-       WHERE supplier IS NOT NULL AND supplier != ''
-       AND (invoice_number IS NULL OR invoice_number = '')
-       AND id != ?
-       AND duplicate_of IS NULL
-       AND status = 'processed'
-       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
-       ORDER BY created_at ASC`
-    ).all<Invoice>(excludeId);
-    return candidates.filter(c => c.supplier && suppliersMatch(supplier, c.supplier));
-  },
-
   /** Reassign every item from one invoice to another (multi-page merge). */
   async moveItemsToInvoice(fromInvoiceId: number, toInvoiceId: number): Promise<void> {
     await getDb()
@@ -624,28 +607,52 @@ export const invoiceRepo = {
   },
 
   /**
-   * Recent same-supplier processed invoices with their item-sum + item-count,
-   * for cumulative-total multi-page reconciliation (different invoice_number
-   * on each page, so number/numberless strategies can't link them).
+   * Sibling pages for dispatcher multi-page reconciliation.
+   *
+   * Pages of one invoice are UPLOADED together (near-identical created_at) but
+   * the dispatcher OCRs each as a separate task, so callbacks can arrive 10+
+   * min apart. A NOW()-anchored window therefore misses the sibling. We anchor
+   * on proximity to the CURRENT page's upload time instead — that stays tight
+   * (seconds) no matter how long OCR took.
+   *
+   * Returns same-supplier processed non-duplicate pages within ±windowMinutes
+   * of `referenceCreatedAt`, with the aggregates the reconciler needs:
+   * item sum/count and the row_no range (for "starts at row > 1" continuation).
    */
-  async findRecentSupplierPagesForReconcile(
-    supplier: string, excludeId: number, withinMinutes: number = 5,
-  ): Promise<Array<{ id: number; invoice_number: string | null; invoice_date: string | null; supplier: string | null; total_sum: number | null; items_sum: number; items_count: number }>> {
+  async findSiblingPagesNearUpload(
+    supplier: string, excludeId: number, referenceCreatedAt: string, windowMinutes: number = 30,
+  ): Promise<Array<{
+    id: number; invoice_number: string | null; invoice_date: string | null; supplier: string | null;
+    total_sum: number | null; created_at: string;
+    items_sum: number; items_count: number; min_row: number | null; max_row: number | null;
+  }>> {
     const rows = await getDb().prepare(
-      `SELECT i.id, i.invoice_number, i.invoice_date, i.supplier, i.total_sum,
+      `SELECT i.id, i.invoice_number, i.invoice_date, i.supplier, i.total_sum, i.created_at,
               (SELECT COALESCE(SUM(total), 0) FROM invoice_items WHERE invoice_id = i.id) AS items_sum,
-              (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS items_count
+              (SELECT COUNT(*)              FROM invoice_items WHERE invoice_id = i.id) AS items_count,
+              (SELECT MIN(row_no)           FROM invoice_items WHERE invoice_id = i.id) AS min_row,
+              (SELECT MAX(row_no)           FROM invoice_items WHERE invoice_id = i.id) AS max_row
          FROM invoices i
         WHERE i.supplier IS NOT NULL AND i.supplier != ''
           AND i.id != ?
           AND i.duplicate_of IS NULL
           AND i.status = 'processed'
-          AND i.created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
-        ORDER BY i.created_at ASC`
-    ).all<{ id: number; invoice_number: string | null; invoice_date: string | null; supplier: string | null; total_sum: number | null; items_sum: number; items_count: number }>(excludeId);
+          AND ABS(TIMESTAMPDIFF(MINUTE, i.created_at, ?)) <= ${windowMinutes}
+        ORDER BY ABS(TIMESTAMPDIFF(SECOND, i.created_at, ?)) ASC`
+    ).all<{
+      id: number; invoice_number: string | null; invoice_date: string | null; supplier: string | null;
+      total_sum: number | null; created_at: string; items_sum: number; items_count: number;
+      min_row: number | null; max_row: number | null;
+    }>(excludeId, referenceCreatedAt, referenceCreatedAt);
     return rows
       .filter(r => r.supplier && suppliersMatch(supplier, r.supplier))
-      .map(r => ({ ...r, items_sum: Number(r.items_sum), items_count: Number(r.items_count) }));
+      .map(r => ({
+        ...r,
+        items_sum: Number(r.items_sum),
+        items_count: Number(r.items_count),
+        min_row: r.min_row == null ? null : Number(r.min_row),
+        max_row: r.max_row == null ? null : Number(r.max_row),
+      }));
   },
 
   async appendFileName(id: number, newFileName: string): Promise<void> {

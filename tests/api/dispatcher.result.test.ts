@@ -141,50 +141,91 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(p1?.items_total_mismatch).toBe(0); // 100 (page1) + 150 (page2) == 250 → no mismatch
   });
 
-  it('reverse-merges: numbered header absorbs a numberless orphan that finalised first', async () => {
-    // Simulate the dispatcher callback race: the continuation page (no number)
-    // called back FIRST and finalised standalone, carrying the grand total.
-    const orphanR = await getDb().prepare(
-      `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, total_sum)
-       VALUES ('p2.jpg', '/test/p2.jpg', 'processed', 'АО "ОПТИКОМ"', NULL, 42962.28)`
-    ).run();
-    const orphan = Number(orphanR.lastInsertRowid);
-    await getDb().prepare(
-      `INSERT INTO invoice_items (invoice_id, original_name, quantity, unit, price, total, mapping_confidence)
-       VALUES (?, 'Средство для мытья посуды', 8, 'шт', 294.91, 2359.28, 0)`
-    ).run(orphan);
+  // Seed a processed page that already has N items with row_no 1..N.
+  async function seedHeadPage(opts: { n: number; supplier: string; number: string | null; date?: string | null; minutesAgo?: number }): Promise<number> {
+    const ageExpr = opts.minutesAgo ? `NOW() - INTERVAL ${Math.floor(opts.minutesAgo)} MINUTE` : 'NOW()';
+    const r = await getDb().prepare(
+      `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum, created_at)
+       VALUES ('head.jpg','/t/head.jpg','processed', ?, ?, ?, ?, ${ageExpr})`
+    ).run(opts.supplier, opts.number, opts.date ?? null, opts.n * 100);
+    const id = Number(r.lastInsertRowid);
+    for (let i = 1; i <= opts.n; i++) {
+      await getDb().prepare(
+        `INSERT INTO invoice_items (invoice_id, original_name, quantity, unit, price, total, mapping_confidence, row_no)
+         VALUES (?, ?, 1, 'шт', 100, 100, 0, ?)`
+      ).run(id, `Товар ${i}`, i);
+    }
+    return id;
+  }
 
-    // Now the header page (with number) calls back.
-    const header = await createPending({ supplier: null, number: null });
-    const res = await request(app).post(`/api/dispatcher/result/${header}`).send({
+  it('row_no merge (forward): a page whose item is row #17 joins the page with rows 1-16', async () => {
+    const head = await seedHeadPage({ n: 16, supplier: 'АО "ОПТИКОМ"', number: '1/236334', date: '2026-05-26' });
+
+    // Continuation page calls back: a single item with row_no 17, no number.
+    const tail = await createPending();
+    const res = await request(app).post(`/api/dispatcher/result/${tail}`).send({
       token: TOKEN,
       success: true,
       data: {
         supplier: 'АО "ОПТИКОМ"',
-        invoice_number: '1/236334',
-        invoice_date: '2026-05-26',
-        total_sum: 40603,
-        items: [
-          { name: 'Бутылка 300 мл', quantity: 800, unit: 'шт', price: 12.18, total: 9744 },
-          { name: 'Стакан 420 мл', quantity: 1000, unit: 'шт', price: 5, total: 5000 },
-        ],
+        invoice_number: null,
+        items: [{ name: 'Анчоусы', quantity: 6, unit: 'шт', price: 170, total: 1020, row_no: 17 }],
       },
     });
 
     expect(res.status).toBe(200);
-    // The orphan is reclaimed as a duplicate of the header.
-    const orphanInv = await getInvoice(orphan);
-    expect(orphanInv?.status).toBe('duplicate');
-    expect(orphanInv?.duplicate_of).toBe(header);
-    expect(await itemCount(orphan)).toBe(0);
+    expect(res.body.status).toBe('merged');
+    expect(res.body.targetInvoiceId).toBe(head); // head canonical (has number+date)
+    expect((await getInvoice(tail))?.duplicate_of).toBe(head);
+    expect(await itemCount(head)).toBe(17); // 16 + the row-17 item
+  });
 
-    // Header now holds its own 2 items + the orphan's 1, with the grand total.
-    expect(await itemCount(header)).toBe(3);
-    const h = await getInvoice(header);
-    expect(h?.total_sum).toBe(42962.28); // grand total from the continuation page
-    // Σitems = 9744 + 5000 + 2359.28 = 17103.28 ≠ 42962.28 → flagged (this
-    // partial fixture omits most page-1 items, so mismatch is expected here).
-    expect(h?.items_total_mismatch).toBe(1);
+  it('row_no merge (reverse): header with rows 1-16 reclaims a row-17 orphan that finalised first', async () => {
+    // The row-17 continuation called back FIRST and finalised standalone.
+    const orphanR = await getDb().prepare(
+      `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, total_sum)
+       VALUES ('p2.jpg','/t/p2.jpg','processed','АО "ОПТИКОМ"', NULL, 1020)`
+    ).run();
+    const orphan = Number(orphanR.lastInsertRowid);
+    await getDb().prepare(
+      `INSERT INTO invoice_items (invoice_id, original_name, quantity, unit, price, total, mapping_confidence, row_no)
+       VALUES (?, 'Анчоусы', 6, 'шт', 170, 1020, 0, 17)`
+    ).run(orphan);
+
+    // Now the header page (rows 1-16, with number) calls back.
+    const header = await createPending();
+    const items = Array.from({ length: 16 }, (_, i) => ({ name: `Товар ${i + 1}`, quantity: 1, unit: 'шт', price: 100, total: 100, row_no: i + 1 }));
+    const res = await request(app).post(`/api/dispatcher/result/${header}`).send({
+      token: TOKEN,
+      success: true,
+      data: { supplier: 'АО "ОПТИКОМ"', invoice_number: '1/236334', invoice_date: '2026-05-26', total_sum: 1600, items },
+    });
+
+    expect(res.status).toBe(200);
+    expect((await getInvoice(orphan))?.status).toBe('duplicate');
+    expect((await getInvoice(orphan))?.duplicate_of).toBe(header);
+    expect(await itemCount(header)).toBe(17); // 16 + reclaimed row-17
+  });
+
+  it('upload-time proximity: merges a sibling uploaded 20 min ago (OCR latency), not just NOW-5min', async () => {
+    // Sibling was uploaded 20 min ago — outside any NOW()-5min window, but the
+    // current page shares its upload batch (created_at proximity).
+    const head = await seedHeadPage({ n: 16, supplier: 'АО "ОПТИКОМ"', number: '1/236334', date: '2026-05-26', minutesAgo: 20 });
+
+    const tail = await createPending();
+    // make the tail's created_at line up with the old sibling's upload time
+    await getDb().prepare(`UPDATE invoices SET created_at = NOW() - INTERVAL 20 MINUTE WHERE id = ?`).run(tail);
+
+    const res = await request(app).post(`/api/dispatcher/result/${tail}`).send({
+      token: TOKEN,
+      success: true,
+      data: { supplier: 'АО "ОПТИКОМ"', invoice_number: null, items: [{ name: 'Анчоусы', quantity: 6, unit: 'шт', price: 170, total: 1020, row_no: 17 }] },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('merged');
+    expect(res.body.targetInvoiceId).toBe(head);
+    expect(await itemCount(head)).toBe(17);
   });
 
   it('cumulative-total merge: links pages with DIFFERENT OCR numbers via grand total', async () => {

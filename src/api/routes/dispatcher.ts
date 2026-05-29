@@ -19,7 +19,7 @@ import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt } from '../../ocr/claudeApiAnalyzer';
 import { emit as emitNotification } from '../../notifications/events';
-import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
+import { canonicalizeSupplierName, normalizeInvoiceNumber } from '../../utils/invoiceNumber';
 import { userRepo } from '../../database/repositories/userRepo';
 import { getDb } from '../../database/db';
 import { config } from '../../config';
@@ -165,85 +165,75 @@ async function findMultiPageTarget(
 }
 
 /**
- * Reverse multi-page merge. Dispatcher OCRs each page as an independent PF
- * task, so callbacks arrive UNORDERED — a numberless continuation page can be
- * processed (standalone) before its header page exists. findMultiPageTarget's
- * forward strategies only fire from the continuation's side; the numbered
- * header has no way to reclaim an already-finalised orphan. This closes that
- * gap: once a header page lands, pull in recent numberless same-supplier
- * orphans, moving their items in and marking them duplicate.
+ * Unified multi-page reconciliation for the dispatcher, run AFTER a page is
+ * persisted standalone. Dispatcher OCRs each page as a separate PF task, so:
+ *   - callbacks arrive UNORDERED (page 2 can finalise before page 1 exists);
+ *   - callbacks lag the upload by MINUTES (OCR latency / queue).
+ * The lag is why a NOW()-anchored window fails — by the time page 2 calls back,
+ * page 1's created_at is already "old". So we anchor on upload-time proximity
+ * (findSiblingPagesNearUpload) which stays tight regardless of OCR latency.
  *
- * Returns the absorbed orphan ids (empty if none).
+ * Among same-upload-batch same-supplier siblings, three self-guarding signals
+ * decide that two pages belong to ONE invoice (any one suffices):
+ *   1. NUMBER — same normalised invoice_number.
+ *   2. ROW_NO — contiguous line numbers (one page's rows start right after the
+ *      other's end). A page whose items start at row > 1 is, by definition, a
+ *      continuation: e.g. a page with only item #17 needs the page holding
+ *      rows 1–16. This is the strongest structural signal and needs no total.
+ *   3. CUMULATIVE TOTAL — max(totals) ≈ Σ(all items): the last page prints the
+ *      running grand total.
+ * Each signal is self-guarding (two distinct invoices share none of them), so a
+ * wide proximity window can't cause a false merge.
+ *
+ * Canonical page (kept) = the one with a date, else a number, else more items /
+ * the lower starting row. The other becomes its duplicate. Returns the
+ * canonical id when a merge happened, else null.
  */
-async function absorbNumberlessOrphans(headerInvoiceId: number, headerSupplier: string): Promise<number[]> {
-  const orphans = await invoiceRepo.findNumberlessOrphansBySupplier(headerSupplier, headerInvoiceId, 5);
-  if (!orphans.length) return [];
-
-  const header = await invoiceRepo.getById(headerInvoiceId);
-  let grandTotal: number | null = header?.total_sum ?? null;
-  const absorbed: number[] = [];
-  for (const o of orphans) {
-    await invoiceRepo.moveItemsToInvoice(o.id, headerInvoiceId);
-    await invoiceRepo.markAsDuplicate(o.id, headerInvoiceId);
-    // The continuation/last page carries the cumulative grand total; adopt the
-    // largest document total across header + continuation pages.
-    if (o.total_sum != null && (grandTotal == null || o.total_sum > grandTotal)) grandTotal = o.total_sum;
-    absorbed.push(o.id);
-  }
-  if (grandTotal != null) await invoiceRepo.updateInvoiceData(headerInvoiceId, { total_sum: grandTotal });
-  return absorbed;
-}
-
-/**
- * Cumulative-total multi-page reconciliation. Handles the case where OCR read a
- * DIFFERENT invoice_number on each page (e.g. a page suffix or a misread last
- * digit: 17-0315110 vs 17-0315111), so neither the number nor numberless
- * strategies can link the pages.
- *
- * Signal: the last page of a multi-page invoice prints the CUMULATIVE grand
- * total. So for a recent same-supplier sibling Y, if
- *     max(X.total, Y.total) ≈ Σ(X.items) + Σ(Y.items)
- * then X and Y are pages of one invoice. This is arithmetically self-guarding:
- * two genuinely separate invoices each have total ≈ their own items, so the
- * equation only holds if one "total" is ~0 — which never happens for a real
- * standalone invoice. So it will NOT merge two distinct invoices.
- *
- * Canonical page = the one with an invoice_date (falls back to invoice_number,
- * then the one with more items). The other is absorbed. Returns the canonical
- * invoice id if a merge happened, else null.
- */
-async function reconcileCumulativeTotalPages(currentId: number): Promise<number | null> {
+async function reconcileMultiPageSiblings(currentId: number): Promise<number | null> {
   const current = await invoiceRepo.getById(currentId);
-  if (!current || !current.supplier) return null;
+  if (!current || !current.supplier || !current.created_at) return null;
   const currentItems = await invoiceRepo.getItems(currentId);
   const currentItemsSum = currentItems.reduce((s, it) => s + (it.total ?? 0), 0);
+  const cRows = currentItems.map(it => it.row_no).filter((n): n is number => n != null);
+  const cMinRow = cRows.length ? Math.min(...cRows) : null;
+  const cMaxRow = cRows.length ? Math.max(...cRows) : null;
+  const cNormNum = normalizeInvoiceNumber(current.invoice_number);
 
-  const candidates = await invoiceRepo.findRecentSupplierPagesForReconcile(current.supplier, currentId, 5);
+  const candidates = await invoiceRepo.findSiblingPagesNearUpload(
+    current.supplier, currentId, current.created_at, 30,
+  );
   for (const y of candidates) {
-    const combined = currentItemsSum + y.items_sum;
     const grand = Math.max(current.total_sum ?? 0, y.total_sum ?? 0);
-    if (grand <= 0) continue;
     const tol = Math.max(1, grand * 0.005);
-    if (Math.abs(grand - combined) > tol) continue;
-    // Both pages must each be only PART of the whole (their own items < grand),
-    // otherwise one of them already is the complete invoice.
-    if (currentItemsSum >= grand - tol && y.items_sum >= grand - tol) continue;
 
-    // Pick canonical: prefer the page that has a date, then a number, then more items.
+    const numberMatch = !!cNormNum && cNormNum === normalizeInvoiceNumber(y.invoice_number);
+    const rowContiguous =
+      (cMinRow != null && y.max_row != null && Math.abs(cMinRow - (y.max_row + 1)) <= 1) ||
+      (y.min_row != null && cMaxRow != null && Math.abs(y.min_row - (cMaxRow + 1)) <= 1);
+    const cumulativeTotal =
+      grand > 0 &&
+      Math.abs(grand - (currentItemsSum + y.items_sum)) <= tol &&
+      // each page is only PART of the whole (else one is already complete)
+      !(currentItemsSum >= grand - tol && y.items_sum >= grand - tol);
+
+    if (!numberMatch && !rowContiguous && !cumulativeTotal) continue;
+
+    // Pick canonical: prefer date, then number, then more items, then lower start row.
     const yHasDate = !!y.invoice_date, cHasDate = !!current.invoice_date;
     const yHasNum = !!y.invoice_number, cHasNum = !!current.invoice_number;
-    let canonicalId: number, otherId: number;
-    if (yHasDate !== cHasDate) { canonicalId = yHasDate ? y.id : currentId; }
-    else if (yHasNum !== cHasNum) { canonicalId = yHasNum ? y.id : currentId; }
-    else { canonicalId = y.items_count >= currentItems.length ? y.id : currentId; }
-    otherId = canonicalId === y.id ? currentId : y.id;
+    let canonicalId: number;
+    if (yHasDate !== cHasDate) canonicalId = yHasDate ? y.id : currentId;
+    else if (yHasNum !== cHasNum) canonicalId = yHasNum ? y.id : currentId;
+    else if (y.items_count !== currentItems.length) canonicalId = y.items_count > currentItems.length ? y.id : currentId;
+    else canonicalId = (y.min_row ?? 1) <= (cMinRow ?? 1) ? y.id : currentId;
+    const otherId = canonicalId === y.id ? currentId : y.id;
 
     await invoiceRepo.moveItemsToInvoice(otherId, canonicalId);
     await invoiceRepo.markAsDuplicate(otherId, canonicalId);
-    await invoiceRepo.updateInvoiceData(canonicalId, { total_sum: grand });
+    if (grand > 0) await invoiceRepo.updateInvoiceData(canonicalId, { total_sum: grand });
     await invoiceRepo.recalculateTotal(canonicalId);
-    logger.info('dispatcher result: cumulative-total page merge', {
-      canonicalId, otherId, grand, combined,
+    logger.info('dispatcher result: multi-page sibling merge', {
+      canonicalId, otherId, signal: numberMatch ? 'number' : rowContiguous ? 'row_no' : 'cumulative_total',
     });
     return canonicalId;
   }
@@ -389,6 +379,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         vat_rate: it.vat_rate ?? undefined,
         mapping_confidence: mapping?.confidence ?? 0,
         onec_guid: mapping?.onec_guid ?? undefined,
+        row_no: it.row_no ?? null,
       });
       void inserted; // for await/lint
     }
@@ -404,22 +395,11 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     if (!isMerge) {
       await invoiceRepo.updateStatus(id, 'processed');
 
-      // Reverse multi-page merge: a numberless continuation page may have
-      // called back FIRST and finalised standalone. If this is its header
-      // (has a number + supplier), reclaim it now.
-      if (data.invoice_number && data.supplier) {
-        const absorbed = await absorbNumberlessOrphans(id, canonicalizeSupplierName(data.supplier));
-        if (absorbed.length) {
-          await invoiceRepo.recalculateTotal(id);
-          logger.info('dispatcher result: absorbed numberless continuation pages', { headerInvoiceId: id, absorbed });
-        }
-      }
-
-      // Cumulative-total reconciliation: links pages whose OCR'd invoice
-      // numbers DIFFER (e.g. 17-0315110 vs 17-0315111), detected via the
-      // grand-total = Σ all items relationship. May make THIS page the
-      // canonical (absorbing an earlier sibling) or a duplicate of one.
-      const reconCanonical = await reconcileCumulativeTotalPages(id);
+      // Multi-page reconciliation against same-upload-batch siblings (number /
+      // row_no continuity / cumulative total). Handles unordered, latency-lagged
+      // dispatcher callbacks. May make THIS page the canonical (absorbing a
+      // sibling) or turn it into a duplicate of one.
+      const reconCanonical = await reconcileMultiPageSiblings(id);
       if (reconCanonical && reconCanonical !== id) {
         finalTargetId = reconCanonical;
         mergedAway = true;

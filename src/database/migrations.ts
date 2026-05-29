@@ -637,6 +637,16 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 28,
+    name: 'invoice_items.row_no — line sequence number for multi-page merge',
+    detect: (exec) => hasColumn(exec, 'invoice_items', 'row_no'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoice_items', 'row_no'))) {
+        await exec.query(`ALTER TABLE invoice_items ADD COLUMN row_no INT NULL`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
