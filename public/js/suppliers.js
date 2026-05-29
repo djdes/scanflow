@@ -39,11 +39,11 @@ const Suppliers = {
     dropzone.onclick = () => input.click();
 
     input.onchange = (e) => this._handleFiles(Array.from(e.target.files || []));
-    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.style.background = '#eef4ff'; };
-    dropzone.ondragleave = () => { dropzone.style.background = '#fbfcfe'; };
+    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add('is-dragover'); };
+    dropzone.ondragleave = () => dropzone.classList.remove('is-dragover');
     dropzone.ondrop = (e) => {
       e.preventDefault();
-      dropzone.style.background = '#fbfcfe';
+      dropzone.classList.remove('is-dragover');
       this._handleFiles(Array.from(e.dataTransfer.files || []));
     };
   },
@@ -75,7 +75,12 @@ const Suppliers = {
   },
 
   _setQueueCardProcessing(card, fileName) {
-    card.innerHTML = `<div><strong>${App.esc(fileName)}</strong> <span class="muted">— распознаётся через диспетчер, это может занять несколько минут…</span></div>`;
+    card.classList.add('is-working');
+    card.innerHTML = `<div class="extract-card__head">
+      <span class="extract-card__name">${App.esc(fileName)}</span>
+      <span class="muted" style="white-space:nowrap"><span class="spinner-dot"></span>распознаётся…</span>
+    </div>
+    <p class="muted" style="margin:6px 0 0">Через диспетчер — это может занять несколько минут.</p>`;
   },
 
   // Poll extract-status until the dispatcher answers. ~5s interval, ~16 min cap
@@ -102,19 +107,25 @@ const Suppliers = {
 
   _addQueueCard(queue, fileName) {
     const card = document.createElement('div');
-    card.className = 'card';
-    card.style.padding = '12px';
-    card.innerHTML = `<div><strong>${App.esc(fileName)}</strong> <span class="muted">— распознаю…</span></div>`;
+    card.className = 'extract-card is-working';
+    card.innerHTML = `<div class="extract-card__head">
+      <span class="extract-card__name">${App.esc(fileName)}</span>
+      <span class="muted" style="white-space:nowrap"><span class="spinner-dot"></span>распознаю…</span>
+    </div>`;
     queue.appendChild(card);
     return card;
   },
 
   _renderFailedCard(card, fileName, errMsg) {
+    card.classList.remove('is-working');
     card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><strong>${App.esc(fileName)}</strong> <span style="color:#c62828">— ошибка: ${App.esc(errMsg)}</span></div>
-        <button class="btn btn-ghost" onclick="this.closest('.card').remove()">×</button>
-      </div>`;
+      <div class="extract-card__head">
+        <span class="extract-card__name">${App.esc(fileName)}</span>
+        <button class="icon-btn" aria-label="Убрать" onclick="this.closest('.extract-card').remove()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <p style="margin:6px 0 0;color:var(--error);font-size:13px">⚠ ${App.esc(errMsg)}</p>`;
   },
 
   _renderExtractedCard(card, fileName, ex) {
@@ -128,20 +139,20 @@ const Suppliers = {
       { key: 'address',           label: 'Адрес',         ph: '' },
     ];
     const rows = fields.map(f => `
-      <label style="display:flex;gap:8px;align-items:center;margin:4px 0">
-        <span style="width:90px;font-size:12px;color:#667">${f.label}</span>
-        <input type="text" data-key="${f.key}" value="${App.esc(ex[f.key] || '')}" placeholder="${f.ph}"
-               style="flex:1;padding:4px 8px;font-size:13px;border:1px solid #d0d7e2;border-radius:4px">
+      <label class="extract-field">
+        <span>${f.label}</span>
+        <input type="text" data-key="${f.key}" value="${App.esc(ex[f.key] || '')}" placeholder="${f.ph}">
       </label>
     `).join('');
+    card.classList.remove('is-working');
     card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <strong>${App.esc(fileName)}</strong>
-        <button class="btn btn-ghost" data-action="skip">Пропустить</button>
+      <div class="extract-card__head" style="margin-bottom:10px">
+        <span class="extract-card__name">✓ ${App.esc(fileName)}</span>
+        <button class="btn btn-outline btn-sm" data-action="skip">Пропустить</button>
       </div>
       <div>${rows}</div>
-      <div style="margin-top:8px;display:flex;gap:8px">
-        <button class="btn btn-primary" data-action="save">Сохранить</button>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary btn-sm" data-action="save">Сохранить поставщика</button>
         <span class="card-status muted"></span>
       </div>`;
     const status = card.querySelector('.card-status');

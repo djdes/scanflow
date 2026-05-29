@@ -783,25 +783,47 @@
     <!-- Suppliers Section -->
     <section id="view-suppliers">
       <h2>Поставщики</h2>
-      <div class="actions-bar" style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
-        <input type="search" id="suppliers-search" placeholder="Поиск по ИНН или названию" style="flex:1">
-        <button class="btn" id="supplier-extract-btn">📷 Распознать с фото</button>
-        <button class="btn btn-primary" id="supplier-add-btn">+ Добавить поставщика</button>
+      <div class="suppliers-toolbar">
+        <div class="search-field">
+          <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="search" id="suppliers-search" placeholder="Поиск по ИНН или названию">
+        </div>
+        <button class="btn btn-soft" id="supplier-extract-btn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><line x1="3" y1="12" x2="21" y2="12"></line></svg>
+          Распознать с фото
+        </button>
+        <button class="btn btn-primary" id="supplier-add-btn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Добавить поставщика
+        </button>
       </div>
 
       <!-- Bulk extract dropzone — hidden until "Распознать с фото" is clicked -->
-      <div id="supplier-extract-panel" class="card" style="display:none;margin-bottom:16px;padding:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <h3 style="margin:0">Распознавание реквизитов с фото</h3>
-          <button class="btn btn-ghost" id="supplier-extract-close">×</button>
+      <div id="supplier-extract-panel" class="extract-panel card" style="display:none">
+        <div class="extract-panel__head">
+          <div class="extract-panel__title">
+            <span class="extract-panel__badge">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><line x1="7" y1="12" x2="17" y2="12"></line></svg>
+            </span>
+            <div>
+              <h3>Распознавание реквизитов с фото</h3>
+              <p class="muted">Загружайте счета или платёжки (JPG · PNG · PDF, до 20 МБ). Claude AI извлечёт ИНН / БИК / счёт / адрес — вы только проверите и сохраните.</p>
+            </div>
+          </div>
+          <button class="icon-btn" id="supplier-extract-close" aria-label="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
         </div>
-        <p class="muted" style="margin:4px 0 12px">Загружайте счета или платёжки (JPG/PNG/PDF, до 20 МБ). Claude AI извлечёт ИНН/БИК/счёт/адрес — вы только проверите и сохраните.</p>
-        <input type="file" id="supplier-extract-input" multiple accept=".jpg,.jpeg,.png,.bmp,.tiff,.webp,.pdf" style="display:none">
-        <div id="supplier-extract-dropzone"
-             style="border:2px dashed #c7d2e0;border-radius:10px;padding:30px;text-align:center;color:#667;cursor:pointer;background:#fbfcfe">
-          Перетащите файлы сюда или <a href="#" id="supplier-extract-pick" style="color:#1a6dff">выберите вручную</a>
+        <input type="file" id="supplier-extract-input" multiple accept=".jpg,.jpeg,.png,.bmp,.tiff,.webp,.pdf" hidden>
+        <div id="supplier-extract-dropzone" class="dropzone">
+          <span class="dropzone__icon">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          </span>
+          <div class="dropzone__title">Перетащите файлы сюда</div>
+          <div class="dropzone__sub">или <a href="#" id="supplier-extract-pick">выберите вручную</a></div>
+          <div class="dropzone__hint">JPG · PNG · PDF — до 20 МБ</div>
         </div>
-        <div id="supplier-extract-queue" style="margin-top:12px;display:flex;flex-direction:column;gap:8px"></div>
+        <div id="supplier-extract-queue" class="extract-queue"></div>
       </div>
 
       <div id="suppliers-table-wrap"></div>
