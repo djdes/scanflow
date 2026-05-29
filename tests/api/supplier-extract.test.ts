@@ -123,4 +123,25 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('supplier requisite
     expect(res.headers['content-type']).toContain('text/plain');
     expect(res.text).toContain('ПОЛУЧАТЕЛ'); // payee-focused
   });
+
+  it('merge saves a supplier from extracted requisites (the "Сохранить" flow)', async () => {
+    const res = await request(app).post('/api/suppliers/merge').set('X-API-Key', 'k').send({
+      inn: '504410008491',
+      name: 'ИП ЧИХИНОВ ГЮНДУЗ АББАСОВИЧ',
+      bank_bic: '044525999',
+      account: '40802810001500098300',
+      bank_corr_account: '30101810845250000999',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe('created');
+    const row = await getDb().prepare('SELECT inn, name FROM suppliers WHERE inn = ?').get<{ inn: string; name: string }>('504410008491');
+    expect(row?.name).toContain('ЧИХИНОВ');
+  });
+
+  it('merge with a missing body returns a clean 400 JSON, not an HTML 500', async () => {
+    const res = await request(app).post('/api/suppliers/merge').set('X-API-Key', 'k'); // no .send()
+    expect(res.status).toBe(400);
+    expect(res.headers['content-type']).toContain('application/json');
+    expect(typeof res.body.error).toBe('string');
+  });
 });

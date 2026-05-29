@@ -59,7 +59,8 @@ interface SupplierBody {
   address?: string; verified?: number; source?: string; notes?: string;
 }
 
-function validateSupplier(body: SupplierBody): string | null {
+function validateSupplier(body: SupplierBody | undefined): string | null {
+  if (!body || typeof body !== 'object') return 'request body is missing or not application/json';
   if (!body.inn || !INN_RE.test(body.inn)) return 'inn must be 10 or 12 digits';
   if (!body.name || body.name.length === 0) return 'name is required';
   if (!body.bank_bic || !BIC_RE.test(body.bank_bic)) return 'bank_bic must be 9 digits';

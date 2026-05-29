@@ -154,9 +154,11 @@ const Suppliers = {
       });
       status.textContent = 'Сохраняю…';
       try {
-        const res = await App.api('/suppliers/merge', { method: 'POST', body: JSON.stringify(payload) });
-        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
-        const { mode } = await res.json();
+        // Pass the object (not a pre-stringified string): App.api only sets
+        // Content-Type: application/json when body is an object — a string body
+        // goes out untyped, express.json() skips it, and the route 500s with an
+        // HTML page that res.json() can't parse.
+        const { mode } = await App.apiJson('/suppliers/merge', { method: 'POST', body: payload });
         status.textContent = mode === 'created' ? '✓ Создан' : mode === 'merged' ? '✓ Пустые поля дозаполнены' : '✓ Без изменений (уже полный)';
         status.style.color = '#0d9f6e';
         await this.refresh();
