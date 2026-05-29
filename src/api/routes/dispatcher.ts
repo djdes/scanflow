@@ -165,6 +165,22 @@ async function findMultiPageTarget(
 }
 
 /**
+ * Fold a merged-away page into the canonical invoice: carry its photo(s) over
+ * (file_name is a comma-separated list the detail view renders as a gallery),
+ * then DELETE the now-empty row. We delete rather than mark 'duplicate' because
+ * a continuation page is not a user-facing duplicate — its content already
+ * lives on the canonical, so a leftover row is just noise. invoiceRepo.delete()
+ * removes DB rows only (the route layer owns file deletion), so the page image
+ * stays on disk and is served under the canonical invoice.
+ */
+async function foldPageInto(canonicalId: number, otherId: number): Promise<void> {
+  const other = await invoiceRepo.getById(otherId);
+  const files = (other?.file_name ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  for (const f of files) await invoiceRepo.appendFileName(canonicalId, f);
+  await invoiceRepo.delete(otherId);
+}
+
+/**
  * Unified multi-page reconciliation for the dispatcher, run AFTER a page is
  * persisted standalone. Dispatcher OCRs each page as a separate PF task, so:
  *   - callbacks arrive UNORDERED (page 2 can finalise before page 1 exists);
@@ -229,8 +245,8 @@ async function reconcileMultiPageSiblings(currentId: number): Promise<number | n
     const otherId = canonicalId === y.id ? currentId : y.id;
 
     await invoiceRepo.moveItemsToInvoice(otherId, canonicalId);
-    await invoiceRepo.markAsDuplicate(otherId, canonicalId);
     if (grand > 0) await invoiceRepo.updateInvoiceData(canonicalId, { total_sum: grand });
+    await foldPageInto(canonicalId, otherId);
     await invoiceRepo.recalculateTotal(canonicalId);
     logger.info('dispatcher result: multi-page sibling merge', {
       canonicalId, otherId, signal: numberMatch ? 'number' : rowContiguous ? 'row_no' : 'cumulative_total',
@@ -311,10 +327,8 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         total_sum: data.total_sum != null ? data.total_sum : (mergeTarget.total_sum == null ? undefined : undefined),
         vat_sum: data.vat_sum != null ? data.vat_sum : (mergeTarget.vat_sum == null ? undefined : undefined),
       });
-      // Items will be appended to targetInvoiceId below. Mark the current row
-      // as a duplicate OF the target — markAsDuplicate sets duplicate_of so the
-      // UI shows the "🔁 #N" link instead of a blank, badge-less orphan row.
-      await invoiceRepo.markAsDuplicate(id, targetInvoiceId);
+      // Items appended to targetInvoiceId below; the current row is folded into
+      // the target (photo carried over + row deleted) after the items loop.
     } else {
       await invoiceRepo.updateInvoiceData(id, {
         invoice_type: data.invoice_type ?? undefined,
@@ -390,7 +404,13 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     await invoiceRepo.recalculateTotal(targetInvoiceId);
 
     let finalTargetId = targetInvoiceId;
-    let mergedAway = false; // true when THIS page became a duplicate of another
+    let mergedAway = false; // true when THIS page was folded into another
+
+    if (isMerge) {
+      // Forward merge: carry this page's photo to the target and delete its row.
+      await foldPageInto(targetInvoiceId, id);
+      mergedAway = true;
+    }
 
     if (!isMerge) {
       await invoiceRepo.updateStatus(id, 'processed');

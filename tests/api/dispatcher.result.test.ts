@@ -50,7 +50,7 @@ async function createProcessedPage1(supplier: string, number: string | null): Pr
 }
 
 async function getInvoice(id: number) {
-  return getDb().prepare('SELECT * FROM invoices WHERE id = ?').get<{ status: string; total_sum: number | null; items_total_mismatch: number; duplicate_of: number | null }>(id);
+  return getDb().prepare('SELECT * FROM invoices WHERE id = ?').get<{ status: string; total_sum: number | null; items_total_mismatch: number; duplicate_of: number | null; file_name: string }>(id);
 }
 async function itemCount(id: number): Promise<number> {
   const r = await getDb().prepare('SELECT COUNT(*) c FROM invoice_items WHERE invoice_id = ?').get<{ c: number }>(id);
@@ -128,17 +128,15 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(res.body.status).toBe('merged');
     expect(res.body.targetInvoiceId).toBe(page1);
 
-    // page-2 becomes a duplicate LINKED to page-1, no items of its own
-    const p2 = await getInvoice(page2);
-    expect(p2?.status).toBe('duplicate');
-    expect(p2?.duplicate_of).toBe(page1);
-    expect(await itemCount(page2)).toBe(0);
+    // page-2 row is gone entirely (folded in), not left as a duplicate
+    expect(await getInvoice(page2)).toBeUndefined();
 
-    // page-1 now holds both items and the recalculated total
+    // page-1 now holds both items, the recalculated total, AND page-2's photo
     expect(await itemCount(page1)).toBe(2);
     const p1 = await getInvoice(page1);
     expect(p1?.total_sum).toBe(250);          // backfilled from page-2
     expect(p1?.items_total_mismatch).toBe(0); // 100 (page1) + 150 (page2) == 250 → no mismatch
+    expect(p1?.file_name).toContain('pending.jpg'); // page-2 photo carried over
   });
 
   // Seed a processed page that already has N items with row_no 1..N.
@@ -176,8 +174,9 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('merged');
     expect(res.body.targetInvoiceId).toBe(head); // head canonical (has number+date)
-    expect((await getInvoice(tail))?.duplicate_of).toBe(head);
+    expect(await getInvoice(tail)).toBeUndefined(); // tail row deleted
     expect(await itemCount(head)).toBe(17); // 16 + the row-17 item
+    expect((await getInvoice(head))?.file_name).toContain('pending.jpg'); // tail photo carried over
   });
 
   it('row_no merge (reverse): header with rows 1-16 reclaims a row-17 orphan that finalised first', async () => {
@@ -202,9 +201,9 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     });
 
     expect(res.status).toBe(200);
-    expect((await getInvoice(orphan))?.status).toBe('duplicate');
-    expect((await getInvoice(orphan))?.duplicate_of).toBe(header);
+    expect(await getInvoice(orphan)).toBeUndefined(); // orphan row deleted
     expect(await itemCount(header)).toBe(17); // 16 + reclaimed row-17
+    expect((await getInvoice(header))?.file_name).toContain('p2.jpg'); // orphan photo carried over
   });
 
   it('upload-time proximity: merges a sibling uploaded 20 min ago (OCR latency), not just NOW-5min', async () => {
@@ -257,14 +256,13 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(res.body.status).toBe('merged');
     expect(res.body.targetInvoiceId).toBe(p1); // p1 canonical (has date)
 
-    const page2 = await getInvoice(p2);
-    expect(page2?.status).toBe('duplicate');
-    expect(page2?.duplicate_of).toBe(p1);
+    expect(await getInvoice(p2)).toBeUndefined(); // p2 row deleted, not a leftover duplicate
 
     expect(await itemCount(p1)).toBe(3);
     const h = await getInvoice(p1);
     expect(h?.total_sum).toBe(83286.27);
     expect(h?.items_total_mismatch).toBe(0); // 80261.77+2000+1024.5 == 83286.27
+    expect(h?.file_name).toContain('pending.jpg'); // p2 photo carried over
   });
 
   it('does NOT merge two genuinely separate same-supplier invoices', async () => {
