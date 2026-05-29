@@ -375,8 +375,9 @@ const Invoices = {
         itemsTbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">Товары не найдены</div></td></tr>';
       }
 
-      // Elevated-price warning banner (items >10% above the usual price).
+      // Elevated-price warning banner + mobile square counters.
       this._renderPriceWarning(data.items || []);
+      this._renderPriceBadges(data.items || []);
 
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
@@ -406,6 +407,19 @@ const Invoices = {
     const r = Math.round(pct);
     const cls = pct > 50 ? 'price-flag-anomaly' : pct > 25 ? 'price-flag-alert' : 'price-flag-warn';
     return `<div class="price-flag-wrap"><span class="price-flag ${cls}" title="Цена выше обычной на ${r}%">↑ +${r}%</span></div>`;
+  },
+
+  // Mobile square counters (top-right of the invoice): how many positions are
+  // moderately overpriced (orange, 10–50% above usual) vs severely (red, >50%).
+  _renderPriceBadges(items) {
+    const el = document.getElementById('invoice-price-badges');
+    if (!el) return;
+    const orange = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10 && it.price_deviation_pct <= 50).length;
+    const red = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 50).length;
+    let html = '';
+    if (orange) html += `<span class="price-badge price-badge--orange" title="${orange}: цена выше обычной на 10–50%">${orange}</span>`;
+    if (red) html += `<span class="price-badge price-badge--red" title="${red}: цена выше обычной более чем на 50%">${red}</span>`;
+    el.innerHTML = html;
   },
 
   _plural(n, one, few, many) {

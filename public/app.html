@@ -63,7 +63,15 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 14a5.5 5.5 0 0111 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           Профиль
         </a>
+        <!-- Mobile-only logout inside the drawer (header-right is hidden on mobile). -->
+        <a href="#" class="nav-mobile-logout" onclick="App.logout(); return false;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M11 11l3-3m0 0l-3-3m3 3H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Выйти
+        </a>
       </nav>
+      <button class="nav-toggle" id="nav-toggle" aria-label="Меню" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      </button>
       <div class="header-right">
         <button class="btn-logout" onclick="App.logout()" title="Выйти из системы">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M11 11l3-3m0 0l-3-3m3 3H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -129,6 +137,8 @@
       </div>
 
       <div id="invoice-detail" style="display:none">
+        <!-- Mobile-only at-a-glance overprice counters (top-right). Filled by JS. -->
+        <div id="invoice-price-badges" class="price-badges"></div>
         <a href="#/invoices" class="back-link">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Назад к списку

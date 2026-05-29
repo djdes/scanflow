@@ -107,6 +107,10 @@ const App = {
 
   route() {
     const hash = window.location.hash || '#/invoices';
+    // Close the mobile nav drawer on every navigation.
+    const navEl = document.querySelector('header nav');
+    if (navEl) navEl.classList.remove('open');
+    document.getElementById('nav-toggle')?.setAttribute('aria-expanded', 'false');
     // Hide all sections
     document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
     // Remove active tab
@@ -205,6 +209,16 @@ const App = {
 
   init() {
     window.addEventListener('hashchange', () => this.route());
+
+    // Mobile hamburger: toggle the nav drawer.
+    const navToggle = document.getElementById('nav-toggle');
+    const navEl = document.querySelector('header nav');
+    if (navToggle && navEl) {
+      navToggle.addEventListener('click', () => {
+        const open = navEl.classList.toggle('open');
+        navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    }
 
     if (this.apiKey) {
       // Optimistic: render the app immediately. If the stored key is invalid
