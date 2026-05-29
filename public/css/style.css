@@ -3105,3 +3105,37 @@ details[open] summary { margin-bottom: 12px; }
   0%, 100% { opacity: 0.35; transform: scale(0.85); }
   50%      { opacity: 1;    transform: scale(1.1); }
 }
+
+/* ========== Elevated-price warning (>10% over the usual price) ========== */
+.price-flag-wrap { margin-top: 3px; }
+.price-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.price-flag-warn    { background: var(--warning-soft); color: #b45309; }
+.price-flag-alert   { background: #ffedd5;            color: #c2410c; }
+.price-flag-anomaly { background: var(--error-soft);  color: var(--error); }
+
+.price-warning-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #fde68a;
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-lg);
+  background: var(--warning-soft);
+  font-size: 13.5px;
+  color: #713f12;
+}
+.price-warning-banner strong { color: #92400e; }
+.price-warning-banner__icon { font-size: 16px; line-height: 1.3; }
+.price-warning-banner .muted { color: #a16207; font-size: 12.5px; }

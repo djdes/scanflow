@@ -375,6 +375,9 @@ const Invoices = {
         itemsTbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">Товары не найдены</div></td></tr>';
       }
 
+      // Elevated-price warning banner (items >10% above the usual price).
+      this._renderPriceWarning(data.items || []);
+
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
 
@@ -392,7 +395,49 @@ const Invoices = {
     if (item.price == null) return '<span class="muted">—</span>';
     const v = Number(item.price).toFixed(2).replace('.', ',');
     const u = item.unit ? `/${App.esc(item.unit)}` : '';
-    return `<span class="price-readonly">${v} ₽${u}</span>`;
+    return `<span class="price-readonly">${v} ₽${u}</span>${Invoices._priceBadge(item)}`;
+  },
+
+  // Inline "повышенная цена" pill — shown when the scanned price is >10% above
+  // the usual (median) price. Tiered colour matches the row heatmap.
+  _priceBadge(item) {
+    const pct = item.price_deviation_pct;
+    if (pct == null || pct <= 10) return '';
+    const r = Math.round(pct);
+    const cls = pct > 50 ? 'price-flag-anomaly' : pct > 25 ? 'price-flag-alert' : 'price-flag-warn';
+    return `<div class="price-flag-wrap"><span class="price-flag ${cls}" title="Цена выше обычной на ${r}%">↑ +${r}%</span></div>`;
+  },
+
+  _plural(n, one, few, many) {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+    return many;
+  },
+
+  // Summary banner above the items table: counts positions priced >10% above
+  // the usual price. Empty (cleared) when there are none.
+  _renderPriceWarning(items) {
+    const el = document.getElementById('invoice-price-warning');
+    if (!el) return;
+    const flagged = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10);
+    if (!flagged.length) { el.innerHTML = ''; return; }
+    const worst = Math.round(Math.max(...flagged.map(f => f.price_deviation_pct)));
+    const names = flagged
+      .sort((a, b) => b.price_deviation_pct - a.price_deviation_pct)
+      .slice(0, 3)
+      .map(f => App.esc(f.mapped_name || f.original_name || ''))
+      .join(', ');
+    const more = flagged.length > 3 ? ` и ещё ${flagged.length - 3}` : '';
+    const noun = this._plural(flagged.length, 'позиция', 'позиции', 'позиций');
+    el.innerHTML = `
+      <div class="price-warning-banner">
+        <span class="price-warning-banner__icon">⚠</span>
+        <div>
+          <strong>Повышенная цена: ${flagged.length} ${noun}</strong> дороже обычной более чем на 10% (до +${worst}%).
+          <div class="muted" style="margin-top:2px">${names}${more}</div>
+        </div>
+      </div>`;
   },
 
   // Map a price-deviation percentage to a row class.
