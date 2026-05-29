@@ -2,6 +2,7 @@ import { logger } from '../utils/logger';
 import { userRepo } from '../database/repositories/userRepo';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { sendInvoiceNotification } from './telegram/telegramNotifier';
+import { sendMessage } from './telegram/telegramClient';
 import { type EventType, type EventPayload } from './types';
 
 // Domain-event entry point. Routes the event to Telegram (current channel).
@@ -61,5 +62,31 @@ export async function emit(
       eventType,
       error: (err as Error).message,
     });
+  }
+}
+
+/**
+ * Notify the user (Telegram) about a supplier-requisite recognition failure.
+ * Separate from emit() because supplier-extract jobs have no invoice_id (emit
+ * is invoice-coupled). Gated on the `recognition_error` toggle (on by default)
+ * so it follows the user's "error notifications" preference. Never throws.
+ */
+export async function notifySupplierExtractError(fileName: string, errorMessage: string): Promise<void> {
+  try {
+    const userId = await userRepo.firstUserId();
+    if (userId == null) return;
+    const cfg = await userRepo.getNotifyConfig(userId);
+    if (!cfg || !cfg.notify_events.includes('recognition_error')) return;
+    const tg = await userRepo.getTelegramConfig(userId);
+    if (!tg || !tg.chat_id || !tg.bot_token) return;
+    const text = [
+      `🚨 Ошибка распознавания реквизитов`,
+      `Файл: ${fileName || '—'}`,
+      ``,
+      `Причина: ${errorMessage || 'без описания'}`,
+    ].join('\n');
+    await sendMessage(tg.bot_token, tg.chat_id, text);
+  } catch (err) {
+    logger.error('notifySupplierExtractError failed', { error: (err as Error).message });
   }
 }

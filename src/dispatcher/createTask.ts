@@ -233,13 +233,13 @@ export async function dispatchSupplierExtract(jobId: number, token: string, ext:
 export async function validateSupplierJobToken(
   jobId: number,
   token: string,
-): Promise<{ id: number; file_path: string; content_type: string; status: string } | null> {
+): Promise<{ id: number; file_path: string; content_type: string; status: string; file_name: string } | null> {
   if (!token || typeof token !== 'string' || token.length !== 64) return null;
   const job = await supplierExtractJobRepo.getById(jobId);
   if (!job) return null;
   if (job.status !== 'processing') return null;
   if (!job.token || job.token !== token) return null;
-  return { id: job.id, file_path: job.file_path, content_type: job.content_type, status: job.status };
+  return { id: job.id, file_path: job.file_path, content_type: job.content_type, status: job.status, file_name: job.file_name };
 }
 
 /**

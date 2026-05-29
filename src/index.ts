@@ -14,6 +14,7 @@ import { cleanupOldPhotos } from './utils/photoRetention';
 import { checkDiskSpace } from './utils/diskMonitor';
 import { invoiceRepo } from './database/repositories/invoiceRepo';
 import { supplierExtractJobRepo } from './database/repositories/supplierExtractJobRepo';
+import { notifySupplierExtractError } from './notifications/events';
 import { seedAdminUser } from './auth/seedAdmin';
 import { startDigestWorker } from './notifications/digestWorker';
 
@@ -137,7 +138,13 @@ async function main(): Promise<void> {
       .then(n => { if (n > 0) logger.warn('Dispatcher timeout sweep: marked as error', { count: n }); })
       .catch(err => logger.error('dispatcher timeout sweep failed', { error: (err as Error).message }));
     supplierExtractJobRepo.markStaleAsFailed(15)
-      .then(n => { if (n > 0) logger.warn('Supplier-extract timeout sweep: marked as error', { count: n }); })
+      .then(jobs => {
+        if (!jobs.length) return;
+        logger.warn('Supplier-extract timeout sweep: marked as error', { count: jobs.length });
+        for (const j of jobs) {
+          notifySupplierExtractError(j.file_name, 'Диспетчер не ответил в течение 15 минут (таймаут).').catch(() => {});
+        }
+      })
       .catch(err => logger.error('supplier-extract timeout sweep failed', { error: (err as Error).message }));
   });
   checkDiskSpace().catch(err => logger.error('initial disk space check failed', { error: (err as Error).message }));

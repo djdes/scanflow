@@ -7,6 +7,11 @@ import { supplierExtractJobRepo } from '../../src/database/repositories/supplier
 
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
 vi.mock('../../src/mapping/nomenclatureMapper', () => ({ NomenclatureMapper: class {} }));
+vi.mock('../../src/notifications/telegram/telegramClient', () => ({
+  sendMessage: vi.fn().mockResolvedValue(1),
+  editMessageText: vi.fn(), getMe: vi.fn(), getUpdates: vi.fn(),
+}));
+import { sendMessage } from '../../src/notifications/telegram/telegramClient';
 
 import { createServer } from '../../src/api/server';
 import { FileWatcher } from '../../src/watcher/fileWatcher';
@@ -56,8 +61,9 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('supplier requisite
     await getDb().prepare(`UPDATE supplier_extract_jobs SET created_at = NOW() - INTERVAL 20 MINUTE WHERE id = ?`).run(id);
     const fresh = await makeJob(); // recent — must NOT be swept
 
-    const n = await supplierExtractJobRepo.markStaleAsFailed(15);
-    expect(n).toBe(1);
+    const swept = await supplierExtractJobRepo.markStaleAsFailed(15);
+    expect(swept.length).toBe(1);
+    expect(swept[0].id).toBe(id);
     expect((await supplierExtractJobRepo.getById(id))?.status).toBe('error');
     expect((await supplierExtractJobRepo.getById(fresh))?.status).toBe('processing');
   });
@@ -136,6 +142,34 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('supplier requisite
     expect(res.body.mode).toBe('created');
     const row = await getDb().prepare('SELECT inn, name FROM suppliers WHERE inn = ?').get<{ inn: string; name: string }>('504410008491');
     expect(row?.name).toContain('ЧИХИНОВ');
+  });
+
+  it('error callback fires a Telegram notification when telegram + recognition_error are configured', async () => {
+    vi.mocked(sendMessage).mockClear();
+    await getDb().prepare(
+      `UPDATE users SET notify_events = ?, telegram_chat_id = ?, telegram_bot_token = ? WHERE id = 1`
+    ).run(JSON.stringify(['recognition_error']), '99887766', 'bot:abc');
+
+    const id = await makeJob();
+    await request(app).post(`/api/dispatcher/supplier-result/${id}`).send({
+      token: TOKEN, success: false, error: 'реквизиты не читаются',
+    });
+
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    const [token, chatId, text] = vi.mocked(sendMessage).mock.calls[0];
+    expect(token).toBe('bot:abc');
+    expect(chatId).toBe('99887766');
+    expect(text).toContain('pay.pdf');
+    expect(text).toContain('реквизиты не читаются');
+  });
+
+  it('does NOT notify when telegram is not configured', async () => {
+    vi.mocked(sendMessage).mockClear();
+    const id = await makeJob(); // default user has no telegram + notify_events '[]'
+    await request(app).post(`/api/dispatcher/supplier-result/${id}`).send({ token: TOKEN, success: false, error: 'x' });
+    // give the fire-and-forget notify a tick; it should bail before sendMessage
+    await new Promise(r => setTimeout(r, 150));
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('merge with a missing body returns a clean 400 JSON, not an HTML 500', async () => {

@@ -56,15 +56,26 @@ export const supplierExtractJobRepo = {
       .run(message.slice(0, 1000), id);
   },
 
-  /** Mark jobs stuck in 'processing' longer than N minutes as error. Returns count. */
-  async markStaleAsFailed(staleMinutes: number = 15): Promise<number> {
-    const result = await getDb().prepare(
+  /**
+   * Mark jobs stuck in 'processing' longer than N minutes as error.
+   * Returns the affected jobs (id + file_name) so the caller can notify.
+   */
+  async markStaleAsFailed(staleMinutes: number = 15): Promise<Array<{ id: number; file_name: string }>> {
+    const mins = Math.floor(staleMinutes);
+    const db = getDb();
+    const stale = await db.prepare(
+      `SELECT id, file_name FROM supplier_extract_jobs
+       WHERE status = 'processing'
+         AND created_at < (NOW() - INTERVAL ${mins} MINUTE)`
+    ).all<{ id: number; file_name: string }>();
+    if (!stale.length) return [];
+    await db.prepare(
       `UPDATE supplier_extract_jobs
          SET status = 'error',
              error = COALESCE(error, ?)
        WHERE status = 'processing'
-         AND created_at < (NOW() - INTERVAL ${Math.floor(staleMinutes)} MINUTE)`
-    ).run(`Dispatcher timeout (>${Math.floor(staleMinutes)} min, callback never arrived)`);
-    return result.changes;
+         AND created_at < (NOW() - INTERVAL ${mins} MINUTE)`
+    ).run(`Dispatcher timeout (>${mins} min, callback never arrived)`);
+    return stale;
   },
 };

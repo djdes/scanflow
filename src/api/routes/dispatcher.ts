@@ -19,7 +19,7 @@ import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
-import { emit as emitNotification } from '../../notifications/events';
+import { emit as emitNotification, notifySupplierExtractError } from '../../notifications/events';
 import { canonicalizeSupplierName, normalizeInvoiceNumber } from '../../utils/invoiceNumber';
 import { userRepo } from '../../database/repositories/userRepo';
 import { getDb } from '../../database/db';
@@ -176,6 +176,7 @@ router.post('/supplier-result/:jobId', async (req: Request, res: Response) => {
     await supplierExtractJobRepo.setError(id, msg);
     fs.promises.unlink(job.file_path).catch(() => { /* best-effort */ });
     logger.warn('dispatcher supplier-result: error reported', { jobId: id, error: msg });
+    notifySupplierExtractError(job.file_name, msg).catch(() => {});
     return res.json({ ok: true, status: 'error' });
   }
   if (!body.success || !body.data || typeof body.data !== 'object') {
