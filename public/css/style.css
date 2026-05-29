@@ -667,8 +667,14 @@ label {
 
 .invoice-actions {
   display: flex;
+  flex-wrap: wrap;          /* wrap instead of overflowing / clipping */
   gap: 10px;
   margin-bottom: 24px;
+}
+/* Phones: stack the action buttons full-width so each is tappable. */
+@media (max-width: 640px) {
+  .invoice-actions { flex-direction: column; gap: 8px; margin-bottom: 18px; }
+  .invoice-actions .btn { width: 100%; margin-left: 0; }
 }
 
 /* ========== OCR Text ========== */
