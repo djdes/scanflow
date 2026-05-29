@@ -135,9 +135,10 @@ router.post('/extract-from-photo', extractUpload.single('file'), async (req: Req
   // The uploaded file already sits in the persistent supplierExtractDir (multer
   // storage), so it survives until the external session downloads it.
   if (cfg.mode === 'dispatcher') {
+    let jobId: number | null = null;
     try {
       const token = crypto.randomBytes(32).toString('hex');
-      const jobId = await supplierExtractJobRepo.create({
+      jobId = await supplierExtractJobRepo.create({
         token,
         file_name: req.file.originalname,
         file_path: tmpPath,
@@ -148,6 +149,10 @@ router.post('/extract-from-photo', extractUpload.single('file'), async (req: Req
       return res.json({ jobId, async: true });
     } catch (err) {
       fs.promises.unlink(tmpPath).catch(() => { /* best-effort */ });
+      // Dispatch failed before any task was created — finalise the job so it
+      // doesn't sit in 'processing' until the 15-min stale sweep. The client
+      // gets a clear status and offers a Retry (re-uploads the file → new job).
+      if (jobId != null) await supplierExtractJobRepo.setError(jobId, (err as Error).message).catch(() => {});
       if (err instanceof DispatcherConfigError) return res.status(503).json({ error: err.message });
       if (err instanceof DispatcherApiError) return res.status(502).json({ error: err.message });
       logger.error('Supplier extract dispatch failed', { error: (err as Error).message });

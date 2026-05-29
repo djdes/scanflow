@@ -55,23 +55,43 @@ const Suppliers = {
     // dispatcher jobs poll in the background so multiple recognise in parallel.
     for (const file of files) {
       const card = this._addQueueCard(queue, file.name);
-      try {
-        const fd = new FormData();
-        fd.append('file', file);
-        const res = await App.api('/suppliers/extract-from-photo', { method: 'POST', body: fd });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
-        if (payload.jobId) {
-          // Dispatcher mode — async. Show progress and poll for the result.
-          this._setQueueCardProcessing(card, file.name);
-          this._pollExtractStatus(payload.jobId, card, file.name);
-        } else {
-          this._renderExtractedCard(card, file.name, payload.extracted || {});
-        }
-      } catch (err) {
-        this._renderFailedCard(card, file.name, err.message);
-      }
+      await this._processFile(file, card);
     }
+  },
+
+  // Upload + (async) poll one file into `card`. Reused by the "Повторить" button,
+  // so it always resets the card to the working state first. Keeps a reference to
+  // the original File so a failed card can re-upload it.
+  async _processFile(file, card) {
+    card.className = 'extract-card is-working';
+    card.innerHTML = `<div class="extract-card__head">
+      <span class="extract-card__name">${App.esc(file.name)}</span>
+      <span class="muted" style="white-space:nowrap"><span class="spinner-dot"></span>распознаю…</span>
+    </div>`;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await App.api('/suppliers/extract-from-photo', { method: 'POST', body: fd });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(this._friendlyError(payload.error, res.status));
+      if (payload.jobId) {
+        // Dispatcher mode — async. Show progress and poll for the result.
+        this._setQueueCardProcessing(card, file.name);
+        this._pollExtractStatus(payload.jobId, card, file);
+      } else {
+        this._renderExtractedCard(card, file.name, payload.extracted || {});
+      }
+    } catch (err) {
+      this._renderFailedCard(card, file, err.message);
+    }
+  },
+
+  // Map cryptic transient failures to a clear, actionable RU message.
+  _friendlyError(serverMsg, status) {
+    if (status === 502 || status === 503 || /unreachable|ProjectsFlow|502|503/i.test(serverMsg || '')) {
+      return 'Сервис распознавания временно недоступен — нажмите «Повторить».';
+    }
+    return serverMsg || `HTTP ${status}`;
   },
 
   _setQueueCardProcessing(card, fileName) {
@@ -85,7 +105,7 @@ const Suppliers = {
 
   // Poll extract-status until the dispatcher answers. ~5s interval, ~16 min cap
   // (the server marks jobs stale → error after 15 min, so this rarely hits MAX).
-  async _pollExtractStatus(jobId, card, fileName) {
+  async _pollExtractStatus(jobId, card, file) {
     const POLL_MS = 5000;
     const MAX = 200;
     for (let i = 0; i < MAX; i++) {
@@ -96,13 +116,13 @@ const Suppliers = {
         data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       } catch (err) {
-        this._renderFailedCard(card, fileName, err.message);
+        this._renderFailedCard(card, file, err.message);
         return;
       }
-      if (data.status === 'done') { this._renderExtractedCard(card, fileName, data.extracted || {}); return; }
-      if (data.status === 'error') { this._renderFailedCard(card, fileName, data.error || 'не распознано'); return; }
+      if (data.status === 'done') { this._renderExtractedCard(card, file.name, data.extracted || {}); return; }
+      if (data.status === 'error') { this._renderFailedCard(card, file, data.error || 'не распознано'); return; }
     }
-    this._renderFailedCard(card, fileName, 'таймаут распознавания');
+    this._renderFailedCard(card, file, 'таймаут распознавания');
   },
 
   _addQueueCard(queue, fileName) {
@@ -116,16 +136,24 @@ const Suppliers = {
     return card;
   },
 
-  _renderFailedCard(card, fileName, errMsg) {
+  _renderFailedCard(card, file, errMsg) {
     card.classList.remove('is-working');
     card.innerHTML = `
       <div class="extract-card__head">
-        <span class="extract-card__name">${App.esc(fileName)}</span>
-        <button class="icon-btn" aria-label="Убрать" onclick="this.closest('.extract-card').remove()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+        <span class="extract-card__name">${App.esc(file.name)}</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-soft btn-sm" data-action="retry">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L3 8"></path></svg>
+            Повторить
+          </button>
+          <button class="icon-btn" data-action="dismiss" aria-label="Убрать">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
       </div>
       <p style="margin:6px 0 0;color:var(--error);font-size:13px">⚠ ${App.esc(errMsg)}</p>`;
+    card.querySelector('[data-action=dismiss]').onclick = () => card.remove();
+    card.querySelector('[data-action=retry]').onclick = () => this._processFile(file, card);
   },
 
   _renderExtractedCard(card, fileName, ex) {
