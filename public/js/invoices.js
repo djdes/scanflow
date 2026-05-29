@@ -416,9 +416,10 @@ const Invoices = {
     if (!el) return;
     const orange = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10 && it.price_deviation_pct <= 50).length;
     const red = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 50).length;
+    const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
     let html = '';
-    if (orange) html += `<span class="price-badge price-badge--orange" title="${orange}: цена выше обычной на 10–50%">${orange}</span>`;
-    if (red) html += `<span class="price-badge price-badge--red" title="${red}: цена выше обычной более чем на 50%">${red}</span>`;
+    if (orange) html += `<span class="price-badge price-badge--orange" title="${orange}: цена выше обычной на 10–50%">${icon}<b>${orange}</b></span>`;
+    if (red) html += `<span class="price-badge price-badge--red" title="${red}: цена выше обычной более чем на 50%">${icon}<b>${red}</b></span>`;
     el.innerHTML = html;
   },
 

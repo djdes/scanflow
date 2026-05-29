@@ -3142,21 +3142,37 @@ details[open] summary { margin-bottom: 12px; }
 .price-warning-banner__icon { font-size: 16px; line-height: 1.3; }
 .price-warning-banner .muted { color: #a16207; font-size: 12.5px; }
 
-/* Square overprice counters — top-right of an open invoice. Mobile-only. */
+/* Square overprice counters — top-right of an open invoice. Mobile-only.
+   Frosted-glass tiles (glassmorphism): translucent tint + backdrop blur,
+   a warning glyph and the count in the tier colour. */
 .price-badges { display: none; }
 .price-badge {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 9px;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border-radius: 14px;
+  border: 1px solid;
   font-weight: 800;
-  font-size: 15px;
-  color: #fff;
-  box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  backdrop-filter: blur(10px) saturate(180%);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-.price-badge--orange { background: #f97316; }
-.price-badge--red    { background: var(--error); }
+.price-badge svg { width: 15px; height: 15px; opacity: 0.95; }
+.price-badge b { font-size: 14px; line-height: 1; letter-spacing: -0.3px; }
+.price-badge--orange {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.32), rgba(249, 115, 22, 0.14));
+  border-color: rgba(249, 115, 22, 0.45);
+  color: #9a3412;
+}
+.price-badge--red {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.34), rgba(239, 68, 68, 0.15));
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #b91c1c;
+}
 
 /* ========== Mobile dashboard (≤768px): hamburger nav + no h-overflow ========== */
 @media (max-width: 768px) {
