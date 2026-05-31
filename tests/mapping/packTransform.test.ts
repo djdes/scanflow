@@ -381,9 +381,10 @@ describe('resolveAndApplyPackTransform', () => {
   });
 
   describe('Countable 1C unit guard', () => {
-    it('skips transform when 1C accounting unit is шт', () => {
+    it('skips pack-multiplication and RELABELS supplier unit to 1C unit (упак → шт)', () => {
       // Invoice «Геркулес 1кг» arrived as 2 упак. 1C stores «Геркулес» in
-      // шт. 1 упак of 1кг = 1 шт in 1C — do NOT multiply to 2 кг.
+      // шт. 1 упак of 1кг = 1 шт in 1C — do NOT multiply to 2 кг, but DO
+      // relabel the line to «2 шт» so the dashboard never shows «упак».
       const scan = { quantity: 2, unit: 'упак', price: 1012, total: 2024 };
       const r = resolveAndApplyPackTransform(
         scan,
@@ -392,16 +393,22 @@ describe('resolveAndApplyPackTransform', () => {
         'Геркулес',
         'шт', // 1C unit
       );
-      expect(r.item).toEqual(scan);
+      expect(r.item.quantity).toBe(2);
+      expect(r.item.unit).toBe('шт');
+      expect(r.item.total).toBe(2024);
+      expect(r.item.price).toBe(1012);
       expect(r.packSize).toBeNull();
       expect(r.packUnit).toBeNull();
     });
 
-    it('skips transform for all countable 1C units', () => {
+    it('skips pack-multiplication for every countable 1C unit but coerces the unit label', () => {
       const scan = { quantity: 4, unit: 'упак', price: 100, total: 400 };
       for (const u of ['шт', 'ШТ', 'штук', 'упак', 'упаковка', 'уп', 'пач', 'бут', 'бан', 'кор', 'пак', 'рул', 'набор']) {
         const r = resolveAndApplyPackTransform(scan, 'Товар 1кг', 1, 'кг', 'Товар', u);
-        expect(r.item, `unit=${u}`).toEqual(scan);
+        // Quantity / money stay; the unit is renamed to the 1C accounting unit.
+        expect(r.item.quantity, `unit=${u}`).toBe(4);
+        expect(r.item.total, `unit=${u}`).toBe(400);
+        expect(r.item.unit, `unit=${u}`).toBe(u.toLowerCase().trim());
       }
     });
 
@@ -539,6 +546,24 @@ describe('resolveAndApplyPackTransform', () => {
       expect(r.item.unit).toBe('кг');
       expect(r.item.quantity).toBeCloseTo(4.95, 3);
       expect(r.item.total).toBe(2910);
+    });
+
+    it('relabels supplier package units (упак/кор/бан/пач) to 1C accounting шт without changing count', () => {
+      // Final-unit policy: invoice_items must never carry "упак"/"кор"/"бан"
+      // when 1C тащит товар по штукам. Factor=1.0 (just rename).
+      for (const supplierUnit of ['упак', 'кор', 'бан', 'пач', 'пак', 'рул', 'набор']) {
+        const r = resolveAndApplyPackTransform(
+          { quantity: 3, unit: supplierUnit, price: 50, total: 150 },
+          'Товар',
+          null, null,
+          'Товар',
+          'шт',
+        );
+        expect(r.item.unit, `${supplierUnit} → шт`).toBe('шт');
+        expect(r.item.quantity, `${supplierUnit} qty preserved`).toBe(3);
+        expect(r.item.total).toBe(150);
+        expect(r.item.price).toBe(50);
+      }
     });
 
     it('coerce is a no-op when current unit already matches 1C unit', () => {

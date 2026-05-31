@@ -354,6 +354,13 @@ export function coerceToOnec1cUnit<T extends PackTransformable>(item: T, onec1cU
       if (current === 'г') return 1.0;
       return null;
     }
+    // Countable → countable: 1С учёт ведётся «по штукам», и любая фасовка
+    // поставщика (упак/кор/банка/пачка/…) считается за 1 учётную штуку.
+    // Это лишь ПЕРЕИМЕНОВАНИЕ единицы (фактор 1.0): количество не меняется,
+    // зато в позициях не остаётся «2 упак» — всегда канонично «2 шт».
+    // Если 1 упак реально содержит N штук, для этого должен быть pack_size в
+    // mapping или в имени — это обрабатывает Mode A/B до coerce.
+    if (isCountable1cUnit(target) && isCountable1cUnit(current)) return 1.0;
     return null;
   })();
 
