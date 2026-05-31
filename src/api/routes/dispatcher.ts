@@ -444,16 +444,21 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
           logger.warn('dispatcher result: mapping failed', { itemName: it.name, error: (err as Error).message });
         }
       }
-      if (mapping && mapping.onec_guid) {
-        const onec = await onecNomenclatureRepo.getByGuid(mapping.onec_guid);
-        const hintedPackSize = it.pack_size ?? mapping.pack_size;
-        const hintedPackUnit = it.pack_size ? 'шт' : mapping.pack_unit;
+      // packTransform runs UNCONDITIONALLY (even when no 1С mapping yet):
+      //   - if Claude extracted a pack_size hint ("1/15", "*48") it still
+      //     expands qty correctly into base units;
+      //   - the final coerce step rebrands any countable supplier unit
+      //     (уп/кор/банка/пач) to "шт" — our 1С catalog only tracks {шт, кг, л}.
+      {
+        const onec = mapping?.onec_guid ? await onecNomenclatureRepo.getByGuid(mapping.onec_guid) : null;
+        const hintedPackSize = it.pack_size ?? mapping?.pack_size ?? null;
+        const hintedPackUnit = it.pack_size ? 'шт' : (mapping?.pack_unit ?? null);
         const r = resolveAndApplyPackTransform(
           transformedItem,
           it.name ?? '',
           hintedPackSize,
           hintedPackUnit,
-          mapping.mapped_name,
+          mapping?.mapped_name ?? null,
           onec?.unit ?? null,
         );
         transformedItem = r.item;

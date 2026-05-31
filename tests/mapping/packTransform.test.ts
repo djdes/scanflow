@@ -548,6 +548,39 @@ describe('resolveAndApplyPackTransform', () => {
       expect(r.item.total).toBe(2910);
     });
 
+    it('relabels supplier packs to шт even WITHOUT a 1C-side unit (unmapped item)', () => {
+      // For an unmapped item with no pack hints anywhere (mapping or name),
+      // coerce still rebrands the supplier's counting unit (уп/кор/бан) to
+      // шт. Quantity/total unchanged. «In items: only шт / кг / л» — even
+      // when the row hasn't been matched to 1С yet.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 4, unit: 'уп', price: 200, total: 800 },
+        'Какой-то товар без размера в имени',
+        null, null,   // no pack hint from mapping
+        null,         // no 1C name
+        null,         // no 1C unit (item unmapped)
+      );
+      expect(r.item.unit).toBe('шт');
+      expect(r.item.quantity).toBe(4);
+      expect(r.item.total).toBe(800);
+    });
+
+    it('expands qty via Claude pack_size hint even for unmapped items (Mode A fires)', () => {
+      // Same scenario but with pack_size=15 from Claude (parsed from "1/15"):
+      // 4 уп × 15 = 60 шт. coerce keeps the unit as шт.
+      const r = resolveAndApplyPackTransform(
+        { quantity: 4, unit: 'уп', price: 2040, total: 8160 },
+        'Масло подсолнечное 1л раф/дез ГОСТ 1/15',
+        15, 'шт',   // hinted by Claude pack_size=15
+        null,
+        null,       // unmapped — no 1C unit
+      );
+      expect(r.item.unit).toBe('шт');
+      expect(r.item.quantity).toBe(60);
+      expect(r.item.total).toBe(8160);
+      expect(r.item.price).toBe(8160 / 60); // 136
+    });
+
     it('relabels supplier package units (упак/кор/бан/пач) to 1C accounting шт without changing count', () => {
       // Final-unit policy: invoice_items must never carry "упак"/"кор"/"бан"
       // when 1C тащит товар по штукам. Factor=1.0 (just rename).

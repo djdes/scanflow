@@ -320,9 +320,17 @@ function isCountable1cUnit(unit: string | null | undefined): boolean {
  * from total / new_quantity so it stays meaningful per new unit.
  */
 export function coerceToOnec1cUnit<T extends PackTransformable>(item: T, onec1cUnit: string | null | undefined): T {
-  if (!onec1cUnit) return item;
-  const target = onec1cUnit.trim().toLowerCase();
   const current = (item.unit || '').trim().toLowerCase();
+  // Catch-all fallback: even WITHOUT a 1С-side unit hint (unmapped items), any
+  // supplier "package" unit (упак/кор/банка/пач/...) must be coerced to "шт".
+  // Our 1С catalog only tracks goods in {шт, кг, л} — never in упаковках.
+  if (!onec1cUnit) {
+    if (current && current !== 'шт' && isCountable1cUnit(current)) {
+      return { ...item, unit: 'шт' } as T;
+    }
+    return item;
+  }
+  const target = onec1cUnit.trim().toLowerCase();
   if (!current || current === target) return item;
 
   const qty = item.quantity;
