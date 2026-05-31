@@ -24,6 +24,9 @@
       const r = await App.apiJson('/profile');
       const data = r.data || {};
 
+      const emailEl = document.getElementById('profile-email');
+      if (emailEl) emailEl.value = data.email || '';
+
       document.getElementById('profile-tg-chat').value = data.telegram_chat_id || '';
 
       const tokenSetOnServer = !!data.telegram_bot_token_set;
@@ -54,7 +57,8 @@
         document.querySelectorAll('input[type=checkbox][data-event]:checked'),
       ).map(cb => cb.dataset.event);
 
-      const body = { telegram_chat_id: chat, notify_events: events };
+      const emailVal = (document.getElementById('profile-email')?.value || '').trim();
+      const body = { telegram_chat_id: chat, notify_events: events, email: emailVal || null };
       if (sendToken) body.telegram_bot_token = tokenInputValue || null;
       return body;
     },

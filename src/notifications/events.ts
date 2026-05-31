@@ -3,6 +3,8 @@ import { userRepo } from '../database/repositories/userRepo';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { sendInvoiceNotification } from './telegram/telegramNotifier';
 import { sendMessage } from './telegram/telegramClient';
+import { sendNotification as sendEmail, smtpConfigured } from '../utils/mailer';
+import { renderRealtime } from './templates';
 import { type EventType, type EventPayload } from './types';
 
 // Domain-event entry point. Routes the event to Telegram (current channel).
@@ -100,15 +102,38 @@ export async function emitElevatedPricesIfAny(invoiceId: number): Promise<void> 
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
     if (!elevated.length) return;
-    await emit('elevated_prices', {
+    const payload: EventPayload = {
       invoice_id: inv.id,
       invoice_number: inv.invoice_number,
       supplier: inv.supplier,
       total_sum: inv.total_sum,
       elevated_items: elevated,
-    }, null);
+    };
+    // Telegram via the existing emit() pipeline (gated on notify_events).
+    await emit('elevated_prices', payload, null);
+    // Email (parallel channel) — same notify_events gate, sent only if the
+    // user has an email AND the mailer has a working transport.
+    await sendElevatedPricesEmail(payload);
   } catch (err) {
     logger.error('emitElevatedPricesIfAny failed', { invoiceId, error: (err as Error).message });
+  }
+}
+
+async function sendElevatedPricesEmail(payload: EventPayload): Promise<void> {
+  try {
+    const userId = await userRepo.firstUserId();
+    if (userId == null) return;
+    const cfg = await userRepo.getNotifyConfig(userId);
+    if (!cfg || !cfg.email) return;
+    if (!cfg.notify_events.includes('elevated_prices')) return;
+    if (!smtpConfigured()) {
+      logger.debug('elevated_prices email skipped: no mail transport configured');
+      return;
+    }
+    const rendered = renderRealtime('elevated_prices', payload);
+    await sendEmail(cfg.email, rendered.subject, rendered.html);
+  } catch (err) {
+    logger.error('sendElevatedPricesEmail failed', { error: (err as Error).message });
   }
 }
 

@@ -8,7 +8,14 @@ vi.mock('../../src/notifications/telegram/telegramClient', () => ({
   getMe: vi.fn(),
   getUpdates: vi.fn(),
 }));
+vi.mock('../../src/utils/mailer', () => ({
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+  smtpConfigured: vi.fn().mockReturnValue(true),
+  sendErrorEmail: vi.fn(),
+  sendAuthEmail: vi.fn(),
+}));
 import { sendMessage } from '../../src/notifications/telegram/telegramClient';
+import { sendNotification } from '../../src/utils/mailer';
 import { emitElevatedPricesIfAny } from '../../src/notifications/events';
 import { backfillAllStats } from '../../src/pricing/priceStats';
 
@@ -42,11 +49,11 @@ async function seedCurrent(price: number): Promise<number> {
   return id;
 }
 
-async function setupUserWithTelegram(): Promise<void> {
+async function setupUserWithTelegram(opts: { email?: string | null } = {}): Promise<void> {
   await getDb().prepare(
-    `INSERT INTO users (id, username, password_hash, api_key, role, notify_events, telegram_chat_id, telegram_bot_token)
-     VALUES (1, 'admin', 'x', 'k', 'admin', ?, '12345', 'bot:token')`
-  ).run(JSON.stringify(['invoice_recognized', 'elevated_prices']));
+    `INSERT INTO users (id, username, password_hash, api_key, role, notify_events, telegram_chat_id, telegram_bot_token, email)
+     VALUES (1, 'admin', 'x', 'k', 'admin', ?, '12345', 'bot:token', ?)`
+  ).run(JSON.stringify(['invoice_recognized', 'elevated_prices']), opts.email ?? null);
 }
 
 describe.runIf((process.env.DB_NAME || '').includes('test'))('emitElevatedPricesIfAny', () => {
@@ -54,6 +61,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('emitElevatedPrices
     await resetDb();
     await setupUserWithTelegram();
     vi.mocked(sendMessage).mockClear();
+    vi.mocked(sendNotification).mockClear();
   });
   afterAll(async () => { await closeTestDb(); });
 
@@ -88,5 +96,28 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('emitElevatedPrices
     const cur = await seedCurrent(200);
     await emitElevatedPricesIfAny(cur);
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  it('also emails the user when email + smtp are configured', async () => {
+    await getDb().prepare(`UPDATE users SET email = ? WHERE id = 1`).run('boss@example.com');
+    await seedHistory([100, 100, 100, 100, 100]);
+    const cur = await seedCurrent(150);
+    await emitElevatedPricesIfAny(cur);
+
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    const [to, subject, html] = vi.mocked(sendNotification).mock.calls[0];
+    expect(to).toBe('boss@example.com');
+    expect(subject).toContain('Повышенные цены');
+    expect(html).toContain('Помидор');
+    expect(html).toContain('+50%');
+  });
+
+  it('does NOT email when the user has no email set', async () => {
+    await seedHistory([100, 100, 100, 100, 100]);
+    const cur = await seedCurrent(150);
+    await emitElevatedPricesIfAny(cur);
+    expect(sendMessage).toHaveBeenCalled(); // TG still goes
+    expect(sendNotification).not.toHaveBeenCalled(); // email skipped (no email)
   });
 });

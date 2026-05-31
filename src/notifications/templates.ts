@@ -29,6 +29,13 @@ function fmtMoney(n: number | null | undefined): string {
   return new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + ' ₽';
 }
 
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+}
+
 function invoiceHeaderHtml(p: EventPayload, baseUrl: string): string {
   const num = p.invoice_number ? escapeHtml(String(p.invoice_number)) : `#${p.invoice_id}`;
   const supplier = p.supplier ? escapeHtml(String(p.supplier)) : '—';
@@ -50,6 +57,35 @@ export function renderRealtime(eventType: EventType, payload: EventPayload, base
   }
   if (eventType === 'suspicious_total' && payload.items_total != null) {
     extra = `<p style="margin:8px 0 0;color:#b45309"><b>Сумма строк:</b> ${fmtMoney(payload.items_total as number)} <i>(не сходится с total_sum)</i></p>`;
+  }
+  if (eventType === 'elevated_prices' && Array.isArray(payload.elevated_items)) {
+    const items = payload.elevated_items as Array<{ name: string; unit: string | null; price: number; median_price: number; deviation_pct: number }>;
+    const sorted = [...items].sort((a, b) => b.deviation_pct - a.deviation_pct).slice(0, 30);
+    const rows = sorted.map(it => {
+      const unit = it.unit ? `/${escapeHtml(it.unit)}` : '';
+      const dev = Math.round(it.deviation_pct);
+      const color = it.deviation_pct > 50 ? '#b91c1c' : it.deviation_pct > 25 ? '#c2410c' : '#b45309';
+      return `<tr>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7">${escapeHtml(it.name)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7;text-align:right;white-space:nowrap">${fmtMoney(it.price)}${unit}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7;text-align:right;white-space:nowrap;color:#64748b">${fmtMoney(it.median_price)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7;text-align:right;font-weight:700;color:${color}">+${dev}%</td>
+      </tr>`;
+    }).join('');
+    const more = items.length > sorted.length ? `<p style="margin:6px 0 0;font-size:12px;color:#94a3b8">… и ещё ${items.length - sorted.length}</p>` : '';
+    extra = `
+      <p style="margin:12px 0 6px;color:#b45309"><b>Найдено ${items.length} ${pluralRu(items.length, 'позиция', 'позиции', 'позиций')} дороже обычного:</b></p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+        <thead>
+          <tr style="background:#f8fafc;color:#64748b;text-transform:uppercase;font-size:11px;letter-spacing:0.4px">
+            <th style="padding:8px 10px;text-align:left">Товар</th>
+            <th style="padding:8px 10px;text-align:right">Цена</th>
+            <th style="padding:8px 10px;text-align:right">Обычно</th>
+            <th style="padding:8px 10px;text-align:right">Δ</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>${more}`;
   }
 
   const html = `
