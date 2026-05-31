@@ -1,5 +1,10 @@
 import type { Invoice } from '../../database/repositories/invoiceRepo';
 import type { EventPayload } from '../types';
+import { config } from '../../config';
+
+function invoiceUrl(id: number): string {
+  return `${config.publicBaseUrl}/#/invoices/${id}`;
+}
 
 // Per-event timestamp. Built from invoice fields directly (no separate event log
 // is maintained; the invoice itself is the source of truth for state).
@@ -90,6 +95,7 @@ export function buildInvoiceThread(invoice: Invoice, state: EventState): string 
       lines.push(`⏳ ${STEP_LABELS[step]}`);
     }
   }
+  lines.push('', `🔗 ${invoiceUrl(invoice.id)}`);
 
   return lines.join('\n');
 }
@@ -119,6 +125,8 @@ export function buildUrgentMessage(
       `Поставщик: ${supplier}`,
       ``,
       `Причина: ${err}`,
+      ``,
+      `🔗 ${invoiceUrl(Number(payload.invoice_id))}`,
     ].join('\n');
   }
 
@@ -142,7 +150,7 @@ export function buildUrgentMessage(
     if (sorted.length > shown.length) {
       lines.push(`… и ещё ${sorted.length - shown.length}`);
     }
-    lines.push('', 'Откройте накладную в дашборде, чтобы проверить.');
+    lines.push('', `🔗 ${invoiceUrl(Number(payload.invoice_id))}`);
     return lines.join('\n');
   }
 
@@ -155,7 +163,7 @@ export function buildUrgentMessage(
     `Сумма по документу: ${sum}`,
   ];
   if (itemsTotal) lines.push(`Сумма строк: ${itemsTotal}`);
-  lines.push('', 'Проверьте документ в дашборде.');
+  lines.push('', `🔗 ${invoiceUrl(Number(payload.invoice_id))}`);
   return lines.join('\n');
 }
 

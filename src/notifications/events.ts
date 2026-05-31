@@ -39,24 +39,37 @@ export async function emit(
       return;
     }
 
-    const tg = await userRepo.getTelegramConfig(userId);
-    if (!tg || !tg.chat_id || !tg.bot_token) {
-      logger.debug('notifications.emit: telegram not configured', { eventType, userId });
-      return;
-    }
-
     const invoice = await invoiceRepo.getById(payload.invoice_id);
     if (!invoice) {
       logger.debug('notifications.emit: invoice not found', { invoiceId: payload.invoice_id });
       return;
     }
 
-    await sendInvoiceNotification(
-      { token: tg.bot_token, chat_id: tg.chat_id },
-      invoice,
-      eventType,
-      payload,
-    );
+    // Telegram channel — send if configured. A missing TG config is no longer
+    // an early-return: email below should still go through.
+    const tg = await userRepo.getTelegramConfig(userId);
+    if (tg && tg.chat_id && tg.bot_token) {
+      await sendInvoiceNotification(
+        { token: tg.bot_token, chat_id: tg.chat_id },
+        invoice,
+        eventType,
+        payload,
+      );
+    } else {
+      logger.debug('notifications.emit: telegram not configured', { eventType, userId });
+    }
+
+    // Email channel — parallel to Telegram, gated by the same notify_events
+    // toggle (already checked above). Same mailer transport as registration
+    // emails. Each render includes a link back to the invoice.
+    if (cfg.email && smtpConfigured()) {
+      try {
+        const rendered = renderRealtime(eventType, payload);
+        await sendEmail(cfg.email, rendered.subject, rendered.html);
+      } catch (err) {
+        logger.warn('notifications.emit: email failed', { eventType, error: (err as Error).message });
+      }
+    }
   } catch (err) {
     // Defensive: emit() must never throw. Even if the DB is locked or
     // userRepo blows up, the main pipeline continues.
@@ -102,38 +115,16 @@ export async function emitElevatedPricesIfAny(invoiceId: number): Promise<void> 
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
     if (!elevated.length) return;
-    const payload: EventPayload = {
+    // Single dispatch — emit() handles Telegram + email in parallel.
+    await emit('elevated_prices', {
       invoice_id: inv.id,
       invoice_number: inv.invoice_number,
       supplier: inv.supplier,
       total_sum: inv.total_sum,
       elevated_items: elevated,
-    };
-    // Telegram via the existing emit() pipeline (gated on notify_events).
-    await emit('elevated_prices', payload, null);
-    // Email (parallel channel) — same notify_events gate, sent only if the
-    // user has an email AND the mailer has a working transport.
-    await sendElevatedPricesEmail(payload);
+    }, null);
   } catch (err) {
     logger.error('emitElevatedPricesIfAny failed', { invoiceId, error: (err as Error).message });
-  }
-}
-
-async function sendElevatedPricesEmail(payload: EventPayload): Promise<void> {
-  try {
-    const userId = await userRepo.firstUserId();
-    if (userId == null) return;
-    const cfg = await userRepo.getNotifyConfig(userId);
-    if (!cfg || !cfg.email) return;
-    if (!cfg.notify_events.includes('elevated_prices')) return;
-    if (!smtpConfigured()) {
-      logger.debug('elevated_prices email skipped: no mail transport configured');
-      return;
-    }
-    const rendered = renderRealtime('elevated_prices', payload);
-    await sendEmail(cfg.email, rendered.subject, rendered.html);
-  } catch (err) {
-    logger.error('sendElevatedPricesEmail failed', { error: (err as Error).message });
   }
 }
 
