@@ -396,6 +396,7 @@ const MIGRATIONS: Migration[] = [
           'invoice_recognized',
           'recognition_error',
           'suspicious_total',
+          'elevated_prices',
           'invoice_edited',
           'approved_for_1c',
           'sent_to_1c',
@@ -666,6 +667,30 @@ const MIGRATIONS: Migration[] = [
           created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
+    },
+  },
+  {
+    version: 30,
+    name: 'notify_events: opt-in elevated_prices for existing users',
+    detect: async (exec) => {
+      const [total] = await exec.query<RowDataPacket[]>(`SELECT COUNT(*) AS c FROM users`);
+      const [have]  = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS c FROM users WHERE notify_events LIKE '%"elevated_prices"%'`,
+      );
+      const t = Number(total[0]?.c ?? 0);
+      const h = Number(have[0]?.c ?? 0);
+      return t > 0 && t === h;
+    },
+    run: async (exec) => {
+      const [users] = await exec.query<RowDataPacket[]>(`SELECT id, notify_events FROM users`);
+      for (const u of users) {
+        let events: unknown;
+        try { events = JSON.parse(u.notify_events); } catch { events = []; }
+        const arr: string[] = Array.isArray(events) ? events.filter((e): e is string => typeof e === 'string') : [];
+        if (arr.includes('elevated_prices')) continue;
+        arr.push('elevated_prices');
+        await exec.query(`UPDATE users SET notify_events = ? WHERE id = ?`, [JSON.stringify(arr), u.id]);
+      }
     },
   },
 ];

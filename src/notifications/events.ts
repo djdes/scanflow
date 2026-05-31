@@ -71,6 +71,47 @@ export async function emit(
  * is invoice-coupled). Gated on the `recognition_error` toggle (on by default)
  * so it follows the user's "error notifications" preference. Never throws.
  */
+/**
+ * If the just-recognised invoice has any items priced >10% above the usual
+ * (median) price for that 1C nomenclature, fire a dedicated `elevated_prices`
+ * notification with the per-item details. Mirrors the threshold of the in-app
+ * yellow zone (10–25%) and includes orange/red tiers too. Never throws.
+ */
+export async function emitElevatedPricesIfAny(invoiceId: number): Promise<void> {
+  try {
+    const inv = await invoiceRepo.getWithItems(invoiceId);
+    if (!inv) return;
+    const elevated = inv.items
+      .map(it => {
+        const median = it.median_price;
+        const samples = it.median_samples ?? 0;
+        const unitMatch = !!it.unit && !!it.median_price_unit && it.unit === it.median_price_unit;
+        const price = typeof it.price === 'number' ? it.price : null;
+        if (median == null || median <= 0 || samples < 3 || !unitMatch || price == null || price <= 0) return null;
+        const dev = ((price - Number(median)) / Number(median)) * 100;
+        if (dev <= 10) return null;
+        return {
+          name: it.mapped_name || it.original_name || '',
+          unit: it.unit,
+          price,
+          median_price: Number(median),
+          deviation_pct: dev,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    if (!elevated.length) return;
+    await emit('elevated_prices', {
+      invoice_id: inv.id,
+      invoice_number: inv.invoice_number,
+      supplier: inv.supplier,
+      total_sum: inv.total_sum,
+      elevated_items: elevated,
+    }, null);
+  } catch (err) {
+    logger.error('emitElevatedPricesIfAny failed', { invoiceId, error: (err as Error).message });
+  }
+}
+
 export async function notifySupplierExtractError(fileName: string, errorMessage: string): Promise<void> {
   try {
     const userId = await userRepo.firstUserId();

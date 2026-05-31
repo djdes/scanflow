@@ -9,6 +9,7 @@ export type EventType =
   | 'invoice_recognized'
   | 'recognition_error'
   | 'suspicious_total'
+  | 'elevated_prices'
   | 'invoice_edited'
   | 'approved_for_1c'
   | 'sent_to_1c';
@@ -18,6 +19,7 @@ export const ALL_EVENT_TYPES: readonly EventType[] = [
   'invoice_recognized',
   'recognition_error',
   'suspicious_total',
+  'elevated_prices',
   'invoice_edited',
   'approved_for_1c',
   'sent_to_1c',
@@ -27,6 +29,7 @@ export const ALL_EVENT_TYPES: readonly EventType[] = [
 export const URGENT_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   'recognition_error',
   'suspicious_total',
+  'elevated_prices',
 ]);
 
 export type NotifyMode = 'realtime' | 'digest_hourly' | 'digest_daily';

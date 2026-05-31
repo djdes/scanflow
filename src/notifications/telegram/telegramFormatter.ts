@@ -95,8 +95,16 @@ export function buildInvoiceThread(invoice: Invoice, state: EventState): string 
 }
 
 // Builds the standalone urgent message body. Not part of the invoice thread.
+export interface ElevatedItem {
+  name: string;
+  unit: string | null;
+  price: number;
+  median_price: number;
+  deviation_pct: number;
+}
+
 export function buildUrgentMessage(
-  eventType: 'recognition_error' | 'suspicious_total',
+  eventType: 'recognition_error' | 'suspicious_total' | 'elevated_prices',
   payload: EventPayload,
 ): string {
   const num = payload.invoice_number ? String(payload.invoice_number) : `#${payload.invoice_id}`;
@@ -114,6 +122,30 @@ export function buildUrgentMessage(
     ].join('\n');
   }
 
+  if (eventType === 'elevated_prices') {
+    const items = Array.isArray(payload.elevated_items) ? (payload.elevated_items as ElevatedItem[]) : [];
+    const lines: string[] = [
+      `⚠️ Повышенные цены в накладной`,
+      `Накладная: ${num}`,
+      `Поставщик: ${supplier}`,
+      ``,
+      `Найдено ${items.length} ${pluralRu(items.length, 'позиция', 'позиции', 'позиций')} дороже обычного:`,
+    ];
+    // Sort by deviation desc, cap at 15 to keep the message within reason.
+    const sorted = [...items].sort((a, b) => b.deviation_pct - a.deviation_pct);
+    const shown = sorted.slice(0, 15);
+    for (const it of shown) {
+      const unit = it.unit ? `/${it.unit}` : '';
+      const dev = Math.round(it.deviation_pct);
+      lines.push(`• ${it.name} — ${fmtMoney(it.price)}${unit} (обычно ${fmtMoney(it.median_price)}, +${dev}%)`);
+    }
+    if (sorted.length > shown.length) {
+      lines.push(`… и ещё ${sorted.length - shown.length}`);
+    }
+    lines.push('', 'Откройте накладную в дашборде, чтобы проверить.');
+    return lines.join('\n');
+  }
+
   // suspicious_total
   const itemsTotal = payload.items_total != null ? fmtMoney(payload.items_total as number) : null;
   const lines = [
@@ -125,4 +157,11 @@ export function buildUrgentMessage(
   if (itemsTotal) lines.push(`Сумма строк: ${itemsTotal}`);
   lines.push('', 'Проверьте документ в дашборде.');
   return lines.join('\n');
+}
+
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
 }

@@ -15,7 +15,7 @@ import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
-import { emit as emitNotification } from '../notifications/events';
+import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -890,6 +890,7 @@ export class FileWatcher {
                   supplier: finalInvoice.supplier,
                   total_sum: finalInvoice.total_sum,
                 }, null).catch(() => {});
+                emitElevatedPricesIfAny(finalInvoice.id).catch(() => {});
                 if (finalInvoice.items_total_mismatch === 1) {
                   const finalItems = await invoiceRepo.getItems(finalInvoice.id);
                   const itemsTotal = finalItems.reduce((sum, it) => sum + (it.total ?? 0), 0);
@@ -1134,6 +1135,7 @@ export class FileWatcher {
             supplier: finalInvoice.supplier,
             total_sum: finalInvoice.total_sum,
           }, null).catch(() => {});
+          emitElevatedPricesIfAny(finalInvoice.id).catch(() => {});
           if (finalInvoice.items_total_mismatch === 1) {
             const finalItems = await invoiceRepo.getItems(finalInvoice.id);
             const itemsTotal = finalItems.reduce((sum, it) => sum + (it.total ?? 0), 0);

@@ -46,6 +46,7 @@ export const userRepo = {
       'invoice_recognized',
       'recognition_error',
       'suspicious_total',
+      'elevated_prices',
       'invoice_edited',
       'approved_for_1c',
       'sent_to_1c',

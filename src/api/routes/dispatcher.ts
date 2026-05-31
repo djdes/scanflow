@@ -19,7 +19,7 @@ import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
-import { emit as emitNotification, notifySupplierExtractError } from '../../notifications/events';
+import { emit as emitNotification, notifySupplierExtractError, emitElevatedPricesIfAny } from '../../notifications/events';
 import { canonicalizeSupplierName, normalizeInvoiceNumber } from '../../utils/invoiceNumber';
 import { userRepo } from '../../database/repositories/userRepo';
 import { getDb } from '../../database/db';
@@ -516,6 +516,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
             supplier: finalInvoice.supplier,
             total_sum: finalInvoice.total_sum,
           }, null).catch(() => {});
+          emitElevatedPricesIfAny(finalInvoice.id).catch(() => {});
           if (finalInvoice.items_total_mismatch === 1) {
             const finalItems = await invoiceRepo.getItems(finalInvoice.id);
             const itemsTotal = finalItems.reduce((s, it) => s + (it.total ?? 0), 0);

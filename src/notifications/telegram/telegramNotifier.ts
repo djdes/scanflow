@@ -25,7 +25,7 @@ export async function sendInvoiceNotification(
     if (URGENT_EVENT_TYPES.has(eventType)) {
       // Urgent → separate standalone message. Don't touch invoice thread.
       const text = buildUrgentMessage(
-        eventType as 'recognition_error' | 'suspicious_total',
+        eventType as 'recognition_error' | 'suspicious_total' | 'elevated_prices',
         payload,
       );
       try {

@@ -10,6 +10,7 @@ const EVENT_LABELS: Record<EventType, string> = {
   invoice_recognized: 'Накладная распознана',
   recognition_error:  'Ошибка распознавания',
   suspicious_total:   'Подозрительная сумма',
+  elevated_prices:    'Повышенные цены',
   invoice_edited:     'Накладная отредактирована',
   approved_for_1c:    'Утверждена для 1С',
   sent_to_1c:         'Отправлена в 1С',
