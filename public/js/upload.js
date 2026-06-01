@@ -417,6 +417,9 @@ const Upload = {
             if (invoice.status === 'processed') {
               this.history[idx].status = 'ok';
               this.history[idx].invoiceId = invoice.id;
+              // Проверяем повышенные цены сразу при распознавании —
+              // заведующая видит alert прямо на странице загрузки.
+              this._checkElevatedPrices(idx, invoice.id).catch(() => { /* best-effort */ });
               this.renderHistory();
               this.updateCounter();
               App.notify(`Накладная #${invoice.id} обработана`, 'success');
@@ -446,6 +449,50 @@ const Upload = {
     }
     // Timeout — оставим status=processing, пусть юзер найдёт в списке
     App.notify(`«${this.history[idx].name}»: всё ещё обрабатывается, проверь список накладных`, 'warn');
+  },
+
+  // Fetch the just-processed invoice detail and surface an inline alert if
+  // any line is priced >10% above the usual (median) price. Triggered from
+  // _pollForInvoiceId so the manager sees the warning right where they
+  // dropped the photo, not just in TG/email.
+  async _checkElevatedPrices(idx, invoiceId) {
+    const res = await fetch(App.baseUrl + '/invoices/' + invoiceId, {
+      headers: { 'X-API-Key': App.apiKey },
+    });
+    if (!res.ok) return;
+    const body = await res.json();
+    const items = body.data?.items || [];
+    const flagged = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10);
+    if (!flagged.length) return;
+    flagged.sort((a, b) => b.price_deviation_pct - a.price_deviation_pct);
+    const worst = Math.round(flagged[0].price_deviation_pct);
+    const top = flagged.slice(0, 3).map(f => f.mapped_name || f.original_name || '');
+    const more = flagged.length > 3 ? ` и ещё ${flagged.length - 3}` : '';
+    // Persist on the history entry so renderHistory can show it.
+    this.history[idx].elevated = {
+      count: flagged.length,
+      worstPct: worst,
+      names: top.join(', ') + more,
+      items: flagged.map(f => ({
+        name: f.mapped_name || f.original_name || '',
+        price: f.price,
+        median: f.median_price,
+        pct: f.price_deviation_pct,
+      })),
+    };
+    this.renderHistory();
+    // Toast — short, just to draw the eye. The persistent banner is in the card.
+    App.notify(
+      `⚠ Повышенные цены в #${invoiceId}: ${flagged.length} ${this._plural(flagged.length, 'позиция', 'позиции', 'позиций')} (до +${worst}%)`,
+      'warn',
+    );
+  },
+
+  _plural(n, one, few, many) {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+    return many;
   },
 
   async retry(idx) {
@@ -564,6 +611,19 @@ const Upload = {
         const id = Number(h.invoiceId);
         const safeId = Number.isFinite(id) ? id : 0;
         statusHtml = `<a href="#/invoices/${safeId}" class="upload-status upload-status-ok">Накладная #${safeId}</a>`;
+        if (h.elevated) {
+          const e = h.elevated;
+          const verb = this._plural(e.count, 'позиция', 'позиции', 'позиций');
+          statusHtml += `
+            <div class="upload-elevated-banner">
+              <span class="upload-elevated-banner__icon">⚠</span>
+              <div class="upload-elevated-banner__body">
+                <strong>Повышенная цена:</strong> ${e.count} ${verb} дороже обычной (до +${e.worstPct}%).
+                <div class="muted upload-elevated-banner__names">${esc(e.names)}</div>
+                <a href="#/invoices/${safeId}" class="upload-elevated-banner__link">Открыть накладную →</a>
+              </div>
+            </div>`;
+        }
         actionsHtml = `<button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Убрать</button>`;
       } else if (h.status === 'lost') {
         statusHtml = `<span class="upload-status upload-status-error">Фото утеряно</span>
