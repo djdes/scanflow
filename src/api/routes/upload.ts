@@ -4,6 +4,7 @@ import path from 'path';
 import { config } from '../../config';
 import { FileWatcher } from '../../watcher/fileWatcher';
 import { logger } from '../../utils/logger';
+import { inferUploadSource } from '../../utils/uploadSource';
 
 const router = Router();
 let fileWatcher: FileWatcher;
@@ -55,6 +56,8 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   const filePath = req.file.path;
   const fileName = req.file.filename;
   const forceEngine = req.query.engine as string | undefined;
+  const uploadSource = inferUploadSource(req.query.filename as string | undefined);
+  const userAgent = (req.headers['user-agent'] as string | undefined) ?? null;
   logger.info('File uploaded via API', { fileName, originalName: req.file.originalname, forceEngine });
 
   // Prevent file watcher from also processing this file
@@ -67,7 +70,10 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   // nginx upstream timeout → 502 на клиенте при загрузке нескольких подряд.
   void (async () => {
     try {
-      await fileWatcher.processFile(filePath, fileName, forceEngine);
+      await fileWatcher.processFile(filePath, fileName, forceEngine, {
+        source: uploadSource,
+        userAgent,
+      });
     } catch (err) {
       logger.error('Background processFile failed', {
         fileName, error: (err as Error).message,

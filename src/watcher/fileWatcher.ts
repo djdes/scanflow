@@ -36,6 +36,11 @@ async function getFirstRowNo(invoiceId: number): Promise<number | null> {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+export interface UploadMeta {
+  source?: string;
+  userAgent?: string | null;
+}
+
 export class FileWatcher {
   private watcher: FSWatcher | null = null;
   private ocrManager: OcrManager;
@@ -406,7 +411,7 @@ export class FileWatcher {
     });
   }
 
-  async processFile(filePath: string, fileName: string, forceEngine?: string): Promise<number> {
+  async processFile(filePath: string, fileName: string, forceEngine?: string, meta?: UploadMeta): Promise<number> {
     // 0. Content-based deduplication via SHA-256.
     // Hash is stored DURING the invoice INSERT under a UNIQUE partial index
     // on file_hash, which makes the dedup atomic: two concurrent uploads of
@@ -451,6 +456,8 @@ export class FileWatcher {
         file_name: fileName,
         file_path: filePath,
         file_hash: fileHash,
+        upload_source: meta?.source ?? 'inbox',
+        upload_user_agent: meta?.userAgent ?? null,
       });
     } catch (err) {
       if (err instanceof DuplicateFileHashError) {
