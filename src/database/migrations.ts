@@ -712,6 +712,27 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 32,
+    name: 'integration_events — activity log for 1C/Sber/webhook actions',
+    detect: (exec) => hasTable(exec, 'integration_events'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS integration_events (
+          id           INT AUTO_INCREMENT PRIMARY KEY,
+          ts           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          integration  VARCHAR(16)   NOT NULL,
+          event_type   VARCHAR(48)   NOT NULL,
+          status       VARCHAR(8)    NOT NULL DEFAULT 'ok',
+          invoice_id   INT           NULL,
+          summary      VARCHAR(512)  NOT NULL,
+          detail       TEXT          NULL,
+          INDEX idx_integration_events_ts (ts),
+          INDEX idx_integration_events_integration (integration)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
