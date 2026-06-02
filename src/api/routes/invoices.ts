@@ -75,6 +75,7 @@ async function attachElevatedPriceCount<T extends { id: number }>(invoices: T[])
        JOIN nomenclature_price_stats ps ON ps.onec_guid = ii.onec_guid
       WHERE ii.invoice_id IN (${placeholders})
         AND ps.samples >= 3
+        AND ps.median_price > 0
         AND ii.unit = ps.price_unit
         AND ii.price > 0
         AND ii.price > ps.median_price * 1.10
