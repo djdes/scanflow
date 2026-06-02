@@ -170,6 +170,10 @@ const App = {
       document.getElementById('view-webhook').style.display = 'block';
       this.activateNavTab('webhook');
       Webhook.load();
+    } else if (hash === '#/integrations-log') {
+      document.getElementById('view-integrations-log').style.display = 'block';
+      this.activateNavTab('integrations-log');
+      IntegrationsLog.load();
     } else if (hash === '#/settings') {
       document.getElementById('view-settings').style.display = 'block';
       this.activateNavTab('settings');
