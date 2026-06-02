@@ -34,6 +34,9 @@ export interface Invoice {
   items_total_mismatch: number;
   telegram_message_id: number | null;
   duplicate_of: number | null;
+  recognized_at: string | null;
+  upload_source: string | null;
+  upload_user_agent: string | null;
 }
 
 export interface InvoiceItem {
@@ -69,6 +72,8 @@ export interface CreateInvoiceData {
   raw_text?: string;
   ocr_engine?: string;
   file_hash?: string | null;
+  upload_source?: string;
+  upload_user_agent?: string | null;
 }
 
 // Thrown by invoiceRepo.create() when two uploads race on the same file content.
@@ -109,8 +114,8 @@ export const invoiceRepo = {
     const db = getDb();
     try {
       const result = await db.prepare(`
-        INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_kpp, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash)
-        VALUES (:file_name, :file_path, :invoice_number, :invoice_date, :supplier, :invoice_type, :supplier_inn, :supplier_kpp, :supplier_bik, :supplier_account, :supplier_corr_account, :supplier_address, :total_sum, :vat_sum, :raw_text, :ocr_engine, :file_hash)
+        INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_kpp, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash, upload_source, upload_user_agent)
+        VALUES (:file_name, :file_path, :invoice_number, :invoice_date, :supplier, :invoice_type, :supplier_inn, :supplier_kpp, :supplier_bik, :supplier_account, :supplier_corr_account, :supplier_address, :total_sum, :vat_sum, :raw_text, :ocr_engine, :file_hash, :upload_source, :upload_user_agent)
       `).run({
         file_name: data.file_name,
         file_path: data.file_path,
@@ -129,6 +134,8 @@ export const invoiceRepo = {
         raw_text: data.raw_text ?? null,
         ocr_engine: data.ocr_engine ?? null,
         file_hash: data.file_hash ?? null,
+        upload_source: data.upload_source ?? null,
+        upload_user_agent: data.upload_user_agent ?? null,
       });
       return (await this.getById(Number(result.lastInsertRowid)))!;
     } catch (err) {
@@ -238,6 +245,13 @@ export const invoiceRepo = {
     const db = getDb();
     if (errorMessage) {
       await db.prepare('UPDATE invoices SET status = ?, error_message = ? WHERE id = ?').run(status, errorMessage, id);
+    } else if (status === 'processed') {
+      // Stamp recognition-finish time the FIRST time the invoice reaches
+      // 'processed'. COALESCE preserves the original on later reprocess/rescan,
+      // so «Затрачено» (recognized_at − created_at) stays the real OCR time.
+      await db.prepare(
+        'UPDATE invoices SET status = ?, recognized_at = COALESCE(recognized_at, NOW()) WHERE id = ?'
+      ).run(status, id);
     } else {
       await db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(status, id);
     }
