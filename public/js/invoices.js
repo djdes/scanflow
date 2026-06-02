@@ -381,7 +381,7 @@ const Invoices = {
       this._renderPriceBadges(data.items || []);
 
       // История tab (fire-and-forget; the Sber row patches in when it resolves)
-      this.renderHistory(data);
+      void this.renderHistory(data);
 
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
