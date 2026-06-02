@@ -693,6 +693,25 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 31,
+    name: 'history tab: recognized_at + upload_source + upload_user_agent on invoices',
+    detect: async (exec) =>
+      (await hasColumn(exec, 'invoices', 'recognized_at')) &&
+      (await hasColumn(exec, 'invoices', 'upload_source')) &&
+      (await hasColumn(exec, 'invoices', 'upload_user_agent')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'recognized_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN recognized_at DATETIME NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'upload_source'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN upload_source VARCHAR(32) NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'upload_user_agent'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN upload_user_agent VARCHAR(512) NULL`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
