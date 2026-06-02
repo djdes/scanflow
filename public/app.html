@@ -44,14 +44,13 @@
         </div>
 
         <div class="nav-group" data-group="integrations">
-          <a href="#/sber" class="nav-group-trigger" data-tab="sber,webhook,integrations-log" aria-haspopup="true">
+          <a href="#/sber" class="nav-group-trigger" data-tab="sber,integrations-log" aria-haspopup="true">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Интеграции
             <svg class="nav-caret" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
           <div class="nav-menu" role="menu">
             <a href="#/sber" data-tab="sber" role="menuitem">Сбербанк</a>
-            <a href="#/webhook" data-tab="webhook" role="menuitem">Webhook 1C</a>
             <a href="#/integrations-log" data-tab="integrations-log" role="menuitem">Журнал</a>
           </div>
         </div>
@@ -441,42 +440,6 @@
             <tbody id="catalog-tbody"></tbody>
           </table>
         </div>
-      </div>
-    </section>
-
-    <!-- Webhook Section -->
-    <section id="view-webhook">
-      <div class="section-header">
-        <h2>Настройки Webhook 1C</h2>
-        <p class="section-subtitle">Автоматическая отправка распознанных накладных в 1С</p>
-      </div>
-      <div class="card" style="background:#f8fafc;border-color:#e2e8f0;margin-bottom:12px">
-        <p class="muted" style="margin:0">Это <strong>необязательный</strong> устаревший вебхук. Основная интеграция с 1С работает по опросу — 1С сама забирает одобренные накладные, вебхук для этого не нужен. Реальный статус 1С и журнал всех действий — на странице <a href="#/integrations-log">«Журнал»</a>.</p>
-      </div>
-      <div class="card">
-        <div class="form-group">
-          <label>URL вебхука</label>
-          <input type="url" id="wh-url" placeholder="http://server:8080/hs/invoices">
-        </div>
-        <div class="form-group">
-          <label>Токен авторизации</label>
-          <input type="text" id="wh-token" placeholder="Bearer token">
-        </div>
-        <div class="form-group">
-          <label>Статус</label>
-          <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="wh-enabled">
-              <span class="toggle-slider"></span>
-            </label>
-            <span id="wh-status-text">Выключен</span>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" onclick="Webhook.save()">Сохранить</button>
-          <button class="btn btn-outline" onclick="Webhook.test()">Тест</button>
-        </div>
-        <div id="wh-test-result" style="margin-top:16px"></div>
       </div>
     </section>
 
@@ -918,7 +881,6 @@
 <script src="/js/invoices.js"></script>
 <script src="/js/upload.js"></script>
 <script src="/js/mappings.js"></script>
-<script src="/js/webhook.js"></script>
 <script src="/js/integrations-log.js"></script>
 <script src="/js/settings.js"></script>
 <script src="/js/profile.js"></script>

@@ -166,10 +166,6 @@ const App = {
       document.getElementById('view-sber').style.display = 'block';
       this.activateNavTab('sber');
       Sber.load();
-    } else if (hash === '#/webhook') {
-      document.getElementById('view-webhook').style.display = 'block';
-      this.activateNavTab('webhook');
-      Webhook.load();
     } else if (hash === '#/integrations-log') {
       document.getElementById('view-integrations-log').style.display = 'block';
       this.activateNavTab('integrations-log');

@@ -41,8 +41,7 @@ const IntegrationsLog = {
     const el = document.getElementById('intlog-onec-status');
     if (!el) return;
     if (pollAt) {
-      el.innerHTML = `<strong style="color:#16a34a">✓ 1С на связи</strong> — последний запрос: ${App.formatDateTime(pollAt)}
-        <div class="muted" style="font-size:12px;margin-top:2px">1С сама забирает одобренные накладные (по опросу). Webhook — отдельная необязательная интеграция.</div>`;
+      el.innerHTML = `<strong style="color:#16a34a">✓ 1С на связи</strong> — последний запрос: ${App.formatDateTime(pollAt)}`;
     } else {
       el.innerHTML = `<strong style="color:#b45309">1С пока не обращалась к серверу</strong>
         <div class="muted" style="font-size:12px;margin-top:2px">За последние 7 дней опросов не было. Это нормально, если в 1С ещё не запускали обработку загрузки накладных.</div>`;
@@ -52,7 +51,7 @@ const IntegrationsLog = {
   _renderFilters() {
     const el = document.getElementById('intlog-filters');
     if (!el) return;
-    const opts = [['', 'Все'], ['1c', '1С'], ['sber', 'Сбербанк'], ['webhook', 'Webhook'], ['nomenclature', 'Справочник 1С']];
+    const opts = [['', 'Все'], ['1c', '1С'], ['sber', 'Сбербанк'], ['nomenclature', 'Справочник 1С']];
     el.innerHTML = opts.map(([k, lbl]) =>
       `<button class="filter-btn ${this.filter === k ? 'active' : ''}" onclick="IntegrationsLog.setFilter('${k}')">${lbl}</button>`
     ).join('');
