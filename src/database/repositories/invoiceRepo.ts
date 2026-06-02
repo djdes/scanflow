@@ -34,7 +34,7 @@ export interface Invoice {
   items_total_mismatch: number;
   telegram_message_id: number | null;
   duplicate_of: number | null;
-  recognized_at: string | null;
+  recognized_at: string | null;   // set by updateStatus('processed') on first recognition, never at create()
   upload_source: string | null;
   upload_user_agent: string | null;
 }
@@ -72,7 +72,7 @@ export interface CreateInvoiceData {
   raw_text?: string;
   ocr_engine?: string;
   file_hash?: string | null;
-  upload_source?: string;
+  upload_source?: string | null;
   upload_user_agent?: string | null;
 }
 
