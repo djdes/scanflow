@@ -2,6 +2,7 @@ import { getDb } from '../database/db';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { logger } from '../utils/logger';
 import { emit as emitNotification } from '../notifications/events';
+import { logIntegrationEvent } from './integrationLog';
 
 interface WebhookConfig {
   url: string;
@@ -93,6 +94,10 @@ export async function sendToWebhook(invoiceId: number): Promise<boolean> {
           }, null).catch(() => {});
         }
         logger.info('Invoice sent to 1C successfully', { invoiceId, attempt });
+        void logIntegrationEvent({
+          integration: 'webhook', event_type: 'webhook_sent', invoice_id: invoiceId,
+          summary: `Вебхук по накладной №${invoice.invoice_number ?? invoiceId} отправлен (HTTP ${response.status})`,
+        });
         return true;
       }
 
@@ -102,6 +107,10 @@ export async function sendToWebhook(invoiceId: number): Promise<boolean> {
           invoiceId,
           status: response.status,
           statusText: response.statusText,
+        });
+        void logIntegrationEvent({
+          integration: 'webhook', event_type: 'webhook_failed', status: 'error', invoice_id: invoiceId,
+          summary: `Ошибка вебхука по накладной №${invoice.invoice_number ?? invoiceId} (HTTP ${response.status})`,
         });
         return false;
       }
@@ -126,5 +135,9 @@ export async function sendToWebhook(invoiceId: number): Promise<boolean> {
   }
 
   logger.error('Failed to send to 1C webhook after all retries', { invoiceId, attempts: MAX_ATTEMPTS });
+  void logIntegrationEvent({
+    integration: 'webhook', event_type: 'webhook_failed', status: 'error', invoice_id: invoiceId,
+    summary: `Не удалось отправить вебхук по накладной №${invoice.invoice_number ?? invoiceId} (${MAX_ATTEMPTS} попыток)`,
+  });
   return false;
 }

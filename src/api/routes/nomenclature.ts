@@ -3,6 +3,7 @@ import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repo
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+import { logIntegrationEvent } from '../../integration/integrationLog';
 
 const router = Router();
 
@@ -37,6 +38,10 @@ router.post('/sync', async (req: Request, res: Response) => {
     // next map() call rebuilds from fresh onec_nomenclature rows.
     if (mapper) mapper.invalidateCache();
     logger.info('Nomenclature sync completed', { upserted });
+    void logIntegrationEvent({
+      integration: 'nomenclature', event_type: 'catalog_synced',
+      summary: `Справочник 1С синхронизирован: ${upserted} позиц. из ${items.length}`,
+    });
     res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });
   } catch (err) {
     logger.error('Nomenclature sync failed', { error: (err as Error).message });

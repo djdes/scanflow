@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { logger } from '../../utils/logger';
+import { logIntegrationEvent } from '../../integration/integrationLog';
 
 const router = Router();
 
@@ -53,6 +54,11 @@ router.put('/analyzer', async (req: Request, res: Response) => {
       }
     }
 
+    // Snapshot the auto-send flags BEFORE the update so we only log an integration
+    // event when one actually flips (OCR mode / key / mapper changes are not
+    // integration actions and are not logged).
+    const beforeCfg = await invoiceRepo.getAnalyzerConfig();
+
     if (mode === 'claude_api' && !anthropic_api_key) {
       const current = await invoiceRepo.getAnalyzerConfig();
       if (!current.anthropic_api_key) {
@@ -62,6 +68,15 @@ router.put('/analyzer', async (req: Request, res: Response) => {
       await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id);
     } else {
       await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id);
+    }
+
+    if (auto1c !== undefined && auto1c !== beforeCfg.auto_send_1c) {
+      void logIntegrationEvent({ integration: '1c', event_type: 'config_changed',
+        summary: `Авто-отправка в 1С ${auto1c ? 'включена' : 'выключена'}` });
+    }
+    if (autoSber !== undefined && autoSber !== beforeCfg.auto_send_sber) {
+      void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed',
+        summary: `Авто-отправка в Сбербанк ${autoSber ? 'включена' : 'выключена'}` });
     }
 
     logger.info('Analyzer config updated', { mode, llmMapperEnabled: llmFlag, autoSend1c: auto1c, autoSendSber: autoSber });

@@ -6,6 +6,7 @@ import {
   exchangeCodeForToken,
 } from '../../sber/oauth';
 import { fetchClientInfo } from '../../sber/clientInfo';
+import { logIntegrationEvent } from '../../integration/integrationLog';
 
 const router = Router();
 
@@ -56,6 +57,7 @@ router.get('/callback', async (req: Request, res: Response) => {
     } catch (infoErr) {
       logger.warn('[sber] client-info fetch failed (non-fatal)', { err: (infoErr as Error).message });
     }
+    void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк подключён (OAuth)' });
     return res.redirect('/#/sber?sber=connected');
   } catch (err) {
     logger.error('[sber] callback failed', { err: (err as Error).message });
@@ -95,6 +97,7 @@ router.post('/seed-token', async (req: Request, res: Response) => {
     payer_bank_bic: payer_bank_bic ?? null,
     payer_bank_corr_account: payer_bank_corr_account ?? null,
   });
+  void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк подключён (токен вручную)' });
   return res.json({ success: true });
 });
 
@@ -150,6 +153,7 @@ router.get('/status', async (_req: Request, res: Response) => {
 
 router.post('/disconnect', async (_req: Request, res: Response) => {
   await sberTokenRepo.clear();
+  void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк отключён' });
   return res.json({ success: true });
 });
 

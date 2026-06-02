@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../../database/db';
+import { logIntegrationEvent } from '../../integration/integrationLog';
 
 interface WebhookConfig {
   id: number;
@@ -33,6 +34,10 @@ router.put('/config', async (req: Request, res: Response) => {
   }
 
   const updated = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
+  void logIntegrationEvent({
+    integration: 'webhook', event_type: 'config_changed',
+    summary: `Изменены настройки вебхука 1С: ${enabled ? 'включён' : 'выключен'}`,
+  });
   res.json({ data: updated });
 });
 
