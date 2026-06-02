@@ -58,14 +58,14 @@ const Invoices = {
     if (this.currentStatus) url += `&status=${this.currentStatus}`;
 
     // Show skeleton rows while real data is loading — feels instant
-    App.skeletonRows('invoices-tbody', ['w-24', 'w-40', 'w-40', 'w-60', 'w-40', 'w-40', 'w-24', 'w-24'], 6);
+    App.skeletonRows('invoices-tbody', ['w-24', 'w-40', 'w-40', 'w-60', 'w-40', 'w-24', 'w-40', 'w-24', 'w-24'], 6);
 
     try {
       const { data } = await App.apiJson(url);
       const tbody = document.getElementById('invoices-tbody');
 
       if (!data || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">
+        tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">
           <div class="empty-icon">&#128196;</div>
           <div>Накладных пока нет. Загрузите фото или положите в папку data/inbox/</div>
         </div></td></tr>`;
@@ -79,6 +79,7 @@ const Invoices = {
           <td>${App.formatDate(inv.invoice_date)}</td>
           <td>${App.esc(inv.supplier || '—')}</td>
           <td style="text-align:right">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
+          <td style="text-align:center">${this._elevatedCell(inv)}</td>
           <td>${App.statusBadge(inv.status)}</td>
           <td style="text-align:center">${this._sberCell(inv)}</td>
           <td style="text-align:center">
@@ -121,6 +122,17 @@ const Invoices = {
   prevPage() {
     this.offset = Math.max(0, this.offset - this.limit);
     this.loadTable();
+  },
+
+  // Renders the «Цены ↑» cell: how many line items are priced >10% above the
+  // usual (median) price. Reddish badge when > 0, muted «—» when none. The
+  // count is computed server-side (attachElevatedPriceCount) using the same
+  // rule as the detail page, so list and card never disagree.
+  _elevatedCell(inv) {
+    const n = inv.elevated_price_count || 0;
+    if (n <= 0) return '<span style="color:#cbd5e1" title="Нет позиций дороже обычного">—</span>';
+    const noun = this._plural(n, 'позиция', 'позиции', 'позиций');
+    return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:12px" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
   },
 
   // Renders one cell in the invoices list that shows whether a Sber payment

@@ -53,6 +53,37 @@ async function attachSberStatus<T extends { id: number }>(invoices: T[]): Promis
   });
 }
 
+/**
+ * Attach the count of elevated-price line items to a batch of invoices (for the
+ * list view) — one SQL roundtrip instead of N+1 queries.
+ *
+ * An item is "elevated" by the SAME rule the detail endpoint uses (see
+ * GET /:id below): it has a median price stat with samples >= 3, its unit
+ * matches the stat's price_unit, its price is positive, and that price is
+ * more than 10% above the median. Keeping the definition identical means the
+ * list badge and the detail page's "повышенная цена" never disagree.
+ *
+ * Adds `elevated_price_count` (0 when none) so the frontend can render a badge.
+ */
+async function attachElevatedPriceCount<T extends { id: number }>(invoices: T[]): Promise<(T & { elevated_price_count: number })[]> {
+  if (invoices.length === 0) return [] as (T & { elevated_price_count: number })[];
+  const ids = invoices.map(i => i.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await getDb().prepare(
+    `SELECT ii.invoice_id AS invoice_id, COUNT(*) AS c
+       FROM invoice_items ii
+       JOIN nomenclature_price_stats ps ON ps.onec_guid = ii.onec_guid
+      WHERE ii.invoice_id IN (${placeholders})
+        AND ps.samples >= 3
+        AND ii.unit = ps.price_unit
+        AND ii.price > 0
+        AND ii.price > ps.median_price * 1.10
+      GROUP BY ii.invoice_id`
+  ).all<{ invoice_id: number; c: number }>(...ids);
+  const map = new Map(rows.map(r => [r.invoice_id, Number(r.c)]));
+  return invoices.map(inv => ({ ...inv, elevated_price_count: map.get(inv.id) ?? 0 }));
+}
+
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
@@ -113,7 +144,8 @@ router.get('/', async (req: Request, res: Response) => {
 
   const rawInvoices = await invoiceRepo.getAll(status, limit, offset);
   const enriched = await Promise.all(rawInvoices.map(enrichInvoiceWithSupplier));
-  const invoices = await attachSberStatus(enriched);
+  const withSber = await attachSberStatus(enriched);
+  const invoices = await attachElevatedPriceCount(withSber);
   res.json({ data: invoices, count: invoices.length });
 });
 
