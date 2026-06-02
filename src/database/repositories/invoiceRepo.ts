@@ -135,7 +135,7 @@ export const invoiceRepo = {
         ocr_engine: data.ocr_engine ?? null,
         file_hash: data.file_hash ?? null,
         upload_source: data.upload_source ?? null,
-        upload_user_agent: data.upload_user_agent ?? null,
+        upload_user_agent: data.upload_user_agent != null ? data.upload_user_agent.slice(0, 512) : null,
       });
       return (await this.getById(Number(result.lastInsertRowid)))!;
     } catch (err) {

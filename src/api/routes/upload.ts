@@ -57,7 +57,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   const fileName = req.file.filename;
   const forceEngine = req.query.engine as string | undefined;
   const uploadSource = inferUploadSource(req.query.filename as string | undefined);
-  const userAgent = (req.headers['user-agent'] as string | undefined) ?? null;
+  const userAgent = ((req.headers['user-agent'] as string | undefined) ?? '').slice(0, 512) || null;
   logger.info('File uploaded via API', { fileName, originalName: req.file.originalname, forceEngine });
 
   // Prevent file watcher from also processing this file

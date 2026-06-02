@@ -154,6 +154,7 @@ const Invoices = {
     document.getElementById('invoice-tab-photos').style.display = 'none';
     document.getElementById('invoice-tab-ocr').style.display = 'none';
     document.getElementById('invoice-tab-history').style.display = 'none';
+    document.getElementById('invoice-tab-history').innerHTML = '';
     const tabBtns = document.querySelectorAll('#invoice-detail .tabs .tab-btn');
     tabBtns.forEach((b, i) => b.classList.toggle('active', i === 0));
 
@@ -210,6 +211,10 @@ const Invoices = {
           <div class="field-value">${App.formatDate(data.created_at)}</div>
         </div>
       `;
+
+      // История tab — render for every invoice (incl. duplicates), before any
+      // early-return. .catch keeps a rejection from masking showDetail success.
+      this.renderHistory(data).catch(e => console.error('renderHistory failed', e));
 
       // Supplier details (banking)
       const supplierBlock = document.getElementById('invoice-supplier-details');
@@ -380,9 +385,6 @@ const Invoices = {
       this._renderPriceWarning(data.items || []);
       this._renderPriceBadges(data.items || []);
 
-      // История tab (fire-and-forget; the Sber row patches in when it resolves)
-      void this.renderHistory(data);
-
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
 
@@ -464,8 +466,8 @@ const Invoices = {
     if (data.error_message) {
       remarks.push('Ошибка распознавания: ' + App.esc(data.error_message));
     }
-    // Defensive: showDetail short-circuits duplicates before rendering this tab,
-    // so this branch normally won't fire — kept in case that early-return changes.
+    // For duplicate invoices this tab IS rendered (renderHistory runs before
+    // showDetail's duplicate early-return), so this remark links to the original.
     if (data.duplicate_of) {
       remarks.push(`Дубликат накладной <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a> — позиции в эту запись не сохранялись`);
     }
