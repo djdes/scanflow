@@ -464,6 +464,8 @@ const Invoices = {
     if (data.error_message) {
       remarks.push('Ошибка распознавания: ' + App.esc(data.error_message));
     }
+    // Defensive: showDetail short-circuits duplicates before rendering this tab,
+    // so this branch normally won't fire — kept in case that early-return changes.
     if (data.duplicate_of) {
       remarks.push(`Дубликат накладной <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a> — позиции в эту запись не сохранялись`);
     }
@@ -505,6 +507,10 @@ const Invoices = {
     // its «создан» timestamp when present. Optional; failure degrades silently.
     try {
       const { payment } = await App.apiJson(`/invoices/${data.id}/sber-status`);
+      // Bail if the user switched to another invoice while this fetch was in
+      // flight — otherwise we'd patch this invoice's Sber row into a different
+      // invoice's already-rendered history tab (same pattern as loadPhotos).
+      if (this._currentInvoiceId !== data.id) return;
       if (payment && payment.created_at) {
         const header = el.querySelector('.invoice-header');
         if (header) {
