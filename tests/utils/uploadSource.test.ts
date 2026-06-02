@@ -10,6 +10,7 @@ describe('inferUploadSource', () => {
   it("returns 'web' for a plain dashboard upload (no filename query)", () => {
     expect(inferUploadSource(undefined)).toBe('web');
     expect(inferUploadSource('')).toBe('web');
+    expect(inferUploadSource(null)).toBe('web');
   });
 
   it("returns 'web' for a filename that does not match the camera pattern", () => {

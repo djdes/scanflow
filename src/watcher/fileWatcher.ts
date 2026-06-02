@@ -16,6 +16,7 @@ import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
+import { UploadSource } from '../utils/uploadSource';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -37,7 +38,7 @@ async function getFirstRowNo(invoiceId: number): Promise<number | null> {
 }
 
 export interface UploadMeta {
-  source?: string;
+  source?: UploadSource;
   userAgent?: string | null;
 }
 
