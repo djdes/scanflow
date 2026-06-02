@@ -251,6 +251,33 @@ const App = {
     } catch { return dateStr; }
   },
 
+  // Date + time, ru-RU (DD.MM.YYYY, HH:MM). MariaDB returns "YYYY-MM-DD HH:MM:SS"
+  // (dateStrings:true) — normalise the space to 'T' so Safari/iOS parses it too.
+  formatDateTime(dateStr) {
+    if (!dateStr) return '—';
+    try {
+      const d = new Date(String(dateStr).replace(' ', 'T'));
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    } catch { return dateStr; }
+  },
+
+  // Human-friendly elapsed time between two date strings ("42 сек", "1 мин 5 сек").
+  // Returns '' when either bound is missing or the delta is negative/non-finite.
+  formatDuration(fromStr, toStr) {
+    if (!fromStr || !toStr) return '';
+    const ms = new Date(String(toStr).replace(' ', 'T')) - new Date(String(fromStr).replace(' ', 'T'));
+    if (!isFinite(ms) || ms < 0) return '';
+    const sec = Math.round(ms / 1000);
+    if (sec < 60) return sec + ' сек';
+    const min = Math.floor(sec / 60);
+    const rem = sec % 60;
+    return rem ? `${min} мин ${rem} сек` : `${min} мин`;
+  },
+
   formatMoney(val) {
     if (val == null) return '—';
     return Number(val).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
