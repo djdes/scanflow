@@ -10,6 +10,7 @@ import { FileWatcher } from './watcher/fileWatcher';
 import { startServer } from './api/server';
 import { backupDatabase } from './utils/backup';
 import { cleanupOldRequestLogs } from './api/middleware/requestLog';
+import { integrationEventRepo } from './database/repositories/integrationEventRepo';
 import { cleanupOldPhotos } from './utils/photoRetention';
 import { checkDiskSpace } from './utils/diskMonitor';
 import { invoiceRepo } from './database/repositories/invoiceRepo';
@@ -114,6 +115,9 @@ async function main(): Promise<void> {
     cleanupOldRequestLogs()
       .then(deleted => logger.info('API request log cleanup', { deleted }))
       .catch(err => logger.error('request log cleanup failed', { error: (err as Error).message }));
+    integrationEventRepo.prune(90)
+      .then(deleted => { if (deleted > 0) logger.info('Pruned old integration_events', { deleted }); })
+      .catch(err => logger.error('integration_events prune failed', { error: (err as Error).message }));
   });
 
   // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files

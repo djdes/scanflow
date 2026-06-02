@@ -24,6 +24,7 @@ import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
 import sberRouter from './routes/sber';
 import suppliersRouter from './routes/suppliers';
+import integrationsRouter from './routes/integrations';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -219,6 +220,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/profile', apiKeyAuth, profileRouter);
   app.use('/api/sber', apiKeyAuth, sberRouter);
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
+  app.use('/api/integrations', apiKeyAuth, integrationsRouter);
 
   // Mobile camera page (no auth — accessed from phone on local network)
   app.get('/camera', (_req, res) => {
