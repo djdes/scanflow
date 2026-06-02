@@ -153,6 +153,7 @@ const Invoices = {
     document.getElementById('invoice-tab-items').style.display = 'block';
     document.getElementById('invoice-tab-photos').style.display = 'none';
     document.getElementById('invoice-tab-ocr').style.display = 'none';
+    document.getElementById('invoice-tab-history').style.display = 'none';
     const tabBtns = document.querySelectorAll('#invoice-detail .tabs .tab-btn');
     tabBtns.forEach((b, i) => b.classList.toggle('active', i === 0));
 
@@ -379,6 +380,9 @@ const Invoices = {
       this._renderPriceWarning(data.items || []);
       this._renderPriceBadges(data.items || []);
 
+      // История tab (fire-and-forget; the Sber row patches in when it resolves)
+      this.renderHistory(data);
+
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
 
@@ -421,6 +425,94 @@ const Invoices = {
     if (orange) html += `<span class="price-badge price-badge--orange" title="${orange}: цена выше обычной на 10–50%">${icon}<b>${orange}</b></span>`;
     if (red) html += `<span class="price-badge price-badge--red" title="${red}: цена выше обычной более чем на 50%">${icon}<b>${red}</b></span>`;
     el.innerHTML = html;
+  },
+
+  // «История» tab: processing/lifecycle timeline + live remarks. Built from the
+  // already-loaded invoice `data`; the Sber payment timestamp is fetched lazily.
+  async renderHistory(data) {
+    const el = document.getElementById('invoice-tab-history');
+    if (!el) return;
+
+    const SOURCE_LABELS = {
+      web: 'Загрузка с сайта',
+      camera: 'Камера телефона',
+      inbox: 'Папка-инбокс / автозагрузка',
+    };
+    const sourceLabel = data.upload_source
+      ? (SOURCE_LABELS[data.upload_source] || App.esc(data.upload_source))
+      : '—';
+    const ua = data.upload_user_agent
+      ? `<div class="muted" style="font-size:12px;margin-top:2px;word-break:break-all">${App.esc(data.upload_user_agent)}</div>`
+      : '';
+    const duration = App.formatDuration(data.created_at, data.recognized_at);
+
+    const field = (label, valueHtml) =>
+      `<div class="invoice-field"><div class="field-label">${label}</div><div class="field-value">${valueHtml}</div></div>`;
+
+    const procRows = [
+      field('Отправлено', App.formatDateTime(data.created_at)),
+      field('Источник', `${sourceLabel}${ua}`),
+      field('Распознавание завершено', App.formatDateTime(data.recognized_at)),
+    ];
+    if (duration) procRows.push(field('Затрачено', duration));
+    if (data.approved_at) procRows.push(field('Одобрено для 1С', App.formatDateTime(data.approved_at)));
+    if (data.sent_at) procRows.push(field('Отправлено в 1С', App.formatDateTime(data.sent_at)));
+
+    // --- Live remarks ---
+    const items = data.items || [];
+    const remarks = [];
+    if (data.error_message) {
+      remarks.push('Ошибка распознавания: ' + App.esc(data.error_message));
+    }
+    if (data.duplicate_of) {
+      remarks.push(`Дубликат накладной <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a> — позиции в эту запись не сохранялись`);
+    }
+    const unmapped = items.filter(it => !it.onec_guid);
+    if (unmapped.length) {
+      const names = unmapped.slice(0, 5)
+        .map(it => App.esc(it.original_name || it.mapped_name || '')).join(', ');
+      const more = unmapped.length > 5 ? ` и ещё ${unmapped.length - 5}` : '';
+      const noun = this._plural(unmapped.length, 'товар', 'товара', 'товаров');
+      remarks.push(`Не сопоставлено с 1С: ${unmapped.length} ${noun} — ${names}${more}`);
+    }
+    if (data.items_total_mismatch) {
+      remarks.push('Сумма позиций расходится с суммой документа более чем на 1% — проверьте глазами');
+    }
+    const overpriced = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10);
+    if (overpriced.length) {
+      const top = overpriced
+        .slice().sort((a, b) => b.price_deviation_pct - a.price_deviation_pct).slice(0, 3)
+        .map(it => `${App.esc(it.mapped_name || it.original_name || '')} (+${Math.round(it.price_deviation_pct)}%)`)
+        .join(', ');
+      const more = overpriced.length > 3 ? ` и ещё ${overpriced.length - 3}` : '';
+      const noun = this._plural(overpriced.length, 'позиция', 'позиции', 'позиций');
+      remarks.push(`Цена выше обычной: ${overpriced.length} ${noun} — ${top}${more}`);
+    }
+
+    const remarksHtml = remarks.length
+      ? '<ul style="margin:0;padding-left:18px;line-height:1.7">' +
+          remarks.map(r => `<li>⚠ ${r}</li>`).join('') + '</ul>'
+      : '<div class="muted">Замечаний нет ✓</div>';
+
+    el.innerHTML = `
+      <h3 style="margin-bottom:12px">Обработка</h3>
+      <div class="invoice-header">${procRows.join('')}</div>
+      <h3 style="margin:20px 0 12px">Замечания</h3>
+      ${remarksHtml}
+    `;
+
+    // Lifecycle: Sber payment is stored in a separate table — fetch and append
+    // its «создан» timestamp when present. Optional; failure degrades silently.
+    try {
+      const { payment } = await App.apiJson(`/invoices/${data.id}/sber-status`);
+      if (payment && payment.created_at) {
+        const header = el.querySelector('.invoice-header');
+        if (header) {
+          header.insertAdjacentHTML('beforeend',
+            field('Платёж в Сбер создан', App.formatDateTime(payment.created_at)));
+        }
+      }
+    } catch { /* sber status optional */ }
   },
 
   _plural(n, one, few, many) {
@@ -948,6 +1040,7 @@ const Invoices = {
     document.getElementById('invoice-tab-items').style.display = 'none';
     document.getElementById('invoice-tab-photos').style.display = 'none';
     document.getElementById('invoice-tab-ocr').style.display = 'none';
+    document.getElementById('invoice-tab-history').style.display = 'none';
 
     // Deactivate all buttons
     btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
