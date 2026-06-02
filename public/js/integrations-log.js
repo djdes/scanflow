@@ -52,7 +52,7 @@ const IntegrationsLog = {
   _renderFilters() {
     const el = document.getElementById('intlog-filters');
     if (!el) return;
-    const opts = [['', 'Все'], ['1c', '1С'], ['sber', 'Сбербанк'], ['webhook', 'Webhook']];
+    const opts = [['', 'Все'], ['1c', '1С'], ['sber', 'Сбербанк'], ['webhook', 'Webhook'], ['nomenclature', 'Справочник 1С']];
     el.innerHTML = opts.map(([k, lbl]) =>
       `<button class="filter-btn ${this.filter === k ? 'active' : ''}" onclick="IntegrationsLog.setFilter('${k}')">${lbl}</button>`
     ).join('');
