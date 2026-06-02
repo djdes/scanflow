@@ -15,6 +15,7 @@ import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
 import { mapItemsWithClaudeApi, CatalogEntry } from '../../ocr/claudeApiAnalyzer';
 import { coerceToOnec1cUnit } from '../../mapping/packTransform';
 import { emit as emitNotification } from '../../notifications/events';
+import { logIntegrationEvent } from '../../integration/integrationLog';
 import { randomUUID } from 'node:crypto';
 import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
 import { supplierRepo } from '../../database/repositories/supplierRepo';
@@ -417,6 +418,11 @@ router.post('/:id/send', async (req: Request, res: Response) => {
     }, req.user?.id ?? null).catch(() => {});
   }
 
+  void logIntegrationEvent({
+    integration: '1c', event_type: 'approved', invoice_id: id,
+    summary: `Накладная №${invForNotif?.invoice_number ?? id} одобрена для отправки в 1С`,
+  });
+
   res.json({
     data: { id, approved_for_1c: true },
     message: 'Накладная помечена для отправки в 1С. Загрузите через обработку в 1С.'
@@ -463,6 +469,11 @@ router.post('/:id/confirm', async (req: Request, res: Response) => {
     }, req.user?.id ?? null).catch(() => {});
   }
 
+  void logIntegrationEvent({
+    integration: '1c', event_type: 'sent', invoice_id: id,
+    summary: `Накладная №${invConfirmed?.invoice_number ?? id} загружена в 1С (подтверждено)`,
+  });
+
   res.json({ data: { id, status: 'sent_to_1c', already_sent: false } });
 });
 
@@ -482,6 +493,10 @@ router.post('/:id/reset', async (req: Request, res: Response) => {
   await db.prepare(
     "UPDATE invoices SET status = 'processed', sent_at = NULL, approved_for_1c = 0, approved_at = NULL WHERE id = ?"
   ).run(id);
+  void logIntegrationEvent({
+    integration: '1c', event_type: 'reset', invoice_id: id,
+    summary: `Статус накладной №${invoice.invoice_number ?? id} сброшен (можно отправить в 1С заново)`,
+  });
   res.json({ data: { id, status: 'processed', approved_for_1c: false } });
 });
 
@@ -497,6 +512,10 @@ router.post('/:id/unapprove', async (req: Request, res: Response) => {
   }
 
   await invoiceRepo.unapproveForOneC(id);
+  void logIntegrationEvent({
+    integration: '1c', event_type: 'unapproved', invoice_id: id,
+    summary: `Отозвана отправка накладной №${invoice.invoice_number ?? id} в 1С`,
+  });
   res.json({ data: { id, approved_for_1c: false } });
 });
 
@@ -1467,6 +1486,10 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     });
     await supplierRepo.touchLastUsed(supplier.inn);
     logger.info('[sber] payment created', { invoice_id: id, number: result.number, externalId });
+    void logIntegrationEvent({
+      integration: 'sber', event_type: 'payment_created', invoice_id: id,
+      summary: `Платёж в Сбербанк по №${invoice.invoice_number ?? id} создан (черновик)${result.number ? `, № ${result.number}` : ''}`,
+    });
     return res.json({
       success: true,
       payment_number: result.number ?? null,
@@ -1480,6 +1503,11 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
         error_message: `${err.status}: ${err.body.slice(0, 500)}`,
       });
       logger.error('[sber] payment failed', { invoice_id: id, status: err.status });
+      void logIntegrationEvent({
+        integration: 'sber', event_type: 'payment_failed', status: 'error', invoice_id: id,
+        summary: `Ошибка платежа в Сбербанк по №${invoice.invoice_number ?? id}: HTTP ${err.status}`,
+        detail: err.body,
+      });
       return res.status(502).json({ error: 'Sber API error', sber_status: err.status, sber_body: err.body });
     }
     await sberPaymentRepo.updateStatus(id, {
@@ -1487,6 +1515,11 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       error_message: (err as Error).message.slice(0, 500),
     });
     logger.error('[sber] payment send error', { invoice_id: id, err: (err as Error).message });
+    void logIntegrationEvent({
+      integration: 'sber', event_type: 'payment_failed', status: 'error', invoice_id: id,
+      summary: `Ошибка платежа в Сбербанк по №${invoice.invoice_number ?? id}`,
+      detail: (err as Error).message,
+    });
     return res.status(500).json({ error: (err as Error).message });
   }
 });
