@@ -21,6 +21,7 @@ import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
 import { supplierRepo } from '../../database/repositories/supplierRepo';
 import { sberPaymentRepo } from '../../database/repositories/sberPaymentRepo';
 import { userRepo } from '../../database/repositories/userRepo';
+import { syncStateRepo } from '../../database/repositories/syncStateRepo';
 import { getValidAccessToken } from '../../sber/oauth';
 import { createPaymentOrder, SberApiError } from '../../sber/payments';
 import { renderPurpose } from '../../sber/purposeTemplate';
@@ -422,6 +423,20 @@ router.post('/:id/send', async (req: Request, res: Response) => {
     integration: '1c', event_type: 'approved', invoice_id: id,
     summary: `Накладная №${invForNotif?.invoice_number ?? id} одобрена для отправки в 1С`,
   });
+
+  // If this invoice introduces new (unmatched) nomenclature, flag the catalog
+  // for re-export. 1C's scheduled job pulls it back after creating the docs.
+  try {
+    if (await invoiceRepo.hasUnmatchedItems(id)) {
+      await syncStateRepo.markNomenclatureSyncRequested();
+      void logIntegrationEvent({
+        integration: 'nomenclature', event_type: 'sync_requested', invoice_id: id,
+        summary: `Накладная №${invForNotif?.invoice_number ?? id} содержит новые позиции — каталог 1С помечен к выгрузке`,
+      });
+    }
+  } catch (e) {
+    logger.warn('Failed to set nomenclature sync flag', { id, error: (e as Error).message });
+  }
 
   res.json({
     data: { id, approved_for_1c: true },

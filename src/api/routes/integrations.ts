@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { integrationEventRepo } from '../../database/repositories/integrationEventRepo';
+import { syncStateRepo } from '../../database/repositories/syncStateRepo';
 
 const router = Router();
 
@@ -20,6 +21,34 @@ router.get('/log', async (req: Request, res: Response) => {
     });
     const onec_last_poll_at = await integrationEventRepo.last1cPollAt();
     res.json({ data, onec_last_poll_at });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/integrations/sync-flag — cheap per-minute check for the 1C scheduled
+// job: is there new nomenclature waiting to be exported back to the site?
+router.get('/sync-flag', async (_req: Request, res: Response) => {
+  try {
+    const st = await syncStateRepo.getNomenclatureSyncState();
+    res.json({ data: { nomenclature_sync_requested: st.requested, since: st.since } });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/integrations/sync-flag/clear { since } — clear after a successful
+// export. Race-guarded: only clears if no newer request arrived (stored <= since).
+// `since` must be the exact string returned by GET /sync-flag.
+router.post('/sync-flag/clear', async (req: Request, res: Response) => {
+  const since = (req.body?.since ?? '') as unknown;
+  if (typeof since !== 'string' || !since.trim()) {
+    res.status(400).json({ error: 'since is required (the value from GET /sync-flag)' });
+    return;
+  }
+  try {
+    const r = await syncStateRepo.clearNomenclatureSync(since);
+    res.json({ data: { cleared: r.cleared } });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
