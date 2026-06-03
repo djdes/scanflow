@@ -81,6 +81,7 @@ export async function resetDb(): Promise<mysql.Pool> {
     'users',
     'webhook_config',
     'analyzer_config',
+    'integration_sync_state',
     'api_requests_log',
   ];
   await pool.query('SET FOREIGN_KEY_CHECKS = 0');
@@ -92,6 +93,9 @@ export async function resetDb(): Promise<mysql.Pool> {
   // Re-seed singleton config rows the app expects.
   await pool.query(
     `INSERT INTO analyzer_config (id, mode, anthropic_api_key) VALUES (1, 'hybrid', NULL)`
+  );
+  await pool.query(
+    `INSERT INTO integration_sync_state (id, nomenclature_sync_requested_at) VALUES (1, NULL)`
   );
 
   return pool;

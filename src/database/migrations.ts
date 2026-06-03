@@ -733,6 +733,23 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 33,
+    name: 'integration_sync_state — single-row flag: nomenclature needs export to 1C',
+    detect: (exec) => hasTable(exec, 'integration_sync_state'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS integration_sync_state (
+          id                              TINYINT      NOT NULL PRIMARY KEY,
+          nomenclature_sync_requested_at  DATETIME     NULL,
+          CONSTRAINT chk_sync_state_single CHECK (id = 1)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      await exec.query(
+        `INSERT IGNORE INTO integration_sync_state (id, nomenclature_sync_requested_at) VALUES (1, NULL)`
+      );
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
