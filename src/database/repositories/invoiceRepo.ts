@@ -389,6 +389,15 @@ export const invoiceRepo = {
     ).run(mappedName, confidence, itemId);
   },
 
+  /** True when the invoice has at least one item not yet mapped to 1C
+   *  (onec_guid IS NULL) — i.e. 1C will create new Номенклатура for it. */
+  async hasUnmatchedItems(invoiceId: number): Promise<boolean> {
+    const row = await getDb().prepare(
+      `SELECT 1 AS x FROM invoice_items WHERE invoice_id = ? AND onec_guid IS NULL LIMIT 1`
+    ).get<{ x: number }>(invoiceId);
+    return !!row;
+  },
+
   async getWithItems(id: number): Promise<(Invoice & { items: Array<InvoiceItem & { median_price: number | null; median_price_unit: string | null; median_samples: number | null }> }) | undefined> {
     const invoice = await this.getById(id);
     if (!invoice) return undefined;
