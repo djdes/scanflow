@@ -607,6 +607,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
   let changed = 0;
   let legacyMapped = 0;
   let repacked = 0;
+  let cleaned = 0;
   for (const item of items) {
     const alreadyMapped = !!item.onec_guid;
     // Skip mapping lookup for already-mapped items unless ?all=true, but still
@@ -632,6 +633,15 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
       // mapper's internal convention for legacy results.
       await invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
       legacyMapped++;
+    } else if (
+      result?.source === 'none' &&
+      result.mapped_name &&
+      result.mapped_name !== item.mapped_name
+    ) {
+      // Unmatched: refresh the editable «Название (1С)» with the cleaned name so
+      // rows ingested before name-cleaning get fixed when the user re-maps.
+      await invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
+      cleaned++;
     }
 
     // Re-apply pack transform using the (possibly freshly-learned) pack_size
@@ -681,8 +691,8 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
   // — total is preserved — but flag mismatches regardless).
   await invoiceRepo.recalculateTotal(id);
 
-  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length, all: includeAll });
-  res.json({ data: { id, remapped, legacyMapped, changed, repacked, vatInflated, restoredTotal, total: items.length } });
+  logger.info('Re-mapped invoice items', { id, remapped, legacyMapped, changed, repacked, cleaned, vatInflated, restoredTotal, total: items.length, all: includeAll });
+  res.json({ data: { id, remapped, legacyMapped, changed, repacked, cleaned, vatInflated, restoredTotal, total: items.length } });
 });
 
 // POST /api/invoices/:id/llm-remap — ask Claude to map items against the
