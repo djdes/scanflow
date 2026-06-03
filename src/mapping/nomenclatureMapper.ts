@@ -2,6 +2,7 @@ import Fuse, { IFuseOptions } from 'fuse.js';
 import { mappingRepo, NomenclatureMapping } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import { detectPackFromName } from './packTransform';
+import { cleanItemName } from './nameCleaner';
 import { logger } from '../utils/logger';
 
 export interface MappingResult {
@@ -296,10 +297,11 @@ export class NomenclatureMapper {
       }
     }
 
-    // 3. None
+    // 3. None — unmatched. Clean the scan name so 1C creates a tidy
+    // Справочники.Номенклатура (trims "3-4кг", "d120", "ведро", etc.).
     return {
       original_name: scannedName,
-      mapped_name: scannedName,
+      mapped_name: cleanItemName(scannedName),
       onec_guid: null,
       confidence: 0,
       source: 'none',
