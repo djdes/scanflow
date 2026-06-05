@@ -579,22 +579,52 @@ export const invoiceRepo = {
   },
 
   /**
-   * Sweep dispatcher-mode invoices stuck in ocr_processing longer than
-   * `staleMinutes` minutes. The dispatcher is supposed to call back within
-   * ~30s of claiming the task; 15 min is a generous timeout that covers
-   * Claude API slowness + queue delay.
+   * Sweep dispatcher-mode invoices stuck in ocr_processing. The "stale" clock
+   * measures from when the worker actually STARTED the task (first photo fetch →
+   * dispatcher_fetched_at), NOT from dispatch time. A single serial worker
+   * draining a batch leaves later tasks queued for >15 min before it even
+   * starts them; killing those while still queued was the production incident
+   * (the token got cleared mid-queue → worker hit 401 on the photo).
+   *
+   *   - fetched but silent > processingStaleMinutes → hung mid-OCR → error
+   *   - never fetched     > queueStaleMinutes       → dead worker / abandoned → error
+   *
+   * `dispatcher_started_at` is non-null only while a row is ocr_processing (set
+   * on dispatch, cleared on callback/sweep), so the status guard is belt-and-braces.
    */
-  async markStaleDispatchersAsFailed(staleMinutes: number = 15): Promise<number> {
+  async markStaleDispatchersAsFailed(
+    processingStaleMinutes: number = 15,
+    queueStaleMinutes: number = 180,
+  ): Promise<number> {
     const result = await getDb().prepare(
       `UPDATE invoices
        SET status = 'error',
            error_message = COALESCE(error_message, ?),
            dispatcher_token = NULL,
-           dispatcher_started_at = NULL
-       WHERE dispatcher_started_at IS NOT NULL
-       AND dispatcher_started_at < (NOW() - INTERVAL ${staleMinutes} MINUTE)`
-    ).run(`Dispatcher timeout (>${staleMinutes} min, callback never arrived)`);
+           dispatcher_started_at = NULL,
+           dispatcher_fetched_at = NULL
+       WHERE status = 'ocr_processing'
+       AND dispatcher_started_at IS NOT NULL
+       AND (
+         (dispatcher_fetched_at IS NOT NULL AND dispatcher_fetched_at < (NOW() - INTERVAL ${processingStaleMinutes} MINUTE))
+         OR
+         (dispatcher_fetched_at IS NULL AND dispatcher_started_at < (NOW() - INTERVAL ${queueStaleMinutes} MINUTE))
+       )`
+    ).run(`Dispatcher timeout (no callback): processing>${processingStaleMinutes}min or queued>${queueStaleMinutes}min`);
     return result.changes;
+  },
+
+  /**
+   * Stamp the moment the dispatcher worker first claimed this task's photo.
+   * This anchors the processing-timeout clock to real work-start instead of
+   * dispatch time. Guarded to ocr_processing so a stray late fetch after the
+   * row already completed/failed can't re-stamp it.
+   */
+  async markDispatcherFetched(invoiceId: number): Promise<void> {
+    await getDb().prepare(
+      `UPDATE invoices SET dispatcher_fetched_at = NOW()
+       WHERE id = ? AND status = 'ocr_processing'`
+    ).run(invoiceId);
   },
 
   async listStaleForRecovery(): Promise<Array<{ id: number; file_name: string; itemsCount: number }>> {

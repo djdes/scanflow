@@ -271,7 +271,8 @@ export async function clearDispatcherState(invoiceId: number): Promise<void> {
     .prepare(
       `UPDATE invoices
          SET dispatcher_token = NULL,
-             dispatcher_started_at = NULL
+             dispatcher_started_at = NULL,
+             dispatcher_fetched_at = NULL
        WHERE id = ?`,
     )
     .run(invoiceId);

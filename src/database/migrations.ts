@@ -750,6 +750,16 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 34,
+    name: 'invoices.dispatcher_fetched_at — when the worker first claimed the photo (queue-aware timeout)',
+    detect: (exec) => hasColumn(exec, 'invoices', 'dispatcher_fetched_at'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'dispatcher_fetched_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN dispatcher_fetched_at DATETIME NULL`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

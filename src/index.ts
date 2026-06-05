@@ -133,12 +133,12 @@ async function main(): Promise<void> {
     checkDiskSpace().catch(err => logger.error('disk space check failed', { error: (err as Error).message }));
   });
 
-  // Dispatcher-mode timeout sweep: every 5 min, mark any invoice whose
-  // dispatcher_started_at is older than 15 min as error. Without this,
-  // a crashed Claude Code dispatcher session would leave invoices stuck
-  // in ocr_processing forever.
+  // Dispatcher-mode timeout sweep: every 5 min. Queue-aware — measures the
+  // 15-min "hung" clock from when the worker actually started a task (first
+  // photo fetch), and only kills never-started (queued) tasks after a long
+  // 180-min grace so a big upload batch can drain on a single serial worker.
   cron.schedule('*/5 * * * *', () => {
-    invoiceRepo.markStaleDispatchersAsFailed(15)
+    invoiceRepo.markStaleDispatchersAsFailed(15, 180)
       .then(n => { if (n > 0) logger.warn('Dispatcher timeout sweep: marked as error', { count: n }); })
       .catch(err => logger.error('dispatcher timeout sweep failed', { error: (err as Error).message }));
     supplierExtractJobRepo.markStaleAsFailed(15)

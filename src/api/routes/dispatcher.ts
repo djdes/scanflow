@@ -113,6 +113,11 @@ router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
     logger.warn('dispatcher photo: token invalid or invoice not in ocr_processing', { invoiceId: id });
     return res.status(401).json({ error: 'unauthorized' });
   }
+  // The worker fetching the photo = it has STARTED this task. Stamp it so the
+  // timeout sweep measures the 15-min "hung" clock from here, not from dispatch
+  // time (a queued task can wait far longer than 15 min before the serial worker
+  // reaches it). Stamp before the file check — an authorized fetch counts as a start.
+  await invoiceRepo.markDispatcherFetched(id);
   if (!fs.existsSync(row.file_path)) {
     logger.warn('dispatcher photo: file missing on disk', { invoiceId: id, path: row.file_path });
     return res.status(404).json({ error: 'photo file missing' });
