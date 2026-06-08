@@ -668,12 +668,18 @@ export const invoiceRepo = {
    * on proximity to the CURRENT page's upload time instead — that stays tight
    * (seconds) no matter how long OCR took.
    *
-   * Returns same-supplier processed non-duplicate pages within ±windowMinutes
-   * of `referenceCreatedAt`, with the aggregates the reconciler needs:
-   * item sum/count and the row_no range (for "starts at row > 1" continuation).
+   * Returns processed non-duplicate pages within ±windowMinutes of
+   * `referenceCreatedAt`, with the aggregates the reconciler needs: item
+   * sum/count and the row_no range (for "starts at row > 1" continuation).
+   *
+   * NOTE: candidates are NOT pre-filtered by supplier. OCR routinely misreads
+   * the supplier text differently across pages of one invoice (e.g. ОПТИКОМ vs
+   * ОПТТОРГ), so a supplier gate here would discard the real sibling before the
+   * decisive structural signals (contiguous row_no / same number) are even
+   * checked. The reconciler applies supplier matching per-signal instead.
    */
   async findSiblingPagesNearUpload(
-    supplier: string, excludeId: number, referenceCreatedAt: string, windowMinutes: number = 30,
+    excludeId: number, referenceCreatedAt: string, windowMinutes: number = 30,
   ): Promise<Array<{
     id: number; invoice_number: string | null; invoice_date: string | null; supplier: string | null;
     total_sum: number | null; created_at: string;
@@ -698,7 +704,6 @@ export const invoiceRepo = {
       min_row: number | null; max_row: number | null;
     }>(excludeId, referenceCreatedAt, referenceCreatedAt);
     return rows
-      .filter(r => r.supplier && suppliersMatch(supplier, r.supplier))
       .map(r => ({
         ...r,
         items_sum: Number(r.items_sum),

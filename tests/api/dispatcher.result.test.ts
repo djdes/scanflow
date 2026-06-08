@@ -179,6 +179,31 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect((await getInvoice(head))?.file_name).toContain('pending.jpg'); // tail photo carried over
   });
 
+  it('row_no merge across a MISREAD supplier: rows 1-16 + a row-17 page whose OCR supplier differs still merges', async () => {
+    // Real production case (#91/#92): one invoice photographed across two pages,
+    // OCR read the supplier differently on each ('АО "ОПТИКОМ"' vs 'АО "ОПТТОРГ"').
+    // The contiguous row number (16 → 17) is the decisive signal — a supplier
+    // text mismatch must NOT block the merge.
+    const head = await seedHeadPage({ n: 16, supplier: 'АО "ОПТИКОМ"', number: '1/236334', date: '2026-05-26' });
+
+    const tail = await createPending();
+    const res = await request(app).post(`/api/dispatcher/result/${tail}`).send({
+      token: TOKEN,
+      success: true,
+      data: {
+        supplier: 'АО "ОПТТОРГ"',  // OCR misread — DIFFERENT string from the head page
+        invoice_number: null,
+        items: [{ name: 'Анчоусы', quantity: 6, unit: 'шт', price: 170, total: 1020, row_no: 17 }],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('merged');
+    expect(res.body.targetInvoiceId).toBe(head);
+    expect(await getInvoice(tail)).toBeUndefined();
+    expect(await itemCount(head)).toBe(17);
+  });
+
   it('row_no merge (reverse): header with rows 1-16 reclaims a row-17 orphan that finalised first', async () => {
     // The row-17 continuation called back FIRST and finalised standalone.
     const orphanR = await getDb().prepare(
@@ -295,6 +320,38 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect((await getInvoice(a))?.status).toBe('processed');
     expect((await getInvoice(b))?.status).toBe('processed');
     expect((await getInvoice(b))?.duplicate_of).toBeNull();
+    expect(await itemCount(a)).toBe(1);
+    expect(await itemCount(b)).toBe(1);
+  });
+
+  it('does NOT merge two single-row invoices from different suppliers (row 1 is not a continuation)', async () => {
+    // Now that the supplier gate is gone, the row-contiguity check must not treat
+    // two complete single-row invoices (both starting at row 1) as adjacent pages.
+    const aR = await getDb().prepare(
+      `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum)
+       VALUES ('a.jpg','/t/a.jpg','processed','ООО "Альфа"','AAA-1','2026-05-26', 5000)`
+    ).run();
+    const a = Number(aR.lastInsertRowid);
+    await getDb().prepare(
+      `INSERT INTO invoice_items (invoice_id, original_name, quantity, unit, price, total, mapping_confidence, row_no)
+       VALUES (?, 'Товар A', 1, 'кг', 5000, 5000, 0, 1)`
+    ).run(a);
+
+    const b = await createPending();
+    const res = await request(app).post(`/api/dispatcher/result/${b}`).send({
+      token: TOKEN,
+      success: true,
+      data: {
+        supplier: 'ЗАО "Бета"',   // different supplier
+        invoice_number: 'BBB-2',  // different number
+        total_sum: 3000,
+        items: [{ name: 'Товар B', quantity: 1, unit: 'кг', price: 3000, total: 3000, row_no: 1 }],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('processed'); // NOT merged
+    expect((await getInvoice(a))?.status).toBe('processed');
     expect(await itemCount(a)).toBe(1);
     expect(await itemCount(b)).toBe(1);
   });

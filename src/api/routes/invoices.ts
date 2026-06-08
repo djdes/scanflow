@@ -534,6 +534,47 @@ router.post('/:id/unapprove', async (req: Request, res: Response) => {
   res.json({ data: { id, approved_for_1c: false } });
 });
 
+// POST /api/invoices/:id/merge-into/:targetId — manually fold one invoice
+// (source) into another (target). For cases where the dispatcher's automatic
+// multi-page reconciliation missed a split invoice (e.g. OCR garbled both the
+// supplier AND the number so no structural signal fired). Items move source →
+// target, the source photo is carried over, the grand total = max(both totals)
+// is applied, and the source row is deleted.
+router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => {
+  const sourceId = parseInt(req.params.id as string);
+  const targetId = parseInt(req.params.targetId as string);
+
+  if (!Number.isFinite(sourceId) || !Number.isFinite(targetId) || sourceId === targetId) {
+    res.status(400).json({ error: 'sourceId и targetId должны быть разными накладными' });
+    return;
+  }
+
+  const source = await invoiceRepo.getById(sourceId);
+  const target = await invoiceRepo.getById(targetId);
+  if (!source || !target) {
+    res.status(404).json({ error: 'Накладная не найдена' });
+    return;
+  }
+
+  try {
+    const grand = Math.max(source.total_sum ?? 0, target.total_sum ?? 0);
+    // Move items first, then carry the photo(s), then drop the now-empty source.
+    await invoiceRepo.moveItemsToInvoice(sourceId, targetId);
+    const files = (source.file_name ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    for (const f of files) await invoiceRepo.appendFileName(targetId, f);
+    await invoiceRepo.delete(sourceId);
+    if (grand > 0) await invoiceRepo.updateInvoiceData(targetId, { total_sum: grand });
+    await invoiceRepo.recalculateTotal(targetId);
+
+    logger.info('Manual invoice merge', { sourceId, targetId, grand });
+    const merged = await invoiceRepo.getWithItems(targetId);
+    res.json({ data: merged });
+  } catch (err) {
+    logger.error('Failed to merge invoices', { sourceId, targetId, error: (err as Error).message });
+    res.status(500).json({ error: 'Ошибка объединения накладных' });
+  }
+});
+
 // POST /api/invoices/:id/remap — re-run nomenclature matching.
 // Query param: ?all=true to also re-map items that already have a GUID.
 // Useful after 1C catalog update — new items may be a better match for

@@ -20,7 +20,7 @@ import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
 import { emit as emitNotification, notifySupplierExtractError, emitElevatedPricesIfAny } from '../../notifications/events';
-import { canonicalizeSupplierName, normalizeInvoiceNumber } from '../../utils/invoiceNumber';
+import { canonicalizeSupplierName, normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
 import { userRepo } from '../../database/repositories/userRepo';
 import { getDb } from '../../database/db';
 import { config } from '../../config';
@@ -273,17 +273,19 @@ async function foldPageInto(canonicalId: number, otherId: number): Promise<void>
  * page 1's created_at is already "old". So we anchor on upload-time proximity
  * (findSiblingPagesNearUpload) which stays tight regardless of OCR latency.
  *
- * Among same-upload-batch same-supplier siblings, three self-guarding signals
- * decide that two pages belong to ONE invoice (any one suffices):
+ * Among same-upload-batch siblings, three self-guarding signals decide that two
+ * pages belong to ONE invoice (any one suffices):
  *   1. NUMBER — same normalised invoice_number.
- *   2. ROW_NO — contiguous line numbers (one page's rows start right after the
- *      other's end). A page whose items start at row > 1 is, by definition, a
- *      continuation: e.g. a page with only item #17 needs the page holding
- *      rows 1–16. This is the strongest structural signal and needs no total.
+ *   2. ROW_NO — contiguous line numbers: a page whose items start at row > 1 is,
+ *      by definition, a continuation (e.g. a page with only item #17 needs the
+ *      page holding rows 1–16). Strongest structural signal; needs no total.
  *   3. CUMULATIVE TOTAL — max(totals) ≈ Σ(all items): the last page prints the
  *      running grand total.
- * Each signal is self-guarding (two distinct invoices share none of them), so a
- * wide proximity window can't cause a false merge.
+ * Candidates are NOT pre-filtered by supplier: OCR routinely reads the supplier
+ * differently across pages of one invoice, so signals 1 & 2 (structural, hard to
+ * collide by chance) merge regardless of supplier text. The weaker signal 3 still
+ * requires a supplier match, so two unrelated invoices whose sums coincidentally
+ * add up are not merged.
  *
  * Canonical page (kept) = the one with a date, else a number, else more items /
  * the lower starting row. The other becomes its duplicate. Returns the
@@ -300,23 +302,33 @@ async function reconcileMultiPageSiblings(currentId: number): Promise<number | n
   const cNormNum = normalizeInvoiceNumber(current.invoice_number);
 
   const candidates = await invoiceRepo.findSiblingPagesNearUpload(
-    current.supplier, currentId, current.created_at, 30,
+    currentId, current.created_at, 30,
   );
   for (const y of candidates) {
     const grand = Math.max(current.total_sum ?? 0, y.total_sum ?? 0);
     const tol = Math.max(1, grand * 0.005);
 
+    // Strong STRUCTURAL signals (same number, contiguous row numbers) identify
+    // sibling pages on their own — OCR often misreads the supplier text across
+    // pages, so they must NOT require a supplier match. The weaker cumulative-
+    // total signal still needs a supplier match to avoid coincidental merges
+    // of two unrelated invoices whose sums happen to add up.
+    const supplierMatch = !!current.supplier && !!y.supplier && suppliersMatch(current.supplier, y.supplier);
     const numberMatch = !!cNormNum && cNormNum === normalizeInvoiceNumber(y.invoice_number);
+    // Contiguity = one page is a genuine CONTINUATION, i.e. its first row_no is
+    // > 1 and lands right after the other page's last row. The `> 1` guard stops
+    // two complete invoices (both starting at row 1) from looking adjacent via
+    // the off-by-one tolerance — critical now that suppliers may differ.
     const rowContiguous =
-      (cMinRow != null && y.max_row != null && Math.abs(cMinRow - (y.max_row + 1)) <= 1) ||
-      (y.min_row != null && cMaxRow != null && Math.abs(y.min_row - (cMaxRow + 1)) <= 1);
+      (cMinRow != null && cMinRow > 1 && y.max_row != null && Math.abs(cMinRow - (y.max_row + 1)) <= 1) ||
+      (y.min_row != null && y.min_row > 1 && cMaxRow != null && Math.abs(y.min_row - (cMaxRow + 1)) <= 1);
     const cumulativeTotal =
       grand > 0 &&
       Math.abs(grand - (currentItemsSum + y.items_sum)) <= tol &&
       // each page is only PART of the whole (else one is already complete)
       !(currentItemsSum >= grand - tol && y.items_sum >= grand - tol);
 
-    if (!numberMatch && !rowContiguous && !cumulativeTotal) continue;
+    if (!numberMatch && !rowContiguous && !(cumulativeTotal && supplierMatch)) continue;
 
     // Pick canonical: prefer date, then number, then more items, then lower start row.
     const yHasDate = !!y.invoice_date, cHasDate = !!current.invoice_date;
