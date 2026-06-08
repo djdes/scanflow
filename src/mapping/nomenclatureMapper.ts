@@ -10,7 +10,7 @@ export interface MappingResult {
   mapped_name: string;
   onec_guid: string | null;
   confidence: number;
-  source: 'learned' | 'onec_fuzzy' | 'legacy' | 'none';
+  source: 'learned' | 'onec_token' | 'onec_fuzzy' | 'legacy' | 'none';
   mapping_id: number | null; // id of nomenclature_mappings row if matched
   // Pack transform carried through from the learned mapping (if any).
   // When both are non-null, the watcher rewrites the item:
@@ -64,6 +64,110 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 // Minimum confidence to return a fuzzy match at all (user sees it)
 const MIN_FUZZY_CONFIDENCE = 0.6;
 
+// --- Stage 2a: stemmed token-IDF matching against the 1C catalog ---------
+//
+// Fuse's char-level scoring is poor for Russian: it's defeated by word
+// reordering ("Филе грудки куриной" vs "Куриное Филе грудки") and morphology
+// ("куриного"/"куриная"/"куриное"), and it produces false positives by latching
+// onto a shared common word ("Бедро куриное ЗАМОРОЖЕННОЕ" → "Сердце Говяжье
+// ЗАМОРОЖЕННОЕ"). We add a token matcher: light Russian stemming → IDF-weighted
+// overlap, so distinctive tokens (анчоус, камбал, шаурм, яйц) dominate and
+// generic state words (зам, охлажд, говяж) carry little weight.
+
+// Min asymmetric-overlap score to accept a token match.
+const MIN_TOKEN_CONFIDENCE = 0.5;
+
+// Inflectional endings stripped to unify morphological variants. Longest first;
+// a 4-char stem floor stops over-stemming short roots ("яйцо" stays "яйцо").
+const RU_ENDINGS = [
+  'ого', 'его', 'ому', 'ему', 'ыми', 'ими', 'ыми', 'ого',
+  'ая', 'яя', 'ое', 'ее', 'ые', 'ие', 'ый', 'ий', 'ой', 'ом', 'ем',
+  'ах', 'ях', 'ам', 'ям', 'ов', 'ев', 'ью', 'ия', 'ие', 'ья', 'ье', 'ьи',
+  'ка', 'ки', 'ку', 'ок',
+  'а', 'я', 'о', 'е', 'ы', 'и', 'у', 'ю', 'ь', 'й',
+].sort((a, b) => b.length - a.length);
+
+function stemRu(t: string): string {
+  for (const e of RU_ENDINGS) {
+    if (t.length - e.length >= 4 && t.endsWith(e)) { t = t.slice(0, -e.length); break; }
+  }
+  // Trim a leftover soft sign so adjective forms collapse together
+  // ("говяжья"→"говяжь"→"говяж", matching "говяжий"→"говяж").
+  if (t.length >= 5 && t.endsWith('ь')) t = t.slice(0, -1);
+  return t;
+}
+
+// Mutually-exclusive species — a beef item must never match a pork/chicken one,
+// even when the cut ("лопатка") and state ("зам") tokens coincide. Keys are
+// stemmed token forms; values are the species class.
+const SPECIES = new Map<string, string>([
+  ['говяж', 'beef'], ['говядин', 'beef'],
+  ['свин', 'pork'], ['свинин', 'pork'],
+  ['курин', 'chicken'], ['куриц', 'chicken'], ['кур', 'chicken'],
+  ['индейк', 'turkey'], ['индюш', 'turkey'],
+  ['баран', 'lamb'], ['ягнятин', 'lamb'],
+  ['утк', 'duck'], ['утин', 'duck'],
+  ['крол', 'rabbit'], ['индоутк', 'duck'],
+  ['телятин', 'veal'], ['теляч', 'veal'],
+]);
+function speciesOf(tokens: Set<string>): Set<string> {
+  const s = new Set<string>();
+  for (const t of tokens) { const sp = SPECIES.get(t); if (sp) s.add(sp); }
+  return s;
+}
+function speciesConflict(a: Set<string>, b: Set<string>): boolean {
+  if (a.size === 0 || b.size === 0) return false;
+  for (const x of a) if (b.has(x)) return false; // share at least one species → ok
+  return true; // both name a species, none in common → conflict
+}
+
+// Collapse state/temperature word variants so "зам" matches "замороженная" and
+// "охл" matches "охлажденное" — this both links abbreviations and disambiguates
+// a frozen scan toward the frozen catalog item over the chilled one.
+const STATE_MAP = new Map<string, string>([
+  ['зам', 'замор'], ['замор', 'замор'], ['заморож', 'замор'], ['заморозк', 'замор'],
+  ['заморожен', 'замор'], ['замороженн', 'замор'],
+  ['охл', 'охлажд'], ['охлажд', 'охлажд'], ['охлажден', 'охлажд'], ['охлажденн', 'охлажд'],
+]);
+function canonicalToken(stem: string): string {
+  return STATE_MAP.get(stem) ?? stem;
+}
+
+// Words whose FOLLOWING token is negated and must be dropped: "без кости"
+// (boneless) must not match the "Кости" (bones) product.
+const NEGATIONS = new Set(['без', 'не']);
+
+// Order-aware tokenizer: light Russian stemming + negation skip + state-word
+// canonicalisation. (Distinct from `tokenize`, which is order-free and feeds the
+// learned-mapping Jaccard stage.)
+function stemmedTokenSet(s: string): Set<string> {
+  const raw = normalizeName(s)
+    .toLowerCase()
+    .replace(/[^а-яёa-z0-9%\-\s]/gi, ' ')
+    .split(/[\s\-]+/)
+    .map(t => t.trim())
+    .filter(Boolean);
+  const out = new Set<string>();
+  for (let i = 0; i < raw.length; i++) {
+    const t = raw[i];
+    if (NEGATIONS.has(t)) { i++; continue; } // skip the negation AND the negated word
+    if (t.length < 3 || LEARNED_STOPWORDS.has(t)) continue;
+    if (/^\d+$/.test(t)) continue; // bare numbers ("300", "500") are not identity words
+    out.add(canonicalToken(stemRu(t)));
+  }
+  return out;
+}
+
+interface OnecTokenDoc {
+  item: OnecNomenclatureRow;
+  tokens: Set<string>;
+  idfSum: number;
+  // The catalog item's single most distinctive token (highest IDF). The scan
+  // MUST contain it to match — this is the product's identity word, so it stops
+  // "Лопатка говяжья" matching "Печень говяжья" on shared category/state words.
+  topToken: string | null;
+}
+
 // Minimum confidence to AUTO-SAVE a fuzzy match as a learned mapping.
 // Higher than MIN_FUZZY_CONFIDENCE so questionable matches don't pollute
 // learned mappings (they would become "exact" 1.0-confidence lookups next time).
@@ -101,10 +205,38 @@ interface LearnedToken {
 export class NomenclatureMapper {
   private onecFuse: Fuse<OnecNomenclatureRow> | null = null;
   private learnedTokens: LearnedToken[] | null = null;
+  private onecTokenIndex: OnecTokenDoc[] | null = null;
+  private onecIdf: ((token: string) => number) | null = null;
+  private onecDf: Map<string, number> | null = null;
 
   private async refreshIndex(): Promise<void> {
     const items = await onecNomenclatureRepo.listItems({ excludeFolders: true });
     this.onecFuse = new Fuse(items, ONEC_FUSE_OPTIONS);
+
+    // Build the stemmed-token index + IDF weights over the same catalog.
+    const docs = items.map(it => ({
+      item: it,
+      tokens: stemmedTokenSet(`${it.name} ${it.full_name ?? ''}`),
+    }));
+    const df = new Map<string, number>();
+    for (const d of docs) for (const tk of d.tokens) df.set(tk, (df.get(tk) ?? 0) + 1);
+    const N = docs.length || 1;
+    // +1 smoothing keeps common tokens positive but small; rare tokens score high.
+    const idf = (tk: string): number => Math.log(N / (1 + (df.get(tk) ?? 0))) + 1;
+    this.onecIdf = idf;
+    this.onecDf = df;
+    this.onecTokenIndex = docs.map(d => {
+      let idfSum = 0;
+      let topToken: string | null = null;
+      let topIdf = -1;
+      for (const tk of d.tokens) {
+        const w = idf(tk);
+        idfSum += w;
+        if (w > topIdf) { topIdf = w; topToken = tk; }
+      }
+      return { item: d.item, tokens: d.tokens, idfSum, topToken };
+    });
+
     logger.debug('Nomenclature mapper index refreshed', { onecItems: items.length });
   }
 
@@ -136,6 +268,9 @@ export class NomenclatureMapper {
   invalidateCache(): void {
     this.onecFuse = null;
     this.learnedTokens = null;
+    this.onecTokenIndex = null;
+    this.onecIdf = null;
+    this.onecDf = null;
     logger.info('Nomenclature mapper cache invalidated');
   }
 
@@ -239,14 +374,85 @@ export class NomenclatureMapper {
       }
     }
 
-    // 2. Fuzzy search against onec_nomenclature (use cleaned name)
     const fuse = await this.ensureIndex();
     const searchTerm = cleanName || scannedName;
+
+    // Shared query analysis for both the token stage and the Fuse guard.
+    const qTokens = stemmedTokenSet(searchTerm);
+    const qSpecies = speciesOf(qTokens);
+    // The scan's IDENTITY token = its most distinctive token that (a) is not a
+    // species word and (b) actually exists in the catalog. Any accepted match
+    // MUST share it — that's what stops "Лопатка говяжья" matching "Говяжий
+    // фарш" (both beef, but the identity word "лопатка" is absent from фарш).
+    // Catalog-absent tokens (потрошеная, пряного) are skipped — they can never
+    // be shared and must not become an impossible requirement.
+    let qIdentity: string | null = null;
+    if (this.onecIdf && this.onecDf) {
+      let bestIdf = -1;
+      for (const tk of qTokens) {
+        if (SPECIES.has(tk)) continue;
+        if ((this.onecDf.get(tk) ?? 0) === 0) continue;
+        const w = this.onecIdf(tk);
+        if (w > bestIdf) { bestIdf = w; qIdentity = tk; }
+      }
+    }
+
+    // 2a. Stemmed token-IDF match against the catalog. Runs BEFORE Fuse because
+    // it handles Russian word-order/morphology and resists common-word false
+    // positives. Score = asymmetric IDF overlap (best of query-coverage and
+    // catalog-coverage), so a short catalog name fully contained in a verbose
+    // scan ("Анчоусы" ⊂ "Анчоусы Пряного Посола") still scores ~1.
+    if (qIdentity && this.onecTokenIndex && this.onecTokenIndex.length > 0 && this.onecIdf) {
+      let qSum = 0;
+      for (const tk of qTokens) qSum += this.onecIdf(tk);
+      if (qTokens.size > 0 && qSum > 0) {
+        let best: { item: OnecNomenclatureRow; score: number } | null = null;
+        for (const doc of this.onecTokenIndex) {
+          // The scan's identity word must be present in the candidate.
+          if (!doc.tokens.has(qIdentity)) continue;
+          // The candidate's identity word must be present in the scan.
+          if (doc.topToken && !qTokens.has(doc.topToken)) continue;
+          // Never cross species (beef ≠ pork ≠ chicken …).
+          if (speciesConflict(qSpecies, speciesOf(doc.tokens))) continue;
+          let shared = 0;
+          for (const tk of qTokens) if (doc.tokens.has(tk)) shared += this.onecIdf(tk);
+          if (shared <= 0) continue;
+          const score = Math.max(shared / qSum, shared / (doc.idfSum || 1));
+          if (!best || score > best.score) best = { item: doc.item, score };
+        }
+        if (best && best.score >= MIN_TOKEN_CONFIDENCE) {
+          logger.info('Mapping via catalog token-IDF', {
+            scannedName, target: best.item.name, score: best.score.toFixed(3),
+          });
+          return {
+            original_name: scannedName,
+            mapped_name: best.item.name,
+            onec_guid: best.item.guid,
+            confidence: best.score,
+            source: 'onec_token',
+            mapping_id: null,
+            pack_size: null,
+            pack_unit: null,
+          };
+        }
+      }
+    }
+
+    // 2. Fuzzy search against onec_nomenclature (use cleaned name)
     const results = fuse.search(searchTerm);
     if (results.length > 0 && results[0].score !== undefined) {
       const best = results[0];
       const confidence = 1 - (best.score as number);
-      if (confidence >= MIN_FUZZY_CONFIDENCE) {
+      // Validate Fuse's char-level pick with the token stage's structural guards
+      // so similarity can't cross species or match a different part/cut
+      // ("Лопатка говяжья" → "Говяжий фарш"). Both share "говяж" but the
+      // identity word (фарш) is absent from the scan.
+      const fuseItemTokens = stemmedTokenSet(`${best.item.name} ${best.item.full_name ?? ''}`);
+      let fuseTop: string | null = null, fuseTopIdf = -1;
+      if (this.onecIdf) for (const tk of fuseItemTokens) { const w = this.onecIdf(tk); if (w > fuseTopIdf) { fuseTopIdf = w; fuseTop = tk; } }
+      const fuseIdentityOk = !!qIdentity && fuseItemTokens.has(qIdentity) && (!fuseTop || qTokens.has(fuseTop));
+      const fuseSpeciesOk = !speciesConflict(qSpecies, speciesOf(fuseItemTokens));
+      if (confidence >= MIN_FUZZY_CONFIDENCE && fuseIdentityOk && fuseSpeciesOk) {
         // Auto-save ONLY if confidence is high enough to avoid polluting
         // learned mappings. Matches in [0.6, 0.8) are returned to the user
         // but not persisted — they need manual confirmation.
