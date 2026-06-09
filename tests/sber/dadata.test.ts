@@ -12,6 +12,18 @@ describe('lookupPartyByInn', () => {
     await expect(lookupPartyByInn('5012089824')).rejects.toBeInstanceOf(DadataNotConfiguredError);
   });
 
+  it('uses an explicit apiKey argument (from DB config) over the env var', async () => {
+    delete process.env.DADATA_API_KEY; // env empty — key must come from the arg
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ suggestions: [{ value: 'ООО Тест', data: { inn: '5012089824' } }] }),
+    });
+    const out = await lookupPartyByInn('5012089824', 'db-key-123');
+    expect(out?.inn).toBe('5012089824');
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect((init.headers as Record<string, string>).Authorization).toBe('Token db-key-123');
+  });
+
   it('returns null when no suggestions', async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,

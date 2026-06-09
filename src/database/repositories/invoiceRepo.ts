@@ -791,10 +791,10 @@ export const invoiceRepo = {
     return { byStatus, total: totalRow?.count ?? 0 };
   },
 
-  async getAnalyzerConfig(): Promise<{ mode: string; anthropic_api_key: string | null; claude_model: string; llm_mapper_enabled: boolean; auto_send_1c: boolean; auto_send_sber: boolean; projectsflow_token: string | null; projectsflow_project_id: string | null }> {
+  async getAnalyzerConfig(): Promise<{ mode: string; anthropic_api_key: string | null; claude_model: string; llm_mapper_enabled: boolean; auto_send_1c: boolean; auto_send_sber: boolean; projectsflow_token: string | null; projectsflow_project_id: string | null; dadata_api_key: string | null }> {
     const row = await getDb()
-      .prepare('SELECT mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber, projectsflow_token, projectsflow_project_id FROM analyzer_config WHERE id = 1')
-      .get<{ mode: string; anthropic_api_key: string | null; claude_model: string | null; llm_mapper_enabled: number | null; auto_send_1c: number | null; auto_send_sber: number | null; projectsflow_token: string | null; projectsflow_project_id: string | null }>();
+      .prepare('SELECT mode, anthropic_api_key, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber, projectsflow_token, projectsflow_project_id, dadata_api_key FROM analyzer_config WHERE id = 1')
+      .get<{ mode: string; anthropic_api_key: string | null; claude_model: string | null; llm_mapper_enabled: number | null; auto_send_1c: number | null; auto_send_sber: number | null; projectsflow_token: string | null; projectsflow_project_id: string | null; dadata_api_key: string | null }>();
     return {
       mode: row?.mode ?? 'hybrid',
       anthropic_api_key: row?.anthropic_api_key ?? null,
@@ -804,6 +804,7 @@ export const invoiceRepo = {
       auto_send_sber: (row?.auto_send_sber ?? 0) === 1,
       projectsflow_token: row?.projectsflow_token ?? null,
       projectsflow_project_id: row?.projectsflow_project_id ?? null,
+      dadata_api_key: row?.dadata_api_key ?? null,
     };
   },
 
@@ -816,6 +817,7 @@ export const invoiceRepo = {
     autoSendSber?: boolean,
     projectsflowToken?: string | null,
     projectsflowProjectId?: string | null,
+    dadataApiKey?: string | null,
   ): Promise<void> {
     const sets: string[] = ['mode = ?'];
     const vals: unknown[] = [mode];
@@ -826,6 +828,7 @@ export const invoiceRepo = {
     if (autoSendSber !== undefined) { sets.push('auto_send_sber = ?'); vals.push(autoSendSber ? 1 : 0); }
     if (projectsflowToken !== undefined) { sets.push('projectsflow_token = ?'); vals.push(projectsflowToken); }
     if (projectsflowProjectId !== undefined) { sets.push('projectsflow_project_id = ?'); vals.push(projectsflowProjectId); }
+    if (dadataApiKey !== undefined) { sets.push('dadata_api_key = ?'); vals.push(dadataApiKey); }
     await getDb().prepare(`UPDATE analyzer_config SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
   },
 

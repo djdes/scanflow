@@ -27,6 +27,11 @@ const Settings = {
         }
         const llmCb = document.getElementById('settings-llm-mapper');
         if (llmCb) llmCb.checked = !!data.llm_mapper_enabled;
+        const dadataStatus = document.getElementById('dadata-key-status');
+        if (dadataStatus) {
+          dadataStatus.textContent = data.has_dadata_key ? 'DaData-ключ сохранён' : 'DaData-ключ не задан';
+          dadataStatus.style.color = data.has_dadata_key ? 'var(--green)' : 'var(--text-muted, #888)';
+        }
         Settings._refreshModeVisibility();
       }
       this.loaded = true;
@@ -88,11 +93,20 @@ const Settings = {
     if (pfProjectInput && pfProjectInput.value.trim()) {
       body.projectsflow_project_id = pfProjectInput.value.trim();
     }
+    const dadataInput = document.getElementById('settings-dadata-key');
+    if (dadataInput && dadataInput.value.trim()) {
+      body.dadata_api_key = dadataInput.value.trim();
+    }
 
     try {
       const res = await App.api('/settings/analyzer', { method: 'PUT', body });
       if (res.ok) {
         App.notify('Настройки сохранены', 'success');
+        if (dadataInput && dadataInput.value.trim()) {
+          const ds = document.getElementById('dadata-key-status');
+          if (ds) { ds.textContent = 'DaData-ключ сохранён'; ds.style.color = 'var(--green)'; }
+          dadataInput.value = ''; // keep password-style; clear after save
+        }
         if (apiKeyInput.value.trim()) {
           document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
           apiKeyInput.value = ''; // API keys stay password-style, clear after save

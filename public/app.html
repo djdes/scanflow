@@ -537,6 +537,12 @@
             и не добавляет отдельных API-вызовов — всё в одном запросе OCR.
           </div>
         </div>
+        <div class="form-group">
+          <label>DaData API-ключ</label>
+          <input type="password" id="settings-dadata-key" placeholder="токен DaData (suggestions API)" autocomplete="off" spellcheck="false">
+          <div id="dadata-key-status" class="field-hint"></div>
+          <div class="field-hint" style="margin-top:4px;font-size:12px">Включает кнопку «Заполнить по ИНН (DaData)» в карточке поставщика — подтягивает название, КПП и адрес по ИНН. Бесплатный тариф: <code>dadata.ru</code>.</div>
+        </div>
         <div class="form-actions">
           <button class="btn btn-primary" onclick="Settings.save()">Сохранить</button>
         </div>

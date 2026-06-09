@@ -19,6 +19,7 @@ router.get('/analyzer', async (_req: Request, res: Response) => {
         llm_mapper_enabled: config.llm_mapper_enabled,
         auto_send_1c: config.auto_send_1c,
         auto_send_sber: config.auto_send_sber,
+        has_dadata_key: !!config.dadata_api_key,
       },
     });
   } catch (err) {
@@ -29,7 +30,10 @@ router.get('/analyzer', async (_req: Request, res: Response) => {
 // PUT /api/settings/analyzer — update analyzer config
 router.put('/analyzer', async (req: Request, res: Response) => {
   try {
-    const { mode, anthropic_api_key, projectsflow_token, projectsflow_project_id, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber } = req.body;
+    const { mode, anthropic_api_key, projectsflow_token, projectsflow_project_id, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber, dadata_api_key } = req.body;
+    // Only persist a non-empty key; omitting it (or sending blank) leaves the
+    // stored key untouched so a routine save doesn't wipe it.
+    const dadataKey = (typeof dadata_api_key === 'string' && dadata_api_key.trim()) ? dadata_api_key.trim() : undefined;
 
     if (!mode || !['hybrid', 'claude_api', 'dispatcher'].includes(mode)) {
       res.status(400).json({ error: 'Invalid mode. Must be "hybrid", "claude_api" or "dispatcher"' });
@@ -65,9 +69,9 @@ router.put('/analyzer', async (req: Request, res: Response) => {
         res.status(400).json({ error: 'Anthropic API key is required for Claude API mode' });
         return;
       }
-      await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id);
+      await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id, dadataKey);
     } else {
-      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id);
+      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id, dadataKey);
     }
 
     if (auto1c !== undefined && auto1c !== beforeCfg.auto_send_1c) {

@@ -237,7 +237,10 @@ router.post('/lookup-dadata', async (req: Request, res: Response) => {
   const inn = (req.body as { inn?: string }).inn;
   if (!inn || !INN_RE.test(inn)) return res.status(400).json({ error: 'inn must be 10 or 12 digits' });
   try {
-    const party = await lookupPartyByInn(inn);
+    // Key from the Settings UI (analyzer_config) takes precedence; lookupPartyByInn
+    // falls back to process.env.DADATA_API_KEY when this is null.
+    const cfg = await invoiceRepo.getAnalyzerConfig();
+    const party = await lookupPartyByInn(inn, cfg.dadata_api_key);
     if (!party) return res.json({ party: null });
     return res.json({ party });
   } catch (err) {

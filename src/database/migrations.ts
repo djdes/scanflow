@@ -760,6 +760,16 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 35,
+    name: 'analyzer_config.dadata_api_key — DaData key configurable from the Settings UI',
+    detect: (exec) => hasColumn(exec, 'analyzer_config', 'dadata_api_key'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'dadata_api_key'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN dadata_api_key VARCHAR(255) NULL`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

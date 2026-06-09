@@ -26,14 +26,19 @@ interface DadataResponse {
   }>;
 }
 
-export async function lookupPartyByInn(inn: string): Promise<DadataParty | null> {
-  const apiKey = process.env.DADATA_API_KEY;
-  if (!apiKey) throw new DadataNotConfiguredError();
+/**
+ * Look up a legal entity by INN. The API key is resolved as:
+ *   explicit `apiKey` arg (from analyzer_config DB row) → process.env fallback.
+ * This lets the key be set from the Settings UI without server access.
+ */
+export async function lookupPartyByInn(inn: string, apiKey?: string | null): Promise<DadataParty | null> {
+  const key = (apiKey && apiKey.trim()) || process.env.DADATA_API_KEY;
+  if (!key) throw new DadataNotConfiguredError();
   const res = await fetch(DADATA_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Token ${apiKey}`,
+      Authorization: `Token ${key}`,
       Accept: 'application/json',
     },
     body: JSON.stringify({ query: inn }),
