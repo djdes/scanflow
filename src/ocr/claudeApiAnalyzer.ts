@@ -5,6 +5,7 @@ import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import { ParsedInvoiceData } from './types';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+import { preprocessInvoiceImage } from './imagePreprocess';
 
 export interface ApiAnalyzerResult {
   success: boolean;
@@ -332,6 +333,19 @@ function getMediaType(imagePath: string): 'image/jpeg' | 'image/png' | 'image/we
 }
 
 /**
+ * Read an image file, run the Phase-1 pre-OCR enhancement (contrast/sharpen —
+ * see imagePreprocess.ts), and return base64 + the matching media type. The
+ * preprocessor outputs JPEG on success (sniffed via FF D8 magic) and falls back
+ * to the original bytes on any failure, so the media type stays correct.
+ */
+async function encodeImageForApi(imagePath: string): Promise<{ data: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }> {
+  const raw = fs.readFileSync(imagePath);
+  const pre = await preprocessInvoiceImage(raw);
+  const isJpeg = pre.length > 2 && pre[0] === 0xFF && pre[1] === 0xD8;
+  return { data: pre.toString('base64'), mediaType: isJpeg ? 'image/jpeg' : getMediaType(imagePath) };
+}
+
+/**
  * Анализ объединённого OCR-текста нескольких страниц через Anthropic API.
  * Не требует изображений — работает с готовым текстом от Google Vision.
  */
@@ -422,9 +436,7 @@ export async function analyzeMultipleImagesWithClaudeApi(
     const content: Anthropic.MessageCreateParams['messages'][0]['content'] = [];
 
     for (const imagePath of imagePaths) {
-      const imageBuffer = fs.readFileSync(imagePath);
-      const base64Image = imageBuffer.toString('base64');
-      const mediaType = getMediaType(imagePath);
+      const { data: base64Image, mediaType } = await encodeImageForApi(imagePath);
       content.push({
         type: 'image',
         source: { type: 'base64', media_type: mediaType, data: base64Image },
@@ -557,9 +569,7 @@ export async function analyzeImageWithClaudeApi(
   logger.info('Claude API Analyzer: starting image analysis', { imagePath, catalogSize: catalog?.length ?? 0 });
 
   try {
-    const imageBuffer = fs.readFileSync(imagePath);
-    const base64Image = imageBuffer.toString('base64');
-    const mediaType = getMediaType(imagePath);
+    const { data: base64Image, mediaType } = await encodeImageForApi(imagePath);
 
     const client = createClient(apiKey);
     const prompt = buildPrompt(catalog);

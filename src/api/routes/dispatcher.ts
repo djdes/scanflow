@@ -19,6 +19,7 @@ import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
+import { preprocessInvoiceImage } from '../../ocr/imagePreprocess';
 import { emit as emitNotification, notifySupplierExtractError, emitElevatedPricesIfAny } from '../../notifications/events';
 import { canonicalizeSupplierName, normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
 import { userRepo } from '../../database/repositories/userRepo';
@@ -122,9 +123,16 @@ router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
     logger.warn('dispatcher photo: file missing on disk', { invoiceId: id, path: row.file_path });
     return res.status(404).json({ error: 'photo file missing' });
   }
-  res.setHeader('Content-Type', contentTypeFor(row.file_path));
+  // Serve a pre-OCR-enhanced image (contrast/sharpen — see imagePreprocess.ts),
+  // A/B-verified to materially improve recognition of dense rows. Never throws:
+  // on any failure preprocessInvoiceImage returns the original bytes. Sniff the
+  // JPEG magic (FF D8) to pick Content-Type — a fallback to the original
+  // (e.g. webp/png) keeps its own type.
+  const photoBuf = await preprocessInvoiceImage(row.file_path);
+  const isJpeg = photoBuf.length > 2 && photoBuf[0] === 0xFF && photoBuf[1] === 0xD8;
+  res.setHeader('Content-Type', isJpeg ? 'image/jpeg' : contentTypeFor(row.file_path));
   res.setHeader('Cache-Control', 'no-store');
-  fs.createReadStream(row.file_path).pipe(res);
+  res.send(photoBuf);
 });
 
 // ─── Supplier-requisite extraction (suppliers page "Распознать с фото") ───
