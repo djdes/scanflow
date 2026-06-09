@@ -1478,7 +1478,14 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   try {
     accessToken = await getValidAccessToken();
   } catch (err) {
-    return res.status(401).json({ error: `Sber auth failed: ${(err as Error).message}` });
+    // NB: must NOT be 401 here. The frontend treats *any* 401 as "your ScanFlow
+    // X-API-Key is dead" and logs the user out (see App.api in public/js/app.js).
+    // A failed *Sber* OAuth refresh is an upstream-auth problem, not a ScanFlow
+    // session problem — return 502 (same as the SberApiError branch below) so
+    // the user sees an actionable error instead of being kicked to the login page.
+    return res.status(502).json({
+      error: `Не удалось авторизоваться в Сбербанке: ${(err as Error).message}. Переподключите Сбербанк на странице /#/sber.`,
+    });
   }
 
   // Render purpose
