@@ -14,10 +14,12 @@ import { logger } from '../utils/logger';
  * serves raw pixels (already upright) and applying a misleading EXIF tag could
  * rotate an already-correct image sideways. Orientation stays exactly as today.
  *
- * NEVER throws and NEVER returns empty: on any sharp error, or if the trim guard
- * rejects, it falls back to the original bytes. Preprocessing must not break OCR.
+ * Once it has the image bytes it NEVER throws: on any sharp error, or if the trim
+ * guard rejects, it falls back to the original bytes. (The only way it can reject
+ * is if `input` is a path and the file is unreadable — callers serving a path
+ * should handle that, e.g. the dispatcher endpoint falls back to the raw file.)
  *
- * Returns the enhanced JPEG buffer (or the original bytes on failure).
+ * Returns the enhanced JPEG buffer (or the original bytes on sharp failure).
  */
 export async function preprocessInvoiceImage(input: Buffer | string): Promise<Buffer> {
   const original: Buffer = Buffer.isBuffer(input) ? input : await fs.promises.readFile(input);

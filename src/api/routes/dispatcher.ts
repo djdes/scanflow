@@ -124,15 +124,25 @@ router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'photo file missing' });
   }
   // Serve a pre-OCR-enhanced image (contrast/sharpen — see imagePreprocess.ts),
-  // A/B-verified to materially improve recognition of dense rows. Never throws:
-  // on any failure preprocessInvoiceImage returns the original bytes. Sniff the
-  // JPEG magic (FF D8) to pick Content-Type — a fallback to the original
-  // (e.g. webp/png) keeps its own type.
-  const photoBuf = await preprocessInvoiceImage(row.file_path);
-  const isJpeg = photoBuf.length > 2 && photoBuf[0] === 0xFF && photoBuf[1] === 0xD8;
-  res.setHeader('Content-Type', isJpeg ? 'image/jpeg' : contentTypeFor(row.file_path));
+  // A/B-verified to materially improve recognition of dense rows. Sniff the JPEG
+  // magic (FF D8) to pick Content-Type — a fallback to the original (webp/png)
+  // keeps its own type. If preprocessing throws (e.g. the file vanished in the
+  // existsSync→read race), fall back to streaming the original bytes — the OCR
+  // path must always get SOME image.
   res.setHeader('Cache-Control', 'no-store');
-  res.send(photoBuf);
+  try {
+    const photoBuf = await preprocessInvoiceImage(row.file_path);
+    const isJpeg = photoBuf.length > 2 && photoBuf[0] === 0xFF && photoBuf[1] === 0xD8;
+    res.setHeader('Content-Type', isJpeg ? 'image/jpeg' : contentTypeFor(row.file_path));
+    res.send(photoBuf);
+  } catch (err) {
+    logger.warn('dispatcher photo: preprocess failed, serving original', { invoiceId: id, error: (err as Error).message });
+    if (!fs.existsSync(row.file_path)) {
+      return res.status(404).json({ error: 'photo file missing' });
+    }
+    res.setHeader('Content-Type', contentTypeFor(row.file_path));
+    fs.createReadStream(row.file_path).pipe(res);
+  }
 });
 
 // ─── Supplier-requisite extraction (suppliers page "Распознать с фото") ───
