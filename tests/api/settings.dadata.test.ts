@@ -46,6 +46,17 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('settings: DaData A
     expect(row?.dadata_api_key).toBe('my-dadata-key-xyz');
   });
 
+  it('GET returns the stored key values so the admin can view/verify them', async () => {
+    const key = await setupUser();
+    await request(app).put('/api/settings/analyzer').set('X-API-Key', key)
+      .send({ mode: 'claude_api', anthropic_api_key: 'sk-ant-test-123', dadata_api_key: 'dd-test-456' });
+
+    const res = await request(app).get('/api/settings/analyzer').set('X-API-Key', key);
+    expect(res.status).toBe(200);
+    expect(res.body.data.anthropic_api_key).toBe('sk-ant-test-123');
+    expect(res.body.data.dadata_api_key).toBe('dd-test-456');
+  });
+
   it('does not wipe an existing dadata_api_key when PUT omits it', async () => {
     const key = await setupUser();
     await request(app).put('/api/settings/analyzer').set('X-API-Key', key)

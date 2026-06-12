@@ -501,7 +501,10 @@
         </div>
         <div class="form-group" id="api-key-group">
           <label>API-ключ Anthropic</label>
-          <input type="password" id="settings-api-key" placeholder="sk-ant-api03-...">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." autocomplete="off" spellcheck="false" style="flex:1">
+            <button type="button" class="btn btn-outline" id="settings-api-key-eye" onclick="Settings.toggleReveal('settings-api-key', this)" title="Показать / скрыть">Показать</button>
+          </div>
           <div id="api-key-status" class="field-hint"></div>
         </div>
         <div class="form-group" id="pf-token-group" style="display:none">
@@ -539,7 +542,10 @@
         </div>
         <div class="form-group">
           <label>DaData API-ключ</label>
-          <input type="password" id="settings-dadata-key" placeholder="токен DaData (suggestions API)" autocomplete="off" spellcheck="false">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="password" id="settings-dadata-key" placeholder="токен DaData (suggestions API)" autocomplete="off" spellcheck="false" style="flex:1">
+            <button type="button" class="btn btn-outline" id="settings-dadata-key-eye" onclick="Settings.toggleReveal('settings-dadata-key', this)" title="Показать / скрыть">Показать</button>
+          </div>
           <div id="dadata-key-status" class="field-hint"></div>
           <div class="field-hint" style="margin-top:4px;font-size:12px">Включает кнопку «Заполнить по ИНН (DaData)» в карточке поставщика — подтягивает название, КПП и адрес по ИНН. Бесплатный тариф: <code>dadata.ru</code>.</div>
         </div>

@@ -13,7 +13,13 @@ router.get('/analyzer', async (_req: Request, res: Response) => {
       data: {
         mode: config.mode,
         has_api_key: !!config.anthropic_api_key,
+        // Full key values returned so the admin can view/verify them in Settings.
+        // This endpoint is already admin-gated by the X-API-Key, which is itself
+        // the master credential — no additional secret is exposed beyond that.
+        anthropic_api_key: config.anthropic_api_key,
+        dadata_api_key: config.dadata_api_key,
         has_projectsflow_token: !!config.projectsflow_token,
+        projectsflow_token: config.projectsflow_token,
         projectsflow_project_id: config.projectsflow_project_id,
         claude_model: config.claude_model,
         llm_mapper_enabled: config.llm_mapper_enabled,

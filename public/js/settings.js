@@ -13,6 +13,14 @@ const Settings = {
           document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
           document.getElementById('api-key-status').style.color = 'var(--green)';
         }
+        // Prefill key fields so the admin can view/verify what is stored
+        // (kept type=password; the «Показать» button reveals them).
+        const apiInput = document.getElementById('settings-api-key');
+        if (apiInput && data.anthropic_api_key) apiInput.value = data.anthropic_api_key;
+        const dadataInput0 = document.getElementById('settings-dadata-key');
+        if (dadataInput0 && data.dadata_api_key) dadataInput0.value = data.dadata_api_key;
+        const pfTokenInput0 = document.getElementById('settings-pf-token');
+        if (pfTokenInput0 && data.projectsflow_token) pfTokenInput0.value = data.projectsflow_token;
         const pfStatus = document.getElementById('pf-token-status');
         if (pfStatus) {
           pfStatus.textContent = data.has_projectsflow_token ? 'PF-токен сохранён' : 'PF-токен не задан';
@@ -105,11 +113,11 @@ const Settings = {
         if (dadataInput && dadataInput.value.trim()) {
           const ds = document.getElementById('dadata-key-status');
           if (ds) { ds.textContent = 'DaData-ключ сохранён'; ds.style.color = 'var(--green)'; }
-          dadataInput.value = ''; // keep password-style; clear after save
+          // Keep the value in the field so it stays viewable for verification.
         }
         if (apiKeyInput.value.trim()) {
           document.getElementById('api-key-status').textContent = 'API-ключ сохранён';
-          apiKeyInput.value = ''; // API keys stay password-style, clear after save
+          // Keep the value in the field so it stays viewable for verification.
         }
         if (pfTokenInput && pfTokenInput.value.trim()) {
           const status = document.getElementById('pf-token-status');
@@ -126,6 +134,16 @@ const Settings = {
     } catch (e) {
       App.notify('Ошибка: ' + e.message, 'error');
     }
+  },
+
+  // Toggle a password field between hidden and revealed so the admin can verify
+  // a stored key. Flips the input type and the button label.
+  toggleReveal(inputId, btn) {
+    const inp = document.getElementById(inputId);
+    if (!inp) return;
+    const reveal = inp.type === 'password';
+    inp.type = reveal ? 'text' : 'password';
+    if (btn) btn.textContent = reveal ? 'Скрыть' : 'Показать';
   },
 
   // Show/hide API-key block (only for claude_api), PF-token block (only for dispatcher),
