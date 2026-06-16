@@ -190,25 +190,43 @@ export const invoiceRepo = {
     const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
     const offset = Math.max(0, opts.offset ?? 0);
 
+    // Reservation window: once an invoice is handed to a 1C load run, hide it
+    // from /pending for RESERVE_MINUTES. Without this, a SECOND run (manual click
+    // while the scheduled job runs, or overlapping регламентные задания) pulls the
+    // SAME invoice before the first run's confirm marks it sent — and creates a
+    // DUPLICATE ПриходнаяНакладная. If confirm never arrives (failure), the
+    // invoice reappears after the window for an automatic retry.
+    const RESERVE_MINUTES = 3;
+    const pendingWhere =
+      `approved_for_1c = 1
+       AND status IN ('processed', 'parsing', 'ocr_processing')
+       AND (onec_pulled_at IS NULL OR onec_pulled_at < (NOW() - INTERVAL ${RESERVE_MINUTES} MINUTE))`;
+
     const totalRow = await db.prepare(
-      `SELECT COUNT(*) as c FROM invoices
-       WHERE approved_for_1c = 1
-       AND status IN ('processed', 'parsing', 'ocr_processing')`
+      `SELECT COUNT(*) as c FROM invoices WHERE ${pendingWhere}`
     ).get<{ c: number }>();
     const total = totalRow?.c ?? 0;
 
+    // limit/offset are sanitized integers above; inline them (mysql2 rejects
+    // LIMIT/OFFSET as prepared-statement placeholders on some MySQL builds).
     const invoices = await db.prepare(
       `SELECT * FROM invoices
-       WHERE approved_for_1c = 1
-       AND status IN ('processed', 'parsing', 'ocr_processing')
+       WHERE ${pendingWhere}
        ORDER BY created_at ASC
-       LIMIT ? OFFSET ?`
-    ).all<Invoice>(limit, offset);
+       LIMIT ${limit} OFFSET ${offset}`
+    ).all<Invoice>();
 
     if (invoices.length === 0) return { rows: [], total };
 
     const ids = invoices.map(i => i.id);
     const placeholders = ids.map(() => '?').join(',');
+
+    // Reserve the just-pulled invoices so the next poll (concurrent or immediate)
+    // skips them. Stamped here, at hand-off time — not at confirm time.
+    await db.prepare(
+      `UPDATE invoices SET onec_pulled_at = NOW() WHERE id IN (${placeholders})`
+    ).run(...ids);
+
     const items = await db.prepare(
       `SELECT * FROM invoice_items WHERE invoice_id IN (${placeholders}) ORDER BY id`
     ).all<InvoiceItem>(...ids);
@@ -226,8 +244,10 @@ export const invoiceRepo = {
   },
 
   async approveForOneC(id: number): Promise<void> {
+    // Clear any stale reservation so a (re-)approved invoice is immediately
+    // pullable by the next /pending poll instead of waiting out an old window.
     await getDb()
-      .prepare("UPDATE invoices SET approved_for_1c = 1, approved_at = NOW() WHERE id = ?")
+      .prepare("UPDATE invoices SET approved_for_1c = 1, approved_at = NOW(), onec_pulled_at = NULL WHERE id = ?")
       .run(id);
   },
 

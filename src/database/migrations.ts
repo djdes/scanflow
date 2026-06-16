@@ -788,6 +788,16 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 37,
+    name: 'invoices.onec_pulled_at — reservation window vs concurrent 1C double-pull duplicates',
+    detect: (exec) => hasColumn(exec, 'invoices', 'onec_pulled_at'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'onec_pulled_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN onec_pulled_at DATETIME NULL`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
