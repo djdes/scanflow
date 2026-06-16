@@ -27,6 +27,11 @@ const WEIGHT_RE = new RegExp(
   'gi',
 );
 
+// Parenthetical groups anywhere: "(ведро)", "(вес)", "(квадратная)". 1C names
+// must not carry brackets, and the matcher's normalizeName strips these too, so
+// the created name stays consistent with what matching sees.
+const PAREN_RE = /\s*\([^)]*\)\s*/g;
+
 // Trailing packaging words (whitelist), only at the very end. Tunable list.
 const TRAIL_PACK_RE = /\s*(?:пэт|в\/у|б\/у|вакуум\w*|в\s?вакууме|ведро|лоток|пакет)\.?\s*$/i;
 
@@ -45,6 +50,7 @@ export function cleanItemName(raw: string): string {
   // function becomes idempotent.
   do {
     prev = s;
+    s = s.replace(PAREN_RE, ' ');
     s = s.replace(CALIBER_RE, ' ');
     s = s.replace(WEIGHT_RE, ' ');
     s = s.replace(TRAIL_PACK_RE, '');

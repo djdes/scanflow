@@ -41,4 +41,21 @@ describe('cleanItemName', () => {
   it('leaves a clean name untouched', () => {
     expect(cleanItemName('Лук репчатый')).toBe('Лук репчатый');
   });
+
+  it('strips parenthesised packaging — brackets must not enter the 1C name', () => {
+    expect(cleanItemName('Лист винограда (ведро)')).toBe('Лист винограда');
+  });
+
+  it('strips a mid-name parenthetical group', () => {
+    expect(cleanItemName('Сыр (вес) Российский')).toBe('Сыр Российский');
+  });
+
+  it('parens cleanup stays idempotent', () => {
+    const once = cleanItemName('Лист винограда (ведро)');
+    expect(cleanItemName(once)).toBe(once);
+  });
+
+  it('falls back to raw when the only content is in parens', () => {
+    expect(cleanItemName('(ведро)')).toBe('(ведро)');
+  });
 });

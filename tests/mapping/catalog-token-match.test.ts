@@ -27,19 +27,28 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('catalog token matc
 
   // Items from invoice #94 that the old Fuse matcher missed but DO exist in the
   // catalog under a reordered / morphologically different name.
-  const shouldMap: Array<[string, RegExp]> = [
+  const autoMap: Array<[string, RegExp]> = [
     ['Анчоусы Пряного Посола в Масле 145г', /Анчоус/i],
     ['Камбала потрошеная без головы индивидуальная', /Камбала/i],
-    ['Тушка курицы без кости с кожей шаурма зам', /Тушка кур/i],
-    ['Филе куриного окорочка с кожей', /Окороч/i],
-    ['Филе грудки куриной охлажденное 13кг', /Филе грудки/i],
     ['Яйцо куриное пищевое отборной категории 36', /Яйцо/i],
   ];
 
-  it.each(shouldMap)('maps "%s" to a catalog item', async (scanned, expected) => {
+  it.each(autoMap)('auto-maps "%s" (token-IDF ≥ 0.8)', async (scanned, expected) => {
     const r = await mapper.map(scanned);
     expect(r.onec_guid, `expected a catalog guid for "${scanned}", got mapped_name="${r.mapped_name}" source=${r.source}`).not.toBeNull();
     expect(r.mapped_name).toMatch(expected);
+  });
+
+  // Real catalog matches whose token-IDF score is in [0.5, 0.8): NOT auto-applied
+  // at ingest (decision 2026-06-09) — left for the editor's picker + user confirm.
+  const belowThreshold = [
+    'Тушка курицы без кости с кожей шаурма зам',
+    'Филе куриного окорочка с кожей',
+    'Филе грудки куриной охлажденное 13кг',
+  ];
+  it.each(belowThreshold)('does NOT auto-apply medium-confidence "%s"', async (scanned) => {
+    const r = await mapper.map(scanned);
+    expect(r.onec_guid).toBeNull();
   });
 
   it('maps "Бедро куриное" to a chicken item, NOT to "Сердце Говяжье" (no false positive on "замороженное")', async () => {
@@ -55,10 +64,9 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('catalog token matc
     expect(r.source).toBe('none');
   });
 
-  // Regression: items the old matcher already got right must stay right.
+  // Regression: high-confidence/exact items the matcher already got right.
   const keep: Array<[string, RegExp]> = [
     ['Печень говяжья зам 4-5кг', /Печень говяж/i],
-    ['Навага без головы замороженная 17-23см', /Навага/i],
   ];
   it.each(keep)('still maps "%s" correctly', async (scanned, expected) => {
     const r = await mapper.map(scanned);

@@ -397,6 +397,11 @@ const Invoices = {
       this._renderPriceWarning(data.items || []);
       this._renderPriceBadges(data.items || []);
 
+      // Q4: for items left unmapped, auto-select a confident catalog match so
+      // the user only confirms (the item still needs a click — we don't silently
+      // write a sub-1.0 guess, per the ingest auto-apply policy).
+      this._suggestUnmapped(data.id, data.items || []);
+
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
 
@@ -980,6 +985,48 @@ const Invoices = {
         this.selectNomItem(input.dataset.invoiceId, input.dataset.itemId, opt.dataset.guid, opt.dataset.name);
       });
       dd._clickBound = true;
+    }
+  },
+
+  // For each unmapped item, find the best client-catalog match and, when it's
+  // confident, pre-select it in the picker input + offer one-click apply. Best
+  // effort: silent on any error, never blocks the detail view.
+  _suggestUnmapped(invoiceId, items) {
+    if (typeof OnecCatalog === 'undefined' || !OnecCatalog.loaded) return;
+    const CONFIDENT = 0.8;
+    for (const item of items) {
+      if (item.onec_guid) continue;
+      const scan = item.original_name || '';
+      if (!scan) continue;
+      let hits = [];
+      try { hits = OnecCatalog.search(scan, 1); } catch { continue; }
+      const top = hits[0];
+      if (!top || top.confidence < CONFIDENT) continue;
+
+      const row = document.querySelector(`#invoice-items-tbody tr[data-item-id="${item.id}"]`);
+      const picker = row && row.querySelector('.nom-picker');
+      const input = picker && picker.querySelector('.nom-picker-input');
+      if (!picker || !input || picker.querySelector('.nom-suggest')) continue;
+
+      // Auto-select: show the confident match in the field; keep the ● badge so
+      // it's clearly still pending until the user confirms.
+      input.value = top.name;
+      input.dataset.suggestedGuid = top.guid;
+
+      const chip = document.createElement('div');
+      chip.className = 'nom-suggest';
+      chip.style.cssText = 'margin-top:4px;font-size:12px;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+      const label = document.createElement('span');
+      label.textContent = 'Подобрано из каталога';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline';
+      btn.style.cssText = 'padding:2px 8px;font-size:12px';
+      btn.textContent = 'Применить';
+      btn.addEventListener('click', () =>
+        Invoices.selectNomItem(String(invoiceId), String(item.id), top.guid, top.name));
+      chip.append(label, btn);
+      picker.appendChild(chip);
     }
   },
 

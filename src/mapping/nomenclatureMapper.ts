@@ -10,7 +10,7 @@ export interface MappingResult {
   mapped_name: string;
   onec_guid: string | null;
   confidence: number;
-  source: 'learned' | 'onec_token' | 'onec_fuzzy' | 'legacy' | 'none';
+  source: 'learned' | 'onec_exact' | 'onec_token' | 'onec_fuzzy' | 'legacy' | 'none';
   mapping_id: number | null; // id of nomenclature_mappings row if matched
   // Pack transform carried through from the learned mapping (if any).
   // When both are non-null, the watcher rewrites the item:
@@ -74,8 +74,18 @@ const MIN_FUZZY_CONFIDENCE = 0.6;
 // overlap, so distinctive tokens (анчоус, камбал, шаурм, яйц) dominate and
 // generic state words (зам, охлажд, говяж) carry little weight.
 
-// Min asymmetric-overlap score to accept a token match.
-const MIN_TOKEN_CONFIDENCE = 0.5;
+// Min asymmetric-overlap score to AUTO-APPLY a token match at ingest. Raised
+// from 0.5 → 0.8 (decision 2026-06-09): only confident token matches map
+// automatically; weaker ones are left for the editor's catalog picker to
+// surface and the user to confirm. Exact (normalized-name) matches bypass this.
+const MIN_TOKEN_CONFIDENCE = 0.8;
+
+// Normalize a name to the key used for exact catalog matching: drop parens /
+// measures (normalizeName), then case-fold + trim so "Лавровый Лист 50г" and
+// catalog "Лавровый лист" collide.
+function exactKey(name: string): string {
+  return normalizeName(name).toLowerCase().trim();
+}
 
 // Inflectional endings stripped to unify morphological variants. Longest first;
 // a 4-char stem floor stops over-stemming short roots ("яйцо" stays "яйцо").
@@ -208,6 +218,8 @@ export class NomenclatureMapper {
   private onecTokenIndex: OnecTokenDoc[] | null = null;
   private onecIdf: ((token: string) => number) | null = null;
   private onecDf: Map<string, number> | null = null;
+  // exactKey → catalog row, or null when >1 catalog rows share that key (ambiguous).
+  private onecExactIndex: Map<string, OnecNomenclatureRow | null> | null = null;
 
   private async refreshIndex(): Promise<void> {
     const items = await onecNomenclatureRepo.listItems({ excludeFolders: true });
@@ -236,6 +248,28 @@ export class NomenclatureMapper {
       }
       return { item: d.item, tokens: d.tokens, idfSum, topToken };
     });
+
+    // Exact normalized-name index. A key shared by >1 distinct rows is marked
+    // ambiguous (null) so we never pick arbitrarily.
+    const exact = new Map<string, OnecNomenclatureRow | null>();
+    const addExact = (key: string, row: OnecNomenclatureRow): void => {
+      if (!key) return;
+      if (exact.has(key)) {
+        const cur = exact.get(key);
+        if (cur && cur.guid !== row.guid) exact.set(key, null); // collision → ambiguous
+      } else {
+        exact.set(key, row);
+      }
+    };
+    for (const it of items) {
+      const k1 = exactKey(it.name);
+      addExact(k1, it);
+      if (it.full_name) {
+        const k2 = exactKey(it.full_name);
+        if (k2 && k2 !== k1) addExact(k2, it);
+      }
+    }
+    this.onecExactIndex = exact;
 
     logger.debug('Nomenclature mapper index refreshed', { onecItems: items.length });
   }
@@ -271,6 +305,7 @@ export class NomenclatureMapper {
     this.onecTokenIndex = null;
     this.onecIdf = null;
     this.onecDf = null;
+    this.onecExactIndex = null;
     logger.info('Nomenclature mapper cache invalidated');
   }
 
@@ -376,6 +411,26 @@ export class NomenclatureMapper {
 
     const fuse = await this.ensureIndex();
     const searchTerm = cleanName || scannedName;
+
+    // 1.9. Exact normalized-name match against the catalog. A verbatim catalog
+    // name (e.g. "Лист винограда (ведро)") must always map, deterministically,
+    // regardless of Fuse/token scoring. Ambiguous keys (null) fall through.
+    if (this.onecExactIndex) {
+      const hit = this.onecExactIndex.get(exactKey(scannedName));
+      if (hit) {
+        logger.info('Mapping via catalog exact name', { scannedName, target: hit.name });
+        return {
+          original_name: scannedName,
+          mapped_name: hit.name,
+          onec_guid: hit.guid,
+          confidence: 1.0,
+          source: 'onec_exact',
+          mapping_id: null,
+          pack_size: null,
+          pack_unit: null,
+        };
+      }
+    }
 
     // Shared query analysis for both the token stage and the Fuse guard.
     const qTokens = stemmedTokenSet(searchTerm);
