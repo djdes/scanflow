@@ -770,6 +770,24 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 36,
+    name: 'fix retired claude-opus-4-20250514 model id → sonnet-4-6',
+    // Data-only, idempotent. The Settings dropdown used to offer the retired
+    // Opus 4.0 snapshot (claude-opus-4-20250514), which now 404s from the
+    // Anthropic API → OCR fails on every invoice. Rewrite it to the live default.
+    detect: async (exec) => {
+      const [rows] = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM analyzer_config WHERE claude_model LIKE '%opus-4-20250514%'`
+      );
+      return rows[0].cnt === 0;
+    },
+    run: async (exec) => {
+      await exec.query(
+        `UPDATE analyzer_config SET claude_model = 'claude-sonnet-4-6' WHERE claude_model LIKE '%opus-4-20250514%'`
+      );
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
