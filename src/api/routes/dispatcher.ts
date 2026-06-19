@@ -30,6 +30,18 @@ const router = Router();
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void { mapper = m; }
 
+/** Canonicalize a parsed supplier name and snap it to an already-stored
+ *  spelling (by ИНН, else fuzzy name ≥70%) so OCR drift doesn't fork suppliers
+ *  into near-duplicates. Returns undefined for an empty name. */
+async function resolveSupplier(
+  rawSupplier: string | null | undefined,
+  inn: string | null | undefined,
+): Promise<string | undefined> {
+  if (!rawSupplier) return undefined;
+  const canon = canonicalizeSupplierName(rawSupplier);
+  return (await invoiceRepo.findCanonicalSupplier(canon, inn ?? null)) ?? canon;
+}
+
 /**
  * Post-processing parity with fileWatcher step 8: auto-approve for 1C and/or
  * auto-send to Sber if the user enabled those toggles. No-op unless the
@@ -437,7 +449,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       // (which only appears on the LAST page).
       await invoiceRepo.updateInvoiceData(targetInvoiceId, {
         invoice_number: mergeTarget.invoice_number ? undefined : (data.invoice_number ?? undefined),
-        supplier: mergeTarget.supplier ? undefined : (data.supplier ? canonicalizeSupplierName(data.supplier) : undefined),
+        supplier: mergeTarget.supplier ? undefined : await resolveSupplier(data.supplier, data.supplier_inn),
         total_sum: data.total_sum != null ? data.total_sum : (mergeTarget.total_sum == null ? undefined : undefined),
         vat_sum: data.vat_sum != null ? data.vat_sum : (mergeTarget.vat_sum == null ? undefined : undefined),
       });
@@ -448,7 +460,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         invoice_type: data.invoice_type ?? undefined,
         invoice_number: data.invoice_number ?? undefined,
         invoice_date: data.invoice_date ?? undefined,
-        supplier: data.supplier ? canonicalizeSupplierName(data.supplier) : undefined,
+        supplier: await resolveSupplier(data.supplier, data.supplier_inn),
         supplier_inn: data.supplier_inn ?? undefined,
         supplier_bik: data.supplier_bik ?? undefined,
         supplier_account: data.supplier_account ?? undefined,

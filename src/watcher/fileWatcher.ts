@@ -236,6 +236,20 @@ export class FileWatcher {
    * Multi-page logic НЕ запускается — для повторного scan'а одной страницы её
    * не нужно сливать с другими.
    */
+  /**
+   * Canonicalize a parsed supplier name AND snap it to an already-stored
+   * spelling (by ИНН, else fuzzy name ≥70%) so OCR drift doesn't fork the
+   * supplier into near-duplicates. Returns undefined for an empty name.
+   */
+  private async resolveSupplier(
+    rawSupplier: string | null | undefined,
+    inn: string | null | undefined,
+  ): Promise<string | undefined> {
+    if (!rawSupplier) return undefined;
+    const canon = canonicalizeSupplierName(rawSupplier);
+    return (await invoiceRepo.findCanonicalSupplier(canon, inn ?? null)) ?? canon;
+  }
+
   async reprocessInvoice(invoiceId: number): Promise<void> {
     const invoice = await invoiceRepo.getById(invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
@@ -280,7 +294,7 @@ export class FileWatcher {
     await invoiceRepo.updateInvoiceData(invoiceId, {
       invoice_number: parsed.invoice_number,
       invoice_date: parsed.invoice_date,
-      supplier: parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : undefined,
+      supplier: await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
       total_sum: parsed.total_sum,
       vat_sum: parsed.vat_sum,
       invoice_type: parsed.invoice_type,
@@ -762,7 +776,7 @@ export class FileWatcher {
               await invoiceRepo.updateInvoiceData(targetInvoiceId, {
                 invoice_number: unifiedParsed.invoice_number,
                 invoice_date: unifiedParsed.invoice_date,
-                supplier: unifiedParsed.supplier ? canonicalizeSupplierName(unifiedParsed.supplier) : undefined,
+                supplier: await this.resolveSupplier(unifiedParsed.supplier, unifiedParsed.supplier_inn),
                 total_sum: unifiedParsed.total_sum,
                 vat_sum: unifiedParsed.vat_sum,
                 invoice_type: unifiedParsed.invoice_type,
@@ -936,7 +950,7 @@ export class FileWatcher {
         await invoiceRepo.updateInvoiceData(invoice.id, {
           invoice_number: parsed.invoice_number,
           invoice_date: parsed.invoice_date,
-          supplier: parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : undefined,
+          supplier: await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
           total_sum: parsed.total_sum,
           vat_sum: parsed.vat_sum,
           invoice_type: parsed.invoice_type,

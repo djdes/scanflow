@@ -8,7 +8,7 @@ import { getDb } from '../../database/db';
 import { sendToWebhook } from '../../integration/webhook';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
-import { canonicalizeSupplierName } from '../../utils/invoiceNumber';
+import { canonicalizeSupplierName, suppliersMatch } from '../../utils/invoiceNumber';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
@@ -1595,6 +1595,48 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     });
     return res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// POST /api/invoices/merge-suppliers?dry_run=true|false
+// Groups existing supplier spellings by ≥70% similarity (guarded by ИНН — two
+// different non-null ИНН are never merged), picks the most-used spelling as the
+// canonical, and rewrites all invoices in each group to it. dry_run (default
+// true) only reports the proposed groups without writing.
+router.post('/merge-suppliers', async (req: Request, res: Response) => {
+  const dryRun = String(req.query.dry_run ?? 'true') !== 'false';
+  const SUP_THRESHOLD = 0.70;
+
+  const sups = await invoiceRepo.distinctSuppliers(); // most-used first
+  const used = new Set<number>();
+  const groups: Array<{ canonical: string; canonical_count: number; merge: Array<{ supplier: string; count: number }> }> = [];
+
+  for (let i = 0; i < sups.length; i++) {
+    if (used.has(i)) continue;
+    used.add(i);
+    const merge: Array<{ supplier: string; count: number }> = [];
+    for (let j = i + 1; j < sups.length; j++) {
+      if (used.has(j)) continue;
+      // ИНН guard: never merge two distinct legal entities.
+      if (sups[i].supplier_inn && sups[j].supplier_inn && sups[i].supplier_inn !== sups[j].supplier_inn) continue;
+      if (suppliersMatch(sups[i].supplier, sups[j].supplier, SUP_THRESHOLD)) {
+        used.add(j);
+        merge.push({ supplier: sups[j].supplier, count: sups[j].count });
+      }
+    }
+    if (merge.length > 0) {
+      groups.push({ canonical: sups[i].supplier, canonical_count: sups[i].count, merge });
+    }
+  }
+
+  let invoicesUpdated = 0;
+  if (!dryRun) {
+    for (const g of groups) {
+      invoicesUpdated += await invoiceRepo.renameSupplier(g.merge.map(m => m.supplier), g.canonical);
+    }
+  }
+
+  logger.info('merge-suppliers', { dryRun, groups: groups.length, invoicesUpdated });
+  res.json({ data: { dry_run: dryRun, groups_found: groups.length, invoices_updated: invoicesUpdated, groups } });
 });
 
 export default router;

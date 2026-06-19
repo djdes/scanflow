@@ -338,6 +338,7 @@ export function canonicalizeSupplierName(sup: string | null | undefined): string
 export function suppliersMatch(
   a: string | null | undefined,
   b: string | null | undefined,
+  threshold: number = 0.75,
 ): boolean {
   const na = normalizeSupplierName(a);
   const nb = normalizeSupplierName(b);
@@ -351,11 +352,12 @@ export function suppliersMatch(
   // Fuzzy fallback for OCR drift. Only applied to reasonably long strings
   // (both ≥ 10 chars normalized) so "Ромашка" and "Ромашки" can still match
   // by containment while short random pairs don't get matched just because
-  // their Levenshtein ratio looks OK.
+  // their Levenshtein ratio looks OK. `threshold` is the min Levenshtein
+  // similarity (default 0.75; supplier-dedup passes 0.70).
   if (shorter.length >= 10 && longer.length >= 10) {
     const dist = levenshtein(na, nb);
     const similarity = 1 - dist / longer.length;
-    if (similarity >= 0.75) return true;
+    if (similarity >= threshold) return true;
   }
   return false;
 }

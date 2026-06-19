@@ -257,6 +257,59 @@ export const invoiceRepo = {
       .run(id);
   },
 
+  /** Distinct supplier spellings with a representative ИНН and invoice count
+   *  (most-used spelling first). Backs supplier fuzzy-dedup. */
+  async distinctSuppliers(): Promise<Array<{ supplier: string; supplier_inn: string | null; count: number }>> {
+    return getDb().prepare(
+      `SELECT supplier, MAX(supplier_inn) AS supplier_inn, COUNT(*) AS count
+       FROM invoices
+       WHERE supplier IS NOT NULL AND supplier <> ''
+       GROUP BY supplier
+       ORDER BY count DESC, supplier ASC`
+    ).all<{ supplier: string; supplier_inn: string | null; count: number }>();
+  },
+
+  /**
+   * Resolve a freshly-parsed supplier name to an already-stored canonical
+   * spelling so OCR drift ("…ГКОМПАНИЙ" vs "…ГКОМПАНИ") doesn't fork the
+   * supplier. Priority: exact ИНН (dominant spelling for that ИНН), then a
+   * fuzzy name match ≥ 70%. Never matches across two DIFFERENT non-null ИНН.
+   * Returns null when nothing close exists (genuinely new supplier).
+   */
+  async findCanonicalSupplier(rawName: string, inn: string | null | undefined): Promise<string | null> {
+    const db = getDb();
+    const innTrim = inn ? String(inn).trim() : '';
+    if (innTrim) {
+      const row = await db.prepare(
+        `SELECT supplier FROM invoices
+         WHERE supplier_inn = ? AND supplier IS NOT NULL AND supplier <> ''
+         GROUP BY supplier ORDER BY COUNT(*) DESC LIMIT 1`
+      ).get<{ supplier: string }>(innTrim);
+      if (row?.supplier) return row.supplier;
+    }
+    const names = await this.distinctSuppliers();
+    let best: { name: string; count: number } | null = null;
+    for (const r of names) {
+      // Don't merge across distinct legal entities.
+      if (innTrim && r.supplier_inn && innTrim !== r.supplier_inn) continue;
+      if (suppliersMatch(rawName, r.supplier, 0.70)) {
+        if (!best || r.count > best.count) best = { name: r.supplier, count: r.count };
+      }
+    }
+    return best?.name ?? null;
+  },
+
+  /** Rewrite every invoice whose supplier is in `fromNames` to `toName`. */
+  async renameSupplier(fromNames: string[], toName: string): Promise<number> {
+    const targets = fromNames.filter(n => n && n !== toName);
+    if (targets.length === 0) return 0;
+    const placeholders = targets.map(() => '?').join(',');
+    const res = await getDb().prepare(
+      `UPDATE invoices SET supplier = ? WHERE supplier IN (${placeholders})`
+    ).run(toName, ...targets);
+    return res.changes;
+  },
+
   async updateFilePath(id: number, filePath: string): Promise<void> {
     await getDb().prepare('UPDATE invoices SET file_path = ? WHERE id = ?').run(filePath, id);
   },
