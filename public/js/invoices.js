@@ -316,6 +316,7 @@ const Invoices = {
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.editHeader(${data.id})" title="Редактировать реквизиты накладной">✎ Реквизиты</button>`;
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id})" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id})" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
       // LLM button is always visible. When everything is already mapped it
       // passes all=true so Claude can reconsider existing picks (catalog may
       // have grown, or an old fuzzy match may be improvable).
@@ -827,6 +828,54 @@ const Invoices = {
         App.notify('Ошибка: ' + e.message, 'error');
       }
     });
+  },
+
+  // "Дофоткать страницы" — pick/take photo(s), upload to the invoice; their
+  // recognized items append to it. OCR is async on the server, so we poll the
+  // invoice until its item count grows, then reload the detail.
+  addPages(id) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      const files = Array.from(input.files || []);
+      input.remove();
+      if (files.length === 0) return;
+      await this._withGuard(`addPages:${id}`, async () => {
+        let before = 0;
+        try { before = (await App.apiJson(`/invoices/${id}`)).data?.items?.length ?? 0; } catch { /* ignore */ }
+        const fd = new FormData();
+        for (const f of files) fd.append('files', f);
+        let resp;
+        try {
+          resp = await App.api(`/invoices/${id}/add-pages`, { method: 'POST', body: fd });
+        } catch (e) { App.notify('Ошибка загрузки: ' + e.message, 'error'); return; }
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          App.notify(err.error || `Ошибка ${resp.status}`, 'error');
+          return;
+        }
+        App.notify(`Загружено страниц: ${files.length}. Распознавание идёт (~${Math.max(1, files.length)} мин)…`, 'info');
+        const deadline = Date.now() + 60000 * Math.max(2, files.length * 2);
+        const poll = async () => {
+          try {
+            const now = (await App.apiJson(`/invoices/${id}`)).data?.items?.length ?? 0;
+            if (now > before) {
+              App.notify(`Страницы добавлены (+${now - before} позиц.)`, 'success');
+              this.showDetail(id);
+              return;
+            }
+          } catch { /* ignore, keep polling */ }
+          if (Date.now() < deadline) setTimeout(poll, 5000);
+          else { App.notify('Обработка затянулась — обновите страницу позже', 'info'); this.showDetail(id); }
+        };
+        setTimeout(poll, 5000);
+      });
+    }, { once: true });
+    input.click();
   },
 
   async remap(id, forceAll) {

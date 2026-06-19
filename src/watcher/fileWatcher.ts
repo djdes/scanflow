@@ -426,6 +426,90 @@ export class FileWatcher {
     });
   }
 
+  /**
+   * Append a freshly-photographed page to an EXISTING invoice ("дофоткать"):
+   * OCR the page, map + pack-transform its items, APPEND them to the invoice,
+   * add the photo to the gallery, backfill header fields the invoice is still
+   * missing, and bump total_sum if the page carries a bigger grand total.
+   * The invoice's number/supplier/date stay canonical (first page wins) — only
+   * empty fields are filled. Items are appended, never replaced.
+   */
+  async addPageToInvoice(invoiceId: number, filePath: string, fileName: string): Promise<number> {
+    const invoice = await invoiceRepo.getById(invoiceId);
+    if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
+
+    // OCR — respect analyzer_config.mode (как в processFile/reprocessInvoice).
+    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
+    let ocrResult;
+    if (analyzerConfig.mode === 'claude_api') {
+      ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
+    } else if (config.useClaudeAnalyzer) {
+      ocrResult = await this.ocrManager.recognizeHybrid(filePath, true);
+    } else {
+      ocrResult = await this.ocrManager.recognize(filePath);
+    }
+    const parsed = ocrResult.structured ?? parseInvoiceText(ocrResult);
+    if (!parsed) throw new Error('Failed to parse the added page');
+
+    // Append items — same mapping + pack-transform as the dispatcher result path.
+    let added = 0;
+    for (const item of parsed.items) {
+      if (!item.name) continue;
+      const sanity = sanitizeItemArithmetic({
+        quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+      });
+      const mapping = await this.mapper.map(item.name);
+      const onec1cUnit = mapping.onec_guid
+        ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid))?.unit ?? null
+        : null;
+      const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
+      const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
+      const r = resolveAndApplyPackTransform(
+        sanity.item, item.name, hintedPackSize, hintedPackUnit, mapping.mapped_name, onec1cUnit,
+      );
+      await invoiceRepo.addItem({
+        invoice_id: invoiceId,
+        original_name: item.name,
+        mapped_name: mapping.mapped_name,
+        quantity: r.item.quantity,
+        unit: r.item.unit,
+        price: r.item.price,
+        total: r.item.total,
+        vat_rate: item.vat_rate,
+        mapping_confidence: mapping.confidence,
+        onec_guid: mapping.onec_guid,
+      });
+      added++;
+    }
+
+    // Photo → gallery; move file from inbox to processed so it serves and the
+    // watcher never re-ingests it (best-effort — the move may already be done).
+    try {
+      const processedPath = path.join(config.processedDir, fileName);
+      if (fs.existsSync(filePath) && !fs.existsSync(processedPath)) {
+        fs.renameSync(filePath, processedPath);
+      }
+    } catch (e) {
+      logger.warn('add-page: file move failed', { invoiceId, fileName, error: (e as Error).message });
+    }
+    await invoiceRepo.appendFileName(invoiceId, fileName);
+
+    // Backfill only empty header fields; take the bigger grand total (the last
+    // page prints the running total). recalculateTotal re-checks the mismatch flag.
+    await invoiceRepo.updateInvoiceData(invoiceId, {
+      supplier: invoice.supplier ? undefined : await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
+      invoice_number: invoice.invoice_number ? undefined : (parsed.invoice_number ?? undefined),
+      invoice_date: invoice.invoice_date ? undefined : (parsed.invoice_date ?? undefined),
+      supplier_inn: invoice.supplier_inn ? undefined : (parsed.supplier_inn ?? undefined),
+      total_sum: (parsed.total_sum != null && (invoice.total_sum == null || parsed.total_sum > invoice.total_sum))
+        ? parsed.total_sum : undefined,
+    });
+    await invoiceRepo.recalculateTotal(invoiceId);
+
+    logger.info('Page added to invoice', { invoiceId, fileName, itemsAdded: added, engine: ocrResult.engine });
+    return added;
+  }
+
   async processFile(filePath: string, fileName: string, forceEngine?: string, meta?: UploadMeta): Promise<number> {
     // 0. Content-based deduplication via SHA-256.
     // Hash is stored DURING the invoice INSERT under a UNIQUE partial index

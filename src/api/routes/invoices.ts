@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
@@ -99,6 +100,23 @@ let fileWatcher: import('../../watcher/fileWatcher').FileWatcher | null = null;
 export function setFileWatcher(fw: import('../../watcher/fileWatcher').FileWatcher): void {
   fileWatcher = fw;
 }
+
+// Multipart upload for "дофоткать страницы" — same disk/inbox + filter as
+// /api/upload, so the watcher's markProcessing guard keeps it from double-ingest.
+const addPagesUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, config.inboxDir),
+    filename: (_req, file, cb) => {
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      cb(null, `upload-${uniqueSuffix}${path.extname(file.originalname)}`);
+    },
+  }),
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
+    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
+  },
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
 
 const router = Router();
 
@@ -1595,6 +1613,37 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     });
     return res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// POST /api/invoices/:id/add-pages — "дофоткать": append photographed pages to
+// an existing invoice. Multipart field "files" (1..10 images). Async like
+// /api/upload (OCR is slow → nginx 502s on a synchronous request): returns 202
+// and processes in the background; the client polls GET /invoices/:id until the
+// item count grows. The watcher is told to skip these files (markProcessing) so
+// they don't get ingested as separate invoices.
+router.post('/:id/add-pages', addPagesUpload.array('files', 10), async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: 'invalid id' }); return; }
+  if (!fileWatcher) { res.status(500).json({ error: 'FileWatcher not initialized' }); return; }
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice) { res.status(404).json({ error: 'Invoice not found' }); return; }
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) { res.status(400).json({ error: 'No files uploaded (field "files")' }); return; }
+
+  const fw = fileWatcher;
+  for (const f of files) fw.markProcessing(f.path);
+
+  res.status(202).json({ message: 'Pages queued', count: files.length });
+
+  void (async () => {
+    for (const f of files) {
+      try {
+        await fw.addPageToInvoice(id, f.path, f.filename);
+      } catch (err) {
+        logger.error('add-pages: failed', { id, file: f.filename, error: (err as Error).message });
+      }
+    }
+  })();
 });
 
 // POST /api/invoices/merge-suppliers?dry_run=true|false
