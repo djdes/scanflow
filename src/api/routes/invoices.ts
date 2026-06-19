@@ -101,11 +101,13 @@ export function setFileWatcher(fw: import('../../watcher/fileWatcher').FileWatch
   fileWatcher = fw;
 }
 
-// Multipart upload for "дофоткать страницы" — same disk/inbox + filter as
-// /api/upload, so the watcher's markProcessing guard keeps it from double-ingest.
+// Multipart upload for "дофоткать страницы". Saves straight into processedDir —
+// NOT the watched inbox — so the chokidar watcher can never race markProcessing
+// and ingest the page as a SEPARATE invoice. addPageToInvoice reads it in place
+// (processedDir is already where the photo endpoint serves from).
 const addPagesUpload = multer({
   storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, config.inboxDir),
+    destination: (_req, _file, cb) => cb(null, config.processedDir),
     filename: (_req, file, cb) => {
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
       cb(null, `upload-${uniqueSuffix}${path.extname(file.originalname)}`);
@@ -1619,8 +1621,8 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
 // an existing invoice. Multipart field "files" (1..10 images). Async like
 // /api/upload (OCR is slow → nginx 502s on a synchronous request): returns 202
 // and processes in the background; the client polls GET /invoices/:id until the
-// item count grows. The watcher is told to skip these files (markProcessing) so
-// they don't get ingested as separate invoices.
+// item count grows. Files land in processedDir (unwatched), so the watcher can
+// never ingest them as separate invoices.
 router.post('/:id/add-pages', addPagesUpload.array('files', 10), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'invalid id' }); return; }
@@ -1630,8 +1632,8 @@ router.post('/:id/add-pages', addPagesUpload.array('files', 10), async (req: Req
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No files uploaded (field "files")' }); return; }
 
+  // Files are in processedDir (unwatched) — no watcher race, no markProcessing needed.
   const fw = fileWatcher;
-  for (const f of files) fw.markProcessing(f.path);
 
   res.status(202).json({ message: 'Pages queued', count: files.length });
 
