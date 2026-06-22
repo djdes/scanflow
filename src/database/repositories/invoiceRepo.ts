@@ -5,6 +5,7 @@ import {
   suppliersMatch,
 } from '../../utils/invoiceNumber';
 import { recomputeMedianForGuids } from '../../pricing/priceStats';
+import { deriveVatSum } from '../../parser/itemSanitizer';
 
 export interface Invoice {
   id: number;
@@ -855,10 +856,10 @@ export const invoiceRepo = {
 
   async recalculateTotal(id: number): Promise<void> {
     const db = getDb();
-    const itemsRow = await db.prepare(
-      'SELECT COALESCE(SUM(total), 0) as total FROM invoice_items WHERE invoice_id = ?'
-    ).get<{ total: number }>(id);
-    const itemsTotal = Number(itemsRow?.total ?? 0);
+    const items = await db.prepare(
+      'SELECT total, vat_rate FROM invoice_items WHERE invoice_id = ?'
+    ).all<{ total: number | null; vat_rate: number | null }>(id);
+    const itemsTotal = items.reduce((s, i) => s + Number(i.total ?? 0), 0);
     const invoice = await db.prepare('SELECT total_sum FROM invoices WHERE id = ?').get<{ total_sum: number | null }>(id);
     const documentTotal = invoice?.total_sum ?? null;
 
@@ -874,9 +875,25 @@ export const invoiceRepo = {
       nextTotal = itemsTotal;
     }
 
-    await db.prepare(
-      'UPDATE invoices SET total_sum = ?, items_total_mismatch = ? WHERE id = ?'
-    ).run(nextTotal, mismatch, id);
+    // vat_sum is a *derived* value (prices are VAT-included by convention), so
+    // recompute it from per-item rates here. This keeps it correct after
+    // дофоткать/merge (where total_sum gets bumped to the grand total but the
+    // stored vat_sum would otherwise stay at a page-1 partial) and fills it in
+    // when Claude missed the "в т.ч. НДС" cell. When rates are incomplete,
+    // deriveVatSum returns null → we leave the existing vat_sum untouched.
+    const derivedVat = deriveVatSum(
+      items.map(i => ({ total: i.total == null ? null : Number(i.total), vat_rate: i.vat_rate == null ? null : Number(i.vat_rate) })),
+    );
+
+    if (derivedVat != null) {
+      await db.prepare(
+        'UPDATE invoices SET total_sum = ?, items_total_mismatch = ?, vat_sum = ? WHERE id = ?'
+      ).run(nextTotal, mismatch, derivedVat, id);
+    } else {
+      await db.prepare(
+        'UPDATE invoices SET total_sum = ?, items_total_mismatch = ? WHERE id = ?'
+      ).run(nextTotal, mismatch, id);
+    }
   },
 
   async deleteItems(invoiceId: number): Promise<void> {

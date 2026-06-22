@@ -302,3 +302,38 @@ export function sanitizeItemArithmetic<T extends SanitizableItem>(item: T): Sani
     reason: `qty × price (${qty} × ${price} = ${expected.toFixed(2)}) didn't match total (${total}); fixed qty to ${rounded}`,
   };
 }
+
+/**
+ * Derive the invoice's total VAT (НДС) from per-item rates.
+ *
+ * By project convention every `total` is VAT-INCLUDED (see CLAUDE.md and the
+ * claudeApiAnalyzer prompt — prices/totals carry tax inside, 1C uses
+ * `СуммаВключаетНДС=Истина`). So the VAT component of a line is
+ *   total × rate / (100 + rate)
+ * and the invoice VAT is the sum of those. This makes `vat_sum` a *derived*
+ * value rather than something we must trust Claude to read from the
+ * "в т.ч. НДС" cell — which it sometimes misses (dash/blank → null) or grabs
+ * from a per-page промежуточный subtotal on multi-page документы.
+ *
+ * Conservative by design: we only derive when EVERY priced line (total > 0)
+ * carries a numeric rate. If any priced line lacks a rate we return null so
+ * the caller keeps whatever value it already had — we never invent a partial
+ * VAT from an incomplete set of rates.
+ *
+ * Rounds per item (matching how an invoice prints per-line VAT) then sums.
+ */
+export function deriveVatSum(
+  items: Array<{ total: number | null | undefined; vat_rate: number | null | undefined }>,
+): number | null {
+  const priced = items.filter(i => i.total != null && i.total > 0);
+  if (priced.length === 0) return null;
+  if (priced.some(i => i.vat_rate == null || !Number.isFinite(i.vat_rate) || i.vat_rate < 0)) {
+    return null;
+  }
+  const sum = priced.reduce((acc, i) => {
+    const rate = i.vat_rate as number;
+    const lineVat = (i.total as number) * rate / (100 + rate);
+    return acc + Math.round(lineVat * 100) / 100;
+  }, 0);
+  return Math.round(sum * 100) / 100;
+}

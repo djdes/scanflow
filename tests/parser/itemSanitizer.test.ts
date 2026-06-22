@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../../src/parser/itemSanitizer';
+import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem, deriveVatSum } from '../../src/parser/itemSanitizer';
 
 describe('sanitizeItemArithmetic', () => {
   it('leaves correct arithmetic alone', () => {
@@ -231,5 +231,56 @@ describe('sanitizeItemVatPerItem', () => {
       const r = sanitizeItemVatPerItem(items, 1050);
       expect(r.report.inflated).toBe(0);
     }
+  });
+});
+
+describe('deriveVatSum', () => {
+  // Items carry VAT-included totals; VAT component = total × rate/(100+rate).
+  const item = (total: number | null, vat_rate: number | null) => ({ total, vat_rate });
+
+  it('derives VAT from the real invoice №954 (9 items @22%, total 19296.12 → 3479.63)', () => {
+    const items = [
+      item(2035.48, 22), item(1254.40, 22), item(5433.12, 22), item(2240.00, 22),
+      item(2946.60, 22), item(1189.32, 22), item(882.00, 22), item(817.60, 22),
+      item(2497.60, 22),
+    ];
+    // Per-item rounding then sum reproduces the invoice's printed grand-total
+    // НДС "Всего по накладной" = 3 479,62 exactly (not the stale 3029.23 bug).
+    expect(deriveVatSum(items)).toBeCloseTo(3479.62, 2);
+  });
+
+  it('does NOT return the page-1 partial (first 8 items → 3029.23, not the bug value)', () => {
+    const page1 = [
+      item(2035.48, 22), item(1254.40, 22), item(5433.12, 22), item(2240.00, 22),
+      item(2946.60, 22), item(1189.32, 22), item(882.00, 22), item(817.60, 22),
+    ];
+    expect(deriveVatSum(page1)).toBeCloseTo(3029.23, 2);
+  });
+
+  it('handles mixed 10/20% rates', () => {
+    // 1100@10% → 100, 1200@20% → 200
+    const items = [item(1100, 10), item(1200, 20)];
+    expect(deriveVatSum(items)).toBeCloseTo(300, 2);
+  });
+
+  it('treats vat_rate 0 as zero VAT contribution', () => {
+    const items = [item(1000, 0), item(1200, 20)];
+    expect(deriveVatSum(items)).toBeCloseTo(200, 2);
+  });
+
+  it('returns null when any priced item is missing a vat_rate (do not clobber)', () => {
+    const items = [item(1100, 10), item(500, null)];
+    expect(deriveVatSum(items)).toBeNull();
+  });
+
+  it('ignores zero/null-total lines when judging completeness', () => {
+    // A null-total descriptive line shouldn't block derivation.
+    const items = [item(1100, 10), item(0, null), item(null, null)];
+    expect(deriveVatSum(items)).toBeCloseTo(100, 2);
+  });
+
+  it('returns null when there are no priced items', () => {
+    expect(deriveVatSum([item(0, 20), item(null, 20)])).toBeNull();
+    expect(deriveVatSum([])).toBeNull();
   });
 });

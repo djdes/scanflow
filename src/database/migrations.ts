@@ -798,6 +798,52 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 38,
+    name: 'backfill vat_sum from per-item rates (multi-page desync + missed "в т.ч. НДС")',
+    // Data-only, idempotent. vat_sum is a derived field (prices are VAT-included
+    // by convention — see deriveVatSum / claudeApiAnalyzer). Older invoices have
+    // a wrong/partial vat_sum: дофоткать bumped total_sum to the grand total but
+    // left vat_sum at a page-1 subtotal, or Claude missed a dash "в т.ч. НДС".
+    // Recompute it as Σ ROUND(total × rate/(100+rate), 2) — per-row rounding, same
+    // as deriveVatSum — but ONLY for invoices where every priced line carries a
+    // rate, and only when the stored value diverges by > 1 ₽.
+    detect: async (exec) => {
+      const [rows] = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt
+           FROM invoices i
+           JOIN (
+             SELECT invoice_id,
+                    SUM(ROUND(total * vat_rate / (100 + vat_rate), 2)) AS derived_vat,
+                    COUNT(*) AS n_priced,
+                    SUM(CASE WHEN vat_rate IS NULL THEN 1 ELSE 0 END) AS n_null_rate
+               FROM invoice_items
+              WHERE total > 0
+              GROUP BY invoice_id
+           ) x ON x.invoice_id = i.id
+          WHERE x.n_priced > 0 AND x.n_null_rate = 0
+            AND (i.vat_sum IS NULL OR ABS(i.vat_sum - x.derived_vat) > 1)`
+      );
+      return rows[0].cnt === 0;
+    },
+    run: async (exec) => {
+      await exec.query(
+        `UPDATE invoices i
+           JOIN (
+             SELECT invoice_id,
+                    SUM(ROUND(total * vat_rate / (100 + vat_rate), 2)) AS derived_vat,
+                    COUNT(*) AS n_priced,
+                    SUM(CASE WHEN vat_rate IS NULL THEN 1 ELSE 0 END) AS n_null_rate
+               FROM invoice_items
+              WHERE total > 0
+              GROUP BY invoice_id
+           ) x ON x.invoice_id = i.id
+            SET i.vat_sum = x.derived_vat
+          WHERE x.n_priced > 0 AND x.n_null_rate = 0
+            AND (i.vat_sum IS NULL OR ABS(i.vat_sum - x.derived_vat) > 1)`
+      );
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
