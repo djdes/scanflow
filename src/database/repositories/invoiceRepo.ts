@@ -570,6 +570,54 @@ export const invoiceRepo = {
     return undefined;
   },
 
+  // Find "sibling" invoices that are almost certainly pages of the SAME invoice
+  // that got split into separate rows (auto-merge window expired or the original
+  // was already sent). Unlike findRecentByNumber there is NO time window and NO
+  // status filter — the split is often discovered long after both rows are
+  // 'sent_to_1c'. Signature is intentionally strict (number + supplier + date)
+  // so unrelated invoices that merely share a number never surface.
+  async findSiblings(id: number): Promise<Array<{
+    id: number;
+    invoice_number: string | null;
+    invoice_date: string | null;
+    supplier: string | null;
+    total_sum: number | null;
+    status: string;
+    approved_for_1c: number;
+    items_count: number;
+  }>> {
+    const self = await this.getById(id);
+    if (!self || !self.invoice_number) return [];
+    const targetNormalized = normalizeInvoiceNumber(self.invoice_number);
+    if (!targetNormalized) return [];
+
+    // SQL pre-filter. When the current invoice HAS a date, narrow to candidates
+    // with the same date or no date (the date rule allows a date-less sibling).
+    // When it has no date, we can't narrow by date — match on number/supplier.
+    const dateClause = self.invoice_date
+      ? 'AND (invoice_date = :curDate OR invoice_date IS NULL)'
+      : '';
+    const candidates = await getDb().prepare(
+      `SELECT id, invoice_number, invoice_date, supplier, total_sum, status, approved_for_1c,
+              (SELECT COUNT(*) FROM invoice_items ii WHERE ii.invoice_id = i.id) AS items_count
+       FROM invoices i
+       WHERE invoice_number IS NOT NULL AND invoice_number != ''
+         AND duplicate_of IS NULL
+         AND id != :id
+         ${dateClause}
+       ORDER BY id ASC`
+    ).all<{
+      id: number; invoice_number: string | null; invoice_date: string | null;
+      supplier: string | null; total_sum: number | null; status: string;
+      approved_for_1c: number; items_count: number;
+    }>(self.invoice_date ? { id, curDate: self.invoice_date } : { id });
+
+    return candidates.filter((c) =>
+      normalizeInvoiceNumber(c.invoice_number) === targetNormalized &&
+      suppliersMatch(self.supplier, c.supplier),
+    );
+  },
+
   async findDuplicateOriginal(
     excludeId: number,
     invoiceNumber: string | null,
