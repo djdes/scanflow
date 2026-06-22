@@ -7,6 +7,18 @@ import {
 import { recomputeMedianForGuids } from '../../pricing/priceStats';
 import { deriveVatSum } from '../../parser/itemSanitizer';
 
+// Multi-page hold: a freshly-recognized invoice is withheld from /pending for
+// this many minutes so a SECOND photographed page still has time to auto-merge
+// into it (the merger only sees rows still in status 'processed' — once 1C
+// pulls + confirms page 1, its status flips to 'sent_to_1c' and the second page
+// can no longer fold in; see findRecentByNumber). 0 disables the hold.
+// Tunable via env without redeploy. Context: invoices #424 (ids 143/145) split
+// because page 1 reached 1C 33s after upload, before page 2 was even shot.
+const MULTIPAGE_HOLD_MINUTES = (() => {
+  const n = Number(process.env.ONEC_MULTIPAGE_HOLD_MINUTES);
+  return Number.isFinite(n) && n >= 0 ? n : 5;
+})();
+
 export interface Invoice {
   id: number;
   file_name: string;
@@ -198,10 +210,19 @@ export const invoiceRepo = {
     // DUPLICATE ПриходнаяНакладная. If confirm never arrives (failure), the
     // invoice reappears after the window for an automatic retry.
     const RESERVE_MINUTES = 3;
+    // Freshness hold (multi-page window): withhold just-recognized invoices for
+    // MULTIPAGE_HOLD_MINUTES so a second page can still auto-merge before 1C
+    // pulls page 1. Uses recognized_at (when OCR finished), falling back to
+    // created_at for legacy rows. recognized_at sits far in the past for older
+    // invoices, so re-approving an old invoice is NOT delayed — only fresh ones.
+    const holdClause = MULTIPAGE_HOLD_MINUTES > 0
+      ? `AND COALESCE(recognized_at, created_at) <= (NOW() - INTERVAL ${MULTIPAGE_HOLD_MINUTES} MINUTE)`
+      : '';
     const pendingWhere =
       `approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')
-       AND (onec_pulled_at IS NULL OR onec_pulled_at < (NOW() - INTERVAL ${RESERVE_MINUTES} MINUTE))`;
+       AND (onec_pulled_at IS NULL OR onec_pulled_at < (NOW() - INTERVAL ${RESERVE_MINUTES} MINUTE))
+       ${holdClause}`;
 
     const totalRow = await db.prepare(
       `SELECT COUNT(*) as c FROM invoices WHERE ${pendingWhere}`
