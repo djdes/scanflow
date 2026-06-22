@@ -273,6 +273,9 @@ router.get('/:id', async (req: Request, res: Response) => {
     };
   });
 
+  (enriched as typeof enriched & { possible_siblings: unknown }).possible_siblings =
+    await invoiceRepo.findSiblings(id);
+
   res.json({ data: enriched });
 });
 
