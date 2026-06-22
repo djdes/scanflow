@@ -287,6 +287,35 @@ const Invoices = {
         return;
       }
 
+      // Possible split-page duplicate: same number+supplier+date as another row.
+      // Auto-merge (fileWatcher Strategy A) only fires within 10 min and skips
+      // sent invoices, so late/post-send pages fork into a separate invoice.
+      // Offer a one-click fold-in using the existing merge-into endpoint.
+      const sibs = data.possible_siblings || [];
+      if (sibs.length > 0) {
+        const sentWarn = data.status === 'sent_to_1c' || data.approved_for_1c
+          || sibs.some(s => s.status === 'sent_to_1c' || s.approved_for_1c);
+        const banner = document.getElementById('invoice-sibling-banner');
+        banner.style.display = 'block';
+        banner.innerHTML = sibs.map(s => `
+          <div class="duplicate-banner">
+            <div class="duplicate-banner-text">
+              ⚠ <strong>Похоже на ту же накладную:</strong>
+              <a href="#/invoices/${s.id}">№${s.id}</a>
+              — ${s.items_count} позиц., ${App.formatMoney(s.total_sum)}${s.status === 'sent_to_1c' ? ', «Отправлен»' : ''}.
+              Возможно, это страницы одной накладной.
+            </div>
+            <div class="duplicate-banner-actions">
+              <button class="btn btn-primary btn-sm"
+                onclick="Invoices.mergeSibling(${data.id}, ${s.id}, ${sentWarn})">Объединить →</button>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        const banner = document.getElementById('invoice-sibling-banner');
+        if (banner) banner.style.display = 'none';
+      }
+
       const unmappedCount = (data.items || []).filter(it => !it.onec_guid).length;
       if (data.status === 'processed') {
         if (data.approved_for_1c) {
@@ -876,6 +905,35 @@ const Invoices = {
       });
     }, { once: true });
     input.click();
+  },
+
+  // Fold two split-page invoices into one via the existing merge-into endpoint.
+  // Canonical target = the lower id (page 1, owns the header); the higher id is
+  // the source that gets deleted. When either side is already in/awaiting 1C we
+  // confirm first — the merge fixes ScanFlow but 1C already has the stray doc.
+  async mergeSibling(currentId, siblingId, sentWarning) {
+    const target = Math.min(currentId, siblingId);
+    const source = Math.max(currentId, siblingId);
+    const base = 'Объединить эти две накладные в одну (#' + target + ')?';
+    const msg = sentWarning
+      ? base + '\n\nОдна из накладных уже отправлена в 1С. Объединение исправит дубль в ScanFlow, но в 1С документ уже создан — лишний нужно удалить вручную.'
+      : base;
+    if (!confirm(msg)) return;
+
+    await this._withGuard(`merge:${source}->${target}`, async () => {
+      let resp;
+      try {
+        resp = await App.api(`/invoices/${source}/merge-into/${target}`, { method: 'POST' });
+      } catch (e) { App.notify('Ошибка объединения: ' + e.message, 'error'); return; }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        App.notify(err.error || `Ошибка ${resp.status}`, 'error');
+        return;
+      }
+      App.notify('Накладные объединены', 'success');
+      App.navigate(`#/invoices/${target}`);
+      this.showDetail(target);
+    });
   },
 
   async remap(id, forceAll) {
