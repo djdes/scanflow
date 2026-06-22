@@ -51,3 +51,6 @@ _view/
 
 # Git worktrees (used by subagent-driven development)
 .worktrees/
+
+# subagent-driven-development scratch (ledger, reports, review packages)
+.superpowers/
