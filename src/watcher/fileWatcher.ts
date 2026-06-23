@@ -10,8 +10,10 @@ import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/in
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import type { MappingResult } from '../mapping/nomenclatureMapper';
+import type { ParsedInvoiceData } from '../ocr/types';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
+import { resolveSupplierName } from '../services/resolveSupplierName';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
@@ -237,17 +239,40 @@ export class FileWatcher {
    * не нужно сливать с другими.
    */
   /**
-   * Canonicalize a parsed supplier name AND snap it to an already-stored
-   * spelling (by ИНН, else fuzzy name ≥70%) so OCR drift doesn't fork the
-   * supplier into near-duplicates. Returns undefined for an empty name.
+   * Resolve the supplier name to store: verified directory card by ИНН wins,
+   * else snap to an already-stored spelling (by ИНН, else fuzzy ≥70%) so OCR
+   * drift doesn't fork the supplier. See {@link resolveSupplierName}.
    */
   private async resolveSupplier(
     rawSupplier: string | null | undefined,
     inn: string | null | undefined,
   ): Promise<string | undefined> {
-    if (!rawSupplier) return undefined;
-    const canon = canonicalizeSupplierName(rawSupplier);
-    return (await invoiceRepo.findCanonicalSupplier(canon, inn ?? null)) ?? canon;
+    return resolveSupplierName(rawSupplier, inn);
+  }
+
+  /**
+   * Block until every EARLIER invoice that's still mid-processing has settled
+   * (or a hard 120s cap elapses). Pages of one document often OCR in parallel,
+   * and a sibling's supplier/items aren't committed until the end of its run —
+   * so a continuation page that finishes first would otherwise fork into a
+   * standalone invoice (the 205/206 bug). Only EARLIER ids are awaited, so two
+   * concurrent pages can never wait on each other (no deadlock).
+   */
+  private async awaitInFlightPredecessors(currentId: number, withinMinutes = 5): Promise<void> {
+    const deadline = Date.now() + 120_000;
+    let announced = false;
+    while (Date.now() < deadline) {
+      const n = await invoiceRepo.countInFlightOlderThan(currentId, withinMinutes);
+      if (n === 0) return;
+      if (!announced) {
+        logger.info('Multi-page: waiting for earlier page(s) still scanning before merge check', {
+          currentId, inFlight: n,
+        });
+        announced = true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    logger.warn('Multi-page: gave up waiting for in-flight predecessor(s) after 120s', { currentId });
   }
 
   async reprocessInvoice(invoiceId: number): Promise<void> {
@@ -451,7 +476,38 @@ export class FileWatcher {
     const parsed = ocrResult.structured ?? parseInvoiceText(ocrResult);
     if (!parsed) throw new Error('Failed to parse the added page');
 
-    // Append items — same mapping + pack-transform as the dispatcher result path.
+    // Photo → gallery; move file from inbox to processed so it serves and the
+    // watcher never re-ingests it (best-effort — the move may already be done).
+    try {
+      const processedPath = path.join(config.processedDir, fileName);
+      if (fs.existsSync(filePath) && !fs.existsSync(processedPath)) {
+        fs.renameSync(filePath, processedPath);
+      }
+    } catch (e) {
+      logger.warn('add-page: file move failed', { invoiceId, fileName, error: (e as Error).message });
+    }
+    await invoiceRepo.appendFileName(invoiceId, fileName);
+
+    const added = await this.appendParsedPage(invoiceId, parsed);
+    logger.info('Page added to invoice', { invoiceId, fileName, itemsAdded: added, engine: ocrResult.engine });
+    return added;
+  }
+
+  /**
+   * Fold an ALREADY-PARSED page into an existing invoice: append its items
+   * (mapped + pack-transformed), backfill only the header fields the invoice is
+   * still missing, bump total_sum to the bigger grand total, and recompute
+   * total/VAT from the FULL item set (recalculateTotal derives vat_sum from
+   * per-item rates). Items are appended, never replaced — nothing is lost.
+   *
+   * Deterministic, no OCR/Claude call. Shared by «дофоткать» (addPageToInvoice)
+   * and the multi-page merge fallback, so a failed combined re-analysis still
+   * keeps this page's data instead of dropping it.
+   */
+  private async appendParsedPage(targetInvoiceId: number, parsed: ParsedInvoiceData): Promise<number> {
+    const target = await invoiceRepo.getById(targetInvoiceId);
+    if (!target) throw new Error(`Invoice ${targetInvoiceId} not found`);
+
     let added = 0;
     for (const item of parsed.items) {
       if (!item.name) continue;
@@ -468,7 +524,7 @@ export class FileWatcher {
         sanity.item, item.name, hintedPackSize, hintedPackUnit, mapping.mapped_name, onec1cUnit,
       );
       await invoiceRepo.addItem({
-        invoice_id: invoiceId,
+        invoice_id: targetInvoiceId,
         original_name: item.name,
         mapped_name: mapping.mapped_name,
         quantity: r.item.quantity,
@@ -482,31 +538,20 @@ export class FileWatcher {
       added++;
     }
 
-    // Photo → gallery; move file from inbox to processed so it serves and the
-    // watcher never re-ingests it (best-effort — the move may already be done).
-    try {
-      const processedPath = path.join(config.processedDir, fileName);
-      if (fs.existsSync(filePath) && !fs.existsSync(processedPath)) {
-        fs.renameSync(filePath, processedPath);
-      }
-    } catch (e) {
-      logger.warn('add-page: file move failed', { invoiceId, fileName, error: (e as Error).message });
-    }
-    await invoiceRepo.appendFileName(invoiceId, fileName);
-
     // Backfill only empty header fields; take the bigger grand total (the last
-    // page prints the running total). recalculateTotal re-checks the mismatch flag.
-    await invoiceRepo.updateInvoiceData(invoiceId, {
-      supplier: invoice.supplier ? undefined : await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
-      invoice_number: invoice.invoice_number ? undefined : (parsed.invoice_number ?? undefined),
-      invoice_date: invoice.invoice_date ? undefined : (parsed.invoice_date ?? undefined),
-      supplier_inn: invoice.supplier_inn ? undefined : (parsed.supplier_inn ?? undefined),
-      total_sum: (parsed.total_sum != null && (invoice.total_sum == null || parsed.total_sum > invoice.total_sum))
+    // page prints the running total). recalculateTotal re-derives vat_sum and
+    // re-checks the mismatch flag from the combined item set.
+    await invoiceRepo.updateInvoiceData(targetInvoiceId, {
+      supplier: target.supplier ? undefined : await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
+      invoice_number: target.invoice_number ? undefined : (parsed.invoice_number ?? undefined),
+      invoice_date: target.invoice_date ? undefined : (parsed.invoice_date ?? undefined),
+      supplier_inn: target.supplier_inn ? undefined : (parsed.supplier_inn ?? undefined),
+      total_sum: (parsed.total_sum != null && (target.total_sum == null || parsed.total_sum > target.total_sum))
         ? parsed.total_sum : undefined,
     });
-    await invoiceRepo.recalculateTotal(invoiceId);
-
-    logger.info('Page added to invoice', { invoiceId, fileName, itemsAdded: added, engine: ocrResult.engine });
+    // forceDerive: the stored vat_sum is the parent page's partial — after adding
+    // this page's items it's stale, so recompute VAT from the full item set.
+    await invoiceRepo.recalculateTotal(targetInvoiceId, { forceDerive: true });
     return added;
   }
 
@@ -661,6 +706,17 @@ export class FileWatcher {
       // 4. Check for multi-page invoice
       let targetInvoiceId = invoice.id;
       let isMergedPage = false;
+
+      // Concurrency guard: if THIS page looks like a continuation (no number, or
+      // its first row_no > 1), wait for any earlier page that's still scanning to
+      // finish — otherwise its supplier/items aren't committed yet and the merge
+      // strategies below can't see it, forking one document into two (205/206).
+      const firstRowNo0 = parsed.items[0]?.row_no;
+      const looksLikeContinuation = !parsed.invoice_number
+        || (firstRowNo0 != null && firstRowNo0 > 1);
+      if (looksLikeContinuation) {
+        await this.awaitInFlightPredecessors(invoice.id, 5);
+      }
 
       // Strategy A: match by invoice_number (within last 10 minutes).
       // Supplier is passed through so that the digit-sequence fallback inside
@@ -826,6 +882,18 @@ export class FileWatcher {
           // Append file name and raw text to existing invoice.
           await invoiceRepo.appendFileName(existingInvoice.id, fileName);
           await invoiceRepo.appendRawText(existingInvoice.id, ocrResult.text);
+
+          // Move the page file into processedDir NOW, before the slow combined
+          // re-analysis (a 10–60s Claude call). Otherwise the photo endpoint
+          // serves from processedDir and 404s for the whole merge window — the
+          // "can't view the 2nd photo" symptom. The later move-on-success/fallback
+          // becomes a harmless no-op (guarded by existsSync).
+          if (!config.dryRun) {
+            try {
+              const destPath = path.join(config.processedDir, fileName);
+              if (fs.existsSync(filePath) && !fs.existsSync(destPath)) fs.renameSync(filePath, destPath);
+            } catch { /* watcher race / already moved */ }
+          }
 
           // CRITICAL: delete the temp invoice row NOW, before any failable
           // async work. Previously this delete happened at the end of the
@@ -1022,10 +1090,33 @@ export class FileWatcher {
 
               return targetInvoiceId;
             }
+            // Re-analysis returned no structured data — fall through to the
+            // append fallback below so this page's items aren't lost.
+            throw new Error('multi-page re-analysis returned no structured data');
           } catch (err) {
-            logger.warn('Multi-page text re-analysis failed, falling back to append mode', {
-              error: (err as Error).message,
+            // The combined re-analysis is a SECOND Claude call — it can time
+            // out or error, and the temp page row was already deleted above.
+            // Without a real fallback, this page's items/total/VAT vanish
+            // (the bug behind invoice #194 looking half-merged). Fold THIS
+            // page's already-parsed data into the parent deterministically.
+            logger.warn('Multi-page re-analysis failed — folding page in via lossless append', {
+              error: (err as Error).message, targetInvoiceId, newPageId: invoice.id,
             });
+            try {
+              const appended = await this.appendParsedPage(targetInvoiceId, parsed);
+              logger.info('Multi-page merged via append fallback', { targetInvoiceId, itemsAppended: appended });
+            } catch (appendErr) {
+              logger.error('Multi-page append fallback ALSO failed — page data may be incomplete', {
+                targetInvoiceId, newPageId: invoice.id, error: (appendErr as Error).message,
+              });
+            }
+            if (!config.dryRun) {
+              try {
+                const destPath = path.join(config.processedDir, fileName);
+                if (fs.existsSync(filePath)) fs.renameSync(filePath, destPath);
+              } catch { /* may already be moved */ }
+            }
+            return targetInvoiceId;
           }
         }
 

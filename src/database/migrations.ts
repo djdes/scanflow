@@ -844,6 +844,18 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 39,
+    name: 'invoice_items.name_overridden — user-set name that must be created in 1C',
+    detect: (exec) => hasColumn(exec, 'invoice_items', 'name_overridden'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoice_items', 'name_overridden'))) {
+        await exec.query(
+          `ALTER TABLE invoice_items ADD COLUMN name_overridden TINYINT NOT NULL DEFAULT 0`
+        );
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

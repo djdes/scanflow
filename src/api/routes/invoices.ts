@@ -587,7 +587,9 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
     for (const f of files) await invoiceRepo.appendFileName(targetId, f);
     await invoiceRepo.delete(sourceId);
     if (grand > 0) await invoiceRepo.updateInvoiceData(targetId, { total_sum: grand });
-    await invoiceRepo.recalculateTotal(targetId);
+    // forceDerive: the target's stored vat_sum covered only its own pages; after
+    // folding in the source's items it's stale, so recompute VAT from all items.
+    await invoiceRepo.recalculateTotal(targetId, { forceDerive: true });
 
     logger.info('Manual invoice merge', { sourceId, targetId, grand });
     const merged = await invoiceRepo.getWithItems(targetId);
@@ -1298,6 +1300,22 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
+
+  // Custom name for an UNMATCHED item: this exact text is what 1C creates
+  // Номенклатура from. Handled separately — it clears any catalog match and
+  // flags the override so the dashboard can confirm it visually.
+  if ('mapped_name' in body) {
+    const raw = body.mapped_name;
+    const name = typeof raw === 'string' ? raw.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'mapped_name must be a non-empty string' });
+      return;
+    }
+    const updated = await invoiceRepo.setItemCustomName(itemId, name);
+    res.json({ data: updated });
+    return;
+  }
+
   const toNumOrNull = (v: unknown): number | null | undefined => {
     if (v === undefined) return undefined;
     if (v === null || v === '') return null;

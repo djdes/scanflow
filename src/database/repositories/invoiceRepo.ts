@@ -5,7 +5,7 @@ import {
   suppliersMatch,
 } from '../../utils/invoiceNumber';
 import { recomputeMedianForGuids } from '../../pricing/priceStats';
-import { deriveVatSum } from '../../parser/itemSanitizer';
+import { deriveVatSum, isStatedVatConsistent } from '../../parser/itemSanitizer';
 
 // Multi-page hold: a freshly-recognized invoice is withheld from /pending for
 // this many minutes so a SECOND photographed page still has time to auto-merge
@@ -65,6 +65,9 @@ export interface InvoiceItem {
   mapping_confidence: number;
   onec_guid: string | null;
   row_no: number | null;
+  // 1 when the user manually set mapped_name as the name to create in 1C
+  // (unmatched item). Lets the UI mark it and assures it's what 1C will use.
+  name_overridden: number;
 }
 
 export interface CreateInvoiceData {
@@ -425,8 +428,9 @@ export const invoiceRepo = {
     const db = getDb();
     const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
       .get<{ onec_guid: string | null }>(itemId);
+    // Catalog map (or clear) supersedes any manual name override.
     await db.prepare(
-      `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name) WHERE id = ?`
+      `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name), name_overridden = 0 WHERE id = ?`
     ).run(onecGuid, mappedName, itemId);
     triggerStatsRecompute([prev?.onec_guid, onecGuid]);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
@@ -473,7 +477,7 @@ export const invoiceRepo = {
     const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
       .get<{ onec_guid: string | null }>(itemId);
     await db.prepare(
-      `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ? WHERE id = ?`
+      `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ?, name_overridden = 0 WHERE id = ?`
     ).run(onecGuid, mappedName, confidence, itemId);
     triggerStatsRecompute([prev?.onec_guid, onecGuid]);
   },
@@ -482,6 +486,23 @@ export const invoiceRepo = {
     await getDb().prepare(
       `UPDATE invoice_items SET mapped_name = ?, mapping_confidence = ? WHERE id = ?`
     ).run(mappedName, confidence, itemId);
+  },
+
+  /**
+   * User-set name for an UNMATCHED line: this exact text is what 1C will create
+   * Номенклатура from (НайтиИлиСоздатьНоменклатуру uses mapped_name). Clears any
+   * catalog match (a custom name means "create new, don't use the match") and
+   * flags the override so the UI can confirm it visually.
+   */
+  async setItemCustomName(itemId: number, name: string): Promise<InvoiceItem | undefined> {
+    const db = getDb();
+    const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null }>(itemId);
+    await db.prepare(
+      `UPDATE invoice_items SET mapped_name = ?, onec_guid = NULL, name_overridden = 1, mapping_confidence = 1 WHERE id = ?`
+    ).run(name, itemId);
+    triggerStatsRecompute([prev?.onec_guid, null]);
+    return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
   },
 
   /** True when the invoice has at least one item not yet mapped to 1C
@@ -574,8 +595,15 @@ export const invoiceRepo = {
     ).all<Invoice>();
 
     for (const candidate of candidates) {
-      if (normalizeInvoiceNumber(candidate.invoice_number) === targetNormalized) {
-        if (!supplier || candidate.supplier === supplier) return candidate;
+      if (normalizeInvoiceNumber(candidate.invoice_number) !== targetNormalized) continue;
+      // An exact (normalized) invoice number within the window is a strong signal
+      // these are pages of one invoice. Refuse only when BOTH sides have a
+      // supplier that doesn't match — a missing supplier (OCR skips the header on
+      // a continuation page, e.g. #190/#191 number 424) must NOT block the merge.
+      if (!supplier || !candidate.supplier
+          || candidate.supplier === supplier
+          || suppliersMatch(supplier, candidate.supplier)) {
+        return candidate;
       }
     }
 
@@ -795,6 +823,23 @@ export const invoiceRepo = {
     return undefined;
   },
 
+  /**
+   * Count invoices created BEFORE `beforeId` that are still mid-processing
+   * (ocr_processing/parsing) within the window. A multi-page sibling commits its
+   * supplier/items only at the very end of its run, so while it's in-flight the
+   * merge strategies can't see it. A continuation page uses this to wait for an
+   * earlier page to finish before deciding it's a standalone invoice.
+   */
+  async countInFlightOlderThan(beforeId: number, withinMinutes: number): Promise<number> {
+    const mins = Math.max(1, Math.trunc(withinMinutes));
+    const row = await getDb().prepare(
+      `SELECT COUNT(*) AS c FROM invoices
+       WHERE id < ? AND status IN ('ocr_processing', 'parsing')
+       AND created_at > (NOW() - INTERVAL ${mins} MINUTE)`
+    ).get<{ c: number }>(beforeId);
+    return Number(row?.c ?? 0);
+  },
+
   /** Reassign every item from one invoice to another (multi-page merge). */
   async moveItemsToInvoice(fromInvoiceId: number, toInvoiceId: number): Promise<void> {
     await getDb()
@@ -875,13 +920,13 @@ export const invoiceRepo = {
     }
   },
 
-  async recalculateTotal(id: number): Promise<void> {
+  async recalculateTotal(id: number, opts: { forceDerive?: boolean } = {}): Promise<void> {
     const db = getDb();
     const items = await db.prepare(
       'SELECT total, vat_rate FROM invoice_items WHERE invoice_id = ?'
     ).all<{ total: number | null; vat_rate: number | null }>(id);
     const itemsTotal = items.reduce((s, i) => s + Number(i.total ?? 0), 0);
-    const invoice = await db.prepare('SELECT total_sum FROM invoices WHERE id = ?').get<{ total_sum: number | null }>(id);
+    const invoice = await db.prepare('SELECT total_sum, vat_sum FROM invoices WHERE id = ?').get<{ total_sum: number | null; vat_sum: number | null }>(id);
     const documentTotal = invoice?.total_sum ?? null;
 
     let mismatch = 0;
@@ -896,20 +941,28 @@ export const invoiceRepo = {
       nextTotal = itemsTotal;
     }
 
-    // vat_sum is a *derived* value (prices are VAT-included by convention), so
-    // recompute it from per-item rates here. This keeps it correct after
-    // дофоткать/merge (where total_sum gets bumped to the grand total but the
-    // stored vat_sum would otherwise stay at a page-1 partial) and fills it in
-    // when Claude missed the "в т.ч. НДС" cell. When rates are incomplete,
-    // deriveVatSum returns null → we leave the existing vat_sum untouched.
+    // VAT (prices are VAT-included by convention). Prefer the document's STATED
+    // "в т.ч. НДС" when it's self-consistent with the total at a standard rate:
+    // it's a single prominent figure Claude reads reliably, whereas the per-line
+    // rate column is often absent (счёт) or misread (e.g. tagged 20% on a 22%
+    // document — gives 6560 instead of 7097). Otherwise derive from per-item
+    // rates — this still fixes a missed "в т.ч. НДС" cell and a stale multi-page
+    // partial (which won't match any standard rate against the grand total).
     const derivedVat = deriveVatSum(
       items.map(i => ({ total: i.total == null ? null : Number(i.total), vat_rate: i.vat_rate == null ? null : Number(i.vat_rate) })),
     );
+    // forceDerive is set by the merge/дофоткать append path, where the stored
+    // vat_sum is a genuine per-page partial (not a whole-document figure) — there
+    // we must recompute from the full item set instead of trusting it.
+    const statedVat = invoice?.vat_sum ?? null;
+    const finalVat = (!opts.forceDerive && isStatedVatConsistent(statedVat, nextTotal))
+      ? statedVat
+      : derivedVat;
 
-    if (derivedVat != null) {
+    if (finalVat != null) {
       await db.prepare(
         'UPDATE invoices SET total_sum = ?, items_total_mismatch = ?, vat_sum = ? WHERE id = ?'
-      ).run(nextTotal, mismatch, derivedVat, id);
+      ).run(nextTotal, mismatch, finalVat, id);
     } else {
       await db.prepare(
         'UPDATE invoices SET total_sum = ?, items_total_mismatch = ? WHERE id = ?'

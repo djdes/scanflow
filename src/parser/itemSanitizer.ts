@@ -337,3 +337,34 @@ export function deriveVatSum(
   }, 0);
   return Math.round(sum * 100) / 100;
 }
+
+// A whole document's blended VAT-INCLUDED rate sits between its lowest and
+// highest line rate. Real Russian rates for goods are 10–22%, so a plausible
+// effective rate band (with margin) is ~8–24%. Anything below is a stale
+// multi-page partial (page VAT measured against the grand total); anything above
+// is a misread.
+const VAT_EFF_RATE_MIN = 8;
+const VAT_EFF_RATE_MAX = 24;
+
+/**
+ * Is `vat` a plausible VAT-INCLUDED tax component of `total` for a whole invoice?
+ *
+ * Checks the implied effective rate — vat / (total − vat) — lands in the band a
+ * real Russian goods invoice produces (8–24%, covering uniform 10/18/20/22% AND
+ * any mix of them). Used to decide whether to TRUST the document's stated
+ * "в т.ч. НДС" (a single, prominent figure Claude reads reliably) over a per-item
+ * derivation, which goes wrong when the per-line rate column is absent (typical
+ * on a счёт) or misread — e.g. a 22% document tagged 20%, or one mixed line off.
+ *
+ * Rejects stale multi-page partials (a per-page subtotal vs the grand total lands
+ * well below the band) so the caller falls back to deriving.
+ */
+export function isStatedVatConsistent(
+  vat: number | null | undefined,
+  total: number | null | undefined,
+): boolean {
+  if (vat == null || total == null) return false;
+  if (!(vat > 0) || !(total > 0) || vat >= total) return false;
+  const effRate = (vat / (total - vat)) * 100;
+  return effRate >= VAT_EFF_RATE_MIN && effRate <= VAT_EFF_RATE_MAX;
+}

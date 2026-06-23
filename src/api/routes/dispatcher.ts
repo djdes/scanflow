@@ -21,7 +21,8 @@ import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatu
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
 import { preprocessInvoiceImage } from '../../ocr/imagePreprocess';
 import { emit as emitNotification, notifySupplierExtractError, emitElevatedPricesIfAny } from '../../notifications/events';
-import { canonicalizeSupplierName, normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
+import { normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
+import { resolveSupplierName } from '../../services/resolveSupplierName';
 import { userRepo } from '../../database/repositories/userRepo';
 import { getDb } from '../../database/db';
 import { config } from '../../config';
@@ -30,16 +31,14 @@ const router = Router();
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void { mapper = m; }
 
-/** Canonicalize a parsed supplier name and snap it to an already-stored
- *  spelling (by ИНН, else fuzzy name ≥70%) so OCR drift doesn't fork suppliers
- *  into near-duplicates. Returns undefined for an empty name. */
+/** Resolve the supplier name to store: verified directory card by ИНН wins,
+ *  else snap to an already-stored spelling (by ИНН, else fuzzy ≥70%) so OCR
+ *  drift doesn't fork suppliers. See {@link resolveSupplierName}. */
 async function resolveSupplier(
   rawSupplier: string | null | undefined,
   inn: string | null | undefined,
 ): Promise<string | undefined> {
-  if (!rawSupplier) return undefined;
-  const canon = canonicalizeSupplierName(rawSupplier);
-  return (await invoiceRepo.findCanonicalSupplier(canon, inn ?? null)) ?? canon;
+  return resolveSupplierName(rawSupplier, inn);
 }
 
 /**

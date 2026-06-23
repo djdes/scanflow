@@ -69,11 +69,28 @@ const Invoices = {
           <div class="empty-icon">&#128196;</div>
           <div>Накладных пока нет. Загрузите фото или положите в папку data/inbox/</div>
         </div></td></tr>`;
+        this._renderDateNav([]);
         return;
       }
 
-      tbody.innerHTML = data.map(inv => `
-        <tr class="clickable" onclick="App.navigate('#/invoices/${inv.id}')">
+      // Group rows by upload day with a date-header row, so the list reads
+      // chronologically — the ID column alone gives no sense of "when".
+      const dayCounts = {};
+      for (const inv of data) { const k = this._dayKey(inv); dayCounts[k] = (dayCounts[k] || 0) + 1; }
+
+      let _lastDay = null;
+      const rowsHtml = [];
+      for (const inv of data) {
+        const day = Invoices._dayKey(inv);
+        if (day !== _lastDay) {
+          _lastDay = day;
+          rowsHtml.push(`
+        <tr class="date-group-row" data-day="${day}">
+          <td colspan="9">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
+        </tr>`);
+        }
+        rowsHtml.push(`
+        <tr class="clickable" data-day="${day}" onclick="App.navigate('#/invoices/${inv.id}')">
           <td class="col-id">${inv.id}</td>
           <td>${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td>${App.formatDate(inv.invoice_date)}</td>
@@ -87,8 +104,12 @@ const Invoices = {
                     aria-label="Удалить накладную ${inv.id}"
                     onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
           </td>
-        </tr>
-      `).join('');
+        </tr>`);
+      }
+      tbody.innerHTML = rowsHtml.join('');
+
+      // Left date index — built from the rows on this page (upload day).
+      this._renderDateNav(data);
 
       // Pagination
       const pagination = document.getElementById('invoices-pagination');
@@ -122,6 +143,107 @@ const Invoices = {
   prevPage() {
     this.offset = Math.max(0, this.offset - this.limit);
     this.loadTable();
+  },
+
+  // ===== Left date index: group the page's rows by upload day (created_at) =====
+  _activeDay: null,
+
+  // Upload-day key "YYYY-MM-DD". The DB layer uses dateStrings, so created_at is
+  // "YYYY-MM-DD HH:MM:SS" in local server time — its first 10 chars are the
+  // calendar day with no timezone drift.
+  _dayKey(inv) {
+    return String((inv && inv.created_at) || '').slice(0, 10);
+  },
+
+  _localKey(dt) {
+    const p = n => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+  },
+
+  // Friendly label for a day key: «Сегодня»/«Вчера», else DD.MM.YYYY; plus a
+  // short weekday sub-line.
+  _dayLabel(key) {
+    if (!key) return { main: 'Без даты', sub: '' };
+    const today = this._localKey(new Date());
+    const yest = this._localKey(new Date(Date.now() - 86400000));
+    const [y, m, d] = key.split('-');
+    const main = key === today ? 'Сегодня' : key === yest ? 'Вчера' : `${d}.${m}.${y}`;
+    let sub = '';
+    try { sub = new Date(key + 'T00:00:00').toLocaleDateString('ru-RU', { weekday: 'short' }); } catch { /* ignore */ }
+    return { main, sub };
+  },
+
+  // Full header for an in-table date-group row: «вторник, 16 июня 2026 · 6 накладных»,
+  // with a «Сегодня»/«Вчера» prefix for the two most recent days.
+  _dayHeaderLabel(key, count) {
+    if (!key) return '<span class="date-group-row__date">Без даты загрузки</span>';
+    const { main } = this._dayLabel(key);
+    let full = key;
+    try {
+      full = new Date(key + 'T00:00:00').toLocaleDateString('ru-RU',
+        { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      full = full.charAt(0).toUpperCase() + full.slice(1);
+    } catch { /* ignore */ }
+    const rel = (main === 'Сегодня' || main === 'Вчера') ? `${main} · ` : '';
+    const noun = this._plural(count || 0, 'накладная', 'накладные', 'накладных');
+    const cnt = count ? ` <span class="date-group-row__count">${count} ${noun}</span>` : '';
+    return `<span class="date-group-row__date">${rel}${full}</span>${cnt}`;
+  },
+
+  _renderDateNav(rows) {
+    const el = document.getElementById('invoices-date-nav');
+    if (!el) return;
+    this._activeDay = null;
+    if (!rows || rows.length === 0) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    el.style.display = '';
+
+    // Preserve incoming order (created_at DESC) while tallying per day.
+    const order = [];
+    const counts = {};
+    for (const inv of rows) {
+      const k = this._dayKey(inv);
+      if (!(k in counts)) { counts[k] = 0; order.push(k); }
+      counts[k]++;
+    }
+
+    const items = order.map(k => {
+      const { main, sub } = this._dayLabel(k);
+      return `
+        <button type="button" class="date-nav__item" data-day="${k}" onclick="Invoices.filterByDate('${k}')">
+          <span class="date-nav__label">
+            <span class="date-nav__main">${main}</span>
+            ${sub ? `<span class="date-nav__sub">${sub}</span>` : ''}
+          </span>
+          <span class="date-nav__count">${counts[k]}</span>
+        </button>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div class="date-nav__head">Загружены</div>
+      <button type="button" class="date-nav__item date-nav__all active" data-day="" onclick="Invoices.filterByDate(null)">
+        <span class="date-nav__main">Все даты</span>
+        <span class="date-nav__count">${rows.length}</span>
+      </button>
+      ${items}`;
+  },
+
+  // Show only rows uploaded on `key` (YYYY-MM-DD); pass null — or click the
+  // already-active day — to clear. Pure client-side over the current page's rows.
+  filterByDate(key) {
+    if (key && key === this._activeDay) key = null;   // toggle off
+    this._activeDay = key;
+
+    const tbody = document.getElementById('invoices-tbody');
+    tbody.querySelectorAll('tr').forEach(tr => {
+      if (!tr.dataset.day && key) { tr.style.display = 'none'; return; }
+      tr.style.display = (!key || tr.dataset.day === key) ? '' : 'none';
+    });
+
+    const nav = document.getElementById('invoices-date-nav');
+    if (nav) {
+      nav.querySelectorAll('.date-nav__item').forEach(b =>
+        b.classList.toggle('active', (b.dataset.day || '') === (key || '')));
+    }
   },
 
   // Renders the «Цены ↑» cell: how many line items are priced >10% above the
@@ -368,9 +490,11 @@ const Invoices = {
       const itemsTbody = document.getElementById('invoice-items-tbody');
       if (data.items && data.items.length > 0) {
         itemsTbody.innerHTML = data.items.map((item, i) => {
-          const badge = item.onec_guid
-            ? '<span class="nom-badge nom-badge-ok" title="Сопоставлено">✓</span>'
-            : '<span class="nom-badge nom-badge-missing" title="Требует сопоставления">●</span>';
+          const badge = item.name_overridden
+            ? '<span class="nom-badge nom-badge-custom" title="Своё название — будет создано в 1С под этим именем">✎</span>'
+            : item.onec_guid
+              ? '<span class="nom-badge nom-badge-ok" title="Сопоставлено с 1С">✓</span>'
+              : '<span class="nom-badge nom-badge-missing" title="Требует сопоставления">●</span>';
           const currentName = item.mapped_name || item.original_name || '';
           // esc() also escapes quotes, which is what we need for value="..."
           const safeName = App.esc(currentName);
@@ -390,6 +514,9 @@ const Invoices = {
                        onfocus="Invoices.onNomFocus(event)"
                        onblur="Invoices.onNomBlur(event)">
                 <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
+                ${item.name_overridden
+                  ? '<div class="nom-custom-note" title="Это название уйдёт в 1С для создания товара">✎ Своё название → создастся в 1С</div>'
+                  : ''}
               </div>
             </td>
             <td style="text-align:right">
@@ -1067,13 +1194,12 @@ const Invoices = {
     const q = input.value.trim();
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
-    if (results.length === 0) { dd.style.display = 'none'; return; }
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     // Inline onclick with stringified data was unusable: JSON.stringify wraps
     // names in double quotes, which close the onclick="..." attribute early
     // and the handler silently breaks. Switched to data-* attributes + a
     // single delegated click listener attached once per dropdown.
-    dd.innerHTML = results.map(r => `
+    const matchesHtml = results.map(r => `
       <div class="nom-picker-option"
            data-guid="${esc(r.guid)}"
            data-name="${esc(r.name)}"
@@ -1082,6 +1208,16 @@ const Invoices = {
         ${r.unit ? '<span class="nom-unit">' + esc(r.unit) + '</span>' : ''}
       </div>
     `).join('');
+    // Always offer "create in 1C as new" with the EXACT typed text — this is the
+    // name that will be sent for НайтиИлиСоздатьНоменклатуру. Explicit click =
+    // the user confirms what 1C will receive (no silent guessing).
+    const createHtml = `
+      <div class="nom-picker-option nom-picker-create"
+           data-create="1" data-name="${esc(q)}"
+           onmousedown="event.preventDefault()">
+        ➕ Отправить в 1С как новое: <strong>${esc(q)}</strong>
+      </div>`;
+    dd.innerHTML = matchesHtml + createHtml;
     dd.style.display = 'block';
     // Attach delegated click handler once. _clickBound flag prevents duplicate
     // listeners when the dropdown re-renders on each keystroke.
@@ -1089,9 +1225,36 @@ const Invoices = {
       dd.addEventListener('click', (e) => {
         const opt = e.target.closest('.nom-picker-option');
         if (!opt) return;
-        this.selectNomItem(input.dataset.invoiceId, input.dataset.itemId, opt.dataset.guid, opt.dataset.name);
+        if (opt.dataset.create) {
+          this.saveCustomName(input.dataset.invoiceId, input.dataset.itemId, opt.dataset.name);
+        } else {
+          this.selectNomItem(input.dataset.invoiceId, input.dataset.itemId, opt.dataset.guid, opt.dataset.name);
+        }
       });
       dd._clickBound = true;
+    }
+  },
+
+  // Persist a user-typed name for an unmatched item — exactly what 1C will create
+  // Номенклатура from. Clears any catalog match + flags the override (✎ mark).
+  async saveCustomName(invoiceId, itemId, name) {
+    const clean = String(name || '').trim();
+    if (!clean) return;
+    try {
+      const res = await App.api(`/invoices/${invoiceId}/items/${itemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapped_name: clean }),
+      });
+      if (res.ok) {
+        App.notify(`В 1С уйдёт название: «${clean}»`, 'success');
+        this.showDetail(parseInt(invoiceId, 10));
+      } else {
+        const err = await res.json().catch(() => ({}));
+        App.notify(err.error || 'Не удалось сохранить название', 'error');
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
     }
   },
 

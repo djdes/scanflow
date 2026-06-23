@@ -60,9 +60,12 @@ export const sberPaymentRepo = {
   },
 
   async listRecent(limit = 50): Promise<SberPayment[]> {
+    // Inline the sanitized LIMIT — mysql2 binds placeholder ints as strings,
+    // which MySQL rejects in LIMIT ("Incorrect arguments to mysqld_stmt_execute").
+    const lim = Math.max(1, Math.min(500, Math.trunc(Number(limit)) || 50));
     return getDb()
-      .prepare('SELECT * FROM sber_payments ORDER BY created_at DESC LIMIT ?')
-      .all<SberPayment>(limit);
+      .prepare(`SELECT * FROM sber_payments ORDER BY created_at DESC LIMIT ${lim}`)
+      .all<SberPayment>();
   },
 
   async deleteByInvoiceId(invoiceId: number): Promise<void> {

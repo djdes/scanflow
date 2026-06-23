@@ -69,7 +69,8 @@ router.post('/backup', async (_req: Request, res: Response) => {
 // Returns recent API request log entries (most recent first).
 // Used for diagnosing connectivity issues with 1C and other clients.
 router.get('/requests-log', async (req: Request, res: Response) => {
-  const limit = Math.min(parseInt(req.query.limit as string) || 50, 500);
+  // Sanitized + inlined below (mysql2 rejects placeholder ints in LIMIT on MySQL).
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit as string) || 50, 500));
   const pathLike = req.query.path_like as string | undefined;
   const sinceMinutes = req.query.since_minutes ? parseInt(req.query.since_minutes as string) : null;
 
@@ -92,8 +93,8 @@ router.get('/requests-log', async (req: Request, res: Response) => {
      FROM api_requests_log
      ${where}
      ORDER BY id DESC
-     LIMIT ?`
-  ).all(...params, limit);
+     LIMIT ${limit}`
+  ).all(...params);
 
   res.json({ data: rows, count: rows.length });
 });

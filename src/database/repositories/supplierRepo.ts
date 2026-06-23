@@ -136,13 +136,18 @@ export const supplierRepo = {
       wheres.push('verified = ?');
       params.push(opts.verified);
     }
+    // LIMIT/OFFSET are inlined as sanitized integers, not bound params: mysql2
+    // sends placeholder ints as strings, which MySQL 8/9 rejects in LIMIT with
+    // "Incorrect arguments to mysqld_stmt_execute". Values are clamped here so
+    // inlining stays injection-safe even if a caller passes junk.
+    const lim = Math.max(1, Math.min(500, Math.trunc(Number(opts.limit)) || 100));
+    const off = Math.max(0, Math.trunc(Number(opts.offset)) || 0);
     const sql = `
       SELECT * FROM suppliers
       ${wheres.length > 0 ? 'WHERE ' + wheres.join(' AND ') : ''}
       ORDER BY (last_used_at IS NULL), last_used_at DESC, name
-      LIMIT ? OFFSET ?
+      LIMIT ${lim} OFFSET ${off}
     `;
-    params.push(opts.limit, opts.offset);
     return getDb().prepare(sql).all<Supplier>(...params);
   },
 };

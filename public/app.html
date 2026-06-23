@@ -116,25 +116,30 @@
       <div id="invoices-stats" class="stats-bar"></div>
       <div id="invoices-list">
         <div class="filters" id="invoices-filters"></div>
-        <div class="table-wrap">
-          <table class="invoices-table">
-            <thead>
-              <tr>
-                <th class="col-id">ID</th>
-                <th>Номер</th>
-                <th>Дата</th>
-                <th>Поставщик</th>
-                <th style="text-align:right">Сумма</th>
-                <th title="Позиции дороже обычного более чем на 10%" style="text-align:center">Цены&nbsp;↑</th>
-                <th>Статус</th>
-                <th title="Платёжное поручение в Сбер.Бизнес" style="text-align:center">Сбер</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="invoices-tbody"></tbody>
-          </table>
+        <div class="invoices-layout">
+          <aside class="date-nav" id="invoices-date-nav"></aside>
+          <div class="invoices-main">
+            <div class="table-wrap">
+              <table class="invoices-table">
+                <thead>
+                  <tr>
+                    <th class="col-id">ID</th>
+                    <th>Номер</th>
+                    <th>Дата</th>
+                    <th>Поставщик</th>
+                    <th style="text-align:right">Сумма</th>
+                    <th title="Позиции дороже обычного более чем на 10%" style="text-align:center">Цены&nbsp;↑</th>
+                    <th>Статус</th>
+                    <th title="Платёжное поручение в Сбер.Бизнес" style="text-align:center">Сбер</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="invoices-tbody"></tbody>
+              </table>
+            </div>
+            <div class="pagination" id="invoices-pagination"></div>
+          </div>
         </div>
-        <div class="pagination" id="invoices-pagination"></div>
       </div>
 
       <div id="invoice-detail" style="display:none">
