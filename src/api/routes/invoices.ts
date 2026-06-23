@@ -1500,16 +1500,22 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     });
   }
   if (!supplier || !supplier.verified) {
+    // Prefill the confirmation modal from the saved supplier card (looked up by
+    // ИНН) when one exists — даже если verified=0 (например, заведён фото-
+    // экстрактом). Реквизиты (БИК/счёт/корсчёт/банк/адрес) берём из справочника,
+    // OCR-данные накладной — только как запасной вариант. Так пользователю не
+    // нужно вводить то, что уже сохранено в Справочники → Поставщики.
     return res.status(409).json({
       needs_supplier_confirmation: true,
       prefilled: {
         inn: invoice.supplier_inn,
-        name: invoice.supplier ?? '',
-        kpp: invoice.supplier_kpp ?? null,
-        bank_bic: invoice.supplier_bik ?? null,
-        account: invoice.supplier_account ?? null,
-        bank_corr_account: invoice.supplier_corr_account ?? null,
-        address: invoice.supplier_address ?? null,
+        name: supplier?.name ?? invoice.supplier ?? '',
+        kpp: supplier?.kpp ?? invoice.supplier_kpp ?? null,
+        bank_bic: supplier?.bank_bic ?? invoice.supplier_bik ?? null,
+        account: supplier?.account ?? invoice.supplier_account ?? null,
+        bank_corr_account: supplier?.bank_corr_account ?? invoice.supplier_corr_account ?? null,
+        bank_name: supplier?.bank_name ?? null,
+        address: supplier?.address ?? invoice.supplier_address ?? null,
       },
     });
   }
