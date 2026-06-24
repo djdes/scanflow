@@ -141,8 +141,16 @@ const TableCV = {
       TableCVExport.cellsToHTMLTable(this.state.cells);
 
     document.getElementById('tablecv-export').onclick = () => {
+      // Cell x/y/w/h are in the deskewed WORKING-image pixel space (the photo
+      // is downscaled by `scale` and deskewed before detection). We surface
+      // `scale` and the working dimensions so a consumer can relate the boxes
+      // back to the original photo if needed.
       const json = TableCVExport.cellsToJSON(this.state.cells, {
         count: this.state.cells.length,
+        coordSpace: 'deskewed-working-image',
+        scale: this._pre ? this._pre.scale : null,
+        workingWidth: this._pre && this._pre.gray ? this._pre.gray.cols : null,
+        workingHeight: this._pre && this._pre.gray ? this._pre.gray.rows : null,
       });
       navigator.clipboard.writeText(json).then(
         () => this._status('JSON скопирован в буфер'),

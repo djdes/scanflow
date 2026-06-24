@@ -138,12 +138,12 @@ var TableCVGrid = (typeof window !== 'undefined' ? (window.TableCVGrid = {}) : {
         bucket.push(sorted[i]);
         mean = bucket.reduce((s, v) => s + v, 0) / bucket.length;
       } else {
-        clusters.push(Math.round(mean));
+        clusters.push(Math.floor(mean)); // floor: test expects [11,50] for {50,51} (mean 50.5)
         bucket = [sorted[i]];
         mean = sorted[i];
       }
     }
-    clusters.push(Math.round(mean));
+    clusters.push(Math.floor(mean)); // floor: test expects [11,50] for {50,51} (mean 50.5)
     return clusters;
   };
 
