@@ -1554,7 +1554,10 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   });
 
   const externalId = randomUUID();
-  const today = new Date().toISOString().slice(0, 10);
+  // Payment document date in Moscow time (business TZ). toISOString() uses UTC,
+  // which yields yesterday's date for sends between 21:00–23:59 MSK. en-CA
+  // formats as YYYY-MM-DD, which passes the Sber payload date validation.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow' }).format(new Date());
 
   // Quantize to kopecks. total_sum is a DOUBLE, so a sum of per-item totals can
   // carry binary-float artifacts (e.g. 300.30000000000007). Sber expects a

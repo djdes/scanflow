@@ -94,18 +94,33 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenDat
   return { accessToken: data.access_token, refreshToken: data.refresh_token, expiresIn: data.expires_in };
 }
 
+// Sber rotates the refresh token on every use, so two concurrent refreshes
+// would both present the same refresh_token — the second fails and can leave the
+// stored token unusable until a manual reconnect. Serialize refresh within the
+// process by sharing a single in-flight promise. (PM2 single-instance; a
+// clustered deploy would additionally need a DB row lock — see design notes.)
+let inflightRefresh: Promise<string> | null = null;
+
 export async function getValidAccessToken(): Promise<string> {
   const row = await sberTokenRepo.get();
   if (!row) throw new Error('Sber not connected');
   const buffer = 5 * 60 * 1000;
   const expiresAt = new Date(row.expires_at).getTime();
   if (expiresAt > Date.now() + buffer) return row.access_token;
-  const fresh = await refreshAccessToken(row.refresh_token);
-  const newExpiresAt = new Date(Date.now() + fresh.expiresIn * 1000).toISOString();
-  await sberTokenRepo.updateTokens({
-    access_token: fresh.accessToken,
-    refresh_token: fresh.refreshToken,
-    expires_at: newExpiresAt,
-  });
-  return fresh.accessToken;
+  if (inflightRefresh) return inflightRefresh;
+  inflightRefresh = (async () => {
+    try {
+      const fresh = await refreshAccessToken(row.refresh_token);
+      const newExpiresAt = new Date(Date.now() + fresh.expiresIn * 1000).toISOString();
+      await sberTokenRepo.updateTokens({
+        access_token: fresh.accessToken,
+        refresh_token: fresh.refreshToken,
+        expires_at: newExpiresAt,
+      });
+      return fresh.accessToken;
+    } finally {
+      inflightRefresh = null;
+    }
+  })();
+  return inflightRefresh;
 }
