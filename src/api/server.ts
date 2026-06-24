@@ -132,15 +132,17 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Health check (no auth) — runs real probes against the DB, credentials
   // file, anthropic key, and inbox queue depth. Returns 503 if any critical
   // check fails. Used by uptime monitoring.
-  app.get('/health', (_req, res) => {
+  app.get('/health', async (_req, res) => {
     const checks: Record<string, { ok: boolean; detail?: string }> = {};
     let allOk = true;
 
-    // DB ping
+    // DB ping. Must be awaited — the adapter's get() is async and never throws
+    // synchronously, so without await the try/catch never sees a DB outage and
+    // /health would falsely report "ok" (and leak an unhandledRejection).
     try {
       const { getDb } = require('../database/db');
       const db = getDb();
-      db.prepare('SELECT 1').get();
+      await db.prepare('SELECT 1').get();
       checks.database = { ok: true };
     } catch (e) {
       checks.database = { ok: false, detail: (e as Error).message };

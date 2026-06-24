@@ -71,7 +71,10 @@ export async function sendInvoiceNotification(
     // Either no existing message_id, or edit failed with MessageGoneError.
     try {
       const newMessageId = await sendMessage(cfg.token, cfg.chat_id, text);
-      invoiceRepo.setTelegramMessageId(invoice.id, newMessageId);
+      // Must await: a fire-and-forget rejection escapes this try/catch and
+      // surfaces as an unhandledRejection (which pages the operator via
+      // sendErrorEmail), violating this module's never-throw contract.
+      await invoiceRepo.setTelegramMessageId(invoice.id, newMessageId);
     } catch (err) {
       logger.error('telegramNotifier: thread send failed', {
         eventType,
