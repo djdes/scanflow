@@ -449,8 +449,8 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       await invoiceRepo.updateInvoiceData(targetInvoiceId, {
         invoice_number: mergeTarget.invoice_number ? undefined : (data.invoice_number ?? undefined),
         supplier: mergeTarget.supplier ? undefined : await resolveSupplier(data.supplier, data.supplier_inn),
-        total_sum: data.total_sum != null ? data.total_sum : (mergeTarget.total_sum == null ? undefined : undefined),
-        vat_sum: data.vat_sum != null ? data.vat_sum : (mergeTarget.vat_sum == null ? undefined : undefined),
+        total_sum: data.total_sum ?? undefined,
+        vat_sum: data.vat_sum ?? undefined,
       });
       // Items appended to targetInvoiceId below; the current row is folded into
       // the target (photo carried over + row deleted) after the items loop.
