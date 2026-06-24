@@ -42,6 +42,9 @@ async function getFirstRowNo(invoiceId: number): Promise<number | null> {
 export interface UploadMeta {
   source?: UploadSource;
   userAgent?: string | null;
+  // Owning tenant for multi-tenant isolation. Set by /api/upload (req.user.id).
+  // Undefined for watcher-detected inbox files (no user context) → NULL owner.
+  ownerUserId?: number | null;
 }
 
 export class FileWatcher {
@@ -602,6 +605,7 @@ export class FileWatcher {
         file_hash: fileHash,
         upload_source: meta?.source ?? 'inbox',
         upload_user_agent: meta?.userAgent ?? null,
+        owner_user_id: meta?.ownerUserId ?? null,
       });
     } catch (err) {
       if (err instanceof DuplicateFileHashError) {

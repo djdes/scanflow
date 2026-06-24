@@ -856,6 +856,34 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 40,
+    name: 'invoices.owner_user_id — per-tenant ownership (data isolation; scoping is flag-gated via DATA_SCOPING_ENABLED)',
+    // Additive + idempotent. The column is harmless until DATA_SCOPING_ENABLED is
+    // turned on (the scoping layer is the only reader). Backfill assigns all
+    // existing invoices to the platform owner (lowest-id admin), so enabling
+    // scoping never orphans historical data. See
+    // docs/superpowers/specs/2026-06-24-multitenant-data-isolation-design.md
+    detect: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'owner_user_id'))) return false;
+      const [rows] = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM invoices WHERE owner_user_id IS NULL`
+      );
+      return rows[0].cnt === 0;
+    },
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'owner_user_id'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN owner_user_id INT NULL`);
+        await exec.query(`CREATE INDEX idx_invoices_owner_user_id ON invoices(owner_user_id)`);
+      }
+      // Idempotent backfill: only touches NULLs. If no admin exists yet, the
+      // EXISTS guard skips every row (leaves NULL = system/owner-owned).
+      await exec.query(
+        `UPDATE invoices SET owner_user_id = (SELECT MIN(id) FROM users WHERE role='admin')
+          WHERE owner_user_id IS NULL AND EXISTS (SELECT 1 FROM users WHERE role='admin')`
+      );
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

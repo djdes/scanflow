@@ -61,6 +61,12 @@ export const config = {
   // No default — install-specific. Set via UI (/#/settings → Диспетчер) or via env.
   projectsflowScanflowProjectId: envStr('PROJECTSFLOW_SCANFLOW_PROJECT_ID', ''),
 
+  // Multi-tenant data isolation. When true, non-admin users only see/operate on
+  // invoices they own (admin sees everything). Default OFF so activation is a
+  // deliberate, verifiable step — toggling needs no redeploy. See
+  // docs/superpowers/specs/2026-06-24-multitenant-data-isolation-design.md
+  dataScopingEnabled: envBool('DATA_SCOPING_ENABLED', false),
+
   // Debug
   debug: envBool('DEBUG', false),
   logLevel: envStr('LOG_LEVEL', 'info'),

@@ -73,6 +73,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       await fileWatcher.processFile(filePath, fileName, forceEngine, {
         source: uploadSource,
         userAgent,
+        ownerUserId: req.user?.id ?? null,
       });
     } catch (err) {
       logger.error('Background processFile failed', {

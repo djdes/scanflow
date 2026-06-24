@@ -50,6 +50,9 @@ export interface Invoice {
   recognized_at: string | null;   // set by updateStatus('processed') on first recognition, never at create()
   upload_source: string | null;
   upload_user_agent: string | null;
+  // Owning tenant (multi-tenant isolation). NULL = system/owner-owned (watcher,
+  // camera, legacy). Only read when config.dataScopingEnabled is true.
+  owner_user_id: number | null;
 }
 
 export interface InvoiceItem {
@@ -90,6 +93,7 @@ export interface CreateInvoiceData {
   file_hash?: string | null;
   upload_source?: string | null;
   upload_user_agent?: string | null;
+  owner_user_id?: number | null;
 }
 
 // Thrown by invoiceRepo.create() when two uploads race on the same file content.
@@ -130,8 +134,8 @@ export const invoiceRepo = {
     const db = getDb();
     try {
       const result = await db.prepare(`
-        INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_kpp, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash, upload_source, upload_user_agent)
-        VALUES (:file_name, :file_path, :invoice_number, :invoice_date, :supplier, :invoice_type, :supplier_inn, :supplier_kpp, :supplier_bik, :supplier_account, :supplier_corr_account, :supplier_address, :total_sum, :vat_sum, :raw_text, :ocr_engine, :file_hash, :upload_source, :upload_user_agent)
+        INSERT INTO invoices (file_name, file_path, invoice_number, invoice_date, supplier, invoice_type, supplier_inn, supplier_kpp, supplier_bik, supplier_account, supplier_corr_account, supplier_address, total_sum, vat_sum, raw_text, ocr_engine, file_hash, upload_source, upload_user_agent, owner_user_id)
+        VALUES (:file_name, :file_path, :invoice_number, :invoice_date, :supplier, :invoice_type, :supplier_inn, :supplier_kpp, :supplier_bik, :supplier_account, :supplier_corr_account, :supplier_address, :total_sum, :vat_sum, :raw_text, :ocr_engine, :file_hash, :upload_source, :upload_user_agent, :owner_user_id)
       `).run({
         file_name: data.file_name,
         file_path: data.file_path,
@@ -152,6 +156,7 @@ export const invoiceRepo = {
         file_hash: data.file_hash ?? null,
         upload_source: data.upload_source ?? null,
         upload_user_agent: data.upload_user_agent != null ? data.upload_user_agent.slice(0, 512) : null,
+        owner_user_id: data.owner_user_id ?? null,
       });
       return (await this.getById(Number(result.lastInsertRowid)))!;
     } catch (err) {
@@ -174,20 +179,20 @@ export const invoiceRepo = {
     return getDb().prepare('SELECT * FROM invoices WHERE id = ?').get<Invoice>(id);
   },
 
-  async getAll(status?: string, limit: number = 100, offset: number = 0): Promise<Invoice[]> {
+  async getAll(status?: string, limit: number = 100, offset: number = 0, ownerUserId?: number): Promise<Invoice[]> {
     // mysql2's named-placeholder mode (our pool default) can't bind LIMIT/OFFSET
     // as params — server rejects with "Incorrect arguments to mysqld_stmt_execute".
     // Inline the integers after a safe Math.floor/clamp so it's not a literal injection.
     const lim = Math.max(1, Math.min(500, Math.floor(limit)));
     const off = Math.max(0, Math.floor(offset));
-    if (status) {
-      return getDb()
-        .prepare(`SELECT * FROM invoices WHERE status = ? ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`)
-        .all<Invoice>(status);
-    }
+    const conds: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (status) { conds.push('status = :status'); params.status = status; }
+    if (ownerUserId != null) { conds.push('owner_user_id = :ownerUserId'); params.ownerUserId = ownerUserId; }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     return getDb()
-      .prepare(`SELECT * FROM invoices ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`)
-      .all<Invoice>();
+      .prepare(`SELECT * FROM invoices ${where} ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`)
+      .all<Invoice>(params);
   },
 
   async getPending(): Promise<Invoice[]> {
