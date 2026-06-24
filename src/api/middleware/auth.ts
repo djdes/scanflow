@@ -51,6 +51,20 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
 }
 
 /**
+ * Authorization guard: require the authenticated user to have the admin role.
+ * MUST be mounted AFTER apiKeyAuth (which populates req.user). Used to fence off
+ * platform-global config (OCR keys, Sber connection, webhook, debug) from
+ * self-registered role='user' accounts in the multi-tenant deployment.
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({ error: 'Forbidden: administrator role required' });
+    return;
+  }
+  next();
+}
+
+/**
  * Variant of apiKeyAuth that also accepts ?key=... — use ONLY for routes that
  * serve binary content to <img>/<a> tags where custom headers can't be added.
  */

@@ -2,24 +2,27 @@ import { Router, Request, Response } from 'express';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { logger } from '../../utils/logger';
 import { logIntegrationEvent } from '../../integration/integrationLog';
+import { requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
 // GET /api/settings/analyzer — get current analyzer config
-router.get('/analyzer', async (_req: Request, res: Response) => {
+router.get('/analyzer', async (req: Request, res: Response) => {
   try {
     const config = await invoiceRepo.getAnalyzerConfig();
+    // Secrets (Anthropic / DaData / ProjectsFlow tokens) are returned ONLY to
+    // admins. Other authenticated users get has_* flags so the UI still shows
+    // mode/configured-state, but never the raw master credentials. (Open
+    // self-registration means non-admins must not be able to read these.)
+    const isAdmin = req.user?.role === 'admin';
     res.json({
       data: {
         mode: config.mode,
         has_api_key: !!config.anthropic_api_key,
-        // Full key values returned so the admin can view/verify them in Settings.
-        // This endpoint is already admin-gated by the X-API-Key, which is itself
-        // the master credential — no additional secret is exposed beyond that.
-        anthropic_api_key: config.anthropic_api_key,
-        dadata_api_key: config.dadata_api_key,
+        anthropic_api_key: isAdmin ? config.anthropic_api_key : null,
+        dadata_api_key: isAdmin ? config.dadata_api_key : null,
         has_projectsflow_token: !!config.projectsflow_token,
-        projectsflow_token: config.projectsflow_token,
+        projectsflow_token: isAdmin ? config.projectsflow_token : null,
         projectsflow_project_id: config.projectsflow_project_id,
         claude_model: config.claude_model,
         llm_mapper_enabled: config.llm_mapper_enabled,
@@ -33,8 +36,9 @@ router.get('/analyzer', async (_req: Request, res: Response) => {
   }
 });
 
-// PUT /api/settings/analyzer — update analyzer config
-router.put('/analyzer', async (req: Request, res: Response) => {
+// PUT /api/settings/analyzer — update analyzer config (admin only: this is the
+// platform-global OCR/integration config, not per-tenant).
+router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
   try {
     const { mode, anthropic_api_key, projectsflow_token, projectsflow_project_id, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber, dadata_api_key } = req.body;
     // Only persist a non-empty key; omitting it (or sending blank) leaves the
