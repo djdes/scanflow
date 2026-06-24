@@ -1,26 +1,5 @@
-/* global cv, Tesseract */
+/* global cv, Tesseract, TableCVOcrClean */
 const TableCVOcr = {
-  async run(grayMat, cells, onProgress) {
-    const worker = await Tesseract.createWorker(['rus', 'eng'], 1, {
-      workerPath: '/vendor/tesseract/worker.min.js',
-      corePath: '/vendor/tesseract/tesseract-core.wasm.js',
-      langPath: '/vendor/tesseract',
-      gzip: true,
-    });
-    try {
-      for (let i = 0; i < cells.length; i++) {
-        const c = cells[i];
-        const dataUrl = this._cropToDataUrl(grayMat, c);
-        const { data } = await worker.recognize(dataUrl);
-        c.text = (data.text || '').trim();
-        onProgress && onProgress(i + 1, cells.length);
-      }
-    } finally {
-      await worker.terminate();
-    }
-    return cells;
-  },
-
   // Pick the upright orientation among candidates, then OCR its cells.
   // candidates: [{ gray: cv.Mat, cells, region: cv.Rect|null }, ...]
   // The table-region crop of each candidate is OCR'd once; the candidate with
@@ -50,7 +29,8 @@ const TableCVOcr = {
       for (let i = 0; i < win.cells.length; i++) {
         const url = this._cropToDataUrl(win.gray, win.cells[i]);
         const { data } = await worker.recognize(url);
-        win.cells[i].text = (data.text || '').trim();
+        win.cells[i].confidence = data.confidence;
+        win.cells[i].text = TableCVOcrClean.cleanCellText(data.text, data.confidence);
         onProgress && onProgress(i + 1, win.cells.length);
       }
       return { index: best.index, gray: win.gray, cells: win.cells, region: win.region, confidence: best.confidence };
