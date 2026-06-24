@@ -48,7 +48,10 @@ const TableCV = {
 
       const rawBlock = parseInt(document.getElementById('tablecv-block').value, 10);
       const blockSize = (rawBlock % 2 === 1) ? rawBlock : rawBlock + 1; // adaptiveThreshold needs odd
-      const detOpts = { blockSize, lineKernelFrac: 0.12, projFrac: 0.2 };
+      // projFrac 0.1 (not 0.2): faint thin row rules in dense invoice tables span
+      // well under 20% of the cropped width once binarised, so 0.2 merged ~3 data
+      // rows into one band; 0.1 recovers them without exploding into text baselines.
+      const detOpts = { blockSize, lineKernelFrac: 0.12, projFrac: 0.1 };
       const layer = document.getElementById('tablecv-layer').value;
 
       const pre = TableCVPre.run(this.state.img, { maxSide: 2000, blockSize });
