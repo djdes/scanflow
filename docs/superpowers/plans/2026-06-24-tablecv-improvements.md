@@ -262,7 +262,9 @@ Expected: PASS (9 tests).
 
 - [ ] **Step 5: Store confidence + apply clean-up in `cellOcr.js`**
 
-In both `run` and `runOriented`, capture confidence and clean the text. Replace the per-cell assignment
+NOTE: `TableCVOcr.run` is dead code — only `runOriented` is called (by the controller and the harness; verified via grep). **Delete the `run` method** as part of this step rather than maintaining a second copy of the OCR loop. All edits below target `runOriented` only.
+
+In `runOriented`, replace the per-cell assignment
 
 ```js
         win.cells[i].text = (data.text || '').trim();
@@ -275,7 +277,7 @@ with:
         win.cells[i].text = TableCVOcrClean.cleanCellText(data.text, data.confidence);
 ```
 
-and the same in `run` (the `c.text = ...` line → set `c.confidence` then `c.text = TableCVOcrClean.cleanCellText(data.text, data.confidence)`). Add `TableCVOcrClean` to the `/* global ... */` comment. Include `<script src="/js/tablecv/ocrClean.js">` in `public/app.html` BEFORE `cellOcr.js`.
+Add `TableCVOcrClean` to the `/* global ... */` comment. Include `<script src="/js/tablecv/ocrClean.js">` in `public/app.html` BEFORE `cellOcr.js`.
 
 - [ ] **Step 6: Browser-validate with the harness**
 
@@ -303,7 +305,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Implement the post-pass in `cellOcr.js`**
 
-In `runOriented` (and `run`), after the per-cell OCR loop, before `return`:
+In `runOriented`, after the per-cell OCR loop, before `return`:
 
 ```js
       // Column-aware numeric normalisation.
@@ -315,8 +317,6 @@ In `runOriented` (and `run`), after the per-cell OCR loop, before `return`:
         }
       });
 ```
-
-(For `run`, operate on `cells` instead of `win.cells`.)
 
 - [ ] **Step 2: Browser-validate with the harness**
 
