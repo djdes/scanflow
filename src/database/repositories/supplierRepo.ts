@@ -38,6 +38,16 @@ export interface ListOptions {
   offset: number;
 }
 
+// SECURITY: whitelist of columns that update() may write. The update() helper
+// interpolates the column name directly into SQL (identifier position cannot be
+// a bound parameter), and callers such as PATCH /api/suppliers/:inn forward a
+// raw request body. Without this allow-list an attacker-supplied JSON key would
+// be spliced into the SET clause — a second-order SQL injection.
+const SUPPLIER_UPDATE_COLUMNS = new Set<string>([
+  'name', 'kpp', 'account', 'bank_bic', 'bank_corr_account',
+  'bank_name', 'address', 'verified', 'source', 'notes', 'last_used_at',
+]);
+
 export const supplierRepo = {
   async findByInn(inn: string): Promise<Supplier | null> {
     const row = await getDb()
@@ -107,6 +117,7 @@ export const supplierRepo = {
     const vals: unknown[] = [];
     for (const [k, v] of Object.entries(patch)) {
       if (k === 'inn' || v === undefined) continue;
+      if (!SUPPLIER_UPDATE_COLUMNS.has(k)) continue; // SQLi guard — see allow-list above
       sets.push(`${k} = ?`);
       vals.push(v);
     }

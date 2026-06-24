@@ -86,10 +86,18 @@ export const sberTokenRepo = {
     payer_bank_bic?: string | null;
     payer_bank_corr_account?: string | null;
   }): Promise<void> {
+    // Column names are interpolated into SQL (identifier position), so restrict
+    // to a fixed allow-list — defends against any future caller passing a raw
+    // request body (current callers use fixed keys). See supplierRepo.update.
+    const ALLOWED = new Set<string>([
+      'account_number', 'org_name', 'payer_inn', 'payer_kpp',
+      'payer_bank_bic', 'payer_bank_corr_account',
+    ]);
     const sets: string[] = [];
     const vals: unknown[] = [];
     for (const [k, v] of Object.entries(input)) {
       if (v === undefined) continue;
+      if (!ALLOWED.has(k)) continue;
       sets.push(`${k} = ?`);
       vals.push(v);
     }

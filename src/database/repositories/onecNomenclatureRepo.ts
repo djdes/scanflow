@@ -99,7 +99,11 @@ export const onecNomenclatureRepo = {
       params.search = `%${opts.search}%`;
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-    const limit = opts.limit ? `LIMIT ${opts.limit}` : '';
+    // LIMIT is inlined (mysql2 rejects placeholder ints in LIMIT), so coerce to a
+    // clamped integer — keeps the inlining injection-safe even if a caller passes
+    // a non-numeric value. Current callers pass parseInt() results, so no-op for them.
+    const lim = opts.limit != null ? Math.max(0, Math.trunc(Number(opts.limit))) : 0;
+    const limit = lim > 0 ? `LIMIT ${lim}` : '';
     return getDb()
       .prepare(`SELECT * FROM onec_nomenclature ${where} ORDER BY name ${limit}`)
       .all<OnecNomenclatureRow>(params);
