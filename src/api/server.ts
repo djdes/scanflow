@@ -26,6 +26,7 @@ import profileRouter from './routes/profile';
 import sberRouter from './routes/sber';
 import suppliersRouter from './routes/suppliers';
 import integrationsRouter from './routes/integrations';
+import usersRouter from './routes/users';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -231,6 +232,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/sber', apiKeyAuth, sberRouter);
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);
+  // User management (list + role changes) — admin only.
+  app.use('/api/users', apiKeyAuth, requireAdmin, usersRouter);
 
   // Mobile camera page (no auth — accessed from phone on local network)
   app.get('/camera', (_req, res) => {

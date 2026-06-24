@@ -113,6 +113,29 @@ export const userRepo = {
     return row?.cnt ?? 0;
   },
 
+  async findById(id: number): Promise<User | undefined> {
+    return getDb().prepare('SELECT * FROM users WHERE id = ?').get<User>(id);
+  },
+
+  // Admin user-management list. Safe fields only — never expose password_hash
+  // or api_key here.
+  async listAll(): Promise<Array<{ id: number; username: string; role: string; email: string | null; created_at: string; last_login_at: string | null }>> {
+    return getDb()
+      .prepare('SELECT id, username, role, email, created_at, last_login_at FROM users ORDER BY id')
+      .all<{ id: number; username: string; role: string; email: string | null; created_at: string; last_login_at: string | null }>();
+  },
+
+  async setRole(id: number, role: string): Promise<void> {
+    await getDb().prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+  },
+
+  async countAdmins(): Promise<number> {
+    const row = await getDb()
+      .prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'")
+      .get<{ cnt: number }>();
+    return row?.cnt ?? 0;
+  },
+
   async getNotifyConfig(id: number): Promise<NotifyConfig | null> {
     const row = await getDb()
       .prepare('SELECT email, notify_mode, notify_events FROM users WHERE id = ?')

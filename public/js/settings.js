@@ -78,6 +78,69 @@ const Settings = {
     } catch (e) {
       console.error('Failed to load auto-send settings', e);
     }
+
+    this._renderUsers();
+  },
+
+  // Admin-only "Команда и роли" card. Always asks the backend: a 200 means the
+  // caller is admin (render the card); a 403 means non-admin (render nothing).
+  // requireAdmin on /api/users is the real enforcement — this is just UI gating.
+  async _renderUsers() {
+    const host = document.getElementById('settings-users');
+    if (!host) return;
+    try {
+      const res = await App.api('/users');
+      if (!res.ok) { host.innerHTML = ''; return; }
+      const { data } = await res.json();
+      const esc = (s) => App.esc(String(s ?? ''));
+      const rows = (data || []).map((u) => `
+        <tr>
+          <td>${u.id}</td>
+          <td><strong>${esc(u.username)}</strong></td>
+          <td>${esc(u.email || '—')}</td>
+          <td>${u.last_login_at ? esc(u.last_login_at) : '<span class="muted">—</span>'}</td>
+          <td>
+            <select class="role-select" data-prev="${esc(u.role)}" onchange="Settings.changeRole(${u.id}, this.value, this)">
+              <option value="user"${u.role !== 'admin' ? ' selected' : ''}>Пользователь</option>
+              <option value="admin"${u.role === 'admin' ? ' selected' : ''}>Администратор</option>
+            </select>
+          </td>
+        </tr>`).join('');
+      host.innerHTML = `
+        <div class="card" style="margin-top:24px">
+          <h3 style="margin-bottom:6px">Команда и роли</h3>
+          <p class="field-hint" style="margin-bottom:16px">Администраторы видят все накладные и управляют интеграциями (Сбер, 1С, настройки, диагностика). Обычные пользователи видят только свои накладные, когда включена изоляция данных.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Логин</th><th>Email</th><th>Последний вход</th><th>Роль</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    } catch (e) {
+      host.innerHTML = '';
+      console.error('Failed to load users', e);
+    }
+  },
+
+  // Change a user's role via PATCH /api/users/:id/role; revert the <select> on
+  // failure (e.g. server refuses to demote the last admin).
+  async changeRole(id, role, sel) {
+    const prev = sel.getAttribute('data-prev') || 'user';
+    try {
+      const res = await App.api(`/users/${id}/role`, { method: 'PATCH', body: { role } });
+      if (res.ok) {
+        App.notify('Роль обновлена', 'success');
+        sel.setAttribute('data-prev', role);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        App.notify(d.error || 'Не удалось изменить роль', 'error');
+        sel.value = prev;
+      }
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+      sel.value = prev;
+    }
   },
 
   async save() {

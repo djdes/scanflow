@@ -592,6 +592,10 @@
           <button class="btn btn-primary" onclick="Settings.saveAutoSend()">Сохранить</button>
         </div>
       </div>
+
+      <!-- Admin-only: team & roles. Rendered by settings.js only when
+           GET /api/users returns 200 (i.e. the caller is an admin). -->
+      <div id="settings-users"></div>
     </section>
 
     <!-- Profile Section -->
