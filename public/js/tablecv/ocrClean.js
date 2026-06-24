@@ -23,6 +23,7 @@ var TableCVOcrClean = (typeof window !== 'undefined' ? (window.TableCVOcrClean =
     let s = t
       .replace(/[OoОо]/g, '0')
       .replace(/[lI]/g, '1')
+      .replace(/(?<=\d)\.(?=\d)/g, ',') // dot decimal separator -> comma (RU format)
       .replace(/^[^\d\-]+/, '')   // strip leading junk before first digit/minus
       .replace(/[^\d\-]+$/, '')   // strip trailing junk
       .replace(/\s+/g, ' ')

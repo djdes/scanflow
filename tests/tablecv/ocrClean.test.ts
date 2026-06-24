@@ -25,6 +25,9 @@ describe('normalizeNumeric', () => {
   it('fixes O/l confusions in numeric context', () => {
     expect(oc.normalizeNumeric('1O,l55')).toBe('10,155');
   });
+  it('normalises dot decimal separator to comma', () => {
+    expect(oc.normalizeNumeric('961.21')).toBe('961,21');
+  });
   it('leaves non-numeric text alone', () => {
     expect(oc.normalizeNumeric('Полотенца бумажные')).toBe('Полотенца бумажные');
   });
