@@ -24,15 +24,22 @@ const TableCVDetect = {
     // 3. Line coordinates (ROI-relative), then mapped to full-image coords.
     const ysRoi = this._lineCoords(hMask, 'h', projFrac);
     const xsRoi = this._lineCoords(vMask, 'v', projFrac);
-    const xs = xsRoi.map((x) => x + ox);
+
+    // 4. Recover faint column separators when the grid looks under-segmented
+    //    (fewer columns than rows suggest column lines were missed).
+    let xsRoiFinal = xsRoi;
+    if (xsRoi.length >= 2 && ysRoi.length >= 2 && (xsRoi.length - 1) < (ysRoi.length - 1)) {
+      xsRoiFinal = this._recoverColumns(roi, xsRoi);
+    }
+    const xs = xsRoiFinal.map((x) => x + ox);
     const ys = ysRoi.map((y) => y + oy);
 
     let cells = [];
-    if (xsRoi.length >= 2 && ysRoi.length >= 2) {
-      const R = ysRoi.length - 1, C = xsRoi.length - 1;
+    if (xsRoiFinal.length >= 2 && ysRoi.length >= 2) {
+      const R = ysRoi.length - 1, C = xsRoiFinal.length - 1;
       // Border sampling uses the ROI-coord masks, so pass ROI-coord lines.
-      const vBorder = this._borderGrid(vMask, xsRoi, ysRoi, R, C, 'v');
-      const hBorder = this._borderGrid(hMask, xsRoi, ysRoi, R, C, 'h');
+      const vBorder = this._borderGrid(vMask, xsRoiFinal, ysRoi, R, C, 'v');
+      const hBorder = this._borderGrid(hMask, xsRoiFinal, ysRoi, R, C, 'h');
       const regions = TableCVGrid.mergeCells(R, C, vBorder, hBorder);
       cells = TableCVGrid.regionsToCells(regions, xs, ys); // full-image coords
     }
@@ -156,5 +163,25 @@ const TableCVDetect = {
       }
     }
     return hit / (steps + 1) > 0.5;
+  },
+
+  // Recover faint column separators using the column-projection profile of the
+  // table crop: local minima of the per-column white-density (gaps between
+  // text blocks) are likely column rules even when the printed line is faint.
+  _recoverColumns(roi, xsRoi) {
+    // Vertical projection of ink density.
+    const W = roi.cols, H = roi.rows;
+    const colInk = new Array(W).fill(0);
+    for (let x = 0; x < W; x++) { let c = 0; for (let y = 0; y < H; y++) if (roi.ucharPtr(y, x)[0]) c++; colInk[x] = c; }
+    // Candidate separators: columns whose ink is below 20% of the local average
+    // over a wide window (persistent vertical gaps).
+    const win = Math.round(W * 0.04) || 1;
+    const recovered = [];
+    for (let x = win; x < W - win; x++) {
+      let sum = 0; for (let k = x - win; k <= x + win; k++) sum += colInk[k];
+      const avg = sum / (2 * win + 1);
+      if (avg > 0 && colInk[x] < avg * 0.2) recovered.push(x);
+    }
+    return TableCVGrid.clusterCoords(xsRoi.concat(recovered), 8);
   },
 };
