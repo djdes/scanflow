@@ -1,8 +1,17 @@
 # Multi-tenant data isolation — design
 
-> Status: **DESIGN ONLY — not implemented.** Surfaced by the 2026-06-24 full code review.
-> Owner decision required before any code/migration. Do NOT implement ad hoc — it touches
-> the 1C pull, dispatcher, and watcher, all of which run without a user context.
+> Status: **IN PROGRESS (model B chosen).** Surfaced by the 2026-06-24 full code review.
+> **DONE (branch `code-review-hardening`):** invoice-level ownership — migration 40
+> (`invoices.owner_user_id` + backfill), owner stamping on upload/watcher, and flag-gated
+> per-tenant invoice scoping with admin bypass (`DATA_SCOPING_ENABLED`, default OFF).
+> Verified both modes. **To activate:** set `DATA_SCOPING_ENABLED=true` after creating real
+> tenant accounts and confirming the dashboard/1C/Sber flows for the owner are unaffected.
+>
+> **STILL TODO (needs decisions / dedicated PRs):** suppliers directory model (PK=INN is
+> global today — bank details still visible to all authenticated users), per-tenant
+> integration config (1C/Sber/OCR keys are single shared rows), per-tenant 1C polling, and
+> registration policy. These touch the 1C pull, dispatcher, and watcher (no user context) —
+> do NOT implement ad hoc.
 
 ## Problem
 
