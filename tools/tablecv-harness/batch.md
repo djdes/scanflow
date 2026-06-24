@@ -80,3 +80,17 @@ not the found-count). The clear wins this round are Task 2 (OCR noise filter) an
   table genuinely lacks vertical rules or they are far below the morphology threshold.
   Needs a different approach (e.g. text-column-gap segmentation independent of ruled lines),
   out of scope for this round.
+
+## Task 6 — real #/tablecv tab verification (2026-06-24)
+
+The Express app's HTTP did not respond in this sandbox (TCP open, body closed), so the
+real SPA was served via the harness server (public/ fallback) and driven with Playwright
+(apiKey seeded in localStorage to pass App.init; the tab makes no API calls). Verified on
+upload-1782204930225-139938.JPG:
+- nav shows "TableCV BETA", route #/tablecv renders the section, nav tab active ✓
+- all controls present (file, pick, run, layer select, geom-only, block/linelen sliders, output, export) ✓
+- file upload + "Распознать" → status "Найдено ячеек: 41 (поворот 90°)", canvas 2000×1500 (auto-oriented) ✓
+- re-run: no new console errors → no opencv "Mat already deleted" / leak across runs ✓
+- only console errors are expected /api/invoices/stats and /api/sber/status 404s (static server, not auth 401, no redirect)
+No controller defects found; no code change in Task 6. Full OCR-in-tab uses the same
+runOriented path validated via the harness in Task 2.

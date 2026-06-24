@@ -20,11 +20,22 @@ http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
   // Alias the modules' absolute /vendor/* paths to public/vendor/*.
   if (p.startsWith('/vendor/')) p = '/public' + p;
+  const send = (f) => {
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    fs.createReadStream(f).pipe(res);
+  };
   const f = path.join(ROOT, p);
   if (!f.startsWith(ROOT)) { res.writeHead(403); return res.end('forbidden'); }
   fs.stat(f, (e, st) => {
-    if (e || !st.isFile()) { res.writeHead(404); return res.end('not found: ' + p); }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-    fs.createReadStream(f).pipe(res);
+    if (!e && st.isFile()) return send(f);
+    // Fallback: serve app.html / js / css etc. from public/ (so the real SPA
+    // can be served for the harness without the Express server).
+    const pf = path.join(ROOT, 'public', p);
+    if (pf.startsWith(ROOT)) {
+      fs.stat(pf, (e2, st2) => {
+        if (!e2 && st2.isFile()) return send(pf);
+        res.writeHead(404); res.end('not found: ' + p);
+      });
+    } else { res.writeHead(404); res.end('not found: ' + p); }
   });
 }).listen(PORT, '127.0.0.1', () => console.log('serve ' + ROOT + ' :' + PORT));
