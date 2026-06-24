@@ -33,6 +33,7 @@ const TableCV = {
   async _run() {
     const progress = document.getElementById('tablecv-progress');
     let det = null;
+    let best = null;
     let maskesDeleted = false;
     try {
       if (!this.state.img) { this._status('Сначала выберите фото', true); return; }

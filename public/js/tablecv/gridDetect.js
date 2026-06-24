@@ -170,9 +170,12 @@ const TableCVDetect = {
     return hit / (steps + 1) > 0.5;
   },
 
-  // Recover faint column separators using the column-projection profile of the
-  // table crop: local minima of the per-column white-density (gaps between
-  // text blocks) are likely column rules even when the printed line is faint.
+  // Recover extra column boundaries from the table crop's vertical ink profile:
+  // persistent low-ink columns are whitespace gutters BETWEEN text blocks, which
+  // often coincide with column boundaries even when a printed rule is missing or
+  // faint. NOTE: this detects gutters, not the rules themselves. Measured as a
+  // conservative no-op on the current sample (recovers nothing at the 0.2 ratio);
+  // kept as a safe, gated mechanism — see tools/tablecv-harness/batch.md.
   _recoverColumns(roi, xsRoi) {
     // Vertical projection of ink density.
     const W = roi.cols, H = roi.rows;

@@ -94,3 +94,12 @@ upload-1782204930225-139938.JPG:
 - only console errors are expected /api/invoices/stats and /api/sber/status 404s (static server, not auth 401, no redirect)
 No controller defects found; no code change in Task 6. Full OCR-in-tab uses the same
 runOriented path validated via the harness in Task 2.
+
+## Final-review deviations recorded (2026-06-24)
+- **Column recovery (`_recoverColumns`) is currently inert** on the sample (no columns
+  recovered at the 0.2 ratio) and detects whitespace gutters, not faint rules. Kept as a
+  gated, no-regression mechanism; carry to a future round together with the 466024
+  no-vertical-rules case (both point at proper text-column-gap segmentation).
+- **`confidence` is exported in JSON but NOT shown in the results UI.** The plan's
+  "show confidence in results" intent was descoped this round; the noise filter is still
+  reflected (filtered cells render empty). `cellsToHTMLTable` renders text only.

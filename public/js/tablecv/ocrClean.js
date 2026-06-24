@@ -17,6 +17,9 @@ var TableCVOcrClean = (typeof window !== 'undefined' ? (window.TableCVOcrClean =
     return t;
   };
 
+  // Intended for NUMERIC columns only (caller gates via isLikelyNumericColumn).
+  // The O->0 / l->1 substitutions WILL mangle mixed alphanumeric codes (SKUs),
+  // so do not apply this to text/article columns.
   g.normalizeNumeric = function (text) {
     const t = String(text || '');
     if (!numericish(t)) return t;
