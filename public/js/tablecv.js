@@ -1,4 +1,4 @@
-/* global App */
+/* global App, cv */
 const TableCV = {
   state: { img: null, cells: [], inited: false },
 
@@ -27,8 +27,16 @@ const TableCV = {
     try {
       progress.hidden = false; progress.value = 5;
       await TableCVLoader.ensure((m) => this._status(m));
+      const opts = {
+        maxSide: 2000,
+        blockSize: parseInt(document.getElementById('tablecv-block').value, 10),
+      };
+      this._pre = TableCVPre.run(this.state.img, opts);
+      const layer = document.getElementById('tablecv-layer').value;
+      if (layer === 'binary') cv.imshow('tablecv-canvas', this._pre.binary);
+      else cv.imshow('tablecv-canvas', this._pre.gray);
+      this._status('Предобработка готова (scale ' + this._pre.scale.toFixed(3) + ')');
       progress.value = 100;
-      this._status('Готово к обработке (пайплайн появится в следующих задачах)');
     } catch (err) {
       this._status(err.message, true);
     } finally {
