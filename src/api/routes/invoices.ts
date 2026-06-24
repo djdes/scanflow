@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -122,11 +122,45 @@ const addPagesUpload = multer({
 
 const router = Router();
 
+// ── Multi-tenant ownership guard (flag-gated) ───────────────────────────────
+// Runs for every :id / :invoiceId route below. When DATA_SCOPING_ENABLED is on,
+// a non-admin may only touch invoices they own; admins and integration callers
+// (1C/dispatcher use the admin key → role 'admin') pass through. Completely
+// inert (immediate next()) when the flag is off, so prod behaviour is unchanged
+// until isolation is deliberately enabled.
+async function invoiceOwnershipGuard(
+  req: Request, res: Response, next: NextFunction, value: string,
+): Promise<void> {
+  try {
+    if (!config.dataScopingEnabled || req.user?.role === 'admin') { next(); return; }
+    const id = parseInt(value, 10);
+    if (!Number.isFinite(id)) { next(); return; }
+    const inv = await invoiceRepo.getById(id);
+    if (inv && inv.owner_user_id !== req.user?.id) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+router.param('id', invoiceOwnershipGuard);
+router.param('invoiceId', invoiceOwnershipGuard);
+
+// Effective owner filter for list/stats: the caller's id when scoping is on and
+// they're not an admin, else undefined (no filter).
+function ownerScopeFor(req: Request): number | undefined {
+  return config.dataScopingEnabled && req.user?.role !== 'admin' ? req.user?.id : undefined;
+}
+
 // GET /api/invoices/stats — dashboard statistics (must be before /:id)
-router.get('/stats', async (_req: Request, res: Response) => {
+router.get('/stats', async (req: Request, res: Response) => {
   const db = getDb();
-  const byStatus = await db.prepare('SELECT status, COUNT(*) as count FROM invoices GROUP BY status').all();
-  const totalRow = await db.prepare('SELECT COUNT(*) as count FROM invoices').get<{ count: number }>();
+  const uid = ownerScopeFor(req);
+  const ownerWhere = uid != null ? ` WHERE owner_user_id = ${Number(uid)}` : '';
+  const byStatus = await db.prepare(`SELECT status, COUNT(*) as count FROM invoices${ownerWhere} GROUP BY status`).all();
+  const totalRow = await db.prepare(`SELECT COUNT(*) as count FROM invoices${ownerWhere}`).get<{ count: number }>();
 
   // Sum of invoices NOT sent to Sber in the last 30 days (payable backlog)
   const sberUnsent = await db.prepare(
@@ -135,7 +169,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
      LEFT JOIN sber_payments sp ON sp.invoice_id = i.id
      WHERE i.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
        AND sp.id IS NULL
-       AND i.status IN ('processed', 'sent_to_1c')`
+       AND i.status IN ('processed', 'sent_to_1c')${uid != null ? ` AND i.owner_user_id = ${Number(uid)}` : ''}`
   ).get<{ count: number; total_sum: number }>();
 
   res.json({
@@ -156,7 +190,11 @@ router.get('/', async (req: Request, res: Response) => {
   const fileName = req.query.file_name as string | undefined;
   if (fileName) {
     const invoice = await invoiceRepo.findByFileName(fileName);
-    const enriched = invoice ? [await enrichInvoiceWithSupplier(invoice)] : [];
+    // Respect ownership: a non-admin polling by filename only sees their own.
+    const visible = invoice
+      && (!config.dataScopingEnabled || req.user?.role === 'admin' || invoice.owner_user_id === req.user?.id)
+      ? invoice : null;
+    const enriched = visible ? [await enrichInvoiceWithSupplier(visible)] : [];
     res.json({ data: enriched, count: enriched.length });
     return;
   }
@@ -165,7 +203,7 @@ router.get('/', async (req: Request, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;
 
-  const rawInvoices = await invoiceRepo.getAll(status, limit, offset);
+  const rawInvoices = await invoiceRepo.getAll(status, limit, offset, ownerScopeFor(req));
   const enriched = await Promise.all(rawInvoices.map(enrichInvoiceWithSupplier));
   const withSber = await attachSberStatus(enriched);
   const invoices = await attachElevatedPriceCount(withSber);
