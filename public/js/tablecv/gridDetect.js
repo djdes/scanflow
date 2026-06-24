@@ -22,8 +22,11 @@ const TableCVDetect = {
     const vMask = this._openMask(roi, vLen, false);
 
     // 3. Line coordinates (ROI-relative), then mapped to full-image coords.
-    const ysRoi = this._lineCoords(hMask, 'h', projFrac);
-    const xsRoi = this._lineCoords(vMask, 'v', projFrac);
+    // When no region was found (borderless/edge-to-edge table) use a lower
+    // projection fraction so faint lines still register.
+    const effProjFrac = region ? projFrac : Math.min(projFrac, 0.12);
+    const ysRoi = this._lineCoords(hMask, 'h', effProjFrac);
+    const xsRoi = this._lineCoords(vMask, 'v', effProjFrac);
 
     // 4. Recover faint column separators when the grid looks under-segmented
     //    (fewer columns than rows suggest column lines were missed).
@@ -104,8 +107,10 @@ const TableCVDetect = {
       if (a > bestArea) { bestArea = a; best = r; }
     }
     hM.delete(); vM.delete(); grid.delete(); closed.delete(); contours.delete(); hier.delete();
-    // Plausibility: a table spans a good chunk of width and isn't a sliver.
-    if (best && best.width > binary.cols * 0.3 && best.height > 20) {
+    // Accept the largest line-structure box if it is wide enough to be a table
+    // row band; reject slivers and full-frame noise.
+    if (best && best.width > binary.cols * 0.25 && best.height > 24
+        && best.width * best.height < binary.cols * binary.rows * 0.95) {
       // Pad a few px so border lines aren't clipped.
       const pad = 4;
       const x = Math.max(0, best.x - pad), y = Math.max(0, best.y - pad);
