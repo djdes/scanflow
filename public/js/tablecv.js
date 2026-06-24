@@ -32,9 +32,13 @@ const TableCV = {
 
   async _run() {
     const progress = document.getElementById('tablecv-progress');
-    let det = null;
-    let best = null;
-    let maskesDeleted = false;
+    // Idempotent Mat freeing: del() never double-deletes, and Mats added to
+    // `freed` (the ones we hand to this._pre) are protected from the finally
+    // backstop.
+    const freed = new WeakSet();
+    const del = (m) => { if (m && !freed.has(m)) { try { m.delete(); } catch (e) { /* already gone */ } freed.add(m); } };
+    let cands = null;
+    let keptGray = null;
     try {
       if (!this.state.img) { this._status('Сначала выберите фото', true); return; }
       this._cleanupPre();
@@ -46,91 +50,77 @@ const TableCV = {
       const detOpts = { blockSize, lineKernelFrac: 0.12, projFrac: 0.2 };
       const layer = document.getElementById('tablecv-layer').value;
 
-      // Preprocess (downscale + deskew), then auto-orient: runAuto tries the 4
-      // orthogonal rotations (phone EXIF) and localises the table, returning the
-      // orientation with the best grid.
+      // Preprocess (downscale + deskew), then detect EVERY orthogonal rotation
+      // (phone photos carry arbitrary EXIF orientation).
       const pre = TableCVPre.run(this.state.img, { maxSide: 2000, blockSize });
       const scale = pre.scale;
-      best = TableCVDetect.runAuto(pre.gray, detOpts);
-      pre.gray.delete(); pre.binary.delete();
-      det = best.det; // for the finally-block mask backstop
+      cands = TableCVDetect.allOrientations(pre.gray, detOpts);
+      del(pre.gray); del(pre.binary);
 
-      // Hold the oriented gray/binary for hover redraw + debug layers.
-      this._pre = { gray: best.gray, binary: best.binary, scale };
-
-      if (layer === 'binary') {
-        cv.imshow('tablecv-canvas', best.binary);
-      } else if (layer === 'lines') {
-        const merged = new cv.Mat();
-        cv.add(best.det.hMask, best.det.vMask, merged);
-        cv.imshow('tablecv-canvas', merged);
-        merged.delete();
-      }
-
-      if (best.det.cells.length === 0) {
-        if (layer !== 'binary' && layer !== 'lines') {
-          const merged = new cv.Mat();
-          cv.add(best.det.hMask, best.det.vMask, merged);
-          cv.imshow('tablecv-canvas', merged);
-          merged.delete();
-        }
+      if (!cands.length) {
         this._status('Таблица не найдена — на фото нет уверенной сетки линий. Попробуйте более ровное/контрастное фото.', true);
-        best.det.hMask.delete(); best.det.vMask.delete();
-        maskesDeleted = true;
         return;
       }
 
-      best.det.hMask.delete(); best.det.vMask.delete();
-      maskesDeleted = true;
+      // Geometry-best candidate drives the fast preview and the debug layers.
+      let gbest = cands[0];
+      for (const c of cands) if (c.det.cells.length > gbest.det.cells.length) gbest = c;
 
-      this.state.cells = best.det.cells;
-      if (layer !== 'binary' && layer !== 'lines') {
-        TableCVOverlay.draw('tablecv-canvas', best.gray, best.det.cells, -1);
+      if (layer === 'binary') {
+        cv.imshow('tablecv-canvas', gbest.binary);
+      } else if (layer === 'lines') {
+        const merged = new cv.Mat();
+        cv.add(gbest.det.hMask, gbest.det.vMask, merged);
+        cv.imshow('tablecv-canvas', merged);
+        merged.delete();
+      } else {
+        TableCVOverlay.draw('tablecv-canvas', gbest.gray, gbest.det.cells, -1);
       }
-      this._status('Найдено ячеек: ' + best.det.cells.length + ' (поворот ' + (best.rot * 90) + '°)');
+
+      // Masks are only needed for the debug layers above.
+      cands.forEach((c) => { del(c.det.hMask); del(c.det.vMask); });
+      this.state.cells = gbest.det.cells;
 
       const geomOnly = document.getElementById('tablecv-geom-only').checked;
-      if (geomOnly) { progress.value = 100; return; }
+      if (geomOnly) {
+        keptGray = gbest.gray;
+        freed.add(gbest.gray); freed.add(gbest.binary); // hand to _pre; protect
+        this._pre = { gray: gbest.gray, binary: gbest.binary, scale };
+        cands.forEach((c) => { if (c !== gbest) { del(c.gray); del(c.binary); } });
+        this._status('Найдено ячеек: ' + gbest.det.cells.length + ' (поворот ' + (gbest.rot * 90) + '°, геометрия)');
+        progress.value = 100;
+        return;
+      }
 
-      // OCR + orientation disambiguation: geometry can't tell upright from
-      // upside-down (both give the same grid), so OCR the table crop of the
-      // chosen orientation vs its 180° sibling and keep the higher-confidence
-      // reading, then OCR every cell of the winner.
-      const g180 = new cv.Mat();
-      cv.rotate(best.gray, g180, cv.ROTATE_180);
-      const bin180 = new cv.Mat();
-      const bs = (blockSize % 2 === 1) ? blockSize : blockSize + 1;
-      cv.adaptiveThreshold(g180, bin180, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, bs, 10);
-      const det180 = TableCVDetect.run(bin180, detOpts);
-      det180.hMask.delete(); det180.vMask.delete(); bin180.delete();
-
-      const candidates = [
-        { gray: best.gray, cells: best.det.cells, region: best.det.region },
-        { gray: g180, cells: det180.cells, region: det180.region },
-      ];
-      const picked = await TableCVOcr.runOriented(candidates, (done, total, msg) => {
+      // Full run: choose the READABLE orientation among all candidates by OCR
+      // confidence — a sideways rotation ties on cell count but reads as noise,
+      // so geometry alone can't pick it. Then OCR every cell of the winner.
+      const ocrCands = cands.map((c) => ({ gray: c.gray, cells: c.det.cells, region: c.det.region }));
+      const picked = await TableCVOcr.runOriented(ocrCands, (done, total, msg) => {
         progress.value = msg ? 5 : Math.round(done / total * 100);
         this._status(msg || ('OCR ячеек: ' + done + '/' + total));
       });
 
-      // Keep the winning gray for hover/results; free the loser.
-      if (picked.index === 0) {
-        g180.delete();
-      } else {
-        best.gray.delete();
-        this._pre.gray = picked.gray;
-      }
+      keptGray = picked.gray;
+      freed.add(picked.gray); // winner handed to _pre; protect from cleanup
+      this._pre = { gray: picked.gray, binary: null, scale };
       this.state.cells = picked.cells;
+      cands.forEach((c) => { del(c.gray); del(c.binary); }); // winner gray protected
+
       TableCVOverlay.draw('tablecv-canvas', picked.gray, picked.cells, -1);
       this._renderResults();
+      const pr = cands[picked.index] ? (cands[picked.index].rot * 90) : 0;
+      this._status('Готово: ' + picked.cells.length + ' ячеек (поворот ' + pr + '°)');
       progress.value = 100;
     } catch (err) {
       this._status(err.message, true);
     } finally {
-      if (det && !maskesDeleted) {
-        det.hMask && det.hMask.delete && det.hMask.delete();
-        det.vMask && det.vMask.delete && det.vMask.delete();
-      }
+      // Backstop: free every candidate Mat that wasn't already released; the
+      // winner gray (and geom-only binary) are in `freed`, so they survive.
+      if (cands) cands.forEach((c) => {
+        del(c.det && c.det.hMask); del(c.det && c.det.vMask);
+        del(c.gray); del(c.binary);
+      });
       setTimeout(() => { progress.hidden = true; progress.value = 0; }, 800);
     }
   },

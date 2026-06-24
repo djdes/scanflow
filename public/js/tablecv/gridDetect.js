@@ -51,31 +51,63 @@ const TableCVDetect = {
     return { cells, hMask, vMask, xs, ys, region };
   },
 
+  // Binarise + detect a single orthogonal rotation of `gray`.
+  // Returns { rot, gray, binary, det } — caller owns gray/binary and
+  // det.hMask/det.vMask.
+  _detectRotation(gray, k, blockSize, opts) {
+    const codes = [null, cv.ROTATE_90_CLOCKWISE, cv.ROTATE_180, cv.ROTATE_90_COUNTERCLOCKWISE];
+    const g = new cv.Mat();
+    if (k === 0) gray.copyTo(g); else cv.rotate(gray, g, codes[k]);
+    const bin = new cv.Mat();
+    cv.adaptiveThreshold(g, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, 10);
+    const det = this.run(bin, opts);
+    return { rot: k, gray: g, binary: bin, det };
+  },
+
+  _blockSize(opts) {
+    return (opts.blockSize % 2 === 1) ? opts.blockSize : (opts.blockSize || 25);
+  },
+
   // Try the 4 orthogonal orientations (phone photos carry arbitrary EXIF
-  // rotation) and keep the one that yields the best grid. Binarises each
-  // rotation internally. Returns { gray, binary, det, rot } where gray/binary
-  // are the chosen orientation (caller owns their .delete(), plus
-  // det.hMask/det.vMask).
+  // rotation) and keep the one with the most cells (geometry-only heuristic,
+  // used for the fast preview / batch metrics). NOTE: cell count alone cannot
+  // tell a correct landscape table from a sideways one when counts tie — for
+  // the real run use allOrientations() + OCR-confidence selection instead.
+  // Returns { rot, gray, binary, det, score }; caller owns the Mats.
   runAuto(gray, opts) {
     opts = opts || {};
-    const blockSize = (opts.blockSize % 2 === 1) ? opts.blockSize : (opts.blockSize || 25);
-    const codes = [null, cv.ROTATE_90_CLOCKWISE, cv.ROTATE_180, cv.ROTATE_90_COUNTERCLOCKWISE];
+    const blockSize = this._blockSize(opts);
     let best = null;
     for (let k = 0; k < 4; k++) {
-      const g = new cv.Mat();
-      if (k === 0) gray.copyTo(g); else cv.rotate(gray, g, codes[k]);
-      const bin = new cv.Mat();
-      cv.adaptiveThreshold(g, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, 10);
-      const det = this.run(bin, opts);
-      const score = (det.xs.length >= 2 && det.ys.length >= 2) ? det.cells.length : -1;
+      const c = this._detectRotation(gray, k, blockSize, opts);
+      const score = (c.det.xs.length >= 2 && c.det.ys.length >= 2) ? c.det.cells.length : -1;
       if (!best || score > best.score) {
         if (best) { best.gray.delete(); best.binary.delete(); best.det.hMask.delete(); best.det.vMask.delete(); }
-        best = { score, rot: k, gray: g, binary: bin, det };
+        best = { rot: c.rot, gray: c.gray, binary: c.binary, det: c.det, score };
       } else {
-        g.delete(); bin.delete(); det.hMask.delete(); det.vMask.delete();
+        c.gray.delete(); c.binary.delete(); c.det.hMask.delete(); c.det.vMask.delete();
       }
     }
     return best;
+  },
+
+  // Return every orientation that yields a usable grid, so a downstream
+  // OCR-confidence probe can pick the truly readable one (fixes the case where
+  // a sideways rotation ties on cell count but is wrong). Caller owns each
+  // candidate's gray/binary and det.hMask/det.vMask.
+  allOrientations(gray, opts) {
+    opts = opts || {};
+    const blockSize = this._blockSize(opts);
+    const cands = [];
+    for (let k = 0; k < 4; k++) {
+      const c = this._detectRotation(gray, k, blockSize, opts);
+      if (c.det.xs.length >= 2 && c.det.ys.length >= 2 && c.det.cells.length > 0) {
+        cands.push(c);
+      } else {
+        c.gray.delete(); c.binary.delete(); c.det.hMask.delete(); c.det.vMask.delete();
+      }
+    }
+    return cands;
   },
 
   _openMask(src, klen, horiz) {
@@ -121,23 +153,23 @@ const TableCVDetect = {
 
   // Project a line mask onto an axis; rows/cols whose white-pixel count exceeds
   // a fraction of the span are line positions, then cluster adjacent ones.
+  // Uses cv.reduce (vectorised in WASM) instead of per-pixel JS loops — the
+  // mask is 0/255, so a reduced SUM divided by 255 is the white-pixel count.
   _lineCoords(mask, dir, projFrac) {
+    const acc = new cv.Mat();
     const coords = [];
     if (dir === 'h') {
-      const thresh = mask.cols * projFrac;
-      for (let y = 0; y < mask.rows; y++) {
-        let count = 0;
-        for (let x = 0; x < mask.cols; x++) if (mask.ucharPtr(y, x)[0]) count++;
-        if (count > thresh) coords.push(y);
-      }
+      cv.reduce(mask, acc, 1, cv.REDUCE_SUM, cv.CV_32S); // rows×1 row sums
+      const thresh = mask.cols * 255 * projFrac;
+      const d = acc.data32S;
+      for (let y = 0; y < d.length; y++) if (d[y] > thresh) coords.push(y);
     } else {
-      const thresh = mask.rows * projFrac;
-      for (let x = 0; x < mask.cols; x++) {
-        let count = 0;
-        for (let y = 0; y < mask.rows; y++) if (mask.ucharPtr(y, x)[0]) count++;
-        if (count > thresh) coords.push(x);
-      }
+      cv.reduce(mask, acc, 0, cv.REDUCE_SUM, cv.CV_32S); // 1×cols col sums
+      const thresh = mask.rows * 255 * projFrac;
+      const d = acc.data32S;
+      for (let x = 0; x < d.length; x++) if (d[x] > thresh) coords.push(x);
     }
+    acc.delete();
     return TableCVGrid.clusterCoords(coords, 8);
   },
 
@@ -156,6 +188,7 @@ const TableCVDetect = {
   },
 
   _segmentHasLine(mask, x0, y0, x1, y1) {
+    const data = mask.data, cols = mask.cols, rows = mask.rows;
     const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
     let hit = 0;
     for (let i = 0; i <= steps; i++) {
@@ -164,7 +197,7 @@ const TableCVDetect = {
       for (let d = -2; d <= 2; d++) {
         const xx = (x1 === x0) ? x + d : x;
         const yy = (y1 === y0) ? y + d : y;
-        if (xx >= 0 && yy >= 0 && xx < mask.cols && yy < mask.rows && mask.ucharPtr(yy, xx)[0]) { hit++; break; }
+        if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && data[yy * cols + xx]) { hit++; break; }
       }
     }
     return hit / (steps + 1) > 0.5;
@@ -177,10 +210,13 @@ const TableCVDetect = {
   // conservative no-op on the current sample (recovers nothing at the 0.2 ratio);
   // kept as a safe, gated mechanism — see tools/tablecv-harness/batch.md.
   _recoverColumns(roi, xsRoi) {
-    // Vertical projection of ink density.
-    const W = roi.cols, H = roi.rows;
-    const colInk = new Array(W).fill(0);
-    for (let x = 0; x < W; x++) { let c = 0; for (let y = 0; y < H; y++) if (roi.ucharPtr(y, x)[0]) c++; colInk[x] = c; }
+    // Vertical projection of ink density via cv.reduce (handles ROI strides and
+    // is far faster than per-pixel JS). Values are 255× the white-pixel count,
+    // but the recovery test below is ratio-based, so the scale is irrelevant.
+    const W = roi.cols;
+    const acc = new cv.Mat();
+    cv.reduce(roi, acc, 0, cv.REDUCE_SUM, cv.CV_32S); // 1×W column sums
+    const colInk = acc.data32S;
     // Candidate separators: columns whose ink is below 20% of the local average
     // over a wide window (persistent vertical gaps).
     const win = Math.round(W * 0.04) || 1;
@@ -190,6 +226,7 @@ const TableCVDetect = {
       const avg = sum / (2 * win + 1);
       if (avg > 0 && colInk[x] < avg * 0.2) recovered.push(x);
     }
+    acc.delete();
     return TableCVGrid.clusterCoords(xsRoi.concat(recovered), 8);
   },
 };

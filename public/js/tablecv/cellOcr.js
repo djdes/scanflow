@@ -20,7 +20,7 @@ const TableCVOcr = {
         const probeRect = cand.region
           ? { x: cand.region.x, y: cand.region.y, w: cand.region.width, h: cand.region.height }
           : { x: 0, y: 0, w: cand.gray.cols, h: cand.gray.rows };
-        const url = this._cropToDataUrl(cand.gray, probeRect);
+        const url = this._cropToDataUrl(cand.gray, probeRect, 1000); // downscaled probe (fast)
         const { data } = await worker.recognize(url);
         if (!best || data.confidence > best.confidence) best = { index: i, confidence: data.confidence };
         onProgress && onProgress(0, 1, 'orient-probe ' + (i + 1) + '/' + candidates.length);
@@ -47,15 +47,27 @@ const TableCVOcr = {
     }
   },
 
-  _cropToDataUrl(grayMat, cell) {
+  // Crop a cell to a PNG data URL. `maxSide` (optional) downscales the crop —
+  // used for the whole-table orientation probe, where full resolution is slow
+  // and unnecessary (readability/confidence survives downscaling). Per-cell OCR
+  // omits maxSide so small cells stay full-res.
+  _cropToDataUrl(grayMat, cell, maxSide) {
     const pad = 2;
     const x = Math.max(0, cell.x + pad), y = Math.max(0, cell.y + pad);
     const w = Math.max(1, Math.min(cell.w - 2 * pad, grayMat.cols - x));
     const h = Math.max(1, Math.min(cell.h - 2 * pad, grayMat.rows - y));
     const roi = grayMat.roi(new cv.Rect(x, y, w, h));
+    let out = roi, resized = null;
+    if (maxSide && Math.max(w, h) > maxSide) {
+      const s = maxSide / Math.max(w, h);
+      resized = new cv.Mat();
+      cv.resize(roi, resized, new cv.Size(Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s))), 0, 0, cv.INTER_AREA);
+      out = resized;
+    }
     const tmp = document.createElement('canvas');
-    cv.imshow(tmp, roi);
+    cv.imshow(tmp, out);
     roi.delete();
+    if (resized) resized.delete();
     return tmp.toDataURL('image/png');
   },
 };
