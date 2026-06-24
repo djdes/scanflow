@@ -9,7 +9,7 @@ import { buildSitemapXml } from '../seo/sitemap';
 import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { apiKeyAuth } from './middleware/auth';
+import { apiKeyAuth, requireAdmin } from './middleware/auth';
 import { apiRequestLog } from './middleware/requestLog';
 import invoicesRouter, { setMapper as setInvoicesMapper, setFileWatcher as setInvoicesFileWatcher } from './routes/invoices';
 import mappingsRouter, { setMapper } from './routes/mappings';
@@ -220,9 +220,11 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
   app.use('/api/upload', apiKeyAuth, uploadLimiter, uploadRouter);
-  app.use('/api/webhook', apiKeyAuth, webhookRouter);
+  // /webhook (legacy 1C webhook config) and /debug (error/diagnostics) are
+  // platform-global and have no non-admin UI callers — admin only.
+  app.use('/api/webhook', apiKeyAuth, requireAdmin, webhookRouter);
   app.use('/api/settings', apiKeyAuth, settingsRouter);
-  app.use('/api/debug', apiKeyAuth, debugRouter);
+  app.use('/api/debug', apiKeyAuth, requireAdmin, debugRouter);
   app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);
   app.use('/api/profile', apiKeyAuth, profileRouter);
   app.use('/api/sber', apiKeyAuth, sberRouter);

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../../utils/logger';
+import { requireAdmin } from '../middleware/auth';
 import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
 import {
   buildAuthUrl, createOAuthState, verifyOAuthState,
@@ -14,7 +15,7 @@ const ACC_RE = /^[0-9]{20}$/;
 const BIC_RE = /^[0-9]{9}$/;
 const INN_RE = /^([0-9]{10}|[0-9]{12})$/;
 
-router.get('/authorize', async (_req: Request, res: Response) => {
+router.get('/authorize', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const state = await createOAuthState({ purpose: 'connect' });
     const url = buildAuthUrl(state);
@@ -65,7 +66,7 @@ router.get('/callback', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/seed-token', async (req: Request, res: Response) => {
+router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => {
   const {
     access_token, refresh_token, expires_at, account_number, org_name,
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
@@ -101,7 +102,7 @@ router.post('/seed-token', async (req: Request, res: Response) => {
   return res.json({ success: true });
 });
 
-router.patch('/payer', async (req: Request, res: Response) => {
+router.patch('/payer', requireAdmin, async (req: Request, res: Response) => {
   const t = await sberTokenRepo.get();
   if (!t) return res.status(404).json({ error: 'Sber not connected' });
   const {
@@ -127,7 +128,7 @@ router.patch('/payer', async (req: Request, res: Response) => {
   return res.json({ success: true });
 });
 
-router.get('/status', async (_req: Request, res: Response) => {
+router.get('/status', async (req: Request, res: Response) => {
   const t = await sberTokenRepo.get();
   if (!t) return res.json({ connected: false });
   const tokenExpired = new Date(t.expires_at).getTime() < Date.now();
@@ -138,6 +139,11 @@ router.get('/status', async (_req: Request, res: Response) => {
     t.payer_bank_bic &&
     t.payer_bank_corr_account
   );
+  // Non-admins (onboarding gate) only learn whether the platform Sber
+  // connection is usable; the owner's bank/payer details are admin-only.
+  if (req.user?.role !== 'admin') {
+    return res.json({ connected: true, token_expired: tokenExpired, payer_complete: payerComplete });
+  }
   return res.json({
     connected: true,
     account_number: t.account_number,
@@ -151,7 +157,7 @@ router.get('/status', async (_req: Request, res: Response) => {
   });
 });
 
-router.post('/disconnect', async (_req: Request, res: Response) => {
+router.post('/disconnect', requireAdmin, async (_req: Request, res: Response) => {
   await sberTokenRepo.clear();
   void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк отключён' });
   return res.json({ success: true });
