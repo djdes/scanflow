@@ -40,8 +40,11 @@ const TableCVLoader = {
         if (typeof cv === 'undefined') {
           return reject(new Error('opencv.js загрузился, но глобальный cv не определён'));
         }
-        if (cv.Mat) return resolve();
+        // Assign the callback BEFORE the readiness check so we cannot miss an
+        // init that completes between script execution and this onload tick.
+        // A Promise settles once, so a double resolve() is harmless.
         cv.onRuntimeInitialized = () => resolve();
+        if (cv.Mat) resolve();
       };
       document.head.appendChild(s);
     });

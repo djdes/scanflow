@@ -577,8 +577,8 @@ const TableCVLoader = {
       s.onerror = () => reject(new Error('Не удалось загрузить opencv.js'));
       s.onload = () => {
         if (typeof cv === 'undefined') return reject(new Error('opencv.js загрузился, но глобальный cv не определён'));
-        if (cv.Mat) return resolve();
-        cv.onRuntimeInitialized = () => resolve();
+        cv.onRuntimeInitialized = () => resolve(); // assign before check; double resolve is harmless
+        if (cv.Mat) resolve();
       };
       document.head.appendChild(s);
     });
