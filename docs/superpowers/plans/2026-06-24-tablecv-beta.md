@@ -518,7 +518,9 @@ Run (from repo root):
 
 ```bash
 mkdir -p public/vendor/opencv public/vendor/tesseract
-curl -L -o public/vendor/opencv/opencv.js https://docs.opencv.org/4.10.0/opencv.js
+# NOTE: docs.opencv.org/4.10.0/opencv.js 404s and other docs.opencv.org versions are heavily rate-limited.
+# Use the self-contained @techstark/opencv-js full build (wasm embedded as base64, complete API).
+curl -L -o public/vendor/opencv/opencv.js https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js
 curl -L -o public/vendor/tesseract/tesseract.min.js https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js
 curl -L -o public/vendor/tesseract/worker.min.js https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js
 curl -L -o public/vendor/tesseract/tesseract-core.wasm.js https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js
@@ -564,15 +566,20 @@ const TableCVLoader = {
     });
   },
 
+  // @techstark/opencv-js is a UMD factory that sets global `cv` synchronously;
+  // wasm compiles async and fires cv.onRuntimeInitialized. (Not the official
+  // build's pre-set global Module pattern.)
   _loadOpenCv() {
     return new Promise((resolve, reject) => {
       if (typeof cv !== 'undefined' && cv.Mat) return resolve();
-      window.Module = {
-        onRuntimeInitialized: () => resolve(),
-      };
       const s = document.createElement('script');
       s.src = '/vendor/opencv/opencv.js';
       s.onerror = () => reject(new Error('Не удалось загрузить opencv.js'));
+      s.onload = () => {
+        if (typeof cv === 'undefined') return reject(new Error('opencv.js загрузился, но глобальный cv не определён'));
+        if (cv.Mat) return resolve();
+        cv.onRuntimeInitialized = () => resolve();
+      };
       document.head.appendChild(s);
     });
   },
