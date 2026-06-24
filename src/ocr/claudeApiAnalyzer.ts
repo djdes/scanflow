@@ -318,6 +318,15 @@ function safeParseClaudeJson(text: string, label: string): ParsedInvoiceData | n
   if (!Array.isArray(data.items)) {
     logger.warn(`${label}: "items" is missing or not an array — coercing to []`);
     data.items = [];
+  } else {
+    // Drop null/non-object elements (jsonrepair can introduce holes). Every
+    // downstream consumer does items.map(i => ({ ...i.quantity })), so a single
+    // null element would turn a recoverable response into a hard invoice failure.
+    const before = data.items.length;
+    data.items = data.items.filter((it) => it != null && typeof it === 'object');
+    if (data.items.length !== before) {
+      logger.warn(`${label}: dropped ${before - data.items.length} null/non-object item(s)`);
+    }
   }
   return data;
 }
@@ -354,7 +363,7 @@ function getMediaType(imagePath: string): 'image/jpeg' | 'image/png' | 'image/we
  * to the original bytes on any failure, so the media type stays correct.
  */
 async function encodeImageForApi(imagePath: string): Promise<{ data: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }> {
-  const raw = fs.readFileSync(imagePath);
+  const raw = await fs.promises.readFile(imagePath);
   const pre = await preprocessInvoiceImage(raw);
   const isJpeg = pre.length > 2 && pre[0] === 0xFF && pre[1] === 0xD8;
   return { data: pre.toString('base64'), mediaType: isJpeg ? 'image/jpeg' : getMediaType(imagePath) };
