@@ -318,16 +318,16 @@ section { display: none; }
 /* ========== Stats Bar ========== */
 .stats-bar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .stat-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 18px 22px;
+  padding: 14px 18px;
   transition: all var(--transition);
   position: relative;
   overflow: hidden;
@@ -375,10 +375,10 @@ section { display: none; }
 }
 
 .stat-card .stat-value {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
   line-height: 1.1;
-  letter-spacing: -1px;
+  letter-spacing: -0.5px;
 }
 
 .stat-card:first-child  .stat-value { color: var(--accent-blue); }
@@ -424,6 +424,53 @@ section { display: none; }
   background: var(--primary);
   color: #fff;
   border-color: var(--primary);
+}
+
+/* ===== Invoices toolbar: status pills (left) + Период presets (right) ===== */
+.invoices-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.invoices-toolbar .filters { margin-bottom: 0; }
+
+.period-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.period-filter__label {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  margin-right: 2px;
+}
+.period-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-family: var(--font);
+  color: var(--text-secondary);
+  font-weight: 500;
+  transition: all var(--transition);
+}
+.period-btn:hover { border-color: var(--border-hover); color: var(--text); background: var(--bg); }
+.period-btn.active { background: var(--accent-indigo); color: #fff; border-color: var(--accent-indigo); }
+
+/* Section-header tools: search + primary action */
+.section-tools { display: flex; align-items: center; gap: 10px; }
+.section-tools .search-field { flex: 0 0 auto; width: 280px; max-width: 42vw; }
+@media (max-width: 720px) {
+  .section-header .section-tools { width: 100%; }
+  .section-tools .search-field { flex: 1 1 auto; width: auto; max-width: none; }
+  .invoices-toolbar { gap: 8px; }
 }
 
 /* ========== Tables ========== */
@@ -2378,8 +2425,8 @@ details[open] summary { margin-bottom: 12px; }
 .onb-hint-ring {
   border: 2px solid var(--primary);
   box-shadow:
-    0 0 0 4px rgba(26, 109, 255, 0.25),
-    0 0 24px rgba(26, 109, 255, 0.50);
+    0 0 0 4px rgba(35, 131, 226, 0.25),
+    0 0 24px rgba(35, 131, 226, 0.50);
   animation: onb-hint-pulse 1.6s ease-in-out infinite;
 }
 
@@ -3012,11 +3059,11 @@ details[open] summary { margin-bottom: 12px; }
 .btn-soft {
   background: var(--primary-soft);
   color: var(--primary);
-  box-shadow: inset 0 0 0 1px rgba(26, 109, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(35, 131, 226, 0.12);
 }
 .btn-soft:hover {
   background: #e3edff;
-  box-shadow: inset 0 0 0 1px rgba(26, 109, 255, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(35, 131, 226, 0.26);
   transform: translateY(-1px);
 }
 .btn-soft:active { transform: translateY(0); }
@@ -3062,7 +3109,7 @@ details[open] summary { margin-bottom: 12px; }
   border-radius: 11px;
   color: #fff;
   background: linear-gradient(135deg, var(--primary), #4d8bff);
-  box-shadow: 0 4px 12px rgba(26, 109, 255, 0.32);
+  box-shadow: 0 4px 12px rgba(35, 131, 226, 0.32);
 }
 .icon-btn {
   flex-shrink: 0;
@@ -3089,7 +3136,7 @@ details[open] summary { margin-bottom: 12px; }
   border-radius: 14px;
   border: 1.5px dashed var(--border-hover);
   background:
-    radial-gradient(120% 120% at 50% 0%, rgba(26, 109, 255, 0.04), transparent 60%),
+    radial-gradient(120% 120% at 50% 0%, rgba(35, 131, 226, 0.04), transparent 60%),
     #fbfdff;
   transition: border-color var(--transition), background var(--transition),
               transform var(--transition), box-shadow var(--transition);
@@ -3097,7 +3144,7 @@ details[open] summary { margin-bottom: 12px; }
 .dropzone:hover {
   border-color: var(--primary);
   background:
-    radial-gradient(120% 120% at 50% 0%, rgba(26, 109, 255, 0.08), transparent 60%),
+    radial-gradient(120% 120% at 50% 0%, rgba(35, 131, 226, 0.08), transparent 60%),
     var(--primary-soft);
 }
 .dropzone.is-dragover {
@@ -3105,7 +3152,7 @@ details[open] summary { margin-bottom: 12px; }
   border-style: solid;
   background: var(--primary-soft);
   transform: scale(1.004);
-  box-shadow: 0 0 0 4px rgba(26, 109, 255, 0.10);
+  box-shadow: 0 0 0 4px rgba(35, 131, 226, 0.10);
 }
 .dropzone__icon {
   width: 52px; height: 52px;
@@ -3432,13 +3479,13 @@ details[open] summary { margin-bottom: 12px; }
 
 /* Date-group header rows inside the invoices table */
 .invoices-table .date-group-row td {
-  background: #eef2f7;
+  background: #f4f2ee;
   padding: 7px 16px;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 .invoices-table tbody tr.date-group-row:first-child td { border-top: none; }
-.invoices-table tbody tr.date-group-row:hover td { background: #eef2f7; }
+.invoices-table tbody tr.date-group-row:hover td { background: #f4f2ee; }
 .date-group-row__date {
   font-weight: 700;
   font-size: 12.5px;

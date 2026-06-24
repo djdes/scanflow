@@ -179,7 +179,13 @@ export const invoiceRepo = {
     return getDb().prepare('SELECT * FROM invoices WHERE id = ?').get<Invoice>(id);
   },
 
-  async getAll(status?: string, limit: number = 100, offset: number = 0, ownerUserId?: number): Promise<Invoice[]> {
+  async getAll(
+    status?: string,
+    limit: number = 100,
+    offset: number = 0,
+    ownerUserId?: number,
+    opts?: { q?: string; from?: string; to?: string },
+  ): Promise<Invoice[]> {
     // mysql2's named-placeholder mode (our pool default) can't bind LIMIT/OFFSET
     // as params — server rejects with "Incorrect arguments to mysqld_stmt_execute".
     // Inline the integers after a safe Math.floor/clamp so it's not a literal injection.
@@ -189,6 +195,15 @@ export const invoiceRepo = {
     const params: Record<string, unknown> = {};
     if (status) { conds.push('status = :status'); params.status = status; }
     if (ownerUserId != null) { conds.push('owner_user_id = :ownerUserId'); params.ownerUserId = ownerUserId; }
+    const q = opts?.q?.trim();
+    if (q) {
+      conds.push('(invoice_number LIKE :q OR supplier LIKE :q OR supplier_inn LIKE :q)');
+      params.q = `%${q}%`;
+    }
+    // created_at is "YYYY-MM-DD HH:MM:SS" (dateStrings); string-compare against a
+    // YYYY-MM-DD bound works. `to` is the EXCLUSIVE upper bound (next day).
+    if (opts?.from) { conds.push('created_at >= :from'); params.from = opts.from; }
+    if (opts?.to) { conds.push('created_at < :to'); params.to = opts.to; }
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     return getDb()
       .prepare(`SELECT * FROM invoices ${where} ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`)

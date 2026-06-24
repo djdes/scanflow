@@ -3,6 +3,11 @@ const Invoices = {
   currentStatus: null,
   offset: 0,
   limit: 50,
+  search: '',
+  dateFrom: null,
+  dateTo: null,
+  period: 'all',
+  _searchTimer: null,
 
   async showList() {
     document.getElementById('invoices-list').style.display = 'block';
@@ -53,9 +58,13 @@ const Invoices = {
       `<button class="filter-btn ${this.currentStatus === s.key ? 'active' : ''}"
               onclick="Invoices.setFilter(${s.key === null ? 'null' : `'${s.key}'`})">${s.label}</button>`
     ).join('');
+    this._renderPeriod();
 
     let url = `/invoices?limit=${this.limit}&offset=${this.offset}`;
     if (this.currentStatus) url += `&status=${this.currentStatus}`;
+    if (this.search) url += `&q=${encodeURIComponent(this.search)}`;
+    if (this.dateFrom) url += `&from=${this.dateFrom}`;
+    if (this.dateTo) url += `&to=${this.dateTo}`;
 
     // Show skeleton rows while real data is loading — feels instant
     App.skeletonRows('invoices-tbody', ['w-24', 'w-40', 'w-40', 'w-60', 'w-40', 'w-24', 'w-40', 'w-24', 'w-24'], 6);
@@ -65,11 +74,13 @@ const Invoices = {
       const tbody = document.getElementById('invoices-tbody');
 
       if (!data || data.length === 0) {
+        const filtered = this.search || this.currentStatus || this.dateFrom;
         tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">
           <div class="empty-icon">&#128196;</div>
-          <div>Накладных пока нет. Загрузите фото или положите в папку data/inbox/</div>
+          <div>${filtered
+            ? 'Ничего не найдено — измените поиск, период или фильтр.'
+            : 'Накладных пока нет. Загрузите фото или положите в папку data/inbox/'}</div>
         </div></td></tr>`;
-        this._renderDateNav([]);
         return;
       }
 
@@ -108,9 +119,6 @@ const Invoices = {
       }
       tbody.innerHTML = rowsHtml.join('');
 
-      // Left date index — built from the rows on this page (upload day).
-      this._renderDateNav(data);
-
       // Pagination
       const pagination = document.getElementById('invoices-pagination');
       if (data.length >= this.limit) {
@@ -145,8 +153,7 @@ const Invoices = {
     this.loadTable();
   },
 
-  // ===== Left date index: group the page's rows by upload day (created_at) =====
-  _activeDay: null,
+  // ===== Upload-day helpers (used by the in-table date-group headers) =====
 
   // Upload-day key "YYYY-MM-DD". The DB layer uses dateStrings, so created_at is
   // "YYYY-MM-DD HH:MM:SS" in local server time — its first 10 chars are the
@@ -190,60 +197,49 @@ const Invoices = {
     return `<span class="date-group-row__date">${rel}${full}</span>${cnt}`;
   },
 
-  _renderDateNav(rows) {
-    const el = document.getElementById('invoices-date-nav');
+  // Compact "Период" presets. Server-side, so they span ALL pages — unlike the
+  // old left sidebar, which only hid rows already loaded on the current page.
+  _renderPeriod() {
+    const el = document.getElementById('invoices-period');
     if (!el) return;
-    this._activeDay = null;
-    if (!rows || rows.length === 0) { el.innerHTML = ''; el.style.display = 'none'; return; }
-    el.style.display = '';
-
-    // Preserve incoming order (created_at DESC) while tallying per day.
-    const order = [];
-    const counts = {};
-    for (const inv of rows) {
-      const k = this._dayKey(inv);
-      if (!(k in counts)) { counts[k] = 0; order.push(k); }
-      counts[k]++;
-    }
-
-    const items = order.map(k => {
-      const { main, sub } = this._dayLabel(k);
-      return `
-        <button type="button" class="date-nav__item" data-day="${k}" onclick="Invoices.filterByDate('${k}')">
-          <span class="date-nav__label">
-            <span class="date-nav__main">${main}</span>
-            ${sub ? `<span class="date-nav__sub">${sub}</span>` : ''}
-          </span>
-          <span class="date-nav__count">${counts[k]}</span>
-        </button>`;
-    }).join('');
-
-    el.innerHTML = `
-      <div class="date-nav__head">Загружены</div>
-      <button type="button" class="date-nav__item date-nav__all active" data-day="" onclick="Invoices.filterByDate(null)">
-        <span class="date-nav__main">Все даты</span>
-        <span class="date-nav__count">${rows.length}</span>
-      </button>
-      ${items}`;
+    const presets = [
+      { key: 'all', label: 'Все' },
+      { key: 'today', label: 'Сегодня' },
+      { key: 'yesterday', label: 'Вчера' },
+      { key: '7d', label: '7 дней' },
+      { key: '30d', label: '30 дней' },
+    ];
+    el.innerHTML = `<span class="period-filter__label">Период:</span>` + presets.map(p =>
+      `<button type="button" class="period-btn${this.period === p.key ? ' active' : ''}" onclick="Invoices.setPeriod('${p.key}')">${p.label}</button>`
+    ).join('');
   },
 
-  // Show only rows uploaded on `key` (YYYY-MM-DD); pass null — or click the
-  // already-active day — to clear. Pure client-side over the current page's rows.
-  filterByDate(key) {
-    if (key && key === this._activeDay) key = null;   // toggle off
-    this._activeDay = key;
+  // Set the upload-date range from a preset and reload from the server (offset
+  // reset). `to` is the EXCLUSIVE upper bound (next day).
+  setPeriod(key) {
+    this.period = key;
+    const pad = n => String(n).padStart(2, '0');
+    const iso = dt => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const add = (base, n) => { const x = new Date(base); x.setDate(x.getDate() + n); return x; };
+    let from = null, to = null;
+    if (key === 'today') { from = iso(today); to = iso(add(today, 1)); }
+    else if (key === 'yesterday') { from = iso(add(today, -1)); to = iso(today); }
+    else if (key === '7d') { from = iso(add(today, -6)); to = iso(add(today, 1)); }
+    else if (key === '30d') { from = iso(add(today, -29)); to = iso(add(today, 1)); }
+    this.dateFrom = from;
+    this.dateTo = to;
+    this.offset = 0;
+    this.loadTable();
+  },
 
-    const tbody = document.getElementById('invoices-tbody');
-    tbody.querySelectorAll('tr').forEach(tr => {
-      if (!tr.dataset.day && key) { tr.style.display = 'none'; return; }
-      tr.style.display = (!key || tr.dataset.day === key) ? '' : 'none';
-    });
-
-    const nav = document.getElementById('invoices-date-nav');
-    if (nav) {
-      nav.querySelectorAll('.date-nav__item').forEach(b =>
-        b.classList.toggle('active', (b.dataset.day || '') === (key || '')));
-    }
+  // Debounced server-side search over invoice number / supplier / ИНН.
+  setSearch(q) {
+    this.search = (q || '').trim();
+    this.offset = 0;
+    clearTimeout(this._searchTimer);
+    this._searchTimer = setTimeout(() => this.loadTable(), 300);
   },
 
   // Renders the «Цены ↑» cell: how many line items are priced >10% above the

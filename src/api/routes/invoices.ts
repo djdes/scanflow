@@ -202,8 +202,12 @@ router.get('/', async (req: Request, res: Response) => {
   const status = req.query.status as string | undefined;
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;
+  const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const from = typeof req.query.from === 'string' && dateRe.test(req.query.from) ? req.query.from : undefined;
+  const to = typeof req.query.to === 'string' && dateRe.test(req.query.to) ? req.query.to : undefined;
 
-  const rawInvoices = await invoiceRepo.getAll(status, limit, offset, ownerScopeFor(req));
+  const rawInvoices = await invoiceRepo.getAll(status, limit, offset, ownerScopeFor(req), { q, from, to });
   const enriched = await Promise.all(rawInvoices.map(enrichInvoiceWithSupplier));
   const withSber = await attachSberStatus(enriched);
   const invoices = await attachElevatedPriceCount(withSber);

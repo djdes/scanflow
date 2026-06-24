@@ -108,40 +108,44 @@
     <section id="view-invoices">
       <div class="section-header">
         <h1 class="section-h1">Накладные</h1>
-        <a href="#/upload" class="btn btn-primary btn-sm" id="btn-upload-from-list">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          Загрузить
-        </a>
+        <div class="section-tools">
+          <div class="search-field">
+            <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="search" id="invoices-search" placeholder="Поиск: номер, поставщик, ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off">
+          </div>
+          <a href="#/upload" class="btn btn-primary btn-sm" id="btn-upload-from-list">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            Загрузить
+          </a>
+        </div>
       </div>
       <div id="invoices-stats" class="stats-bar"></div>
       <div id="invoices-list">
-        <div class="filters" id="invoices-filters"></div>
-        <div class="invoices-layout">
-          <aside class="date-nav" id="invoices-date-nav"></aside>
-          <div class="invoices-main">
-            <div class="table-wrap">
-              <table class="invoices-table">
-                <thead>
-                  <tr>
-                    <th class="col-id">ID</th>
-                    <th>Номер</th>
-                    <th>Дата</th>
-                    <th>Поставщик</th>
-                    <th style="text-align:right">Сумма</th>
-                    <th title="Позиции дороже обычного более чем на 10%" style="text-align:center">Цены&nbsp;↑</th>
-                    <th>Статус</th>
-                    <th title="Платёжное поручение в Сбер.Бизнес" style="text-align:center">Сбер</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="invoices-tbody"></tbody>
-              </table>
-            </div>
-            <div class="pagination" id="invoices-pagination"></div>
-          </div>
+        <div class="invoices-toolbar">
+          <div class="filters" id="invoices-filters"></div>
+          <div class="period-filter" id="invoices-period"></div>
         </div>
+        <div class="table-wrap">
+          <table class="invoices-table">
+            <thead>
+              <tr>
+                <th class="col-id">ID</th>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Поставщик</th>
+                <th style="text-align:right">Сумма</th>
+                <th title="Позиции дороже обычного более чем на 10%" style="text-align:center">Цены&nbsp;↑</th>
+                <th>Статус</th>
+                <th title="Платёжное поручение в Сбер.Бизнес" style="text-align:center">Сбер</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="invoices-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="invoices-pagination"></div>
       </div>
 
       <div id="invoice-detail" style="display:none">
