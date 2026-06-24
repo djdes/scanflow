@@ -96,6 +96,22 @@ jobs:
           # Prune dev dependencies
           npm prune --production 2>&1
 
+          # Enable multi-tenant data isolation via the server-only .env (rsync
+          # excludes .env, so the pipeline sets it here — no manual server edit).
+          # Idempotent. To DISABLE later, change =true to =false here and redeploy.
+          # The app reads DATA_SCOPING_ENABLED at startup (dotenv), picked up on
+          # the pm2 restart below.
+          if [ -f .env ]; then
+            if grep -q '^DATA_SCOPING_ENABLED=' .env; then
+              sed -i 's/^DATA_SCOPING_ENABLED=.*/DATA_SCOPING_ENABLED=true/' .env
+            else
+              echo 'DATA_SCOPING_ENABLED=true' >> .env
+            fi
+            echo "DATA_SCOPING_ENABLED=true ensured in .env"
+          else
+            echo "WARNING: .env not found — DATA_SCOPING_ENABLED not set"
+          fi
+
           # Restart with PM2
           pm2 startOrRestart ecosystem.config.js 2>&1
           pm2 save 2>&1
