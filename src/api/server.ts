@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
@@ -336,6 +337,23 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // this is for hash-routed subpaths that the SPA handles client-side).
   app.get('/{*splat}', (_req, res) => {
     res.sendFile(path.join(publicDir, 'index.html'));
+  });
+
+  // Terminal error handler (must be the LAST app.use). Without it, multer
+  // rejections (file too large / unsupported type) and any other thrown error
+  // fall through to Express's default HTML 500; map them to clean JSON instead.
+  // headersSent guard preserves already-streaming responses (e.g. photo serving).
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(err);
+    if (err instanceof multer.MulterError) {
+      const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+      return res.status(status).json({ error: err.message });
+    }
+    if (err) {
+      logger.error('Unhandled request error', { error: (err as Error).message });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    return next();
   });
 
   logger.info('Serving dashboard from', { path: publicDir });

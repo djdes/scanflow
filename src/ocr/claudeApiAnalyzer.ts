@@ -338,9 +338,11 @@ function createClient(apiKey: string): Anthropic {
     const dispatcher = new ProxyAgent(proxyUrl);
     const proxiedFetch: typeof globalThis.fetch = (url, init) =>
       undiciFetch(url as any, { ...init as any, dispatcher }) as any;
-    return new Anthropic({ apiKey, fetch: proxiedFetch });
+    // maxRetries:0 — withRetry() is the sole retry layer (see below). Leaving the
+    // SDK default (2) would compound multiplicatively to ~9 calls per analysis.
+    return new Anthropic({ apiKey, fetch: proxiedFetch, maxRetries: 0 });
   }
-  return new Anthropic({ apiKey });
+  return new Anthropic({ apiKey, maxRetries: 0 });
 }
 
 function getMediaType(imagePath: string): 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' {
