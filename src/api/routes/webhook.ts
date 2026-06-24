@@ -67,6 +67,9 @@ router.post('/test', async (req: Request, res: Response) => {
       method: 'POST',
       headers,
       body: JSON.stringify(testPayload),
+      // Match the production send path's bounded behavior (integration/webhook.ts)
+      // so a slow/unresponsive URL can't hold the request open indefinitely.
+      signal: AbortSignal.timeout(30_000),
     });
 
     res.json({

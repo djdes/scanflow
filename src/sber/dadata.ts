@@ -42,6 +42,9 @@ export async function lookupPartyByInn(inn: string, apiKey?: string | null): Pro
       Accept: 'application/json',
     },
     body: JSON.stringify({ query: inn }),
+    // Bound the call so a slow/hung DaData can't stall the request indefinitely
+    // (Node's global fetch has no default response timeout). Surfaces as 502.
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
     const text = await res.text();
