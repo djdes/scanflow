@@ -1,4 +1,4 @@
-/* global App, cv, TableCVExport */
+/* global App, cv, TableCVExport, TableCVLoader, TableCVPre, TableCVDetect, TableCVOverlay, TableCVOcr */
 const TableCV = {
   state: { img: null, cells: [], inited: false },
 
@@ -22,9 +22,22 @@ const TableCV = {
     document.getElementById('tablecv-run').onclick = () => this._run();
   },
 
+  _cleanupPre() {
+    if (this._pre) {
+      this._pre.gray && this._pre.gray.delete && this._pre.gray.delete();
+      this._pre.binary && this._pre.binary.delete && this._pre.binary.delete();
+      this._pre = null;
+    }
+  },
+
   async _run() {
     const progress = document.getElementById('tablecv-progress');
+    let det = null;
+    let maskesDeleted = false;
     try {
+      if (!this.state.img) { this._status('Сначала выберите фото', true); return; }
+      this._cleanupPre();
+
       progress.hidden = false; progress.value = 5;
       await TableCVLoader.ensure((m) => this._status(m));
       const opts = {
@@ -36,9 +49,21 @@ const TableCV = {
       if (layer === 'binary') cv.imshow('tablecv-canvas', this._pre.binary);
       else cv.imshow('tablecv-canvas', this._pre.gray);
 
-      const det = TableCVDetect.run(this._pre.binary, {
+      det = TableCVDetect.run(this._pre.binary, {
         lineLenPct: parseInt(document.getElementById('tablecv-linelen').value, 10),
       });
+
+      if (det.cells.length === 0) {
+        const merged = new cv.Mat();
+        cv.add(det.hMask, det.vMask, merged);
+        cv.imshow('tablecv-canvas', merged);
+        merged.delete();
+        this._status('Таблица не найдена — на фото нет уверенной сетки линий. Попробуйте более ровное/контрастное фото или уменьшите «мин. длину линии».', true);
+        det.hMask.delete(); det.vMask.delete();
+        maskesDeleted = true;
+        return;
+      }
+
       this.state.cells = det.cells;
 
       if (layer === 'lines') {
@@ -52,10 +77,10 @@ const TableCV = {
       this._status('Найдено ячеек: ' + det.cells.length);
 
       det.hMask.delete(); det.vMask.delete();
+      maskesDeleted = true;
 
       const geomOnly = document.getElementById('tablecv-geom-only').checked;
       if (!geomOnly && det.cells.length) {
-        const progress = document.getElementById('tablecv-progress');
         progress.hidden = false;
         await TableCVOcr.run(this._pre.gray, this.state.cells, (done, total) => {
           progress.value = Math.round(done / total * 100);
@@ -70,6 +95,10 @@ const TableCV = {
     } catch (err) {
       this._status(err.message, true);
     } finally {
+      if (det && !maskesDeleted) {
+        det.hMask && det.hMask.delete && det.hMask.delete();
+        det.vMask && det.vMask.delete && det.vMask.delete();
+      }
       setTimeout(() => { progress.hidden = true; progress.value = 0; }, 800);
     }
   },
