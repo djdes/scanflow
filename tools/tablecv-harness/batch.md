@@ -51,3 +51,32 @@ Full pipeline on upload-1782204930225-139938.JPG (earlier run): orientation
 auto-corrected (conf 64 vs 35 upside-down); OCR readable — headers, units,
 numbers, and the item description recognised; some empty cells emitted noise
 (`EEE`, `Far`) and a few numeric cells had junk (`© 961,21`). Tasks 2–3 target this.
+
+## After Tasks 4–5 (column recovery + region-adaptive thresholds), geometry
+
+| file | found before | found after | cells (after) | cols | rows | note |
+|------|:---:|:---:|---:|---:|---:|------|
+| 139938 | Y | Y | 41 | 15 | 6 | unchanged (well-segmented) |
+| 83832  | Y | Y | 63 | 4 | 17 | recovery triggered, found no extra cols |
+| 466024 | N | **N** | 0 | 0 | 9 | still fails: horizontals only, no vertical rules in any orientation |
+| 87116  | Y | Y | 59 | 8 | 10 | unchanged |
+| 80780  | Y | Y | 114 | 6 | 21 | unchanged |
+| 130252 | Y | Y | 100 | 8 | 13 | unchanged |
+| 57561  | Y | Y | 31 | 17 | 4 | unchanged |
+| 292003 | Y | Y | 4 | 22 | 9 | whole-frame fallback (no region); lower projFrac now finds more lines |
+| 519061 | Y | Y | 33 | 10 | 4 | unchanged |
+| 779834 | Y | Y | 20 | 11 | 10 | unchanged |
+
+**After Tasks 4–5: table found 9/10 (90%) — meets the ≥80% gate, no regressions.**
+
+Honest assessment: Tasks 4–5 added conservative robustness mechanisms with NO regression
+but NO measurable improvement on this 10-photo sample (column recovery recovered nothing
+at the 0.2 density ratio; the region/threshold relaxation changed 292003's line counts but
+not the found-count). The clear wins this round are Task 2 (OCR noise filter) and Task 3
+(numeric normalisation), both browser-validated, plus this measurement harness.
+
+### Residual failure to carry forward
+- 466024: only horizontal rules detected, no vertical lines in any rotation → either the
+  table genuinely lacks vertical rules or they are far below the morphology threshold.
+  Needs a different approach (e.g. text-column-gap segmentation independent of ruled lines),
+  out of scope for this round.
