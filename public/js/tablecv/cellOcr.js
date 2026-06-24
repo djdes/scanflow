@@ -33,6 +33,14 @@ const TableCVOcr = {
         win.cells[i].text = TableCVOcrClean.cleanCellText(data.text, data.confidence);
         onProgress && onProgress(i + 1, win.cells.length);
       }
+      // Column-aware numeric normalisation.
+      const byCol = {};
+      win.cells.forEach((c) => { (byCol[c.col] = byCol[c.col] || []).push(c); });
+      Object.values(byCol).forEach((col) => {
+        if (TableCVOcrClean.isLikelyNumericColumn(col.map((c) => c.text))) {
+          col.forEach((c) => { c.text = TableCVOcrClean.normalizeNumeric(c.text); });
+        }
+      });
       return { index: best.index, gray: win.gray, cells: win.cells, region: win.region, confidence: best.confidence };
     } finally {
       await worker.terminate();
