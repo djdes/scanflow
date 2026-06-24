@@ -3504,8 +3504,8 @@ details[open] summary { margin-bottom: 12px; }
 
 /* ===== Mobile: invoices table → cards (no two-axis scroll on phones) ===== */
 @media (max-width: 640px) {
-  .invoices-table thead { display: none; }
-  .invoices-table, .invoices-table tbody { display: block; width: 100%; }
+  #view-invoices .invoices-table thead { display: none; }
+  #view-invoices .invoices-table, #view-invoices .invoices-table tbody { display: block; width: 100%; }
   #invoices-list .table-wrap { border: none; background: transparent; box-shadow: none; overflow: visible; }
 
   .invoices-table tbody tr.clickable {
@@ -3554,6 +3554,51 @@ details[open] summary { margin-bottom: 12px; }
   .invoices-table tbody tr.date-group-row { display: block; }
   .invoices-table tbody tr.date-group-row td { display: block; text-align: left; }
   .invoices-table tbody tr.date-group-row td::before { display: none; }
+}
+
+/* ===== Generic responsive table → cards on phones (opt-in: table.cards-mobile,
+   with each <td data-label="…">). Used by Поставщики / Журнал / Справочник 1С. */
+@media (max-width: 640px) {
+  .table-wrap:has(table.cards-mobile) { border: none; background: transparent; box-shadow: none; overflow: visible; padding: 0; }
+  table.cards-mobile thead { display: none; }
+  table.cards-mobile, table.cards-mobile tbody { display: block; width: 100%; }
+  table.cards-mobile tbody tr {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+    margin: 0 0 10px;
+    padding: 8px 14px;
+  }
+  table.cards-mobile tbody tr td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    border: none !important;
+    text-align: right;
+    white-space: normal;
+    font-size: 14px;
+  }
+  table.cards-mobile tbody tr td::before {
+    content: attr(data-label);
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 12.5px;
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  table.cards-mobile tbody tr td:empty { display: none; }
+  table.cards-mobile tbody tr td.cell-action {
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border) !important;
+  }
+  table.cards-mobile tbody tr td.cell-action::before { content: 'Действия'; color: var(--text-tertiary); }
 }
 
 @media (max-width: 860px) {

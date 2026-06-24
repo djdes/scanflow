@@ -227,14 +227,14 @@ const Suppliers = {
     }
     const rows = this.state.items.map(s => `
       <tr>
-        <td>${App.esc(s.inn)}</td>
-        <td>${App.esc(s.name)}</td>
-        <td>${App.esc(s.kpp || '')}</td>
-        <td>${App.esc(s.bank_bic)}</td>
-        <td>${App.esc(s.account || '')}</td>
-        <td>${s.verified ? '<span class="badge badge-ok" style="padding:2px 8px">✓</span>' : '<span class="badge badge-warn" style="padding:2px 8px">!</span>'}</td>
-        <td>${App.esc(s.last_used_at || '')}</td>
-        <td>
+        <td data-label="ИНН">${App.esc(s.inn)}</td>
+        <td data-label="Название">${App.esc(s.name)}</td>
+        <td data-label="КПП">${App.esc(s.kpp || '')}</td>
+        <td data-label="БИК">${App.esc(s.bank_bic)}</td>
+        <td data-label="Счёт">${App.esc(s.account || '')}</td>
+        <td data-label="Проверен">${s.verified ? '<span class="badge badge-ok" style="padding:2px 8px">✓</span>' : '<span class="badge badge-warn" style="padding:2px 8px">!</span>'}</td>
+        <td data-label="Использован">${App.esc(s.last_used_at || '')}</td>
+        <td class="cell-action">
           <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')">✎</button>
           <button class="btn btn-danger btn-sm" onclick="Suppliers.remove('${App.esc(s.inn)}')">🗑</button>
         </td>
@@ -242,8 +242,8 @@ const Suppliers = {
     `).join('');
     wrap.innerHTML = `
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>ИНН</th><th>Название</th><th>КПП</th><th>БИК</th><th>Счёт</th><th>Verified</th><th>Last used</th><th></th></tr></thead>
+        <table class="cards-mobile">
+          <thead><tr><th>ИНН</th><th>Название</th><th>КПП</th><th>БИК</th><th>Счёт</th><th>Проверен</th><th>Использован</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>

@@ -421,12 +421,12 @@ const Mappings = {
       const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const guidShort = it.guid ? it.guid.substring(0, 8) + '…' : '—';
       return `<tr>
-        <td>${i + 1}</td>
-        <td>${esc(it.code) || '—'}</td>
-        <td><strong>${esc(it.name)}</strong></td>
-        <td>${esc(it.full_name) || '—'}</td>
-        <td>${esc(it.unit) || '—'}</td>
-        <td><code style="font-size:11px" title="${esc(it.guid)}">${guidShort}</code></td>
+        <td data-label="#">${i + 1}</td>
+        <td data-label="Код">${esc(it.code) || '—'}</td>
+        <td data-label="Наименование"><strong>${esc(it.name)}</strong></td>
+        <td data-label="Полное">${esc(it.full_name) || '—'}</td>
+        <td data-label="Ед.">${esc(it.unit) || '—'}</td>
+        <td data-label="GUID"><code style="font-size:11px" title="${esc(it.guid)}">${guidShort}</code></td>
       </tr>`;
     }).join('');
   },

@@ -25,10 +25,10 @@ const IntegrationsLog = {
         const rowStyle = ev.status === 'error' ? ' style="color:#dc2626"' : '';
         const link = ev.invoice_id ? ` <a href="#/invoices/${ev.invoice_id}">№${ev.invoice_id}</a>` : '';
         return `<tr${rowStyle}>
-          <td style="white-space:nowrap">${App.formatDateTime(ev.ts)}</td>
-          <td>${badge}</td>
-          <td>${App.esc(ev.event_type)}</td>
-          <td>${App.esc(ev.summary)}${link}</td>
+          <td data-label="Время" style="white-space:nowrap">${App.formatDateTime(ev.ts)}</td>
+          <td data-label="Интеграция">${badge}</td>
+          <td data-label="Событие">${App.esc(ev.event_type)}</td>
+          <td data-label="Описание">${App.esc(ev.summary)}${link}</td>
         </tr>`;
       }).join('');
     } catch (e) {
