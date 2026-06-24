@@ -80,7 +80,7 @@ body {
 header {
   background: var(--card);
   border-bottom: 1px solid var(--border);
-  padding: 0 24px;
+  padding: 0;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -90,6 +90,7 @@ header {
 header .header-inner {
   max-width: 1200px;
   margin: 0 auto;
+  padding: 0 24px;
   display: flex;
   align-items: center;
   height: 60px;
@@ -3256,11 +3257,12 @@ details[open] summary { margin-bottom: 12px; }
   html, body { overflow-x: hidden; }
   #app { overflow-x: hidden; }
 
-  header { padding: 0 14px; }
+  header { padding: 0; }
   header .header-inner {
     flex-wrap: nowrap;
     height: 56px;
     gap: 10px;
+    padding: 0 16px;
   }
   .nav-toggle { display: inline-flex; }
   .header-right { display: none; }
@@ -3310,7 +3312,7 @@ details[open] summary { margin-bottom: 12px; }
   }
   .nav-menu a { padding: 10px 12px; }
 
-  main { padding: 16px 12px; }
+  main { padding: 16px 16px; }
 
   /* Square overprice counters: pinned top-right of the open invoice. */
   #invoice-detail { position: relative; }
