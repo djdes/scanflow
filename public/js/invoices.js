@@ -23,18 +23,21 @@ const Invoices = {
       (data.byStatus || []).forEach(s => { counts[s.status] = s.count; });
       const cur = this.currentStatus || 'all';
       const cardHtml = (filter, value, label) => `
-        <button type="button" class="stat-card${cur === filter ? ' active' : ''}" data-filter="${filter}" onclick="Invoices.setFilter('${filter}')">
+        <button type="button" class="stat-card stat-card--${filter}${cur === filter ? ' active' : ''}" data-filter="${filter}" onclick="Invoices.setFilter('${filter}')">
           <span class="stat-value">${value || 0}</span>
           <span class="stat-label">${label}</span>
         </button>`;
       const sber = data.sberUnsent || { count: 0, totalSum: 0 };
       const fmtSum = Number(sber.totalSum).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      // The stat cards ARE the status filter now (the old duplicate pill row is
+      // gone). "Новые" added so every status is reachable from one surface.
       container.innerHTML = [
         cardHtml('all',        data.total || 0,            'Всего'),
+        cardHtml('new',        counts.new || 0,            'Новые'),
         cardHtml('processed',  counts.processed || 0,      'Обработано'),
         cardHtml('sent_to_1c', counts.sent_to_1c || 0,     'Отправлено в 1С'),
         cardHtml('error',      counts.error || 0,          'Ошибки'),
-        `<div class="stat-card sber-unpaid-card" title="Накладные за 30 дней без платежа в Сбербанк">
+        `<div class="stat-card stat-card--sber sber-unpaid-card" title="Накладные за 30 дней без платежа в Сбербанк">
           <span class="stat-value">${fmtSum} ₽</span>
           <span class="stat-label">Не оплачено (${sber.count} шт.)</span>
         </div>`,
@@ -45,19 +48,6 @@ const Invoices = {
   },
 
   async loadTable() {
-    const filters = document.getElementById('invoices-filters');
-    const statuses = [
-      { key: null, label: 'Все' },
-      { key: 'new', label: 'Новые' },
-      { key: 'processed', label: 'Обработанные' },
-      { key: 'sent_to_1c', label: 'Отправленные' },
-      { key: 'error', label: 'Ошибки' },
-    ];
-
-    filters.innerHTML = statuses.map(s =>
-      `<button class="filter-btn ${this.currentStatus === s.key ? 'active' : ''}"
-              onclick="Invoices.setFilter(${s.key === null ? 'null' : `'${s.key}'`})">${s.label}</button>`
-    ).join('');
     this._renderPeriod();
 
     let url = `/invoices?limit=${this.limit}&offset=${this.offset}`;
@@ -102,15 +92,15 @@ const Invoices = {
         }
         rowsHtml.push(`
         <tr class="clickable" data-day="${day}" onclick="App.navigate('#/invoices/${inv.id}')">
-          <td class="col-id">${inv.id}</td>
-          <td>${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
-          <td>${App.formatDate(inv.invoice_date)}</td>
-          <td>${App.esc(inv.supplier || '—')}</td>
-          <td style="text-align:right">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
-          <td style="text-align:center">${this._elevatedCell(inv)}</td>
-          <td>${App.statusBadge(inv.status)}</td>
-          <td style="text-align:center">${this._sberCell(inv)}</td>
-          <td style="text-align:center">
+          <td class="col-id" data-label="ID">${inv.id}</td>
+          <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
+          <td data-label="Дата">${App.formatDate(inv.invoice_date)}</td>
+          <td data-label="Поставщик">${App.esc(inv.supplier || '—')}</td>
+          <td style="text-align:right" data-label="Сумма">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
+          <td style="text-align:center" data-label="Цены ↑">${this._elevatedCell(inv)}</td>
+          <td data-label="Статус">${App.statusBadge(inv.status)}</td>
+          <td style="text-align:center" data-label="Сбер">${this._sberCell(inv)}</td>
+          <td style="text-align:center" class="cell-action">
             <button class="btn-icon-danger" title="Удалить накладную"
                     aria-label="Удалить накладную ${inv.id}"
                     onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
@@ -138,7 +128,9 @@ const Invoices = {
   },
 
   setFilter(status) {
-    this.currentStatus = status;
+    // The "Всего" card passes 'all' — normalise to null (no status param) so it
+    // shows everything instead of querying a non-existent status='all'.
+    this.currentStatus = (status && status !== 'all') ? status : null;
     this.offset = 0;
     this.loadTable();
   },

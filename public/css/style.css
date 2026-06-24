@@ -357,16 +357,19 @@ section { display: none; }
 }
 
 /* Colored gradient accent bars + a whisper of matching tint per category. */
-.stat-card:first-child::before  { background: linear-gradient(90deg, var(--accent-blue),   #5aa6ef); }
-.stat-card:nth-child(2)::before { background: linear-gradient(90deg, var(--accent-green),  #43c486); }
-.stat-card:nth-child(3)::before { background: linear-gradient(90deg, var(--accent-indigo), #8587e9); }
-.stat-card:nth-child(4)::before { background: linear-gradient(90deg, var(--accent-red),    #ec7b78); }
-.stat-card:first-child  { background: linear-gradient(180deg, rgba(35,131,226,0.055), var(--card) 62%); }
-.stat-card:nth-child(2) { background: linear-gradient(180deg, rgba(31,157,87,0.055),  var(--card) 62%); }
-.stat-card:nth-child(3) { background: linear-gradient(180deg, rgba(91,91,214,0.055),  var(--card) 62%); }
-.stat-card:nth-child(4) { background: linear-gradient(180deg, rgba(224,84,76,0.055),  var(--card) 62%); }
+/* Per-status accent — class-based, so colour follows meaning, not card order. */
+.stat-card--all::before        { background: linear-gradient(90deg, var(--accent-blue),   #5aa6ef); }
+.stat-card--new::before        { background: linear-gradient(90deg, var(--accent-amber),  #f0b366); }
+.stat-card--processed::before  { background: linear-gradient(90deg, var(--accent-green),  #43c486); }
+.stat-card--sent_to_1c::before { background: linear-gradient(90deg, var(--accent-indigo), #8587e9); }
+.stat-card--error::before      { background: linear-gradient(90deg, var(--accent-red),    #ec7b78); }
+.stat-card--sber::before       { background: linear-gradient(90deg, #1f9d57, #2bbf73); }
+.stat-card--all        { background: linear-gradient(180deg, rgba(35,131,226,0.055), var(--card) 62%); }
+.stat-card--new        { background: linear-gradient(180deg, rgba(224,144,46,0.06),  var(--card) 62%); }
+.stat-card--processed  { background: linear-gradient(180deg, rgba(31,157,87,0.055),  var(--card) 62%); }
+.stat-card--sent_to_1c { background: linear-gradient(180deg, rgba(91,91,214,0.055),  var(--card) 62%); }
+.stat-card--error      { background: linear-gradient(180deg, rgba(224,84,76,0.055),  var(--card) 62%); }
 .stat-card.sber-unpaid-card { cursor: default; background: linear-gradient(180deg, rgba(33,160,56,0.07), var(--card) 62%); }
-.stat-card.sber-unpaid-card::before { background: linear-gradient(90deg, #1f9d57, #2bbf73); }
 .stat-card.sber-unpaid-card .stat-value { font-size: 22px; color: #1f9d57; }
 
 .stat-card:hover {
@@ -381,10 +384,11 @@ section { display: none; }
   letter-spacing: -0.5px;
 }
 
-.stat-card:first-child  .stat-value { color: var(--accent-blue); }
-.stat-card:nth-child(2) .stat-value { color: var(--accent-green); }
-.stat-card:nth-child(3) .stat-value { color: var(--accent-indigo); }
-.stat-card:nth-child(4) .stat-value { color: var(--accent-red); }
+.stat-card--all .stat-value        { color: var(--accent-blue); }
+.stat-card--new .stat-value        { color: var(--accent-amber); }
+.stat-card--processed .stat-value  { color: var(--accent-green); }
+.stat-card--sent_to_1c .stat-value { color: var(--accent-indigo); }
+.stat-card--error .stat-value      { color: var(--accent-red); }
 
 .stat-card .stat-label {
   font-size: 13px;
@@ -3496,6 +3500,60 @@ details[open] summary { margin-bottom: 12px; }
   font-weight: 500;
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* ===== Mobile: invoices table → cards (no two-axis scroll on phones) ===== */
+@media (max-width: 640px) {
+  .invoices-table thead { display: none; }
+  .invoices-table, .invoices-table tbody { display: block; width: 100%; }
+  #invoices-list .table-wrap { border: none; background: transparent; box-shadow: none; overflow: visible; }
+
+  .invoices-table tbody tr.clickable {
+    display: block;
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+    margin: 0 0 10px;
+    padding: 8px 14px;
+  }
+  .invoices-table tbody tr.clickable td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    border: none !important;
+    text-align: right;
+    white-space: normal;
+    font-size: 14px;
+  }
+  .invoices-table tbody tr.clickable td::before {
+    content: attr(data-label);
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 12.5px;
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  .invoices-table tbody tr.clickable td.col-id { display: none; }      /* internal id — drop on phone */
+  .invoices-table tbody tr.clickable td.cell-action {
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border) !important;
+  }
+  .invoices-table tbody tr.clickable td.cell-action::before {
+    content: 'Удалить';
+    color: var(--text-tertiary);
+  }
+
+  /* Date-group header stays a full-width band */
+  .invoices-table tbody tr.date-group-row { display: block; }
+  .invoices-table tbody tr.date-group-row td { display: block; text-align: left; }
+  .invoices-table tbody tr.date-group-row td::before { display: none; }
 }
 
 @media (max-width: 860px) {
