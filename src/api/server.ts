@@ -30,6 +30,11 @@ import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
 export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMapper): express.Express {
   const app = express();
+  // Behind nginx (FastPanel) the real client IP arrives in X-Forwarded-For.
+  // Trust exactly one proxy hop so express-rate-limit buckets per real client
+  // instead of collapsing every request into the single 127.0.0.1 bucket
+  // (which made the login/global limits effectively global, not per-IP).
+  app.set('trust proxy', 1);
   const publicDir = path.resolve(process.cwd(), 'public');
 
   // Canonical blog URL has no trailing slash. Catch /blog/ before
