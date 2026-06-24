@@ -21,6 +21,7 @@ import { startDigestWorker } from './notifications/digestWorker';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
+let httpServer: import('http').Server | null = null;
 
 async function main(): Promise<void> {
   logger.info('=== 1C-JPGExchange starting ===');
@@ -100,7 +101,7 @@ async function main(): Promise<void> {
   logger.info('File watcher ready');
 
   // Start REST API server
-  startServer(fileWatcher, mapper);
+  httpServer = startServer(fileWatcher, mapper);
 
   // Schedule daily database backup at 03:00 server time
   cron.schedule('0 3 * * *', () => {
@@ -167,8 +168,19 @@ async function main(): Promise<void> {
 async function shutdown(): Promise<void> {
   logger.info('Shutting down...');
 
+  // Stop new intake first (watcher), then drain in-flight HTTP requests before
+  // tearing down the DB pool — closing the pool while a request is mid-query
+  // throws "pool is closed". Bounded so a keep-alive connection can't hang exit.
   if (fileWatcher) {
     fileWatcher.stop();
+  }
+
+  if (httpServer) {
+    const server = httpServer;
+    await Promise.race([
+      new Promise<void>((resolve) => server.close(() => resolve())),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]);
   }
 
   if (ocrManager) {

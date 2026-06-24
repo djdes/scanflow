@@ -361,12 +361,13 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   return app;
 }
 
-export function startServer(fileWatcher: FileWatcher, mapper: NomenclatureMapper): void {
+export function startServer(fileWatcher: FileWatcher, mapper: NomenclatureMapper): import('http').Server {
   const app = createServer(fileWatcher, mapper);
 
-  app.listen(config.apiPort, () => {
+  const server = app.listen(config.apiPort, () => {
     logger.info(`API server listening on port ${config.apiPort}`);
     logger.info(`Health check: http://localhost:${config.apiPort}/health`);
     logger.info(`Dashboard: http://localhost:${config.apiPort}/`);
   });
+  return server;
 }
