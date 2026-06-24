@@ -17,7 +17,7 @@ const TableCVPre = {
     cv.cvtColor(work, gray, cv.COLOR_RGBA2GRAY);
     work.delete();
 
-    // Deskew: estimate dominant skew from the binarized text/lines via minAreaRect.
+    // Deskew: estimate dominant skew from near-horizontal ruling lines.
     const angle = this._estimateSkew(gray);
     if (Math.abs(angle) > 0.3 && Math.abs(angle) < 15) {
       const center = new cv.Point(gray.cols / 2, gray.rows / 2);
@@ -39,18 +39,26 @@ const TableCVPre = {
     return { gray, binary, scale };
   },
 
+  // Estimate page skew from the long near-horizontal ruling lines via
+  // probabilistic Hough. (The @techstark opencv.js build does not expose
+  // cv.findNonZero, so the minAreaRect-on-points approach isn't available.)
+  // Returns the median angle in degrees of segments within ±15° of horizontal.
   _estimateSkew(gray) {
-    const bin = new cv.Mat();
-    cv.threshold(gray, bin, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
-    const pts = new cv.Mat();
-    cv.findNonZero(bin, pts);
-    let angle = 0;
-    if (pts.rows > 0) {
-      const rect = cv.minAreaRect(pts);
-      angle = rect.angle;
-      if (angle < -45) angle += 90;
+    const edges = new cv.Mat();
+    cv.Canny(gray, edges, 50, 150, 3, false);
+    const lines = new cv.Mat();
+    const minLen = Math.max(60, Math.round(gray.cols * 0.3));
+    cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 100, minLen, 10);
+    const angles = [];
+    for (let i = 0; i < lines.rows; i++) {
+      const x1 = lines.data32S[i * 4], y1 = lines.data32S[i * 4 + 1];
+      const x2 = lines.data32S[i * 4 + 2], y2 = lines.data32S[i * 4 + 3];
+      const deg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+      if (Math.abs(deg) < 15) angles.push(deg);
     }
-    bin.delete(); pts.delete();
-    return angle;
+    edges.delete(); lines.delete();
+    if (angles.length === 0) return 0;
+    angles.sort((a, b) => a - b);
+    return angles[Math.floor(angles.length / 2)];
   },
 };

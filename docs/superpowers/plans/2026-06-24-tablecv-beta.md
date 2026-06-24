@@ -1115,3 +1115,34 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Type consistency:** Cell shape `{row,col,rowSpan,colSpan,x,y,w,h,text}` is used identically in Task 1 (`regionsToCells`), Task 2 (export), Task 6 (overlay), Task 7 (OCR). `TableCVGrid`, `TableCVExport`, `TableCVLoader`, `TableCVPre`, `TableCVDetect`, `TableCVOverlay`, `TableCVOcr` globals are defined once and consumed by name consistently. `mergeCells(R,C,vBorder,hBorder)` signature matches between Task 1 definition and Task 6 call. ✓
 
 **Note on automated coverage:** Only the pure cores (gridCore, export) are unit-tested; OpenCV/Tesseract/DOM layers rely on the manual verification steps in each task, because the project has no headless-browser test harness. This is called out so the limited automated coverage is not mistaken for full coverage.
+
+---
+
+## Post-implementation: real-photo browser test (2026-06-24)
+
+Ran the full pipeline in a real browser (Playwright + a temporary static server +
+standalone harness) on an actual phone photo of a ТОРГ-12 invoice. Four issues
+surfaced that `node --check` + unit tests could not catch; all fixed:
+
+1. **`cv.findNonZero` missing** in the @techstark opencv.js build → `_estimateSkew`
+   crashed. Rewrote deskew to use `cv.HoughLinesP` (median angle of near-horizontal
+   segments). [preprocess.js]
+2. **EXIF 90° rotation**: phone photos load rotated, so the landscape table appeared
+   sideways and no grid was found. Added `TableCVDetect.runAuto` — tries the 4
+   orthogonal rotations and keeps the best grid. [gridDetect.js, tablecv.js]
+3. **Table is a sub-region of the frame**: full-frame projection thresholds (0.3 of
+   image) missed the perpendicular lines. Added table localisation
+   (`_tableRegion`, largest line-structure contour) + crop-relative kernel/projection
+   thresholds (`lineKernelFrac`, `projFrac`). Cells offset back to full coords. [gridDetect.js]
+4. **180° OCR orientation**: geometry can't distinguish upright from upside-down.
+   Added `TableCVOcr.runOriented` — OCRs the table crop of the chosen orientation vs
+   its 180° sibling and keeps the higher-confidence reading before per-cell OCR. [cellOcr.js, tablecv.js]
+
+Result on the test photo: table localised, ~15 columns × 6 rows with merged cells,
+auto-oriented upright, and OCR readable & largely correct (headers, units, numbers,
+and the item description all recognised; sparse/empty cells produce some noise).
+
+Known rough edges (future work): per-cell OCR is slow (sequential worker, ~1–2 s/cell);
+some empty cells emit OCR noise; the data row's faint internal column rules can
+under-segment into one wide merged cell; thresholds (0.12/0.2) are tuned on one photo
+and may need adaptation across invoice styles.

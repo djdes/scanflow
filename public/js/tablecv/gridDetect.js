@@ -1,47 +1,125 @@
 /* global cv, TableCVGrid */
 const TableCVDetect = {
+  // Detect the cell grid in a binarised (white-on-black) image.
+  // Returns cells in FULL-image pixel coords (offset by the table region).
+  // opts: { lineKernelFrac=0.12, projFrac=0.2 }
   run(binary, opts) {
-    const lineLenPct = (opts.lineLenPct || 40) / 100;
-    const hLen = Math.max(10, Math.round(binary.cols * lineLenPct));
-    const vLen = Math.max(10, Math.round(binary.rows * lineLenPct));
+    opts = opts || {};
+    const kFrac = opts.lineKernelFrac || 0.12;
+    const projFrac = opts.projFrac || 0.2;
 
-    const hMask = new cv.Mat();
-    const hKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(hLen, 1));
-    cv.morphologyEx(binary, hMask, cv.MORPH_OPEN, hKernel);
-    hKernel.delete();
+    // 1. Localise the table so thresholds are relative to it, not the whole
+    //    page (invoices often have the table in only part of the frame).
+    const region = this._tableRegion(binary);
+    const roi = region ? binary.roi(region) : binary;
+    const ox = region ? region.x : 0;
+    const oy = region ? region.y : 0;
 
-    const vMask = new cv.Mat();
-    const vKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(1, vLen));
-    cv.morphologyEx(binary, vMask, cv.MORPH_OPEN, vKernel);
-    vKernel.delete();
+    // 2. Morphological line masks within the (cropped) table.
+    const hLen = Math.max(15, Math.round(roi.cols * kFrac));
+    const vLen = Math.max(15, Math.round(roi.rows * kFrac));
+    const hMask = this._openMask(roi, hLen, true);
+    const vMask = this._openMask(roi, vLen, false);
 
-    const ys = this._lineCoords(hMask, 'h');
-    const xs = this._lineCoords(vMask, 'v');
+    // 3. Line coordinates (ROI-relative), then mapped to full-image coords.
+    const ysRoi = this._lineCoords(hMask, 'h', projFrac);
+    const xsRoi = this._lineCoords(vMask, 'v', projFrac);
+    const xs = xsRoi.map((x) => x + ox);
+    const ys = ysRoi.map((y) => y + oy);
 
     let cells = [];
-    if (xs.length >= 2 && ys.length >= 2) {
-      const R = ys.length - 1, C = xs.length - 1;
-      const vBorder = this._borderGrid(vMask, xs, ys, R, C, 'v');
-      const hBorder = this._borderGrid(hMask, xs, ys, R, C, 'h');
+    if (xsRoi.length >= 2 && ysRoi.length >= 2) {
+      const R = ysRoi.length - 1, C = xsRoi.length - 1;
+      // Border sampling uses the ROI-coord masks, so pass ROI-coord lines.
+      const vBorder = this._borderGrid(vMask, xsRoi, ysRoi, R, C, 'v');
+      const hBorder = this._borderGrid(hMask, xsRoi, ysRoi, R, C, 'h');
       const regions = TableCVGrid.mergeCells(R, C, vBorder, hBorder);
-      cells = TableCVGrid.regionsToCells(regions, xs, ys);
+      cells = TableCVGrid.regionsToCells(regions, xs, ys); // full-image coords
     }
-    return { cells, hMask, vMask, xs, ys };
+
+    if (region) roi.delete();
+    return { cells, hMask, vMask, xs, ys, region };
+  },
+
+  // Try the 4 orthogonal orientations (phone photos carry arbitrary EXIF
+  // rotation) and keep the one that yields the best grid. Binarises each
+  // rotation internally. Returns { gray, binary, det, rot } where gray/binary
+  // are the chosen orientation (caller owns their .delete(), plus
+  // det.hMask/det.vMask).
+  runAuto(gray, opts) {
+    opts = opts || {};
+    const blockSize = (opts.blockSize % 2 === 1) ? opts.blockSize : (opts.blockSize || 25);
+    const codes = [null, cv.ROTATE_90_CLOCKWISE, cv.ROTATE_180, cv.ROTATE_90_COUNTERCLOCKWISE];
+    let best = null;
+    for (let k = 0; k < 4; k++) {
+      const g = new cv.Mat();
+      if (k === 0) gray.copyTo(g); else cv.rotate(gray, g, codes[k]);
+      const bin = new cv.Mat();
+      cv.adaptiveThreshold(g, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, 10);
+      const det = this.run(bin, opts);
+      const score = (det.xs.length >= 2 && det.ys.length >= 2) ? det.cells.length : -1;
+      if (!best || score > best.score) {
+        if (best) { best.gray.delete(); best.binary.delete(); best.det.hMask.delete(); best.det.vMask.delete(); }
+        best = { score, rot: k, gray: g, binary: bin, det };
+      } else {
+        g.delete(); bin.delete(); det.hMask.delete(); det.vMask.delete();
+      }
+    }
+    return best;
+  },
+
+  _openMask(src, klen, horiz) {
+    const m = new cv.Mat();
+    const k = cv.getStructuringElement(cv.MORPH_RECT, horiz ? new cv.Size(klen, 1) : new cv.Size(1, klen));
+    cv.morphologyEx(src, m, cv.MORPH_OPEN, k);
+    k.delete();
+    return m;
+  },
+
+  // Bounding box of the largest connected line structure = the table.
+  // Returns a cv.Rect or null when no plausible table is found.
+  _tableRegion(binary) {
+    const hM = this._openMask(binary, Math.max(20, Math.round(binary.cols * 0.1)), true);
+    const vM = this._openMask(binary, Math.max(20, Math.round(binary.rows * 0.1)), false);
+    const grid = new cv.Mat();
+    cv.add(hM, vM, grid);
+    const ker = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(15, 15));
+    const closed = new cv.Mat();
+    cv.morphologyEx(grid, closed, cv.MORPH_CLOSE, ker);
+    ker.delete();
+    const contours = new cv.MatVector();
+    const hier = new cv.Mat();
+    cv.findContours(closed, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    let best = null, bestArea = 0;
+    for (let i = 0; i < contours.size(); i++) {
+      const r = cv.boundingRect(contours.get(i));
+      const a = r.width * r.height;
+      if (a > bestArea) { bestArea = a; best = r; }
+    }
+    hM.delete(); vM.delete(); grid.delete(); closed.delete(); contours.delete(); hier.delete();
+    // Plausibility: a table spans a good chunk of width and isn't a sliver.
+    if (best && best.width > binary.cols * 0.3 && best.height > 20) {
+      // Pad a few px so border lines aren't clipped.
+      const pad = 4;
+      const x = Math.max(0, best.x - pad), y = Math.max(0, best.y - pad);
+      return new cv.Rect(x, y, Math.min(best.width + 2 * pad, binary.cols - x), Math.min(best.height + 2 * pad, binary.rows - y));
+    }
+    return null;
   },
 
   // Project a line mask onto an axis; rows/cols whose white-pixel count exceeds
   // a fraction of the span are line positions, then cluster adjacent ones.
-  _lineCoords(mask, dir) {
+  _lineCoords(mask, dir, projFrac) {
     const coords = [];
     if (dir === 'h') {
-      const thresh = mask.cols * 0.3;
+      const thresh = mask.cols * projFrac;
       for (let y = 0; y < mask.rows; y++) {
         let count = 0;
         for (let x = 0; x < mask.cols; x++) if (mask.ucharPtr(y, x)[0]) count++;
         if (count > thresh) coords.push(y);
       }
     } else {
-      const thresh = mask.rows * 0.3;
+      const thresh = mask.rows * projFrac;
       for (let x = 0; x < mask.cols; x++) {
         let count = 0;
         for (let y = 0; y < mask.rows; y++) if (mask.ucharPtr(y, x)[0]) count++;

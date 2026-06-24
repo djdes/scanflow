@@ -40,57 +40,88 @@ const TableCV = {
 
       progress.hidden = false; progress.value = 5;
       await TableCVLoader.ensure((m) => this._status(m));
-      const opts = {
-        maxSide: 2000,
-        blockSize: parseInt(document.getElementById('tablecv-block').value, 10),
-      };
-      this._pre = TableCVPre.run(this.state.img, opts);
+
+      const blockSize = parseInt(document.getElementById('tablecv-block').value, 10);
+      const detOpts = { blockSize, lineKernelFrac: 0.12, projFrac: 0.2 };
       const layer = document.getElementById('tablecv-layer').value;
-      if (layer === 'binary') cv.imshow('tablecv-canvas', this._pre.binary);
-      else cv.imshow('tablecv-canvas', this._pre.gray);
 
-      det = TableCVDetect.run(this._pre.binary, {
-        lineLenPct: parseInt(document.getElementById('tablecv-linelen').value, 10),
-      });
+      // Preprocess (downscale + deskew), then auto-orient: runAuto tries the 4
+      // orthogonal rotations (phone EXIF) and localises the table, returning the
+      // orientation with the best grid.
+      const pre = TableCVPre.run(this.state.img, { maxSide: 2000, blockSize });
+      const scale = pre.scale;
+      best = TableCVDetect.runAuto(pre.gray, detOpts);
+      pre.gray.delete(); pre.binary.delete();
+      det = best.det; // for the finally-block mask backstop
 
-      if (det.cells.length === 0) {
+      // Hold the oriented gray/binary for hover redraw + debug layers.
+      this._pre = { gray: best.gray, binary: best.binary, scale };
+
+      if (layer === 'binary') {
+        cv.imshow('tablecv-canvas', best.binary);
+      } else if (layer === 'lines') {
         const merged = new cv.Mat();
-        cv.add(det.hMask, det.vMask, merged);
+        cv.add(best.det.hMask, best.det.vMask, merged);
         cv.imshow('tablecv-canvas', merged);
         merged.delete();
-        this._status('Таблица не найдена — на фото нет уверенной сетки линий. Попробуйте более ровное/контрастное фото или уменьшите «мин. длину линии».', true);
-        det.hMask.delete(); det.vMask.delete();
+      }
+
+      if (best.det.cells.length === 0) {
+        if (layer !== 'binary' && layer !== 'lines') {
+          const merged = new cv.Mat();
+          cv.add(best.det.hMask, best.det.vMask, merged);
+          cv.imshow('tablecv-canvas', merged);
+          merged.delete();
+        }
+        this._status('Таблица не найдена — на фото нет уверенной сетки линий. Попробуйте более ровное/контрастное фото.', true);
+        best.det.hMask.delete(); best.det.vMask.delete();
         maskesDeleted = true;
         return;
       }
 
-      this.state.cells = det.cells;
-
-      if (layer === 'lines') {
-        const merged = new cv.Mat();
-        cv.add(det.hMask, det.vMask, merged);
-        cv.imshow('tablecv-canvas', merged);
-        merged.delete();
-      } else if (layer !== 'binary') {
-        TableCVOverlay.draw('tablecv-canvas', this._pre.gray, det.cells, -1);
-      }
-      this._status('Найдено ячеек: ' + det.cells.length);
-
-      det.hMask.delete(); det.vMask.delete();
+      best.det.hMask.delete(); best.det.vMask.delete();
       maskesDeleted = true;
 
-      const geomOnly = document.getElementById('tablecv-geom-only').checked;
-      if (!geomOnly && det.cells.length) {
-        progress.hidden = false;
-        await TableCVOcr.run(this._pre.gray, this.state.cells, (done, total) => {
-          progress.value = Math.round(done / total * 100);
-          this._status('OCR ячеек: ' + done + '/' + total);
-        });
-        progress.hidden = true;
-        TableCVOverlay.draw('tablecv-canvas', this._pre.gray, this.state.cells, -1);
-        this._renderResults();
+      this.state.cells = best.det.cells;
+      if (layer !== 'binary' && layer !== 'lines') {
+        TableCVOverlay.draw('tablecv-canvas', best.gray, best.det.cells, -1);
       }
+      this._status('Найдено ячеек: ' + best.det.cells.length + ' (поворот ' + (best.rot * 90) + '°)');
 
+      const geomOnly = document.getElementById('tablecv-geom-only').checked;
+      if (geomOnly) { progress.value = 100; return; }
+
+      // OCR + orientation disambiguation: geometry can't tell upright from
+      // upside-down (both give the same grid), so OCR the table crop of the
+      // chosen orientation vs its 180° sibling and keep the higher-confidence
+      // reading, then OCR every cell of the winner.
+      const g180 = new cv.Mat();
+      cv.rotate(best.gray, g180, cv.ROTATE_180);
+      const bin180 = new cv.Mat();
+      const bs = (blockSize % 2 === 1) ? blockSize : blockSize + 1;
+      cv.adaptiveThreshold(g180, bin180, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, bs, 10);
+      const det180 = TableCVDetect.run(bin180, detOpts);
+      det180.hMask.delete(); det180.vMask.delete(); bin180.delete();
+
+      const candidates = [
+        { gray: best.gray, cells: best.det.cells, region: best.det.region },
+        { gray: g180, cells: det180.cells, region: det180.region },
+      ];
+      const picked = await TableCVOcr.runOriented(candidates, (done, total, msg) => {
+        progress.value = msg ? 5 : Math.round(done / total * 100);
+        this._status(msg || ('OCR ячеек: ' + done + '/' + total));
+      });
+
+      // Keep the winning gray for hover/results; free the loser.
+      if (picked.index === 0) {
+        g180.delete();
+      } else {
+        best.gray.delete();
+        this._pre.gray = picked.gray;
+      }
+      this.state.cells = picked.cells;
+      TableCVOverlay.draw('tablecv-canvas', picked.gray, picked.cells, -1);
+      this._renderResults();
       progress.value = 100;
     } catch (err) {
       this._status(err.message, true);
