@@ -18,6 +18,22 @@ const TableCV = {
       document.getElementById('tablecv-block-val').textContent = e.target.value;
     document.getElementById('tablecv-linelen').oninput = (e) =>
       document.getElementById('tablecv-linelen-val').textContent = e.target.value;
+
+    document.getElementById('tablecv-run').onclick = () => this._run();
+  },
+
+  async _run() {
+    const progress = document.getElementById('tablecv-progress');
+    try {
+      progress.hidden = false; progress.value = 5;
+      await TableCVLoader.ensure((m) => this._status(m));
+      progress.value = 100;
+      this._status('Готово к обработке (пайплайн появится в следующих задачах)');
+    } catch (err) {
+      this._status(err.message, true);
+    } finally {
+      setTimeout(() => { progress.hidden = true; progress.value = 0; }, 800);
+    }
   },
 
   _loadFile(f) {
