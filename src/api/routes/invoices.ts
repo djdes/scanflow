@@ -1556,13 +1556,21 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   const externalId = randomUUID();
   const today = new Date().toISOString().slice(0, 10);
 
+  // Quantize to kopecks. total_sum is a DOUBLE, so a sum of per-item totals can
+  // carry binary-float artifacts (e.g. 300.30000000000007). Sber expects a
+  // 2-decimal currency amount, and the audit row should store the exact value
+  // shown in the UI / purpose line. No-op for already-2-decimal values.
+  const amount = typeof invoice.total_sum === 'number'
+    ? Math.round(invoice.total_sum * 100) / 100
+    : invoice.total_sum;
+
   // Build payload first so we can persist it BEFORE the request — that way
   // if Sber API/TLS errors out, the row in sber_payments still has the
   // request_payload for debugging.
   const payload = {
     date: today,
     externalId,
-    amount: invoice.total_sum,
+    amount,
     purpose,
     payerName: tokenRow.org_name,
     payerInn: tokenRow.payer_inn,
@@ -1585,7 +1593,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       external_id: externalId,
       status: 'pending',
       payment_purpose: purpose,
-      amount: invoice.total_sum,
+      amount,
       payer_account: tokenRow.account_number,
       payee_inn: invoice.supplier_inn,
       request_payload: JSON.stringify(redact(payload)),
