@@ -35,7 +35,23 @@ const TableCV = {
       const layer = document.getElementById('tablecv-layer').value;
       if (layer === 'binary') cv.imshow('tablecv-canvas', this._pre.binary);
       else cv.imshow('tablecv-canvas', this._pre.gray);
-      this._status('Предобработка готова (scale ' + this._pre.scale.toFixed(3) + ')');
+
+      const det = TableCVDetect.run(this._pre.binary, {
+        lineLenPct: parseInt(document.getElementById('tablecv-linelen').value, 10),
+      });
+      this.state.cells = det.cells;
+
+      if (layer === 'lines') {
+        const merged = new cv.Mat();
+        cv.add(det.hMask, det.vMask, merged);
+        cv.imshow('tablecv-canvas', merged);
+        merged.delete();
+      } else if (layer !== 'binary') {
+        TableCVOverlay.draw('tablecv-canvas', this._pre.gray, det.cells, -1);
+      }
+      this._status('Найдено ячеек: ' + det.cells.length);
+
+      det.hMask.delete(); det.vMask.delete();
       progress.value = 100;
     } catch (err) {
       this._status(err.message, true);
