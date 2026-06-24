@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>orient-test</title>
+<style>body{font:13px sans-serif;margin:8px}canvas{max-width:100%;border:1px solid #ccc}</style></head>
+<body>
+<div id="status">init</div>
+<pre id="out"></pre>
+<canvas id="cv"></canvas>
+
+<script src="/public/js/tablecv/gridCore.js"></script>
+<script src="/public/js/tablecv/preprocess.js"></script>
+<script src="/public/js/tablecv/orient.js"></script>
+
+<script>
+/* global cv, TableCVPre, TableCVOrient */
+const S = (m) => { document.getElementById('status').textContent = m; };
+const IMG = new URLSearchParams(location.search).get('img');
+window.__phase = 'start'; window.__result = null; window.__error = null;
+const loadImage = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+function loadOpenCv() {
+  return new Promise((resolve, reject) => {
+    if (typeof cv !== 'undefined' && cv.Mat) return resolve();
+    const s = document.createElement('script');
+    s.src = '/vendor/opencv/opencv.js';
+    s.onerror = () => reject(new Error('opencv load failed'));
+    s.onload = () => { if (cv.Mat) resolve(); else cv.onRuntimeInitialized = () => resolve(); };
+    document.head.appendChild(s);
+  });
+}
+(async () => {
+  try {
+    if (!IMG) throw new Error('no ?img=');
+    S('loading opencv…'); await loadOpenCv();
+    const img = await loadImage(IMG + (IMG.includes('?') ? '&' : '?') + Date.now());
+    const src = cv.imread(img); // COLOR RGBA, as-loaded
+    await TableCVOrient.ensure(S);
+    S('classifying…');
+    const r = await TableCVOrient.classify(src);
+    // draw src rotated by applyRot (90° CW steps) to visually confirm upright
+    const codes = [null, cv.ROTATE_90_CLOCKWISE, cv.ROTATE_180, cv.ROTATE_90_COUNTERCLOCKWISE];
+    const g = new cv.Mat();
+    if (r.applyRot === 0) src.copyTo(g); else cv.rotate(src, g, codes[r.applyRot]);
+    cv.imshow('cv', g);
+    g.delete();
+    window.__result = Object.assign(r, { working: [src.cols, src.rows] });
+    document.getElementById('out').textContent = JSON.stringify(window.__result, null, 2);
+    src.delete();
+    window.__phase = 'done';
+    S('DONE class=' + r.classIdx + ' deg=' + r.degrees + ' applyRot=' + r.applyRot);
+  } catch (e) { window.__error = String(e && e.stack || e); window.__phase = 'error'; S('ERR: ' + (e && e.message || e)); }
+})();
+</script>
+</body>
+</html>

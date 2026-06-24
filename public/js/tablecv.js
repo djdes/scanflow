@@ -1,4 +1,4 @@
-/* global App, cv, TableCVExport, TableCVLoader, TableCVPre, TableCVDetect, TableCVOverlay, TableCVOcr */
+/* global App, cv, TableCVExport, TableCVLoader, TableCVPre, TableCVDetect, TableCVOverlay, TableCVOcr, TableCVOrient */
 const TableCV = {
   state: { img: null, cells: [], inited: false },
 
@@ -46,15 +46,39 @@ const TableCV = {
       progress.hidden = false; progress.value = 5;
       await TableCVLoader.ensure((m) => this._status(m));
 
-      const blockSize = parseInt(document.getElementById('tablecv-block').value, 10);
+      const rawBlock = parseInt(document.getElementById('tablecv-block').value, 10);
+      const blockSize = (rawBlock % 2 === 1) ? rawBlock : rawBlock + 1; // adaptiveThreshold needs odd
       const detOpts = { blockSize, lineKernelFrac: 0.12, projFrac: 0.2 };
       const layer = document.getElementById('tablecv-layer').value;
 
-      // Preprocess (downscale + deskew), then detect EVERY orthogonal rotation
-      // (phone photos carry arbitrary EXIF orientation).
       const pre = TableCVPre.run(this.state.img, { maxSide: 2000, blockSize });
       const scale = pre.scale;
-      cands = TableCVDetect.allOrientations(pre.gray, detOpts);
+
+      // Orientation: a learned whole-image classifier (ONNX) reliably fixes the
+      // ROTATION AXIS (the part OCR-confidence alone got wrong, causing "only
+      // part of the table"). We then detect that orientation AND its 180° flip,
+      // and let OCR pick the readable one. If the ONNX model is unavailable, fall
+      // back to scanning all 4 rotations.
+      let rots = [0, 1, 2, 3];
+      try {
+        await TableCVOrient.ensure((m) => this._status(m));
+        const src = cv.imread(this.state.img);
+        const cls = await TableCVOrient.classify(src);
+        del(src);
+        rots = [cls.applyRot, (cls.applyRot + 2) % 4]; // correct axis + its 180° flip
+      } catch (e) {
+        rots = [0, 1, 2, 3]; // classifier unavailable → 4-way scan fallback
+      }
+
+      cands = [];
+      for (const k of rots) {
+        const c = TableCVDetect._detectRotation(pre.gray, k, blockSize, detOpts);
+        if (c.det.xs.length >= 2 && c.det.ys.length >= 2 && c.det.cells.length > 0) {
+          cands.push(c);
+        } else {
+          del(c.gray); del(c.binary); del(c.det.hMask); del(c.det.vMask);
+        }
+      }
       del(pre.gray); del(pre.binary);
 
       if (!cands.length) {

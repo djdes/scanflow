@@ -11,7 +11,7 @@ const ROOT = path.resolve(process.argv[2] || '.');
 const PORT = parseInt(process.argv[3] || '8123', 10);
 
 const TYPES = {
-  '.html': 'text/html;charset=utf-8', '.js': 'text/javascript;charset=utf-8',
+  '.html': 'text/html;charset=utf-8', '.js': 'text/javascript;charset=utf-8', '.mjs': 'text/javascript;charset=utf-8',
   '.json': 'application/json', '.wasm': 'application/wasm', '.gz': 'application/octet-stream',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.css': 'text/css',
 };
