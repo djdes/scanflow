@@ -22,7 +22,11 @@ export function apiRequestLog(req: Request, res: Response, next: NextFunction): 
   // Capture path/method/ua NOW before Express router mounting rewrites req.path
   // inside the res.on('finish') handler.
   const start = Date.now();
-  const capturedPath = req.originalUrl || req.path;
+  // Strip the query string before logging: dispatcher endpoints carry a per-task
+  // secret as ?token=… and image endpoints accept ?key=<apiKey>. Persisting those
+  // to api_requests_log (readable via GET /api/debug/requests-log) would leak
+  // live, replay-valid secrets. Path + method + status is all the diagnostic we need.
+  const capturedPath = (req.originalUrl || req.path).split('?')[0];
   const capturedMethod = req.method;
   const capturedRemoteAddr = (req.headers['x-forwarded-for'] as string | undefined)
     || req.socket.remoteAddress
