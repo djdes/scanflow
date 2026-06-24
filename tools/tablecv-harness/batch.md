@@ -1,0 +1,53 @@
+# TableCV harness — batch metrics
+
+## How to run
+
+```bash
+# from repo root, background:
+node tools/tablecv-harness/serve.js . 8125
+```
+
+Then drive with Playwright:
+- Geometry only (fast batch): `…/selftest.html?img=/data/processed/<file>&geom=1`
+- Full pipeline (geometry + OCR + orientation): `…/selftest.html?img=/data/processed/<file>`
+
+The server roots at the repo and aliases `/vendor/*` → `public/vendor/*` so the
+modules' absolute asset paths resolve while `/data/*` photos are also served.
+
+Fast pattern: navigate once to load opencv (9.9 MB), then run one `browser_evaluate`
+loop over the file list calling `TableCVPre.run` → `TableCVDetect.runAuto` (geometry)
+so opencv stays in memory.
+
+## Sample set (10 photos from data/processed)
+
+## Baseline — geometry (2026-06-24, before improvement tasks)
+
+Params: maxSide 2000, blockSize 25, lineKernelFrac 0.12, projFrac 0.2.
+
+| file | table found | rot | cells | cols | rows | region | note |
+|------|:-----------:|:---:|------:|-----:|-----:|:------:|------|
+| upload-1782204930225-139938.JPG | Y | 1 | 41 | 15 | 6 | Y | ТОРГ-12 p2, good grid; data row under-segments |
+| upload-1776777779894-83832.jpg | Y | 2 | 63 | 4 | 17 | Y | portrait; columns under-detected (cols=4) |
+| upload-1777034208075-466024.jpg | **N** | 0 | 0 | 0 | 9 | Y | horizontals only, no vertical lines → 0 cells |
+| upload-1777464306383-87116.jpg | Y | 0 | 59 | 8 | 10 | Y | |
+| upload-1778235182265-80780.jpg | Y | 0 | 114 | 6 | 21 | Y | many rows; cols low |
+| upload-1779279091104-130252.jpg | Y | 0 | 100 | 8 | 13 | Y | |
+| upload-1780918572327-57561.jpeg | Y | 1 | 31 | 17 | 4 | Y | wide table, good cols |
+| upload-1781595256425-292003.jpg | Y | 0 | 6 | 9 | 1 | **N** | no region → whole-frame fallback; only 1 row |
+| upload-1782138201443-519061.jpg | Y | 1 | 33 | 10 | 4 | Y | |
+| upload-1782200821283-779834.JPG | Y | 2 | 20 | 11 | 10 | Y | heavy cell merging (20 ≪ 11×10) |
+
+**Baseline: table found 9/10 (90%).**
+
+### Known weaknesses to address
+- 466024: vertical lines not detected in any orientation → the Task 4/5 column
+  recovery + adaptive thresholds should target this.
+- 83832, 80780: column count suspiciously low (under-segmentation) → Task 4.
+- 779834: heavy merging (few cells vs cols×rows) → Task 4 / border sensitivity.
+- 292003: no table region (whole-frame fallback) → Task 5 region acceptance.
+
+### OCR baseline (spot check)
+Full pipeline on upload-1782204930225-139938.JPG (earlier run): orientation
+auto-corrected (conf 64 vs 35 upside-down); OCR readable — headers, units,
+numbers, and the item description recognised; some empty cells emitted noise
+(`EEE`, `Far`) and a few numeric cells had junk (`© 961,21`). Tasks 2–3 target this.

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>TableCV harness</title>
+<style>body{font:13px sans-serif;margin:8px}canvas{max-width:100%;border:1px solid #ccc}</style></head>
+<body>
+<div id="status">init</div>
+<canvas id="tablecv-canvas"></canvas>
+<pre id="dump"></pre>
+
+<script src="/public/js/tablecv/gridCore.js"></script>
+<script src="/public/js/tablecv/export.js"></script>
+<script src="/public/js/tablecv/ocrClean.js"></script>
+<script src="/public/js/tablecv/loader.js"></script>
+<script src="/public/js/tablecv/preprocess.js"></script>
+<script src="/public/js/tablecv/gridDetect.js"></script>
+<script src="/public/js/tablecv/cellOcr.js"></script>
+<script src="/public/js/tablecv/overlay.js"></script>
+
+<script>
+/* global cv, TableCVLoader, TableCVPre, TableCVDetect, TableCVOverlay, TableCVOcr */
+// Usage:
+//   ?img=/data/processed/<file>        full pipeline (geometry + OCR + orient)
+//   ?img=...&geom=1                     geometry only (fast, for batch metrics)
+const S = (m) => { document.getElementById('status').textContent = m; };
+const qp = new URLSearchParams(location.search);
+const IMG = qp.get('img');
+const GEOM = qp.get('geom') === '1';
+window.__phase = 'start'; window.__result = null; window.__error = null;
+const loadImage = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+
+(async () => {
+  try {
+    if (!IMG) throw new Error('no ?img=');
+    await TableCVLoader.ensure(S);
+    const img = await loadImage(IMG + (IMG.includes('?') ? '&' : '?') + Date.now());
+    const pre = TableCVPre.run(img, { maxSide: 2000, blockSize: 25 });
+    const best = TableCVDetect.runAuto(pre.gray, { blockSize: 25, lineKernelFrac: 0.12, projFrac: 0.2 });
+    pre.gray.delete(); pre.binary.delete();
+    TableCVOverlay.draw('tablecv-canvas', best.gray, best.det.cells, -1);
+    best.det.hMask.delete(); best.det.vMask.delete();
+
+    const baseResult = {
+      rot: best.rot, cellCount: best.det.cells.length,
+      region: best.det.region && { x: best.det.region.x, y: best.det.region.y, w: best.det.region.width, h: best.det.region.height },
+      working: [best.gray.cols, best.gray.rows],
+    };
+
+    if (GEOM) {
+      window.__result = baseResult;
+      window.__phase = 'done'; S('GEOM done cells=' + best.det.cells.length + ' rot=' + best.rot);
+      best.gray.delete(); best.binary.delete();
+      return;
+    }
+
+    const g180 = new cv.Mat(); cv.rotate(best.gray, g180, cv.ROTATE_180);
+    const bin180 = new cv.Mat();
+    cv.adaptiveThreshold(g180, bin180, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 25, 10);
+    const det180 = TableCVDetect.run(bin180, { lineKernelFrac: 0.12, projFrac: 0.2 });
+    det180.hMask.delete(); det180.vMask.delete(); bin180.delete();
+    const picked = await TableCVOcr.runOriented([
+      { gray: best.gray, cells: best.det.cells, region: best.det.region },
+      { gray: g180, cells: det180.cells, region: det180.region },
+    ], (d, t, m) => S(m || ('OCR ' + d + '/' + t)));
+    TableCVOverlay.draw('tablecv-canvas', picked.gray, picked.cells, -1);
+
+    window.__result = Object.assign(baseResult, {
+      pickedIndex: picked.index, confidence: Math.round(picked.confidence),
+      cellCount: picked.cells.length,
+      cells: picked.cells.map((c) => ({ r: c.row, col: c.col, rs: c.rowSpan, cs: c.colSpan, text: c.text, conf: Math.round(c.confidence || 0) })),
+    });
+    document.getElementById('dump').textContent = JSON.stringify(window.__result.cells.filter((c) => c.text).map((c) => c.text), null, 1);
+    best.gray.delete(); best.binary.delete(); g180.delete();
+    window.__phase = 'done'; S('DONE cells=' + picked.cells.length);
+  } catch (e) { window.__error = String(e && e.stack || e); window.__phase = 'error'; S('ERROR: ' + (e && e.message || e)); }
+})();
+</script>
+</body>
+</html>
