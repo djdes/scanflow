@@ -178,6 +178,10 @@ const App = {
       document.getElementById('view-profile').style.display = 'block';
       this.activateNavTab('profile');
       Profile.init();
+    } else if (hash === '#/tablecv') {
+      document.getElementById('view-tablecv').style.display = 'block';
+      this.activateNavTab('tablecv');
+      TableCV.init();
     } else {
       document.getElementById('view-invoices').style.display = 'block';
       this.activateNavTab('invoices');

@@ -8,6 +8,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .badge-beta {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+      background: #ffe9a8; color: #7a5b00; border-radius: 4px;
+      padding: 1px 5px; margin-left: 4px; vertical-align: middle;
+    }
+  </style>
 </head>
 <body>
 
@@ -62,6 +69,9 @@
         <a href="#/profile" data-tab="profile" data-route="profile">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 14a5.5 5.5 0 0111 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           Профиль
+        </a>
+        <a href="#/tablecv" data-tab="tablecv">
+          TableCV <span class="badge-beta">beta</span>
         </a>
         <!-- Mobile-only logout inside the drawer (header-right is hidden on mobile). -->
         <a href="#" class="nav-mobile-logout" onclick="App.logout(); return false;">
@@ -885,6 +895,40 @@
       <div id="sber-status-card" class="card"><p>Загрузка...</p></div>
       <div id="sber-actions" style="margin-top:16px"></div>
     </section>
+
+    <!-- TableCV Section (beta) -->
+    <section id="view-tablecv" style="display:none">
+      <div class="page-head">
+        <h1>TableCV <span class="badge-beta">beta</span></h1>
+        <p class="muted">Распознавание ячеек таблицы по фото — целиком в браузере (OpenCV + Tesseract). Фото не отправляется на сервер.</p>
+      </div>
+
+      <div class="tablecv-controls">
+        <input type="file" id="tablecv-file" accept="image/*" hidden>
+        <button class="btn btn-primary" id="tablecv-pick">Выбрать фото</button>
+        <button class="btn" id="tablecv-run" disabled>Распознать</button>
+        <label><input type="checkbox" id="tablecv-geom-only"> Только геометрия (без OCR)</label>
+        <select id="tablecv-layer" title="Отладочный слой">
+          <option value="result">Результат</option>
+          <option value="binary">Бинаризация</option>
+          <option value="lines">Маски линий</option>
+        </select>
+      </div>
+
+      <div class="tablecv-knobs">
+        <label>Блок threshold: <input type="range" id="tablecv-block" min="11" max="51" step="2" value="25"><span id="tablecv-block-val">25</span></label>
+        <label>Мин. длина линии (%): <input type="range" id="tablecv-linelen" min="10" max="80" step="5" value="40"><span id="tablecv-linelen-val">40</span></label>
+      </div>
+
+      <div id="tablecv-status" class="muted"></div>
+      <progress id="tablecv-progress" max="100" value="0" hidden></progress>
+      <canvas id="tablecv-canvas" style="max-width:100%; border:1px solid #ddd;"></canvas>
+
+      <div class="tablecv-output" hidden id="tablecv-output">
+        <div id="tablecv-table-wrap"></div>
+        <button class="btn btn-sm" id="tablecv-export">Скопировать JSON</button>
+      </div>
+    </section>
   </main>
 
   <div id="top-progress" class="top-progress" aria-hidden="true"></div>
@@ -917,5 +961,13 @@
 <script src="/js/suppliers.js"></script>
 <script src="/js/onboarding.js"></script>
 <script src="/js/onboarding-hint.js"></script>
+<script src="/js/tablecv/gridCore.js"></script>
+<script src="/js/tablecv/export.js"></script>
+<script src="/js/tablecv/loader.js"></script>
+<script src="/js/tablecv/preprocess.js"></script>
+<script src="/js/tablecv/gridDetect.js"></script>
+<script src="/js/tablecv/cellOcr.js"></script>
+<script src="/js/tablecv/overlay.js"></script>
+<script src="/js/tablecv.js"></script>
 </body>
 </html>
