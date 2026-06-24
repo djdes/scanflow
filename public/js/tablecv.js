@@ -54,31 +54,38 @@ const TableCV = {
       const pre = TableCVPre.run(this.state.img, { maxSide: 2000, blockSize });
       const scale = pre.scale;
 
-      // Orientation: a learned whole-image classifier (ONNX) reliably fixes the
-      // ROTATION AXIS (the part OCR-confidence alone got wrong, causing "only
-      // part of the table"). We then detect that orientation AND its 180° flip,
-      // and let OCR pick the readable one. If the ONNX model is unavailable, fall
-      // back to scanning all 4 rotations.
+      // Orientation: a learned whole-image classifier (ONNX) gives the full
+      // upright rotation (axis AND up/down flip). It is far more reliable than
+      // the old OCR-confidence guess, especially on sparse table pages where OCR
+      // confidence is near-random — so we TRUST the classifier's orientation
+      // directly rather than re-deciding the flip by OCR. If the model is
+      // unavailable, or its orientation yields no table, fall back to scanning
+      // all 4 rotations and letting OCR pick the readable one.
       let rots = [0, 1, 2, 3];
+      let classifierOk = false;
       try {
         await TableCVOrient.ensure((m) => this._status(m));
         const src = cv.imread(this.state.img);
         const cls = await TableCVOrient.classify(src);
         del(src);
-        rots = [cls.applyRot, (cls.applyRot + 2) % 4]; // correct axis + its 180° flip
+        rots = [cls.applyRot];
+        classifierOk = true;
       } catch (e) {
-        rots = [0, 1, 2, 3]; // classifier unavailable → 4-way scan fallback
+        rots = [0, 1, 2, 3];
       }
 
-      cands = [];
-      for (const k of rots) {
-        const c = TableCVDetect._detectRotation(pre.gray, k, blockSize, detOpts);
-        if (c.det.xs.length >= 2 && c.det.ys.length >= 2 && c.det.cells.length > 0) {
-          cands.push(c);
-        } else {
-          del(c.gray); del(c.binary); del(c.det.hMask); del(c.det.vMask);
+      const detectRots = (list) => {
+        const acc = [];
+        for (const k of list) {
+          const c = TableCVDetect._detectRotation(pre.gray, k, blockSize, detOpts);
+          if (c.det.xs.length >= 2 && c.det.ys.length >= 2 && c.det.cells.length > 0) acc.push(c);
+          else { del(c.gray); del(c.binary); del(c.det.hMask); del(c.det.vMask); }
         }
-      }
+        return acc;
+      };
+      cands = detectRots(rots);
+      // Classifier orientation found no grid → fall back to a full 4-way scan.
+      if (classifierOk && !cands.length) cands = detectRots([0, 1, 2, 3]);
       del(pre.gray); del(pre.binary);
 
       if (!cands.length) {
