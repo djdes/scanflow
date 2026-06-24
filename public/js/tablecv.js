@@ -1,4 +1,4 @@
-/* global App, cv */
+/* global App, cv, TableCVExport */
 const TableCV = {
   state: { img: null, cells: [], inited: false },
 
@@ -52,6 +52,20 @@ const TableCV = {
       this._status('Найдено ячеек: ' + det.cells.length);
 
       det.hMask.delete(); det.vMask.delete();
+
+      const geomOnly = document.getElementById('tablecv-geom-only').checked;
+      if (!geomOnly && det.cells.length) {
+        const progress = document.getElementById('tablecv-progress');
+        progress.hidden = false;
+        await TableCVOcr.run(this._pre.gray, this.state.cells, (done, total) => {
+          progress.value = Math.round(done / total * 100);
+          this._status('OCR ячеек: ' + done + '/' + total);
+        });
+        progress.hidden = true;
+        TableCVOverlay.draw('tablecv-canvas', this._pre.gray, this.state.cells, -1);
+        this._renderResults();
+      }
+
       progress.value = 100;
     } catch (err) {
       this._status(err.message, true);
@@ -89,5 +103,32 @@ const TableCV = {
     const el = document.getElementById('tablecv-status');
     el.textContent = msg;
     el.style.color = isError ? '#c0392b' : '';
+  },
+
+  _renderResults() {
+    const out = document.getElementById('tablecv-output');
+    out.hidden = false;
+    document.getElementById('tablecv-table-wrap').innerHTML =
+      TableCVExport.cellsToHTMLTable(this.state.cells);
+
+    document.getElementById('tablecv-export').onclick = () => {
+      const json = TableCVExport.cellsToJSON(this.state.cells, {
+        count: this.state.cells.length,
+      });
+      navigator.clipboard.writeText(json).then(
+        () => this._status('JSON скопирован в буфер'),
+        () => this._status('Не удалось скопировать', true)
+      );
+    };
+
+    const canvas = document.getElementById('tablecv-canvas');
+    canvas.onmousemove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+      const mx = (e.clientX - rect.left) * sx, my = (e.clientY - rect.top) * sy;
+      const idx = this.state.cells.findIndex(c =>
+        mx >= c.x && mx <= c.x + c.w && my >= c.y && my <= c.y + c.h);
+      TableCVOverlay.draw('tablecv-canvas', this._pre.gray, this.state.cells, idx);
+    };
   },
 };
