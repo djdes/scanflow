@@ -103,3 +103,24 @@ runOriented path validated via the harness in Task 2.
 - **`confidence` is exported in JSON but NOT shown in the results UI.** The plan's
   "show confidence in results" intent was descoped this round; the noise filter is still
   reflected (filtered cells render empty). `cellsToHTMLTable` renders text only.
+
+## Intersection-grid detection (2026-06-25)
+Reconnection (open+close) + intersection nodes (H∩V centroids) unioned with projection coords.
+
+On `_debug-nakladnaya` (classifier orientation, projFrac 0.1): cells 49→60, grid now sits on the
+real table lines full-width, all ~15 data rows separated (visual confirm). cols ~19 (real ~16 —
+slight over-segmentation in/near the nested header).
+
+Batch (runAuto geometry, projFrac 0.1, new code): no regression, no cell blowup.
+| file | cells cols×rows |
+|------|----------------|
+| 139938 | 42c 15×6 |
+| 87116  | 55c 8×12 |
+| 80780  | 116c 21×6 |
+| 130252 | 101c 8×13 |
+| 57561  | 45c 17×4 |
+| 779834 | 34c 15×12 |
+| 466024 | **9c 5×16** (was 0 — recovered by reconnection+nodes) |
+
+Residual: the multi-row ТОРГ-12 header still doesn't resolve into exact nested cells, and column
+count is slightly over (~19 vs 16). That nested-header case is the ONNX-structure (SLANet) path.
