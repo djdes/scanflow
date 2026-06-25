@@ -15,34 +15,35 @@ const TableCVDetect = {
     const ox = region ? region.x : 0;
     const oy = region ? region.y : 0;
 
-    // 2. Morphological line masks within the (cropped) table.
+    // 2. Reconnected line masks within the (cropped) table: open isolates the
+    //    rule, close bridges gaps from faint/broken printing.
     const hLen = Math.max(15, Math.round(roi.cols * kFrac));
     const vLen = Math.max(15, Math.round(roi.rows * kFrac));
-    const hMask = this._openMask(roi, hLen, true);
-    const vMask = this._openMask(roi, vLen, false);
+    const hMask = this._lineMask(roi, hLen, true);
+    const vMask = this._lineMask(roi, vLen, false);
 
-    // 3. Line coordinates (ROI-relative), then mapped to full-image coords.
-    // When no region was found (borderless/edge-to-edge table) use a lower
-    // projection fraction so faint lines still register.
+    // 3. Line coordinates from projection (ROI-relative). Lower projection
+    //    fraction when no region was found (borderless/edge-to-edge table).
     const effProjFrac = region ? projFrac : Math.min(projFrac, 0.12);
-    const ysRoi = this._lineCoords(hMask, 'h', effProjFrac);
-    const xsRoi = this._lineCoords(vMask, 'v', effProjFrac);
+    let ysRoi = this._lineCoords(hMask, 'h', effProjFrac);
+    let xsRoi = this._lineCoords(vMask, 'v', effProjFrac);
 
-    // 4. Recover faint column separators when the grid looks under-segmented
-    //    (fewer columns than rows suggest column lines were missed).
-    let xsRoiFinal = xsRoi;
-    if (xsRoi.length >= 2 && ysRoi.length >= 2 && (xsRoi.length - 1) < (ysRoi.length - 1)) {
-      xsRoiFinal = this._recoverColumns(roi, xsRoi);
-    }
-    const xs = xsRoiFinal.map((x) => x + ox);
+    // 4. Augment with intersection-node coordinates — true line crossings are
+    //    visible even where a rule is faint mid-span, recovering missed columns
+    //    and rows. Union projection + node positions.
+    const nodes = this._intersectionNodes(hMask, vMask);
+    if (nodes.nodeXs.length >= 2) xsRoi = TableCVGrid.mergeCoords(xsRoi, nodes.nodeXs, 8);
+    if (nodes.nodeYs.length >= 2) ysRoi = TableCVGrid.mergeCoords(ysRoi, nodes.nodeYs, 8);
+
+    const xs = xsRoi.map((x) => x + ox);
     const ys = ysRoi.map((y) => y + oy);
 
     let cells = [];
-    if (xsRoiFinal.length >= 2 && ysRoi.length >= 2) {
-      const R = ysRoi.length - 1, C = xsRoiFinal.length - 1;
+    if (xsRoi.length >= 2 && ysRoi.length >= 2) {
+      const R = ysRoi.length - 1, C = xsRoi.length - 1;
       // Border sampling uses the ROI-coord masks, so pass ROI-coord lines.
-      const vBorder = this._borderGrid(vMask, xsRoiFinal, ysRoi, R, C, 'v');
-      const hBorder = this._borderGrid(hMask, xsRoiFinal, ysRoi, R, C, 'h');
+      const vBorder = this._borderGrid(vMask, xsRoi, ysRoi, R, C, 'v');
+      const hBorder = this._borderGrid(hMask, xsRoi, ysRoi, R, C, 'h');
       const regions = TableCVGrid.mergeCells(R, C, vBorder, hBorder);
       cells = TableCVGrid.regionsToCells(regions, xs, ys); // full-image coords
     }
@@ -116,6 +117,40 @@ const TableCVDetect = {
     cv.morphologyEx(src, m, cv.MORPH_OPEN, k);
     k.delete();
     return m;
+  },
+
+  // Directional line mask with gap reconnection: OPEN (isolate the rule) then
+  // CLOSE with a shorter kernel (bridge breaks in faint/broken printed rules).
+  _lineMask(src, klen, horiz) {
+    const opened = this._openMask(src, klen, horiz);
+    const cl = Math.max(5, Math.round(klen / 4));
+    const k = cv.getStructuringElement(cv.MORPH_RECT, horiz ? new cv.Size(cl, 1) : new cv.Size(1, cl));
+    const closed = new cv.Mat();
+    cv.morphologyEx(opened, closed, cv.MORPH_CLOSE, k);
+    k.delete(); opened.delete();
+    return closed;
+  },
+
+  // Grid nodes = where a horizontal and a vertical rule cross. Returns clustered
+  // X/Y centroids (ROI coords) — robust column/row evidence even when a rule is
+  // faint along its span but its crossings are crisp.
+  _intersectionNodes(hMask, vMask) {
+    const inter = new cv.Mat();
+    cv.bitwise_and(hMask, vMask, inter);
+    const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.dilate(inter, inter, k); k.delete();
+    const contours = new cv.MatVector();
+    const hier = new cv.Mat();
+    cv.findContours(inter, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    const xc = [], yc = [];
+    for (let i = 0; i < contours.size(); i++) {
+      const r = cv.boundingRect(contours.get(i));
+      if (r.width * r.height < 4) continue; // drop speckle
+      xc.push(Math.round(r.x + r.width / 2));
+      yc.push(Math.round(r.y + r.height / 2));
+    }
+    inter.delete(); contours.delete(); hier.delete();
+    return { nodeXs: TableCVGrid.clusterCoords(xc, 8), nodeYs: TableCVGrid.clusterCoords(yc, 8) };
   },
 
   // Bounding box of the largest connected line structure = the table.

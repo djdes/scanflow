@@ -21,6 +21,13 @@ var TableCVGrid = (typeof window !== 'undefined' ? (window.TableCVGrid = {}) : {
     return clusters;
   };
 
+  // Union two coordinate lists into one, collapsing values within `tol` to a
+  // single clustered position (used to combine projection-derived and
+  // intersection-node-derived line positions).
+  g.mergeCoords = function (a, b, tol) {
+    return g.clusterCoords((a || []).concat(b || []), tol);
+  };
+
   // Union-find over base cells; edge exists where the separating border is absent.
   g.mergeCells = function (R, C, vBorder, hBorder) {
     const parent = new Array(R * C);

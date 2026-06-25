@@ -3,6 +3,19 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const grid = require('../../public/js/tablecv/gridCore.js');
 
+describe('mergeCoords', () => {
+  it('unions two lists and clusters within tol, sorted', () => {
+    expect(grid.mergeCoords([10, 300], [12, 150, 305], 8)).toEqual([11, 150, 302]);
+  });
+  it('handles empty lists', () => {
+    expect(grid.mergeCoords([], [], 8)).toEqual([]);
+    expect(grid.mergeCoords([5], [], 8)).toEqual([5]);
+  });
+  it('dedupes identical lists', () => {
+    expect(grid.mergeCoords([100, 200], [100, 200], 8)).toEqual([100, 200]);
+  });
+});
+
 describe('clusterCoords', () => {
   it('groups near values and returns cluster means sorted', () => {
     expect(grid.clusterCoords([10, 12, 11, 50, 51], 5)).toEqual([11, 50]);
