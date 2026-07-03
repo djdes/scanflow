@@ -169,7 +169,7 @@ router.post('/extract-from-photo', extractUpload.single('file'), async (req: Req
     }
     const apiKey = cfg?.anthropic_api_key || config.anthropicApiKey;
     if (!apiKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured' });
-    const modelId = cfg?.claude_model || 'claude-sonnet-4-6';
+    const modelId = cfg?.claude_model || 'claude-sonnet-5';
 
     logger.info('Supplier extract: starting Claude OCR', { fileName: req.file.originalname, size: req.file.size });
     const result = await analyzeImageWithClaudeApi(tmpPath, apiKey, modelId);

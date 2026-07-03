@@ -870,7 +870,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     targets.map(it => ({ key: String(it.id), name: it.original_name || '', unit: it.unit })),
     catalog,
     apiKey,
-    analyzerCfg.claude_model || 'claude-sonnet-4-6',
+    analyzerCfg.claude_model || 'claude-sonnet-5',
   );
 
   if (!result.success || !result.matched) {

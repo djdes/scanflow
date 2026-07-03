@@ -379,7 +379,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
   combinedOcrText: string,
   apiKey: string,
   pageCount: number,
-  modelId: string = 'claude-sonnet-4-6',
+  modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
@@ -449,7 +449,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
 export async function analyzeMultipleImagesWithClaudeApi(
   imagePaths: string[],
   apiKey: string,
-  modelId: string = 'claude-sonnet-4-6',
+  modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
@@ -585,7 +585,7 @@ export async function detectOrientationWithClaude(
 export async function analyzeImageWithClaudeApi(
   imagePath: string,
   apiKey: string,
-  modelId: string = 'claude-sonnet-4-6',
+  modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
 ): Promise<ApiAnalyzerResult> {
   if (!apiKey) {
@@ -676,7 +676,7 @@ export async function mapItemsWithClaudeApi(
   items: Array<{ key: string; name: string; unit?: string | null }>,
   catalog: CatalogEntry[],
   apiKey: string,
-  modelId: string = 'claude-sonnet-4-6',
+  modelId: string = 'claude-sonnet-5',
 ): Promise<{
   success: boolean;
   matched?: Map<string, LlmMapHit>;

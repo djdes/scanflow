@@ -884,6 +884,25 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 41,
+    name: 'analyzer_config.claude_model — roll forward Sonnet 4.6 → Sonnet 5 (latest Sonnet)',
+    // Data-only, idempotent. Switch installs still on the previous Sonnet default
+    // to claude-sonnet-5. Only rows explicitly on claude-sonnet-4-6 are touched —
+    // a manual Opus/Haiku choice is preserved. detect() is satisfied once no row
+    // remains on 4-6, so re-runs are no-ops.
+    detect: async (exec) => {
+      const [rows] = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM analyzer_config WHERE claude_model = 'claude-sonnet-4-6'`
+      );
+      return rows[0].cnt === 0;
+    },
+    run: async (exec) => {
+      await exec.query(
+        `UPDATE analyzer_config SET claude_model = 'claude-sonnet-5' WHERE claude_model = 'claude-sonnet-4-6'`
+      );
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
