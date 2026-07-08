@@ -9,6 +9,7 @@ import {
 } from '../../auth/password';
 import { sendAuthEmail } from '../../utils/mailer';
 import { logger } from '../../utils/logger';
+import { config } from '../../config';
 
 const router = Router();
 
@@ -76,6 +77,10 @@ router.post('/login', async (req: Request, res: Response) => {
 //
 // Rate-limited (общий /api/auth лимитер: 20 запросов / 5 минут per-IP).
 router.post('/register', async (req: Request, res: Response) => {
+  if (!config.registrationEnabled) {
+    res.status(403).json({ error: 'Регистрация закрыта. Обратитесь к администратору.' });
+    return;
+  }
   const { username, password, email } = (req.body ?? {}) as {
     username?: string;
     password?: string;
@@ -131,6 +136,10 @@ router.post('/register', async (req: Request, res: Response) => {
 // содержит api_key — пользователь должен пройти через email, чтобы убедиться
 // что адрес рабочий.
 router.post('/register-email', async (req: Request, res: Response) => {
+  if (!config.registrationEnabled) {
+    res.status(403).json({ error: 'Регистрация закрыта. Обратитесь к администратору.' });
+    return;
+  }
   const { email } = (req.body ?? {}) as { email?: string };
   const trimmedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   if (!trimmedEmail || !EMAIL_RE.test(trimmedEmail)) {

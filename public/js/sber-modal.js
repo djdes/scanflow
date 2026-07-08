@@ -87,8 +87,15 @@ const SberModal = {
     for (const k of Object.keys(data)) {
       if (data[k] === '') delete data[k];
     }
-    const ok = await SberModal._onSave?.(data);
-    if (ok !== false) SberModal.close();
+    // Guard against a double submit creating two supplier rows / payments.
+    const submitBtn = e.target.querySelector('[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const ok = await SberModal._onSave?.(data);
+      if (ok !== false) SberModal.close();
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
   },
 };
 

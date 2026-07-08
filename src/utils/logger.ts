@@ -7,7 +7,7 @@ const { combine, timestamp, printf, colorize } = winston.format;
 // Any meta key whose name matches one of these is redacted before being
 // serialized. We log a LOT of fields including tokens, keys, and full OCR
 // text; redaction here is the last line of defence before disk + stdout.
-const SENSITIVE_KEY_PATTERN = /(api[_-]?key|auth[_-]?token|authorization|password|secret|credential|anthropic[_-]?key|x[_-]api[_-]key)/i;
+const SENSITIVE_KEY_PATTERN = /(api[_-]?key|auth[_-]?token|authorization|password|secret|credential|anthropic[_-]?key|x[_-]api[_-]key|(?:bot|access|refresh|dispatcher|jwt|bearer)[_-]?token|(?:^|[_-])token(?:[_-]|$))/i;
 const TRUNCATE_KEY_PATTERN = /^(raw_text|ocr_text|combined_text|prompt|body|response)$/i;
 const MAX_TRUNCATED_LEN = 400;
 

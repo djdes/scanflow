@@ -252,25 +252,39 @@ export const invoiceRepo = {
     ).get<{ c: number }>();
     const total = totalRow?.c ?? 0;
 
+    // Atomic claim. The old code did SELECT then a separate UPDATE, leaving a gap
+    // where a concurrent /pending poll (manual click racing a scheduled job) could
+    // SELECT the SAME rows before either stamped onec_pulled_at → duplicate
+    // ПриходнаяНакладная in 1C. Wrapping SELECT ... FOR UPDATE SKIP LOCKED + the
+    // reservation UPDATE in one transaction makes each poll claim a disjoint set:
+    // row locks + SKIP LOCKED mean the second poll never sees the first's rows.
     // limit/offset are sanitized integers above; inline them (mysql2 rejects
     // LIMIT/OFFSET as prepared-statement placeholders on some MySQL builds).
-    const invoices = await db.prepare(
-      `SELECT * FROM invoices
-       WHERE ${pendingWhere}
-       ORDER BY created_at ASC
-       LIMIT ${limit} OFFSET ${offset}`
-    ).all<Invoice>();
+    const invoices = await db.transaction(async (txn) => {
+      const claimed = await txn.prepare(
+        `SELECT * FROM invoices
+         WHERE ${pendingWhere}
+         ORDER BY created_at ASC
+         LIMIT ${limit} OFFSET ${offset}
+         FOR UPDATE SKIP LOCKED`
+      ).all<Invoice>();
+
+      if (claimed.length === 0) return claimed;
+
+      const claimedIds = claimed.map(i => i.id);
+      const claimedPlaceholders = claimedIds.map(() => '?').join(',');
+      // Reserve the just-claimed invoices so the next poll skips them. Stamped
+      // here, at hand-off time — not at confirm time.
+      await txn.prepare(
+        `UPDATE invoices SET onec_pulled_at = NOW() WHERE id IN (${claimedPlaceholders})`
+      ).run(...claimedIds);
+      return claimed;
+    });
 
     if (invoices.length === 0) return { rows: [], total };
 
     const ids = invoices.map(i => i.id);
     const placeholders = ids.map(() => '?').join(',');
-
-    // Reserve the just-pulled invoices so the next poll (concurrent or immediate)
-    // skips them. Stamped here, at hand-off time — not at confirm time.
-    await db.prepare(
-      `UPDATE invoices SET onec_pulled_at = NOW() WHERE id IN (${placeholders})`
-    ).run(...ids);
 
     const items = await db.prepare(
       `SELECT * FROM invoice_items WHERE invoice_id IN (${placeholders}) ORDER BY id`
@@ -361,8 +375,16 @@ export const invoiceRepo = {
 
   async updateStatus(id: number, status: string, errorMessage?: string): Promise<void> {
     const db = getDb();
+    // Clearing file_hash on 'error' releases the UNIQUE(file_hash) slot so the
+    // user can re-upload the SAME photo after fixing whatever failed (e.g. the
+    // "credit balance too low" incident that put every invoice in error). Without
+    // this, findByFileHash (which excludes error rows) misses on re-upload, the
+    // INSERT hits ER_DUP_ENTRY, and the file is stuck in failed/ forever.
+    const clearHash = status === 'error';
     if (errorMessage) {
-      await db.prepare('UPDATE invoices SET status = ?, error_message = ? WHERE id = ?').run(status, errorMessage, id);
+      await db.prepare(
+        `UPDATE invoices SET status = ?, error_message = ?${clearHash ? ', file_hash = NULL' : ''} WHERE id = ?`
+      ).run(status, errorMessage, id);
     } else if (status === 'processed') {
       // Stamp recognition-finish time the FIRST time the invoice reaches
       // 'processed'. COALESCE preserves the original on later reprocess/rescan,
@@ -371,7 +393,9 @@ export const invoiceRepo = {
         'UPDATE invoices SET status = ?, recognized_at = COALESCE(recognized_at, NOW()) WHERE id = ?'
       ).run(status, id);
     } else {
-      await db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(status, id);
+      await db.prepare(
+        `UPDATE invoices SET status = ?${clearHash ? ', file_hash = NULL' : ''} WHERE id = ?`
+      ).run(status, id);
     }
   },
 
@@ -761,7 +785,8 @@ export const invoiceRepo = {
     const result = await getDb().prepare(
       `UPDATE invoices
        SET status = 'error',
-           error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)')
+           error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)'),
+           file_hash = NULL
        WHERE status NOT IN ('processed', 'sent_to_1c', 'duplicate', 'error')
        AND dispatcher_token IS NULL
        AND created_at < (NOW() - INTERVAL ${staleMinutes} MINUTE)`
@@ -793,7 +818,8 @@ export const invoiceRepo = {
            error_message = COALESCE(error_message, ?),
            dispatcher_token = NULL,
            dispatcher_started_at = NULL,
-           dispatcher_fetched_at = NULL
+           dispatcher_fetched_at = NULL,
+           file_hash = NULL
        WHERE status = 'ocr_processing'
        AND dispatcher_started_at IS NOT NULL
        AND (
@@ -819,21 +845,32 @@ export const invoiceRepo = {
   },
 
   async listStaleForRecovery(): Promise<Array<{ id: number; file_name: string; itemsCount: number }>> {
+    // Exclude dispatcher rows: their OCR runs in an EXTERNAL session that lives
+    // up to 180 min and calls back later. A restart doesn't make them "dead" — the
+    // dispatcher timeout sweep (markStaleDispatchersAsFailed) owns their lifetime.
+    // Deleting them here on every restart is what churned invoice ids and spawned
+    // duplicate ProjectsFlow tasks whose callbacks then hit a missing id.
     return getDb().prepare(
       `SELECT i.id, i.file_name,
         (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS itemsCount
        FROM invoices i
-       WHERE i.status IN ('ocr_processing', 'parsing')`
+       WHERE i.status IN ('ocr_processing', 'parsing')
+       AND i.dispatcher_token IS NULL`
     ).all<{ id: number; file_name: string; itemsCount: number }>();
   },
 
   async findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Promise<Invoice | undefined> {
+    // Only 'processed' candidates: merging into an invoice whose own processFile
+    // is still running (parsing/ocr_processing) interleaves deleteItems/addItem/
+    // appendRawText between two coroutines → doubled or lost items. Predecessors
+    // (smaller id) are already awaited via awaitInFlightPredecessors before this
+    // runs, so the only rows this filter drops are still-live ones we must not touch.
     const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE supplier IS NOT NULL AND supplier != ''
        AND id != ?
        AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
-       AND status IN ('processed', 'parsing', 'ocr_processing')
+       AND status = 'processed'
        ORDER BY created_at DESC`
     ).all<Invoice>(excludeId);
 

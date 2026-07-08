@@ -23,7 +23,7 @@ import dispatcherRouter, { setMapper as setDispatcherMapper } from './routes/dis
 import authRouter from './routes/auth';
 import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
-import sberRouter from './routes/sber';
+import sberRouter, { handleSberCallback } from './routes/sber';
 import suppliersRouter from './routes/suppliers';
 import integrationsRouter from './routes/integrations';
 import usersRouter from './routes/users';
@@ -235,8 +235,17 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/debug', apiKeyAuth, requireAdmin, debugRouter);
   app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);
   app.use('/api/profile', apiKeyAuth, profileRouter);
+  // OAuth callback is a browser redirect from Sber (no X-API-Key possible), so it
+  // must sit OUTSIDE apiKeyAuth. It authenticates via the signed OAuth state JWT
+  // (issued only by the admin-gated /authorize) + a purpose check. Register it
+  // BEFORE the auth'd router so this public handler wins for /callback.
+  app.get('/api/sber/callback', handleSberCallback);
   app.use('/api/sber', apiKeyAuth, sberRouter);
-  app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
+  // Suppliers directory is platform-global bank-details data (payee accounts,
+  // BICs) shared across the deployment — admin only, same policy as the Sber
+  // connection it feeds (see CLAUDE.md invariant #20). Read exposes account
+  // numbers; write can redirect a verified payee's account before send-sber.
+  app.use('/api/suppliers', apiKeyAuth, requireAdmin, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);
   // User management (list + role changes) — admin only.
   app.use('/api/users', apiKeyAuth, requireAdmin, usersRouter);

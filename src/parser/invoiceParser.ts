@@ -47,10 +47,27 @@ const UNIT_MAP: Record<string, string> = {
   'пакет': 'шт', 'пакетов': 'шт',
 };
 
-function parseNumber(str: string): number | undefined {
+// Exported for unit tests. Parses Russian-formatted numbers where the LAST
+// ',' or '.' is the decimal separator and any earlier separators are thousands
+// grouping. Fixes the old `.replace(',', '.')` (first-comma-only) that turned
+// "1 234,56" variants like "1.234,56" / "1,234,56" into 1.234.
+export function parseNumber(str: string): number | undefined {
   if (!str) return undefined;
-  const cleaned = str.replace(/\s/g, '').replace(',', '.');
-  const num = parseFloat(cleaned);
+  // Strip whitespace (incl. NBSP thousands separators) and any stray non-numeric
+  // characters, keeping digits, separators, and a leading sign.
+  const s = str.replace(/\s/g, '').replace(/[^\d.,-]/g, '');
+  if (!s) return undefined;
+
+  const decPos = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
+  let normalized: string;
+  if (decPos === -1) {
+    normalized = s;
+  } else {
+    const intPart = s.slice(0, decPos).replace(/[.,]/g, '');
+    const fracPart = s.slice(decPos + 1).replace(/[.,]/g, '');
+    normalized = `${intPart}.${fracPart}`;
+  }
+  const num = parseFloat(normalized);
   return isNaN(num) ? undefined : num;
 }
 

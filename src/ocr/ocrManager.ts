@@ -7,6 +7,7 @@ import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureR
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import sharp from 'sharp';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -88,6 +89,7 @@ export class OcrManager {
       const rotation = await detectOrientationWithClaude(
         previews as [string, string, string, string],
         apiKey,
+        analyzerConfig.claude_model,
       );
       logger.info('Orientation detected', { imagePath, rotation });
       return rotation;
@@ -106,7 +108,10 @@ export class OcrManager {
       return imagePath;
     }
 
-    const tmpPath = path.join(os.tmpdir(), `ocr_${Date.now()}${ext}`);
+    // randomUUID (not just Date.now()): two pages preprocessed in the same
+    // millisecond (Promise.all over pages) would otherwise get the same temp
+    // path and one would overwrite the other → a page silently sent to Claude twice.
+    const tmpPath = path.join(os.tmpdir(), `ocr_${Date.now()}_${randomUUID()}${ext}`);
 
     // Detect rotation first. Falls back to 0 on any error.
     const rotation = await this.detectTextRotation(imagePath);
@@ -260,6 +265,7 @@ export class OcrManager {
           confidence: ocrResult.confidence,
           words: ocrResult.words,
           structured: apiResult.data,
+          catalogSnapshot: catalog,
         };
       }
       logger.warn('Hybrid OCR: Anthropic API failed', { error: apiResult.error });
@@ -299,6 +305,7 @@ export class OcrManager {
         text: result.rawText || JSON.stringify(result.data, null, 2),
         engine: 'claude_api_multipage',
         structured: result.data,
+        catalogSnapshot: catalog,
       };
     }
 
@@ -334,6 +341,7 @@ export class OcrManager {
         text: combinedOcrText,
         engine,
         structured: result.data,
+        catalogSnapshot: catalog,
       };
     }
 
@@ -369,6 +377,7 @@ export class OcrManager {
           text: result.rawText || JSON.stringify(result.data, null, 2),
           engine: 'claude_api',
           structured: result.data,
+          catalogSnapshot: catalog,
         };
       }
 

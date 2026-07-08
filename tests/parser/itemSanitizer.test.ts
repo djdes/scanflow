@@ -73,6 +73,30 @@ describe('sanitizeItemArithmetic', () => {
     // new qty should be 15458.85 / 34.353 ≈ 450
     expect(r.item.quantity).toBeCloseTo(450, 0);
   });
+
+  it('fixes PRICE (not qty) when it was read from the pre-VAT column', () => {
+    // qty=10 correct, price=100 is pre-VAT, total=1200 is VAT-included @20%.
+    // 10 × 100 = 1000 ≠ 1200, but 1000 × 1.2 = 1200 → price was missing VAT.
+    const r = sanitizeItemArithmetic({ quantity: 10, unit: 'кг', price: 100, total: 1200, vat_rate: 20 });
+    expect(r.corrected).toBe(true);
+    expect(r.item.quantity).toBe(10);   // qty untouched
+    expect(r.item.price).toBeCloseTo(120, 2); // price grossed up to VAT-included
+  });
+
+  it('still fixes qty (not price) when the mismatch is not the VAT gap', () => {
+    // qty=7000 (thousand-separator misread), price/total correct, vat present.
+    // 7000 × 959.09 × 1.2 is nowhere near 6713.64 → falls through to qty fix.
+    const r = sanitizeItemArithmetic({ quantity: 7000, unit: 'шт', price: 959.09, total: 6713.64, vat_rate: 20 });
+    expect(r.corrected).toBe(true);
+    expect(r.item.quantity).toBeCloseTo(7, 3);
+    expect(r.item.price).toBe(959.09); // price untouched
+  });
+
+  it('without vat_rate, keeps legacy qty-fixing behaviour', () => {
+    const r = sanitizeItemArithmetic({ quantity: 10, unit: 'кг', price: 100, total: 1200 });
+    expect(r.corrected).toBe(true);
+    expect(r.item.quantity).toBeCloseTo(12, 3); // legacy: fix qty = 1200/100
+  });
 });
 
 describe('sanitizeInvoiceVat', () => {

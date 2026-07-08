@@ -10,7 +10,11 @@ function envStr(key: string, defaultVal: string = ''): string {
 
 function envInt(key: string, defaultVal: number): number {
   const val = process.env[key];
-  return val ? parseInt(val, 10) : defaultVal;
+  if (!val) return defaultVal;
+  const n = parseInt(val, 10);
+  // Guard against non-numeric env (e.g. DB_PORT=abc) returning NaN, which then
+  // silently poisons every downstream use (LIMIT NaN, port NaN, …).
+  return Number.isNaN(n) ? defaultVal : n;
 }
 
 function envBool(key: string, defaultVal: boolean): boolean {
@@ -37,7 +41,10 @@ export const config = {
   supplierExtractDir: path.resolve(envStr('SUPPLIER_EXTRACT_DIR', './data/supplier_extracts')),
 
   // MySQL/MariaDB
-  dbHost: envStr('DB_HOST', '192.168.33.3'),
+  // Default to loopback: a missing DB_HOST should fail against a local dev DB,
+  // never silently connect to the production instance (the old '192.168.33.3'
+  // default is the prod box — a script run without .env would hit prod).
+  dbHost: envStr('DB_HOST', '127.0.0.1'),
   dbPort: envInt('DB_PORT', 3306),
   dbUser: envStr('DB_USER', 'scanflow'),
   dbPassword: envStr('DB_PASSWORD', ''),
@@ -67,8 +74,27 @@ export const config = {
   // docs/superpowers/specs/2026-06-24-multitenant-data-isolation-design.md
   dataScopingEnabled: envBool('DATA_SCOPING_ENABLED', false),
 
+  // Self-service registration (POST /api/auth/register + /register-email). Default
+  // OFF: an open signup endpoint hands out a `user`-role API key to anyone, and with
+  // data-scoping disabled that key can read/mutate every invoice on the platform.
+  // Enable deliberately (invite-driven onboarding, etc.) only alongside data-scoping.
+  registrationEnabled: envBool('REGISTRATION_ENABLED', false),
+
   // Debug
   debug: envBool('DEBUG', false),
   logLevel: envStr('LOG_LEVEL', 'info'),
   dryRun: envBool('DRY_RUN', false),
 };
+
+// Loud startup warnings for insecure defaults. console.* (not the Winston logger)
+// because config is imported before the logger is set up, and importing the
+// logger here would create a cycle. These are misconfigurations, not crashes —
+// warn rather than hard-fail so local/dev experiments still boot.
+if (config.apiKey === 'your-secret-api-key') {
+  // eslint-disable-next-line no-console
+  console.warn('[config] API_KEY is the default placeholder — set a real API_KEY in .env; the placeholder is publicly known.');
+}
+if (!config.dbPassword) {
+  // eslint-disable-next-line no-console
+  console.warn('[config] DB_PASSWORD is empty — set it in .env. Database backups (mysqldump) will be skipped without it.');
+}

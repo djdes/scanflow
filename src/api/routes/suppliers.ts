@@ -12,6 +12,7 @@ import { dispatchSupplierExtract, DispatcherConfigError, DispatcherApiError } fr
 import { notifySupplierExtractError } from '../../notifications/events';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { isValidInn } from '../../utils/inn';
 
 const router = Router();
 
@@ -63,6 +64,7 @@ interface SupplierBody {
 function validateSupplier(body: SupplierBody | undefined): string | null {
   if (!body || typeof body !== 'object') return 'request body is missing or not application/json';
   if (!body.inn || !INN_RE.test(body.inn)) return 'inn must be 10 or 12 digits';
+  if (!isValidInn(body.inn)) return 'inn checksum is invalid (likely an OCR misread)';
   if (!body.name || body.name.trim().length === 0) return 'name is required';
   if (!body.bank_bic || !BIC_RE.test(body.bank_bic)) return 'bank_bic must be 9 digits';
   if (body.account && !ACC_RE.test(body.account)) return 'account must be 20 digits';

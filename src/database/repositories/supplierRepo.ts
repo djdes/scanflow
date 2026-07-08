@@ -81,7 +81,17 @@ export const supplierRepo = {
     if (existing) {
       await this.update(input.inn, input);
     } else {
-      await this.create(input);
+      try {
+        await this.create(input);
+      } catch (err) {
+        // Race: a concurrent upsert of the same ИНН won the INSERT (PK = inn).
+        // Fall back to update instead of throwing.
+        const e = err as { code?: string; errno?: number; message?: string };
+        const isDup = e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062 ||
+          (e?.message ?? '').includes('Duplicate entry');
+        if (!isDup) throw err;
+        await this.update(input.inn, input);
+      }
     }
     return (await this.findByInn(input.inn))!;
   },

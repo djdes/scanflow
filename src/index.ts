@@ -151,6 +151,15 @@ async function main(): Promise<void> {
         }
       })
       .catch(err => logger.error('supplier-extract timeout sweep failed', { error: (err as Error).message }));
+    // Runtime ghost-row sweep: a non-dispatcher invoice stuck in ocr_processing/
+    // parsing for >30 min means its processFile died without reaching a terminal
+    // status (e.g. the error-path status write itself threw). Startup recovery only
+    // runs once; without this the row would haunt ocr_processing until the next
+    // restart. 30 min comfortably exceeds the longest Claude call, so live work
+    // is never swept. (markStaleAsFailed already excludes dispatcher rows.)
+    invoiceRepo.markStaleAsFailed(30)
+      .then(n => { if (n > 0) logger.warn('Ghost-row sweep: marked stuck invoices as error', { count: n }); })
+      .catch(err => logger.error('ghost-row sweep failed', { error: (err as Error).message }));
   });
   checkDiskSpace().catch(err => logger.error('initial disk space check failed', { error: (err as Error).message }));
 
@@ -172,7 +181,10 @@ async function shutdown(): Promise<void> {
   // tearing down the DB pool — closing the pool while a request is mid-query
   // throws "pool is closed". Bounded so a keep-alive connection can't hang exit.
   if (fileWatcher) {
-    fileWatcher.stop();
+    await fileWatcher.stop();
+    // Wait (bounded) for any OCR started before the watcher stopped, so we don't
+    // exit() mid-Claude-call and leave a ghost ocr_processing row + re-billed OCR.
+    await fileWatcher.waitForInFlight(15000);
   }
 
   if (httpServer) {

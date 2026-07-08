@@ -94,6 +94,16 @@ describe('detectPackFromName', () => {
     expect(detectPackFromName('Стакан 350 мл крафт')).toBeNull();
     expect(detectPackFromName('Пакет 30л мусорный')).toBeNull();
   });
+
+  it('treats a disposable knife as a container but NOT "Ножки"/"Ножницы"', () => {
+    // "нож" (disposable cutlery) → container. But the "нож" substring must not
+    // false-match food/goods that merely start with it.
+    expect(detectPackFromName('Нож одноразовый пластиковый')).toBeNull();
+    // Regression: these are real products with a weight pack — must transform.
+    expect(detectPackFromName('Ножки куриные (5кг)')).toEqual({ pack_size: 5, pack_unit: 'кг' });
+    expect(detectPackFromName('Ножницы кухонные 2шт')).toBeNull(); // no kg/l pack anyway
+    expect(detectPackFromName('Голень куриная Ножка (3 кг)')).toEqual({ pack_size: 3, pack_unit: 'кг' });
+  });
 });
 
 describe('applyPackTransform', () => {

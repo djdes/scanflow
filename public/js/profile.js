@@ -74,6 +74,10 @@
     },
 
     async save() {
+      // Disable the button for the duration of the request so a double-click
+      // can't fire two concurrent saves.
+      const btn = document.getElementById('profile-save');
+      if (btn) btn.disabled = true;
       try {
         await App.apiJson('/profile', { method: 'PATCH', body: this.collect() });
         this.setStatus('Сохранено', 'success');
@@ -81,6 +85,8 @@
         await this.load();
       } catch (err) {
         this.setStatus('Ошибка: ' + (err.message || err), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
       }
       setTimeout(() => this.setStatus('', ''), 3000);
     },

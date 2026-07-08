@@ -63,25 +63,3 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
   }
   next();
 }
-
-/**
- * Variant of apiKeyAuth that also accepts ?key=... — use ONLY for routes that
- * serve binary content to <img>/<a> tags where custom headers can't be added.
- */
-export async function apiKeyAuthQueryAllowed(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const apiKey = (req.headers['x-api-key'] as string) || (req.query.key as string);
-
-  if (!apiKey) {
-    res.status(401).json({ error: 'Unauthorized: invalid or missing API key' });
-    return;
-  }
-
-  const user = await lookupUserByKey(apiKey);
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized: invalid or missing API key' });
-    return;
-  }
-
-  req.user = user;
-  next();
-}

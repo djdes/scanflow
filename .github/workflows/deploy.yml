@@ -30,6 +30,9 @@ jobs:
             exit 1
           fi
 
+      - name: Typecheck
+        run: npx tsc --noEmit
+
       - name: Run tests
         run: npm test
 
@@ -79,8 +82,12 @@ jobs:
       - name: Install dependencies and restart
         run: |
           ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=accept-new ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'ENDSSH'
+          # Stop on any failure: without this, a failed `npm run build` fell through
+          # to prune + pm2 restart, relaunching the OLD dist/ while the health check
+          # passed on stale code → green workflow hiding a broken deploy.
+          set -eo pipefail
           export NVM_DIR="$HOME/.nvm"
-          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" || true
 
           cd ~/www/scanflow.ru/app
 
@@ -90,7 +97,8 @@ jobs:
           # Install all dependencies (need devDeps for tsc)
           npm ci 2>&1 || npm install 2>&1
 
-          # Build TypeScript
+          # Build TypeScript — a failure here now aborts the deploy (set -e above)
+          # instead of silently restarting the previous build.
           npm run build 2>&1
 
           # Prune dev dependencies

@@ -17,6 +17,7 @@ import { mapItemsWithClaudeApi, CatalogEntry } from '../../ocr/claudeApiAnalyzer
 import { coerceToOnec1cUnit } from '../../mapping/packTransform';
 import { emit as emitNotification } from '../../notifications/events';
 import { logIntegrationEvent } from '../../integration/integrationLog';
+import { requireAdmin } from '../middleware/auth';
 import { randomUUID } from 'node:crypto';
 import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
 import { supplierRepo } from '../../database/repositories/supplierRepo';
@@ -1032,7 +1033,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/invoices/delete-batch — delete multiple invoices
-router.post('/delete-batch', async (req: Request, res: Response) => {
+router.post('/delete-batch', requireAdmin, async (req: Request, res: Response) => {
   const { ids } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: 'ids array required' });
@@ -1070,7 +1071,7 @@ router.post('/delete-batch', async (req: Request, res: Response) => {
 // POST /api/invoices/canonicalize-suppliers — retroactively rewrite supplier
 // names in existing invoices to the canonical form (ООО "Name" / ИП Name).
 // Safe to run repeatedly — canonicalizeSupplierName is idempotent.
-router.post('/canonicalize-suppliers', async (_req: Request, res: Response) => {
+router.post('/canonicalize-suppliers', requireAdmin, async (_req: Request, res: Response) => {
   const db = getDb();
   const rows = await db.prepare(
     `SELECT id, supplier FROM invoices WHERE supplier IS NOT NULL AND supplier != ''`
@@ -1106,7 +1107,7 @@ router.post('/canonicalize-suppliers', async (_req: Request, res: Response) => {
 // Body: { file_names: string[], wait_for_completion?: boolean }
 // Sequential: moves file, waits for processing (DB poll) before moving next.
 // This matters for multi-page merging where page N+1 must find page N's DB record.
-router.post('/reprocess', async (req: Request, res: Response) => {
+router.post('/reprocess', requireAdmin, async (req: Request, res: Response) => {
   const { file_names, wait_for_completion = true } = req.body as {
     file_names?: unknown;
     wait_for_completion?: boolean;
@@ -1147,6 +1148,17 @@ router.post('/reprocess', async (req: Request, res: Response) => {
     }
 
     try {
+      // Delete the existing invoice row(s) for this file FIRST. Otherwise the
+      // watcher's content-hash dedup (findByFileHash) matches the old row, bounces
+      // the file straight back to processed/ and skips OCR — making reprocess a
+      // silent no-op. Same approach as /api/debug/reprocess-errors.
+      let existing = await invoiceRepo.findByFileName(fileName);
+      while (existing) {
+        await invoiceRepo.delete(existing.id);
+        logger.info('Reprocess: cleared stale invoice row', { file: fileName, id: existing.id });
+        existing = await invoiceRepo.findByFileName(fileName);
+      }
+
       // Move file to inbox — the chokidar file watcher will pick it up
       fs.renameSync(source, inboxPath);
       logger.info('Reprocess: moved file to inbox', { file: fileName, from: sourceLabel });
@@ -1470,6 +1482,15 @@ router.get('/:id/sber-status', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const payment = await sberPaymentRepo.findByInvoiceId(id);
+  // The raw row carries the payer's bank account and the full request/response
+  // payloads. GET /api/sber/status already hides payer bank details from non-
+  // admins (invariant #20) — mirror that here: strip them unless the caller is
+  // an admin. The status/number/amount are enough for the UI's payment badge.
+  if (payment && req.user?.role !== 'admin') {
+    const { payer_account: _pa, request_payload: _rq, response_body: _rs, ...safe } =
+      payment as unknown as Record<string, unknown>;
+    return res.json({ payment: safe });
+  }
   return res.json({ payment });
 });
 
@@ -1478,7 +1499,7 @@ router.get('/:id/sber-status', async (req: Request, res: Response) => {
 // позволяет). Юзер должен открыть свой банк и удалить вручную. Этот endpoint
 // нужен для retry-сценария и для очистки записей, которые юзер уже разрулил
 // в банке.
-router.delete('/:id/sber-payment', async (req: Request, res: Response) => {
+router.delete('/:id/sber-payment', requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   await sberPaymentRepo.deleteByInvoiceId(id);
@@ -1486,17 +1507,23 @@ router.delete('/:id/sber-payment', async (req: Request, res: Response) => {
 });
 
 // POST /api/invoices/:id/send-sber — создать черновик платежа в СберБизнес
-router.post('/:id/send-sber', async (req: Request, res: Response) => {
+router.post('/:id/send-sber', requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
+  // On retry we REUSE the failed attempt's externalId. If that attempt's network
+  // call timed out AFTER Sber had already accepted it, a fresh UUID would make
+  // Sber treat the retry as a brand-new document → duplicate draft. Same externalId
+  // lets Sber dedup it. null → first attempt → generate a new one below.
+  let reuseExternalId: string | null = null;
   const existingPayment = await sberPaymentRepo.findByInvoiceId(id);
   if (existingPayment) {
     if (existingPayment.status === 'failed') {
       // Предыдущая попытка упала — разрешаем retry (юзер явно нажал кнопку
       // ещё раз). Удаляем старую строку, дальше идёт обычный create.
+      reuseExternalId = existingPayment.external_id ?? null;
       await sberPaymentRepo.deleteByInvoiceId(id);
     } else {
       // status === 'created' | 'pending' — реальный конфликт.
@@ -1512,6 +1539,25 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   }
   if (!invoice.supplier_inn) {
     return res.status(400).json({ error: 'invoice has no supplier_inn' });
+  }
+  // Don't pay a duplicate: it's a SEPARATE invoices row for the same paper
+  // document, so the UNIQUE(invoice_id) guard on sber_payments won't catch it.
+  // No override — the user should pay the canonical row instead.
+  if (invoice.duplicate_of != null) {
+    return res.status(409).json({
+      error: 'Накладная помечена как дубликат — оплатите оригинал',
+      duplicate_of: invoice.duplicate_of,
+    });
+  }
+  // items_total_mismatch = sum(items) diverges from total_sum by >1% — a strong
+  // OCR-error signal (~30% of errors). Block by default; a human can force with
+  // ?force=true after eyeballing the amount. Auto-send (no human) never forces.
+  const force = req.query.force === 'true' || req.query.force === '1';
+  if (invoice.items_total_mismatch && !force) {
+    return res.status(409).json({
+      error: 'Сумма позиций расходится с итогом (возможна ошибка OCR). Проверьте и повторите с ?force=true',
+      items_total_mismatch: true,
+    });
   }
 
   const tokenRow = await sberTokenRepo.get();
@@ -1595,7 +1641,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     supplier: supplier.name,
   });
 
-  const externalId = randomUUID();
+  const externalId = reuseExternalId ?? randomUUID();
   // Payment document date in Moscow time (business TZ). toISOString() uses UTC,
   // which yields yesterday's date for sends between 21:00–23:59 MSK. en-CA
   // formats as YYYY-MM-DD, which passes the Sber payload date validation.
@@ -1733,7 +1779,7 @@ router.post('/:id/add-pages', addPagesUpload.array('files', 10), async (req: Req
 // different non-null ИНН are never merged), picks the most-used spelling as the
 // canonical, and rewrites all invoices in each group to it. dry_run (default
 // true) only reports the proposed groups without writing.
-router.post('/merge-suppliers', async (req: Request, res: Response) => {
+router.post('/merge-suppliers', requireAdmin, async (req: Request, res: Response) => {
   const dryRun = String(req.query.dry_run ?? 'true') !== 'false';
   const SUP_THRESHOLD = 0.70;
 

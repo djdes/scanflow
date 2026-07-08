@@ -3,8 +3,13 @@ const Sber = {
   state: { status: null },
 
   async load() {
-    const res = await App.api('/sber/status');
-    this.state.status = await res.json();
+    // apiJson checks res.ok and tolerates a non-JSON (500 HTML) body, so a server
+    // error surfaces as a thrown error instead of leaving the card on "Загрузка…".
+    try {
+      this.state.status = await App.apiJson('/sber/status');
+    } catch (e) {
+      this.state.status = { connected: false, error: e.message };
+    }
     this.renderConnectPage();
   },
 
@@ -118,7 +123,7 @@ const Sber = {
     const wrap = document.getElementById('invoice-sber-section');
     if (!wrap) return;
     wrap.style.display = 'block';
-    const status = this.state.status || (await (await App.api('/sber/status')).json());
+    const status = this.state.status || (await App.apiJson('/sber/status'));
     this.state.status = status;
     if (!status.connected || !status.payer_complete) {
       wrap.innerHTML = `
@@ -127,8 +132,7 @@ const Sber = {
       `;
       return;
     }
-    const stRes = await App.api(`/invoices/${invoice.id}/sber-status`);
-    const { payment } = await stRes.json();
+    const { payment } = await App.apiJson(`/invoices/${invoice.id}/sber-status`);
     if (payment && payment.status === 'created') {
       wrap.innerHTML = `
         <h3 style="margin-bottom:8px">Сбербанк</h3>

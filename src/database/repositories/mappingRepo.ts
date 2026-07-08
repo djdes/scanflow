@@ -99,7 +99,24 @@ export const mappingRepo = {
       await this.update(existing.id, data);
       return (await this.getById(existing.id))!;
     }
-    return this.create(data);
+    try {
+      return await this.create(data);
+    } catch (err) {
+      // Race: a concurrent upsert of the same scanned_name (watcher + dispatcher
+      // callback + API can all hit this) won the INSERT. UNIQUE(scanned_name)
+      // rejects ours — re-read and update instead of failing invoice processing.
+      const e = err as { code?: string; errno?: number; message?: string };
+      const isDup = e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062 ||
+        (e?.message ?? '').includes('Duplicate entry');
+      if (isDup) {
+        const now = await this.getByScannedName(data.scanned_name);
+        if (now) {
+          await this.update(now.id, data);
+          return (await this.getById(now.id))!;
+        }
+      }
+      throw err;
+    }
   },
 
   async getAllGrouped(): Promise<Array<{ onec_guid: string; mapped_name: string; variants: NomenclatureMapping[] }>> {
@@ -131,9 +148,21 @@ export const mappingRepo = {
   async importBulk(items: CreateMappingData[]): Promise<number> {
     if (items.length === 0) return 0;
     return getDb().transaction(async (txn) => {
+      // ON DUPLICATE KEY UPDATE, not REPLACE: REPLACE is DELETE+INSERT, which
+      // resets untouched columns (times_seen, last_seen_*, created_at) to their
+      // defaults, churns the id, and cascade-deletes mapping_supplier_usage rows
+      // via the FK. We only want to overwrite the columns we actually import.
       const stmt = txn.prepare(`
-        REPLACE INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
+        INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
         VALUES (:scanned_name, :mapped_name_1c, :category, :default_unit, :approved, :onec_guid, :pack_size, :pack_unit)
+        ON DUPLICATE KEY UPDATE
+          mapped_name_1c = VALUES(mapped_name_1c),
+          category = VALUES(category),
+          default_unit = VALUES(default_unit),
+          approved = VALUES(approved),
+          onec_guid = VALUES(onec_guid),
+          pack_size = VALUES(pack_size),
+          pack_unit = VALUES(pack_unit)
       `);
       let count = 0;
       for (const item of items) {

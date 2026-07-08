@@ -8,12 +8,12 @@ import {
 } from '../../sber/oauth';
 import { fetchClientInfo } from '../../sber/clientInfo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
+import { isValidInn } from '../../utils/inn';
 
 const router = Router();
 
 const ACC_RE = /^[0-9]{20}$/;
 const BIC_RE = /^[0-9]{9}$/;
-const INN_RE = /^([0-9]{10}|[0-9]{12})$/;
 
 router.get('/authorize', requireAdmin, async (_req: Request, res: Response) => {
   try {
@@ -26,13 +26,22 @@ router.get('/authorize', requireAdmin, async (_req: Request, res: Response) => {
   }
 });
 
-router.get('/callback', async (req: Request, res: Response) => {
+// OAuth callback. Sber redirects the user's BROWSER here (no X-API-Key header),
+// so it MUST be mounted OUTSIDE apiKeyAuth — see server.ts, where it's registered
+// as a public route before the auth'd /api/sber mount. It is not unprotected:
+// the signed `state` JWT (issued only by the admin-gated /authorize) authenticates
+// the flow, and we additionally require purpose === 'connect'.
+// NOTE: /authorize is still behind apiKeyAuth and the SPA opens it via a full
+// navigation that can't send the header, so the OAuth flow isn't wired end-to-end
+// yet (seed-token is the supported path). Completing it needs a SPA-side change:
+// POST /authorize with the header, receive the redirect URL, then navigate.
+export async function handleSberCallback(req: Request, res: Response): Promise<void> {
   const code = req.query.code as string | undefined;
   const state = req.query.state as string | undefined;
   const error = req.query.error as string | undefined;
 
   const fail = (reason: string) => {
-    return res.redirect(`/#/sber?sber=error&sber_error=${encodeURIComponent(reason)}`);
+    res.redirect(`/#/sber?sber=error&sber_error=${encodeURIComponent(reason)}`);
   };
 
   if (error) return fail(error);
@@ -40,6 +49,8 @@ router.get('/callback', async (req: Request, res: Response) => {
 
   const stateData = await verifyOAuthState(state);
   if (!stateData) return fail('invalid_state');
+  // Reject any validly-signed token minted for a different purpose.
+  if (stateData.purpose !== 'connect') return fail('invalid_state');
 
   try {
     const token = await exchangeCodeForToken(code);
@@ -59,12 +70,12 @@ router.get('/callback', async (req: Request, res: Response) => {
       logger.warn('[sber] client-info fetch failed (non-fatal)', { err: (infoErr as Error).message });
     }
     void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк подключён (OAuth)' });
-    return res.redirect('/#/sber?sber=connected');
+    res.redirect('/#/sber?sber=connected');
   } catch (err) {
     logger.error('[sber] callback failed', { err: (err as Error).message });
     return fail((err as Error).message);
   }
-});
+}
 
 router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => {
   const {
@@ -83,8 +94,8 @@ router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => 
   if (payer_bank_corr_account && !ACC_RE.test(payer_bank_corr_account)) {
     return res.status(400).json({ error: 'payer_bank_corr_account must be 20 digits' });
   }
-  if (payer_inn && !INN_RE.test(payer_inn)) {
-    return res.status(400).json({ error: 'payer_inn must be 10 or 12 digits' });
+  if (payer_inn && !isValidInn(payer_inn)) {
+    return res.status(400).json({ error: 'payer_inn is not a valid ИНН (checksum failed)' });
   }
   const expiresAt = expires_at
     ? new Date(expires_at).toISOString()
@@ -118,8 +129,8 @@ router.patch('/payer', requireAdmin, async (req: Request, res: Response) => {
   if (account_number && !ACC_RE.test(account_number)) {
     return res.status(400).json({ error: 'account_number must be 20 digits' });
   }
-  if (payer_inn && !INN_RE.test(payer_inn)) {
-    return res.status(400).json({ error: 'payer_inn must be 10 or 12 digits' });
+  if (payer_inn && !isValidInn(payer_inn)) {
+    return res.status(400).json({ error: 'payer_inn is not a valid ИНН (checksum failed)' });
   }
   await sberTokenRepo.updatePayerDetails({
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,

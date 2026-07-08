@@ -45,6 +45,7 @@ interface TelegramErr {
   ok: false;
   description: string;
   error_code: number;
+  parameters?: { retry_after?: number };
 }
 
 // Extracts a useful description from native fetch failures. undici (Node 18+
@@ -72,21 +73,36 @@ function describeFetchError(err: unknown): string {
 
 async function callTelegram<T>(token: string, method: string, params: Record<string, unknown>): Promise<T> {
   const url = `https://api.telegram.org/bot${token}/${method}`;
-  let res: Response;
-  try {
-    res = await getFetch()(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (err) {
-    // Surface the real cause (DNS, firewall, TLS) instead of opaque "fetch failed".
-    throw new Error(`Telegram API ${method} network error: ${describeFetchError(err)}`);
-  }
-  const data = (await res.json()) as TelegramOk<T> | TelegramErr;
-  if (!data.ok) {
+
+  // Retry once on 429. A burst (e.g. a batch of 20 uploads each firing a
+  // send/edit) trips Telegram's per-chat rate limit; Telegram tells us how long
+  // to wait in parameters.retry_after. Without this the notification is silently
+  // dropped. Cap the honoured wait so a huge retry_after can't stall the caller.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let res: Response;
+    try {
+      res = await getFetch()(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      // Surface the real cause (DNS, firewall, TLS) instead of opaque "fetch failed".
+      throw new Error(`Telegram API ${method} network error: ${describeFetchError(err)}`);
+    }
+    const data = (await res.json()) as TelegramOk<T> | TelegramErr;
+    if (data.ok) return data.result;
+
     const errData = data as TelegramErr;
+
+    if (errData.error_code === 429 && attempt === 0) {
+      const retryAfter = Math.min(Math.max(errData.parameters?.retry_after ?? 1, 1), 30);
+      logger.warn('Telegram rate-limited (429), retrying once', { method, retryAfter });
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+
     // editMessageText returns 400 with descriptions like:
     //   "Bad Request: message to edit not found"
     //   "Bad Request: message can't be edited"
@@ -100,7 +116,8 @@ async function callTelegram<T>(token: string, method: string, params: Record<str
     }
     throw new Error(`Telegram API ${method} failed: ${errData.error_code} ${errData.description}`);
   }
-  return data.result;
+  // Both attempts were 429s.
+  throw new Error(`Telegram API ${method} failed: 429 Too Many Requests (after retry)`);
 }
 
 interface SendMessageResult {

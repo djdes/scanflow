@@ -1,6 +1,9 @@
 import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import type { TLSSocket } from 'node:tls';
+import { logger } from '../utils/logger';
 
 export interface SberFetchOptions {
   method?: string;
@@ -51,6 +54,65 @@ export function _resetTlsCache(): void {
   cachedTls = null;
 }
 
+// Sber's fintech endpoint presents a server chain that doesn't build through any
+// CA we have, so full chain verification (`rejectUnauthorized: true`) fails. mTLS
+// authenticates US to Sber, but on its own gives no protection against an active
+// MITM tampering with the response or the payee account in a payment draft.
+//
+// The defence that works WITHOUT a buildable chain is public-key pinning: after
+// the TLS handshake we hash the peer's SubjectPublicKeyInfo and compare it to a
+// pinned allow-list. Capture the pin(s) once on the server:
+//
+//   openssl s_client -connect fintech.sberbank.ru:9443 -servername fintech.sberbank.ru </dev/null 2>/dev/null \
+//     | openssl x509 -pubkey -noout \
+//     | openssl pkey -pubin -outform der \
+//     | openssl dgst -sha256 -binary | openssl enc -base64
+//
+// then set SBER_PINNED_SPKI to that base64 (comma-separate several to allow key
+// rotation / multiple hosts). When set, a mismatch aborts the connection.
+// When UNSET we fall back to the legacy unpinned behaviour but warn loudly — so
+// nothing breaks in prod until the operator captures the pin, but the gap is visible.
+function pinnedSpkiSet(): Set<string> | null {
+  const raw = process.env.SBER_PINNED_SPKI;
+  if (!raw) return null;
+  const pins = raw.split(',').map(s => s.trim()).filter(Boolean);
+  return pins.length ? new Set(pins) : null;
+}
+
+let warnedUnpinned = false;
+
+function spkiSha256Base64(der: Buffer): string {
+  return crypto.createHash('sha256').update(der).digest('base64');
+}
+
+// Verify the peer's public-key pin on an established TLS socket. Returns an Error
+// to abort with, or null when the connection is acceptable.
+function verifyPin(socket: TLSSocket, hostname: string): Error | null {
+  const pins = pinnedSpkiSet();
+  if (!pins) {
+    if (!warnedUnpinned) {
+      warnedUnpinned = true;
+      logger.warn(
+        'SBER_PINNED_SPKI is not set — Sber TLS runs WITHOUT server-cert verification ' +
+        '(MITM-exposed). Capture the pin on the server and set SBER_PINNED_SPKI. See src/sber/sberClient.ts.'
+      );
+    }
+    return null;
+  }
+  const cert = socket.getPeerCertificate(true);
+  if (!cert || !cert.pubkey) {
+    return new Error('Sber TLS: no peer certificate to pin against');
+  }
+  const actual = spkiSha256Base64(cert.pubkey);
+  if (!pins.has(actual)) {
+    return new Error(
+      `Sber TLS: server public-key pin mismatch for ${hostname} ` +
+      `(got sha256/${actual}); refusing connection`
+    );
+  }
+  return null;
+}
+
 export async function sberFetch(url: string, options: SberFetchOptions = {}): Promise<SberResponse> {
   const tls = loadTls();
   const parsed = new URL(url);
@@ -65,13 +127,11 @@ export async function sberFetch(url: string, options: SberFetchOptions = {}): Pr
         pfx: tls.pfx,
         passphrase: tls.passphrase,
         ca: tls.ca,
-        // Sber's fintech endpoint uses a server cert chain that doesn't
-        // build through any CA we have access to (the sber-ca.pem we get
-        // from the developers portal covers a different SberAPI CA).
-        // mTLS still authenticates us to Sber via the client PFX, and the
-        // host is hardcoded — so disabling server-cert verification is
-        // safe in practice. (Same approach as the working TotalBussines
-        // implementation.)
+        // Chain verification stays off because Sber's server chain doesn't build
+        // through any CA we have — but confidentiality/integrity is restored by
+        // public-key pinning in the `secureConnect` handler below (see verifyPin
+        // / SBER_PINNED_SPKI). Without a configured pin this falls back to the
+        // legacy unpinned behaviour and logs a warning.
         rejectUnauthorized: false,
         timeout: options.timeoutMs ?? 30_000,
       },
@@ -90,6 +150,15 @@ export async function sberFetch(url: string, options: SberFetchOptions = {}): Pr
         });
       },
     );
+    // Enforce the public-key pin as soon as the TLS handshake completes, before
+    // any request body or response bytes are trusted. A mismatch aborts here.
+    req.on('socket', (socket) => {
+      const tlsSocket = socket as TLSSocket;
+      tlsSocket.on('secureConnect', () => {
+        const pinErr = verifyPin(tlsSocket, parsed.hostname);
+        if (pinErr) req.destroy(pinErr);
+      });
+    });
     req.on('error', (err) => reject(new Error(`Sber request failed: ${err.message}`)));
     req.on('timeout', () => {
       req.destroy();

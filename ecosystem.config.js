@@ -22,7 +22,10 @@ module.exports = {
     instances: 1,
     autorestart: true,
     watch: false,
-    max_memory_restart: '256M',
+    // sharp + tesseract.js on a large photo can transiently exceed 256 MB; that
+    // ceiling would kill the process mid-OCR (leaving a stuck row for the watcher
+    // to recover). 512 MB gives image processing headroom.
+    max_memory_restart: '512M',
     error_file: path.join(os.homedir(), 'logs', 'scanflow-error.log'),
     out_file: path.join(os.homedir(), 'logs', 'scanflow-out.log'),
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',

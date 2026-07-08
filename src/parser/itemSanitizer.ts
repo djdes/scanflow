@@ -287,7 +287,29 @@ export function sanitizeItemArithmetic<T extends SanitizableItem>(item: T): Sani
     return { item, corrected: false };
   }
 
-  // Arithmetic lies. Trust total + price, fix qty.
+  // Before blindly rewriting qty, test the MOST COMMON OCR failure the prompt
+  // itself warns about: `price` was read from the "цена без НДС" column while
+  // `total` is VAT-included. Then qty is CORRECT and it's the price that's low
+  // by exactly the VAT rate. Detect via qty × price × (1 + vat/100) ≈ total and
+  // fix the PRICE instead — otherwise we'd inflate qty by the tax rate and ship
+  // a wrong weight/count to 1C that now passes q×p≈t and looks clean.
+  // vat_rate lives on VatAwareItem; callers that don't supply it (e.g. unit
+  // tests) simply skip this branch (undefined → 0), preserving the old behaviour.
+  const vat = (item as Partial<VatAwareItem>).vat_rate ?? 0;
+  if (vat > 0) {
+    const grossed = expected * (1 + vat / 100);
+    const grossRel = Math.abs(grossed - total) / Math.max(Math.abs(total), 1);
+    if (grossRel <= TOLERANCE) {
+      const newPrice = Math.round(price * (1 + vat / 100) * 100) / 100; // kopecks
+      return {
+        item: { ...item, price: newPrice },
+        corrected: true,
+        reason: `price ${price} looked like a pre-VAT value (qty ${qty} × price × (1+${vat}%) ≈ total ${total}); fixed price to ${newPrice}, kept qty`,
+      };
+    }
+  }
+
+  // Arithmetic lies and it's not the pre-VAT-price case. Trust total + price, fix qty.
   const newQty = total / price;
   if (!Number.isFinite(newQty) || newQty <= 0) {
     return { item, corrected: false };

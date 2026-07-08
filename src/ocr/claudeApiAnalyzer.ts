@@ -47,6 +47,23 @@ const CLAUDE_API_MAX_RETRIES = 2;
  * `timeoutMs` defaults to single-page; pass CLAUDE_API_TIMEOUT_MULTIPAGE_MS
  * for multi-page invoice analysis.
  */
+// Pull Retry-After (seconds) from an Anthropic SDK error's response headers,
+// tolerating both a Headers object and a plain record. Returns ms or null.
+function parseRetryAfterMs(err: unknown): number | null {
+  const headers = (err as { headers?: unknown }).headers;
+  if (!headers) return null;
+  let raw: string | null = null;
+  if (typeof (headers as Headers).get === 'function') {
+    raw = (headers as Headers).get('retry-after');
+  } else if (typeof headers === 'object') {
+    const rec = headers as Record<string, string | undefined>;
+    raw = rec['retry-after'] ?? rec['Retry-After'] ?? null;
+  }
+  if (!raw) return null;
+  const secs = Number(raw);
+  return Number.isFinite(secs) && secs >= 0 ? secs * 1000 : null;
+}
+
 async function withRetry<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   label: string,
@@ -65,7 +82,13 @@ async function withRetry<T>(
         throw e;
       }
       if (attempt < CLAUDE_API_MAX_RETRIES) {
-        const backoffMs = 1000 * Math.pow(2, attempt);
+        let backoffMs = 1000 * Math.pow(2, attempt);
+        // On 429, honour the server's Retry-After (seconds) if present — plain
+        // exponential backoff of 1–2 s almost certainly hits the limit again.
+        if (status === 429) {
+          const retryAfterMs = parseRetryAfterMs(e);
+          if (retryAfterMs != null) backoffMs = Math.max(backoffMs, Math.min(retryAfterMs, 60_000));
+        }
         logger.warn(`${label}: attempt ${attempt + 1} failed, retrying in ${backoffMs}ms`, {
           error: (e as Error).message,
           status,
@@ -331,6 +354,23 @@ function safeParseClaudeJson(text: string, label: string): ParsedInvoiceData | n
   return data;
 }
 
+/**
+ * Detect a response truncated by the output-token limit. When Claude stops with
+ * `stop_reason === 'max_tokens'`, the JSON is cut mid-array; the regex grabs up
+ * to the last complete `}` and jsonrepair happily closes the braces — producing
+ * a VALID but SHORTER items array. That silently drops invoice line items with
+ * no error (total_sum, emitted before items, survives — so the only symptom is a
+ * soft items_total_mismatch). We must fail loudly instead, so the invoice lands
+ * in `error` and gets re-run rather than posting a partial document to 1C.
+ */
+function truncationError(stopReason: string | null | undefined, label: string): string | null {
+  if (stopReason === 'max_tokens') {
+    logger.error(`${label}: Claude response truncated (stop_reason=max_tokens) — increase max_tokens`);
+    return 'Claude API: ответ обрезан по лимиту токенов (stop_reason=max_tokens) — распознавание неполное';
+  }
+  return null;
+}
+
 function createClient(apiKey: string): Anthropic {
   const proxyUrl = config.anthropicProxyUrl;
   if (proxyUrl) {
@@ -395,7 +435,7 @@ export async function analyzeMultiPageTextWithClaudeApi(
     const response = await withRetry(
       (signal) => client.messages.create({
         model: modelId,
-        max_tokens: 8192,
+        max_tokens: 16384,
         messages: [
           {
             role: 'user',
@@ -418,6 +458,9 @@ export async function analyzeMultiPageTextWithClaudeApi(
       'Claude API multi-page text',
       CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
     );
+
+    const truncErr = truncationError(response.stop_reason, 'Claude API multi-page text');
+    if (truncErr) return { success: false, error: truncErr };
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
@@ -480,12 +523,15 @@ export async function analyzeMultipleImagesWithClaudeApi(
     const response = await withRetry(
       (signal) => client.messages.create({
         model: modelId,
-        max_tokens: 8192,
+        max_tokens: 16384,
         messages: [{ role: 'user', content }],
       }, { signal }),
       'Claude API multi-image',
       CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
     );
+
+    const truncErr = truncationError(response.stop_reason, 'Claude API multi-image');
+    if (truncErr) return { success: false, error: truncErr };
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
@@ -539,6 +585,7 @@ const ORIENT_TIMEOUT_MS = 30_000;
 export async function detectOrientationWithClaude(
   previewsBase64: [string, string, string, string],
   apiKey: string,
+  modelId: string = 'claude-sonnet-4-6',
 ): Promise<0 | 90 | 180 | 270> {
   const client = createClient(apiKey);
   try {
@@ -546,7 +593,7 @@ export async function detectOrientationWithClaude(
     // fails, caller gets 0 back and OCR proceeds with the original orientation.
     const signal = AbortSignal.timeout(ORIENT_TIMEOUT_MS);
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: modelId,
       max_tokens: 10,
       messages: [{
         role: 'user',
@@ -603,7 +650,7 @@ export async function analyzeImageWithClaudeApi(
     const response = await withRetry(
       (signal) => client.messages.create({
         model: modelId,
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [
           {
             role: 'user',
@@ -626,6 +673,9 @@ export async function analyzeImageWithClaudeApi(
       }, { signal }),
       'Claude API single image'
     );
+
+    const truncErr = truncationError(response.stop_reason, 'Claude API single image');
+    if (truncErr) return { success: false, error: truncErr };
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
@@ -769,11 +819,14 @@ ${catalogLines}`;
     const response = await withRetry(
       (signal) => client.messages.create({
         model: modelId,
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{ role: 'user', content: prompt }],
       }, { signal }),
       'Claude API mapper',
     );
+
+    const truncErr = truncationError(response.stop_reason, 'Claude API mapper');
+    if (truncErr) return { success: false, error: truncErr };
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {

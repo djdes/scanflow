@@ -1,0 +1,17 @@
+{
+  // Typecheck source AND tests together. The base tsconfig only includes src/**,
+  // so tests were never type-checked — a wrong repo signature or a forgotten
+  // `await` (invariant #15) compiled green. This config is noEmit-only; run it in
+  // CI with `tsc -p tsconfig.test.json --noEmit`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

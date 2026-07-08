@@ -393,6 +393,12 @@ export class NomenclatureMapper {
             target: onec.name,
             similarity: best.sim.toFixed(3),
           });
+          // Pack size/unit describe THIS scan's phrasing, not the matched row's.
+          // normalizeName strips the weight before tokenizing, so "…(3кг)" and
+          // "…(5кг)" score identical — inheriting best.row.pack_size would apply
+          // the wrong multiplier (5кг scan × 3 = 6кг instead of 10кг). Re-detect
+          // from the current name instead.
+          const ownPack = detectPackFromName(cleanName || scannedName);
           return {
             original_name: scannedName,
             mapped_name: onec.name,
@@ -402,8 +408,8 @@ export class NomenclatureMapper {
             // Never inherit the OTHER row's mapping_id — it belongs to a
             // different scanned_name and shouldn't be overwritten.
             mapping_id: null,
-            pack_size: best.row.pack_size,
-            pack_unit: best.row.pack_unit,
+            pack_size: ownPack?.pack_size ?? null,
+            pack_unit: ownPack?.pack_unit ?? null,
           };
         }
       }

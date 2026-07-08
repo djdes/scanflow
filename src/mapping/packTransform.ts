@@ -60,7 +60,7 @@ const CONTAINER_STRICT = [
   'лоток',
   'пробка', 'дозатор',
   'тарелк', 'миск',
-  'ложка', 'вилка', 'нож',                     // одноразовые приборы
+  'ложка', 'вилка',                            // одноразовые приборы ('нож' — ниже, с границей)
   'салфетк',
   'форма',
 ];
@@ -87,6 +87,16 @@ const PACKAGING_HINT_STEMS = PACKAGING_HINTS.map(w => w.toLowerCase());
  */
 function looksLikeContainer(name: string): boolean {
   const lower = name.toLowerCase();
+  // Disposable knife ("нож", "нож 100шт"), but NOT "Ножки"/"Ножницы" (food/goods).
+  // \b is unreliable for Cyrillic, so require that "нож" isn't followed by another
+  // Cyrillic letter. A leading count ("100 ножей") is handled by the same
+  // preceding-number heuristic used below.
+  const knife = lower.match(/(?:^|[^а-яё])нож(?![а-яё])/);
+  if (knife) {
+    const knifeIdx = knife.index! + (knife[0].length - 3);
+    const before = lower.slice(0, knifeIdx);
+    if (!/(?:\d[.,]?\d*\s*|\d\s*[×xх*/]\s*)$/.test(before)) return true;
+  }
   for (const stem of CONTAINER_STRICT_STEMS) {
     const idx = lower.indexOf(stem);
     if (idx === -1) continue;

@@ -212,8 +212,7 @@ const Suppliers = {
   async refresh() {
     const params = new URLSearchParams();
     if (this.state.q) params.set('q', this.state.q);
-    const res = await App.api('/suppliers?' + params);
-    const { suppliers } = await res.json();
+    const { suppliers } = await App.apiJson('/suppliers?' + params);
     this.state.items = suppliers;
     this.render();
   },
@@ -251,8 +250,7 @@ const Suppliers = {
   },
 
   async edit(inn) {
-    const res = await App.api('/suppliers/' + encodeURIComponent(inn));
-    const { supplier } = await res.json();
+    const { supplier } = await App.apiJson('/suppliers/' + encodeURIComponent(inn));
     SberModal.open(supplier, async (data) => Suppliers.update(inn, data));
   },
 

@@ -10,10 +10,37 @@ data/failed/*
 .env
 google-credentials.json
 
-# Sber TLS certificates (server-only)
-certs/*
-!certs/.gitkeep
+# Invoice dumps & debug crops (supplier PII / bank details / real invoice fragments).
+# Recursive: catches data/backup_*.json, data/*.png crops, data/reupload-backup/*.jpeg, etc.
+# Only the .gitkeep placeholders below stay tracked.
+data/backup_*.json
+data/**/*.json
+data/**/*.png
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.JPG
+data/**/*.JPEG
+data/*.png
+data/*.jpg
+data/*.jpeg
+data/*.JPG
+data/*.JPEG
+
+# Sber TLS certificates (server-only) — [Cc] so case-sensitive FS (Linux/CI/WSL) also ignores Certs/
+[Cc]erts/*
+![Cc]erts/.gitkeep
 DocsApiSber/
+
+# 1C compiled external processing
+1c/**/*.epf
+
+# Screenshots / scratch images dumped at repo root
+/*.png
+/*.jpeg
+/*.jpg
+
+# Scratch photo/catalog dumps (real invoice photos)
+tmp-photos/
 
 *.log
 logs/

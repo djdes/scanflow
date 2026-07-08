@@ -10,7 +10,7 @@ import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/in
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import type { MappingResult } from '../mapping/nomenclatureMapper';
-import type { ParsedInvoiceData } from '../ocr/types';
+import type { ParsedInvoiceData, CatalogSnapshotEntry } from '../ocr/types';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { resolveSupplierName } from '../services/resolveSupplierName';
@@ -52,6 +52,10 @@ export class FileWatcher {
   private ocrManager: OcrManager;
   private mapper: NomenclatureMapper;
   private processing: Set<string> = new Set();
+  // Count of processFile calls currently running (watcher- or upload-driven).
+  // Lets graceful shutdown wait for OCR to finish instead of killing it mid-run
+  // (which would leave a ghost ocr_processing row + a re-billed OCR on restart).
+  private inFlight = 0;
 
   constructor(ocrManager: OcrManager, mapper: NomenclatureMapper) {
     this.ocrManager = ocrManager;
@@ -87,12 +91,29 @@ export class FileWatcher {
     logger.info('File watcher started', { path: watchPath });
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.watcher) {
-      this.watcher.close();
+      await this.watcher.close();
       this.watcher = null;
       logger.info('File watcher stopped');
     }
+  }
+
+  /**
+   * Resolve once no processFile is running, or when timeoutMs elapses (returns
+   * false on timeout). Used by graceful shutdown to drain in-flight OCR before
+   * the DB pool closes. Poll-based; the counts are small so this is cheap.
+   */
+  async waitForInFlight(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.inFlight > 0) {
+      if (Date.now() >= deadline) {
+        logger.warn('Shutdown: giving up waiting for in-flight OCR', { inFlight: this.inFlight });
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return true;
   }
 
   private async onFileAdded(filePath: string): Promise<void> {
@@ -150,12 +171,12 @@ export class FileWatcher {
    */
   private resolveCatalogIdx(
     idx: number | null | undefined,
-    catalog: OnecNomenclatureRow[] | null,
+    catalog: ReadonlyArray<CatalogSnapshotEntry> | null,
   ): { guid: string; name: string; unit: string | null } | undefined {
     if (!catalog || idx == null || !Number.isFinite(idx)) return undefined;
     const row = catalog[idx - 1];
     if (!row) return undefined;
-    return { guid: row.guid, name: row.name, unit: row.unit };
+    return { guid: row.guid, name: row.name, unit: row.unit ?? null };
   }
 
   /**
@@ -209,6 +230,9 @@ export class FileWatcher {
         method: 'POST',
         headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
         body: '{}',
+        // Cap the loopback call: it awaits before the file is moved to processed/,
+        // and a hung mTLS handshake to Sber would otherwise stall processFile.
+        signal: AbortSignal.timeout(60_000),
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({})) as { payment_number?: string };
@@ -368,14 +392,19 @@ export class FileWatcher {
 
     // Mapping pipeline
     const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
-    const catalog = analyzerCfg.llm_mapper_enabled
-      ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
-      : null;
+    // Prefer the catalog snapshot the OCR call actually built its prompt from —
+    // re-fetching here would resolve catalog_idx against a possibly-reordered
+    // catalog if a 1C sync raced the OCR. Fall back to a fresh read only when the
+    // OCR path didn't carry a snapshot (hybrid/legacy).
+    const catalog = !analyzerCfg.llm_mapper_enabled
+      ? null
+      : (ocrResult.catalogSnapshot ?? await onecNomenclatureRepo.listItems({ excludeFolders: true }));
 
     for (const item of parsedItems) {
       if (!item.name) continue;
       const sanity = sanitizeItemArithmetic({
         quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+        vat_rate: item.vat_rate,
       });
 
       const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
@@ -516,6 +545,7 @@ export class FileWatcher {
       if (!item.name) continue;
       const sanity = sanitizeItemArithmetic({
         quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+        vat_rate: item.vat_rate,
       });
       const mapping = await this.mapper.map(item.name);
       const onec1cUnit = mapping.onec_guid
@@ -558,7 +588,18 @@ export class FileWatcher {
     return added;
   }
 
+  // Thin wrapper that tracks in-flight count for graceful shutdown. Both the
+  // watcher (onFileAdded) and the /api/upload route call this.
   async processFile(filePath: string, fileName: string, forceEngine?: string, meta?: UploadMeta): Promise<number> {
+    this.inFlight++;
+    try {
+      return await this.runProcessFile(filePath, fileName, forceEngine, meta);
+    } finally {
+      this.inFlight--;
+    }
+  }
+
+  private async runProcessFile(filePath: string, fileName: string, forceEngine?: string, meta?: UploadMeta): Promise<number> {
     // 0. Content-based deduplication via SHA-256.
     // Hash is stored DURING the invoice INSERT under a UNIQUE partial index
     // on file_hash, which makes the dedup atomic: two concurrent uploads of
@@ -971,14 +1012,17 @@ export class FileWatcher {
 
               // Save unified items
               const mergedAnalyzerCfg = await invoiceRepo.getAnalyzerConfig();
-              const mergedCatalog = mergedAnalyzerCfg.llm_mapper_enabled
-                ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
-                : null;
+              // multiResult carries the catalog snapshot the merge prompt used —
+              // resolve against it, not a fresh (possibly-reordered) read.
+              const mergedCatalog = !mergedAnalyzerCfg.llm_mapper_enabled
+                ? null
+                : (multiResult.catalogSnapshot ?? await onecNomenclatureRepo.listItems({ excludeFolders: true }));
 
               for (const item of mergedItems) {
                 if (!item.name) continue;
                 const sanity = sanitizeItemArithmetic({
                   quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+                  vat_rate: item.vat_rate,
                 });
                 if (sanity.corrected) {
                   logger.info('Merged-item arithmetic sanitized', { name: item.name, reason: sanity.reason });
@@ -1213,15 +1257,18 @@ export class FileWatcher {
       // 6. Map nomenclature and save items (to target invoice)
       // If LLM-mapper is on, Claude has already chosen catalog_idx per item.
       // Resolve those first; fall back to fuzzy mapper only when LLM missed.
+      // Use the snapshot the prompt was built from so a racing 1C catalog sync
+      // can't shift every catalog_idx onto a neighbouring GUID.
       const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
-      const catalog = analyzerCfg.llm_mapper_enabled
-        ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
-        : null;
+      const catalog = !analyzerCfg.llm_mapper_enabled
+        ? null
+        : (ocrResult.catalogSnapshot ?? await onecNomenclatureRepo.listItems({ excludeFolders: true }));
 
       for (const item of parsedItems) {
         if (!item.name) continue; // skip items without a name
         const sanity = sanitizeItemArithmetic({
           quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
+          vat_rate: item.vat_rate,
         });
         if (sanity.corrected) {
           logger.info('Item arithmetic sanitized', { name: item.name, reason: sanity.reason });
@@ -1391,7 +1438,17 @@ export class FileWatcher {
       return targetInvoiceId;
     } catch (err) {
       const errorMsg = (err as Error).message;
-      await invoiceRepo.updateStatus(invoice.id, 'error', errorMsg);
+      // Guard the status write: if it throws (DB blip), the rest of the error
+      // handling — crucially moving the file to failed/ — must still run, or the
+      // row stays stuck in ocr_processing and the file lingers in inbox (chokidar
+      // won't re-emit 'add' for it), i.e. a ghost row until restart.
+      try {
+        await invoiceRepo.updateStatus(invoice.id, 'error', errorMsg);
+      } catch (statusErr) {
+        logger.error('Failed to mark invoice as error (continuing cleanup)', {
+          id: invoice.id, error: (statusErr as Error).message,
+        });
+      }
       logger.error('Invoice processing failed', { id: invoice.id, fileName, error: errorMsg });
 
       // Fire-and-forget notification for recognition failure.

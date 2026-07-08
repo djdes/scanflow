@@ -7,12 +7,25 @@ export interface OcrWord {
   confidence?: number;
 }
 
+// Minimal catalog row as it was ordered when the Claude prompt was built.
+// `catalog_idx` on items is a 1-based index into THIS exact array.
+export interface CatalogSnapshotEntry {
+  guid: string;
+  name: string;
+  unit?: string | null;
+}
+
 export interface OcrResult {
   text: string;
   engine: string;
   confidence?: number;
   structured?: ParsedInvoiceData;
   words?: OcrWord[];  // Слова с координатами (для position-aware parsing)
+  // The exact catalog array used to build the LLM-mapper prompt. Carried here so
+  // the watcher resolves catalog_idx against the SAME ordering, immune to a 1C
+  // catalog sync that races the (30–120 s) OCR call and would otherwise shift
+  // every index onto a neighbouring GUID. Absent when LLM-mapper was off.
+  catalogSnapshot?: CatalogSnapshotEntry[];
 }
 
 export interface ParsedInvoiceData {

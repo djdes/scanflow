@@ -70,7 +70,10 @@ const Mappings = {
       </div></td></tr>`;
       return;
     }
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // Delegate to App.esc — it also escapes ' (→ &#39;), which the values below
+    // need: they're interpolated into single-quoted inline handler strings, so an
+    // apostrophe in a 1C name (e.g. O'Брайен) would otherwise break out (XSS).
+    const esc = s => App.esc(s);
     tbody.innerHTML = items.map(g => {
       const total = g.variants.reduce((s, v) => s + (v.times_seen || 0), 0);
       const isExpanded = this.expandedGuid === g.onec_guid;
@@ -275,7 +278,10 @@ const Mappings = {
       </div></td></tr>`;
       return;
     }
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // Delegate to App.esc — it also escapes ' (→ &#39;), which the values below
+    // need: they're interpolated into single-quoted inline handler strings, so an
+    // apostrophe in a 1C name (e.g. O'Брайен) would otherwise break out (XSS).
+    const esc = s => App.esc(s);
     tbody.innerHTML = this.unmapped.map(m => `
       <tr>
         <td>${esc(m.scanned_name)}</td>
@@ -302,7 +308,10 @@ const Mappings = {
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
     if (results.length === 0) { dd.style.display = 'none'; return; }
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // Delegate to App.esc — it also escapes ' (→ &#39;), which the values below
+    // need: they're interpolated into single-quoted inline handler strings, so an
+    // apostrophe in a 1C name (e.g. O'Брайен) would otherwise break out (XSS).
+    const esc = s => App.esc(s);
     dd.innerHTML = results.map(r => `
       <div class="nom-picker-option" data-guid="${esc(r.guid)}" data-name="${esc(r.name)}"
            onmousedown="event.preventDefault(); Mappings.pickUnmap(${id}, '${esc(r.guid)}', '${esc(r.name)}')">
@@ -349,7 +358,10 @@ const Mappings = {
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
     if (results.length === 0) { dd.style.display = 'none'; return; }
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // Delegate to App.esc — it also escapes ' (→ &#39;), which the values below
+    // need: they're interpolated into single-quoted inline handler strings, so an
+    // apostrophe in a 1C name (e.g. O'Брайен) would otherwise break out (XSS).
+    const esc = s => App.esc(s);
     dd.innerHTML = results.map(r => `
       <div class="nom-picker-option" onmousedown="event.preventDefault(); Mappings.pickAdd('${esc(r.guid)}', '${esc(r.name)}')">
         <strong>${esc(r.name)}</strong>
@@ -418,7 +430,7 @@ const Mappings = {
       return;
     }
     tbody.innerHTML = items.map((it, i) => {
-      const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const esc = s => App.esc(s);
       const guidShort = it.guid ? it.guid.substring(0, 8) + '…' : '—';
       return `<tr>
         <td data-label="#">${i + 1}</td>

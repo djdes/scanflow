@@ -7,6 +7,18 @@ let pool: Pool | null = null;
 let initPromise: Promise<void> | null = null;
 
 function buildPool(): Pool {
+  // Defense-in-depth against the 2026-05-26 incident (a test run TRUNCATEd the
+  // prod DB). tests/helpers/db.ts guards resetDb(), but a test that imports a
+  // repository WITHOUT calling resetDb() would still open this pool against
+  // whatever .env points at (prod). Under a test runner, refuse any DB whose name
+  // doesn't look like a test DB — no silent prod connection from a test process.
+  const underTest = process.env.VITEST || process.env.NODE_ENV === 'test';
+  if (underTest && !/test/i.test(config.dbName)) {
+    throw new Error(
+      `Refusing to open DB pool under a test runner against non-test database "${config.dbName}". ` +
+      `Set DB_NAME to a *test* schema (e.g. scanflow_test).`
+    );
+  }
   return mysql.createPool({
     host: config.dbHost,
     port: config.dbPort,
