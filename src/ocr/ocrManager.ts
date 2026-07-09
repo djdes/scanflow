@@ -1,7 +1,7 @@
 import { OcrEngine, OcrResult } from './types';
 import { GoogleVisionEngine } from './googleVision';
 import { TesseractEngine } from './tesseract';
-import { analyzeImageWithClaudeApi, analyzeMultipleImagesWithClaudeApi, analyzeMultiPageTextWithClaudeApi, CatalogEntry } from './claudeApiAnalyzer';
+import { analyzeImageWithVerification, analyzeMultipleImagesWithVerification, analyzeMultiPageTextWithVerification, CatalogEntry } from './claudeApiAnalyzer';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
 import { config } from '../config';
@@ -248,7 +248,7 @@ export class OcrManager {
 
     if (apiKey) {
       const catalog = await getCatalogForPrompt();
-      const apiResult = await analyzeMultiPageTextWithClaudeApi(ocrResult.text, apiKey, 1, modelId, catalog);
+      const apiResult = await analyzeMultiPageTextWithVerification(ocrResult.text, apiKey, 1, modelId, catalog);
       if (apiResult.success && apiResult.data) {
         logger.info('Hybrid OCR: Anthropic API text analyzer succeeded', {
           itemsCount: apiResult.data.items?.length ?? 0,
@@ -286,7 +286,7 @@ export class OcrManager {
     // Preprocess every page — each can have its own rotation.
     const processedPaths = await Promise.all(imagePaths.map(p => this.preprocessImage(p)));
     const catalog = await getCatalogForPrompt();
-    const result = await analyzeMultipleImagesWithClaudeApi(processedPaths, apiKey, modelId, catalog);
+    const result = await analyzeMultipleImagesWithVerification(processedPaths, apiKey, modelId, catalog);
     // Clean up temp files
     for (const pp of processedPaths) {
       if (!imagePaths.includes(pp)) {
@@ -321,7 +321,7 @@ export class OcrManager {
     }
 
     const catalog = await getCatalogForPrompt();
-    const result = await analyzeMultiPageTextWithClaudeApi(combinedOcrText, apiKey, pageCount, modelId, catalog);
+    const result = await analyzeMultiPageTextWithVerification(combinedOcrText, apiKey, pageCount, modelId, catalog);
 
     if (result.success && result.data) {
       // Honest engine tag: only include "google_vision" if we're actually
@@ -362,7 +362,7 @@ export class OcrManager {
 
     try {
       const catalog = await getCatalogForPrompt();
-      const result = await analyzeImageWithClaudeApi(processedPath, apiKey, modelId, catalog);
+      const result = await analyzeImageWithVerification(processedPath, apiKey, modelId, catalog);
 
       if (result.success && result.data) {
         return {

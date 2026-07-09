@@ -26,14 +26,14 @@ export interface CatalogEntry {
   unit?: string | null;
 }
 
-// Per-call Claude API timeouts. Single-page invoice scans on Opus take 30-60s
-// real-world; multi-page (image OR text) routinely run 60-120s on long invoices.
-// Bumped from a flat 90s after observing genuine 65s+ runs being killed by the
-// old timeout. Worst-case wall time per invoice = timeout × 3 attempts + 3s
-// of backoff, so single = 363s, multi = 543s. Acceptable since user only sees
-// status updates, not blocking response.
-const CLAUDE_API_TIMEOUT_SINGLE_MS = 120_000;
-const CLAUDE_API_TIMEOUT_MULTIPAGE_MS = 180_000;
+// Per-call Claude API timeouts. На structured outputs + adaptive thinking (effort
+// medium) плотная страница ТОРГ-12 на 20 позиций читается ~120-180с (Sonnet 5
+// думает над каждой строкой), а редкая огромная — дольше. 120с убивали такие
+// страницы посреди чтения → подняли single до 240с. Multi-page (image OR text)
+// тоже 240с. Worst-case = timeout × 3 попытки + backoff; фон, пользователь видит
+// только статус, не блокирующий ответ.
+const CLAUDE_API_TIMEOUT_SINGLE_MS = 240_000;
+const CLAUDE_API_TIMEOUT_MULTIPAGE_MS = 240_000;
 
 // Total retries = 2 (3 attempts). Backoff: 1s, 2s.
 const CLAUDE_API_MAX_RETRIES = 2;
@@ -271,65 +271,9 @@ function cleanJsonString(raw: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, '');    // multi-line comments
 }
 
-/**
- * Safely parse Claude's JSON response. Catches parse errors and enforces the
- * minimum shape we care about (items is an array). Returns a normalised
- * ParsedInvoiceData on success, or null with logged context on failure — the
- * caller falls through to the regex parser.
- *
- * Three-stage fallback:
- *   1. JSON.parse after cleanup (handles well-formed + trailing commas)
- *   2. jsonrepair (handles unescaped quotes, missing commas, weird Opus quirks)
- *   3. Give up and return null
- */
-function safeParseClaudeJson(text: string, label: string): ParsedInvoiceData | null {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) {
-    logger.warn(`${label}: no JSON object found in Claude response`, { sample: text.slice(0, 200) });
-    return null;
-  }
-  let parsed: unknown;
-  const cleaned = cleanJsonString(match[0]);
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch (err) {
-    // Stage 2 — try to repair. jsonrepair handles Opus-style breakages like
-    // "Expected ',' or '}'" on line 1036 where a quote in a name wasn't
-    // escaped.
-    logger.warn(`${label}: JSON.parse failed, attempting jsonrepair`, {
-      error: (err as Error).message,
-    });
-    try {
-      parsed = JSON.parse(jsonrepair(cleaned));
-      logger.info(`${label}: jsonrepair succeeded`);
-    } catch (repairErr) {
-      logger.warn(`${label}: jsonrepair also failed, giving up`, {
-        error: (repairErr as Error).message,
-        sample: match[0].slice(0, 300),
-      });
-      return null;
-    }
-  }
-  if (!parsed || typeof parsed !== 'object') {
-    logger.warn(`${label}: parsed response is not an object`);
-    return null;
-  }
-  const data = parsed as ParsedInvoiceData;
-  if (!Array.isArray(data.items)) {
-    logger.warn(`${label}: "items" is missing or not an array — coercing to []`);
-    data.items = [];
-  } else {
-    // Drop null/non-object elements (jsonrepair can introduce holes). Every
-    // downstream consumer does items.map(i => ({ ...i.quantity })), so a single
-    // null element would turn a recoverable response into a hard invoice failure.
-    const before = data.items.length;
-    data.items = data.items.filter((it) => it != null && typeof it === 'object');
-    if (data.items.length !== before) {
-      logger.warn(`${label}: dropped ${before - data.items.length} null/non-object item(s)`);
-    }
-  }
-  return data;
-}
+// NB: safeParseClaudeJson удалён — на claude_api-пути JSON гарантирован
+// output_config.format (см. normalizeStructuredResponse ниже). cleanJsonString
+// оставлен: им ещё пользуется mapItemsWithClaudeApi (mapping-only вызов).
 
 function createClient(apiKey: string): Anthropic {
   const proxyUrl = config.anthropicProxyUrl;
@@ -371,10 +315,443 @@ async function encodeImageForApi(imagePath: string): Promise<{ data: string; med
   return { data: pre.toString('base64'), mediaType: isJpeg ? 'image/jpeg' : getMediaType(imagePath) };
 }
 
+// ============================================================================
+//  Structured-output путь (Sonnet 5): system-инструкции + prompt caching +
+//  гарантированный JSON через output_config.format + adaptive thinking.
+//  См. docs/superpowers/specs/2026-07-09-ocr-accuracy-improvement-design.md
+// ============================================================================
+
+import { validateParsedInvoice, ValidationIssue } from './invoiceValidator';
+
+// max_tokens под adaptive thinking: размышления тратят тот же бюджет, поэтому
+// заметно больше прежних 4096/8192. Одиночная — non-streaming (16k безопасно
+// под HTTP-таймаутом), многостраничная — только streaming (SDK требует stream
+// для больших max_tokens).
+// Единый потолок вывода (thinking + JSON) для structured-output пути. 32k с
+// запасом покрывает плотные накладные на effort medium. Всегда через streaming.
+const STRUCTURED_MAX_TOKENS_MULTI = 32000;
+
+// effort: 'low' читает плотные таблицы (15-20 позиций) НЕБРЕЖНО — систематически
+// сдвигает суммы соседних строк (проверено на #202: позиции 9-11 стабильно
+// перепутаны в двух прогонах). Такой сдвиг НЕ ловится валидатором на листе без
+// «Итого» (total_sum=null → нет сверки Σ). 'medium' читает аккуратно (правильно
+// с первого раза на тех же накладных), а max_tokens=32k + streaming снимают
+// прежнюю проблему обрезки/таймаута. Латентность ~2-3 мин на плотную страницу
+// приемлема для фоновой обработки. Вынесено в константу.
+const STRUCTURED_EFFORT: 'low' | 'medium' | 'high' | 'max' = 'medium';
+
+/**
+ * Статичные доменные инструкции. Переезжают в `system` с cache_control, поэтому
+ * между накладными читаются из кэша (~0.1× цены) и имеют вес system-роли —
+ * Sonnet 5 следует им буквальнее, чем тому же тексту в user-сообщении.
+ *
+ * Формат ответа сюда НЕ входит — его гарантирует output_config.format (schema).
+ * Каталог номенклатуры — отдельный system-блок (свой cache breakpoint).
+ */
+const INVOICE_INSTRUCTIONS = `Ты эксперт по русским товарным накладным. Тебе дают фотографию (или OCR-текст) накладной, ты извлекаешь из неё структурированные данные строго по заданной JSON-схеме.
+
+================================================================
+СТРУКТУРА НАКЛАДНОЙ (ТОРГ-12, УПД, счёт-фактура, счёт на оплату)
+================================================================
+
+1) ШАПКА (верх страницы, до таблицы товаров):
+   • "Счёт-фактура №", "УПД №", "Накладная №", "Счёт №" → invoice_number
+     (обычно короткий: "261", "1/153468", "17-0048600").
+   • "от DD месяца YYYY г." → invoice_date (строго YYYY-MM-DD).
+   • "Продавец"/"Поставщик"/"Грузоотправитель" → supplier. Это ПРОДАВЕЦ товара
+     (ООО/АО/ИП/самозанятый). Покупателя (обычно ООО "БФС") игнорируй.
+     ⚠️ НЕ путай поставщика с его БАНКОМ! Строки вида «"АЛЬФА-БАНК"», «Сбербанк»,
+     «ВТБ (ПАО)», «Точка Банк» рядом с БИК/к-сч — это банк поставщика, а НЕ supplier.
+     Если поставщик — ИП (напр. «ИП Горбунов А.В., ИНН ...»), в supplier пиши именно
+     ИП/ФИО, а не название банка из его реквизитов.
+   • "ИНН/КПП продавца", "ИНН поставщика" → supplier_inn (10 или 12 цифр до "/").
+   • После "/" в "ИНН/КПП продавца" → supplier_kpp (ровно 9 цифр; у ИП КПП нет — null).
+   • Для "счёт на оплату" ищи также supplier_bik, supplier_account (р/сч),
+     supplier_corr_account (к/сч), supplier_address.
+
+2) ТАБЛИЦА ТОВАРОВ. Колонки ТОРГ-12/УПД (слева-направо):
+   │ Код товара │ № п/п │ Код вида │ Ед.изм │ Кол-во │ Цена(тариф) │ Стоим. БЕЗ нал. │ НДС акц │ Ставка │ Сумма налога │ Стоимость С налогом │
+   Из строки товара извлекай:
+     name      ← "Наименование". Бренды/артикулы убирай, вес/объём ОСТАВЛЯЙ
+                 ("Кальмар Командорский 5кг" → "Кальмар 5кг").
+     row_no    ← "№ п/п" (2-я колонка слева). НЕ путай с "Код товара" (артикул "13-0659").
+                 На 2-й странице нумерация продолжается (10, 11, ...).
+     quantity  ← "Количество".
+     unit      ← "Единица измерения" (шт, кг, л, уп, пач, упак).
+     price     ← цена ЗА ЕДИНИЦУ С НДС = total / quantity. Колонка «БЕЗ налога» — НЕ price.
+     total     ← "Стоимость С налогом — всего" (самая правая цифра строки). НИКОГДА не «без НДС».
+     vat_rate  ← ставка НДС (10, 20, 22, 0). "без акциза" акциза не касается.
+
+3) ИТОГ (строка под таблицей): "Всего к оплате", "Всего по накладной", "Итого", "К оплате".
+   В строке две цифры: левая = Σ без НДС (НЕ брать), правая = Σ с НДС → total_sum.
+
+4) НДС:
+   • "В том числе НДС" / "Сумма налога, предъявляемая покупателю" → vat_sum.
+   • vat_sum бери ТОЛЬКО из ИТОГОВОЙ строки по ВСЕЙ накладной (нижней/наибольшей),
+     НИКОГДА из промежуточного "Итого" по странице/разделу.
+   • Если ячейка "в т.ч. НДС" пуста/прочерк, но в позициях есть ставка НДС —
+     посчитай vat_sum = Σ(total × ставка / (100 + ставка)).
+   • НЕТ колонки «ставка НДС» по позициям (частый случай для «счёта на оплату») —
+     НЕ ставь 20% по умолчанию! Вычисли ставку из напечатанной строки «В том числе НДС»:
+     ставка = vat_sum / (total_sum − vat_sum) × 100, округли до стандартной (10, 20 или 22).
+     Пример: НДС 7097.91 при итоге 39361.10 → 7097.91/(39361.10−7097.91)=0.22 → ставка 22%.
+     Проставь эту ставку ВСЕМ позициям, а vat_sum оставь как напечатано (НЕ пересчитывай
+     его под угаданную ставку). В 2026 году ставка НДС часто 22%, не 20%.
+
+5) МНОГОСТРАНИЧНАЯ НАКЛАДНАЯ:
+   • total_sum/vat_sum — из итоговой строки, которая ЕСТЬ на ЭТОМ листе:
+       – есть "Всего по накладной"/"Всего к оплате" → бери её (общий итог накладной);
+       – на листе только "Итого" по листу (промежуточный субитог, без общего итога)
+         → всё равно верни сумму этого "Итого" (с НДС → total_sum, НДС → vat_sum).
+         Это итог ЛИСТА; общий итог всей накладной возьмётся с последнего листа при
+         сшивке. Так серверная проверка сверит Σ(позиций листа) с итогом листа.
+     total_sum = null ТОЛЬКО если на листе нет НИКАКОЙ итоговой строки. НЕ подставляй
+     сумму последнего товара как итог.
+   • Нет "УПД №..."/"Счёт-фактура №..." в шапке (лист-продолжение) → invoice_number = null
+     (если номер продублирован на листе — можно вернуть его). НЕ бери "Код товара" из
+     первого столбца как номер накладной.
+
+ОБЩЕЕ ПРАВИЛО ПУСТЫХ ПОЛЕЙ: значение неизвестно/отсутствует → ставь null (для
+банковских реквизитов — можно просто не указывать поле). НЕ выдумывай значения.
+
+================================================================
+ДИСЦИПЛИНА ЧТЕНИЯ ЦИФР (главный источник ошибок — читай медленно)
+================================================================
+  • Запятая = десятичный разделитель: "2,000" = 2 штуки, "2,5" = 2.5. Пробел =
+    разделитель тысяч: "2 000" = 2000. Если получилось количество > 10000 —
+    ты вставил лишние нули, перечитай.
+  • quantity НЕ может быть длиннее 4 цифр — это код товара (артикул "113393"),
+    а не количество.
+  • price — это колонка «Цена С НДС» (= total / quantity), а НЕ колонка «без НДС».
+  • total — самая правая цифра строки (со всеми налогами).
+  • Числа возвращай с точкой как десятичным разделителем (30.60), без пробелов.
+
+================================================================
+ТОЧНОСТЬ НАЗВАНИЙ
+================================================================
+  • Кириллицу сохраняй как есть (UTF-8), не транслитерируй.
+  • Вес/объём/упаковку в названии сохраняй дословно. Если есть упаковочная подсказка
+    ("1/12", "*48", "×100", "/72", "10/216") — ОСТАВЬ её в name КАК ЕСТЬ и верни число
+    штук в упаковке в pack_size (для "*48" → 48, "1/12" → 12; для диапазона "9-12" → pack_size: null).
+    Пример: "Горбуша нат. 245г*48 ГОСТ (Вяземский РК)" → name "Горбуша натуральная 245г*48", pack_size 48.
+  • Бренды/производителя/артикул из name убирай.
+  • Если фрагмент названия нечитаем — НЕ выдумывай, перепиши только читаемую часть.
+
+================================================================
+САМОПРОВЕРКА (инварианты — сверься перед выдачей)
+================================================================
+  • Для каждой строки: total ≈ quantity × price (±1%).
+  • Σ(items.total) ≈ total_sum (если total_sum есть).
+  • vat_sum ≈ Σ(items.total × ставка / (100 + ставка)).
+  Если инвариант не сходится — перечитай проблемное место на изображении.`;
+
+/**
+ * Инструкции по сопоставлению с каталогом 1С — отдельный system-блок (свой
+ * cache breakpoint, т.к. каталог меняется реже инструкций).
+ */
+function buildCatalogSystemText(catalog: CatalogEntry[]): string {
+  const lines = catalog.map((c, i) => {
+    const unit = c.unit ? ` (${c.unit})` : '';
+    return `[${i + 1}] ${c.name}${unit}`;
+  }).join('\n');
+  return `================================================================
+СПРАВОЧНИК НОМЕНКЛАТУРЫ 1С (${catalog.length} позиций)
+================================================================
+
+Для КАЖДОЙ позиции накладной найди соответствующий товар в списке ниже и укажи его
+номер в поле "catalog_idx". Правила:
+  • Сопоставляй по смыслу, а не по буквальному совпадению (OCR искажает имена).
+  • Производителя/бренд/артикул игнорируй — в справочнике обобщённые названия.
+  • Размер/объём учитывай ВНИМАТЕЛЬНО: "Молоко 1л" и "Молоко 2л" — РАЗНЫЕ позиции.
+  • Нет подходящей позиции → catalog_idx: null. Лучше пусто, чем неверно.
+
+СПИСОК:
+${lines}`;
+}
+
+/**
+ * Собирает массив system-блоков с cache_control. Блок 1 — инструкции, блок 2 —
+ * каталог (если LLM-маппер включён). Порядок фиксирован → кэш стабилен.
+ */
+export function buildSystemBlocks(catalog?: CatalogEntry[]): Anthropic.TextBlockParam[] {
+  const blocks: Anthropic.TextBlockParam[] = [
+    { type: 'text', text: INVOICE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+  ];
+  if (catalog && catalog.length > 0) {
+    blocks.push({ type: 'text', text: buildCatalogSystemText(catalog), cache_control: { type: 'ephemeral' } });
+  }
+  return blocks;
+}
+
+/**
+ * JSON-схема ответа для output_config.format. Повторяет ParsedInvoiceData.
+ *
+ * Structured outputs накладывает ДВА независимых ограничения, между которыми
+ * нужно пройти:
+ *   1. Не больше 16 параметров с union-типами (["string","null"] / anyOf) —
+ *      иначе 400 "too many parameters with union types".
+ *   2. Не слишком много ОПЦИОНАЛЬНЫХ полей (отсутствующих в required): грамматика
+ *      «любое подмножество полей» комбинаторно взрывается — иначе 400 "Schema is
+ *      too complex" (все ~19 полей опциональными не проходят).
+ *
+ * Решение: часто встречающиеся поля делаем required + nullable-union (модель
+ * ОБЯЗАНА их вернуть, значением или null — никакой комбинаторики подмножеств).
+ * Опциональными (plain-тип, вне required, 0 unions) оставляем только редкие
+ * банковские реквизиты — они есть лишь на «счёте на оплату». Итого 14–15 unions
+ * и 4 опциональных поля — с запасом по обоим лимитам. null downstream = «нет
+ * значения» (ParsedInvoiceData всё равно опционально типизирует эти поля).
+ * Прочее: additionalProperties:false везде, без minimum/maxLength (валидация —
+ * invoiceValidator), без рекурсии.
+ */
+export function buildInvoiceSchema(withCatalogIdx: boolean): Record<string, unknown> {
+  const num = { type: ['number', 'null'] };
+  const str = { type: ['string', 'null'] };
+  const itemProps: Record<string, unknown> = {
+    name: { type: 'string' },
+    quantity: num,
+    unit: str,
+    price: num,
+    total: num,
+    vat_rate: num,
+    row_no: num,
+    pack_size: num,
+  };
+  const itemRequired = ['name', 'quantity', 'unit', 'price', 'total', 'vat_rate', 'row_no', 'pack_size'];
+  if (withCatalogIdx) {
+    itemProps.catalog_idx = num;
+    itemRequired.push('catalog_idx');
+  }
+  return {
+    type: 'object',
+    additionalProperties: false,
+    // required + nullable — модель вернёт поле всегда (значение или null).
+    required: ['invoice_type', 'invoice_number', 'invoice_date', 'supplier', 'supplier_inn', 'supplier_kpp', 'total_sum', 'vat_sum', 'items'],
+    properties: {
+      invoice_type: { type: 'string', enum: ['счет_на_оплату', 'торг_12', 'упд', 'счет_фактура'] },
+      invoice_number: str,
+      invoice_date: str,
+      supplier: str,
+      supplier_inn: str,
+      supplier_kpp: str,
+      // Банковские реквизиты — опциональные (только на «счёте на оплату»), plain-тип.
+      supplier_bik: { type: 'string' },
+      supplier_account: { type: 'string' },
+      supplier_corr_account: { type: 'string' },
+      supplier_address: { type: 'string' },
+      total_sum: num,
+      vat_sum: num,
+      items: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: false, required: itemRequired, properties: itemProps },
+      },
+    },
+  };
+}
+
+/**
+ * Нормализует ответ structured-output пути в ParsedInvoiceData. JSON гарантирован
+ * API, поэтому здесь только: найти text-блок, распарсить, привести items к массиву
+ * без null-элементов (downstream делает items.map — один null сломал бы всё).
+ */
+function normalizeStructuredResponse(text: string, label: string): ParsedInvoiceData | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    logger.warn(`${label}: structured JSON.parse failed (unexpected — schema-constrained)`, {
+      error: (err as Error).message,
+      sample: text.slice(0, 300),
+    });
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    logger.warn(`${label}: parsed response is not an object`);
+    return null;
+  }
+  const data = parsed as ParsedInvoiceData;
+  if (!Array.isArray(data.items)) {
+    data.items = [];
+  } else {
+    data.items = data.items.filter((it) => it != null && typeof it === 'object');
+  }
+  return data;
+}
+
+interface StructuredCallParams {
+  client: Anthropic;
+  modelId: string;
+  system: Anthropic.TextBlockParam[];
+  userContent: Anthropic.MessageParam['content'];
+  withCatalogIdx: boolean;
+  multipage: boolean;
+  label: string;
+  timeoutMs: number;
+}
+
+/**
+ * Единственная точка обращения к API на structured-output пути. Собирает запрос
+ * (system + schema + adaptive thinking), гоняет через withRetry, извлекает и
+ * нормализует JSON. Никогда не бросает на ошибках API — возвращает {success:false}.
+ */
+async function callClaudeStructured(p: StructuredCallParams): Promise<ApiAnalyzerResult> {
+  const schema = buildInvoiceSchema(p.withCatalogIdx);
+  const baseParams = {
+    model: p.modelId,
+    // Всегда 32k: на effort medium adaptive thinking на плотной странице легко
+    // съедает 16k (thinking + JSON) и обрезает ответ. Запас снимает риск.
+    max_tokens: STRUCTURED_MAX_TOKENS_MULTI,
+    thinking: { type: 'adaptive' as const },
+    system: p.system,
+    output_config: { effort: STRUCTURED_EFFORT, format: { type: 'json_schema' as const, schema } },
+    messages: [{ role: 'user' as const, content: p.userContent }],
+  };
+  try {
+    // Всегда streaming: SDK требует его при больших max_tokens (иначе HTTP-таймаут),
+    // и он же даёт «живой» прогресс. finalMessage() собирает полный ответ.
+    const response = await withRetry(async (signal) => {
+      const stream = p.client.messages.stream(baseParams, { signal });
+      return await stream.finalMessage();
+    }, p.label, p.timeoutMs);
+
+    if (response.stop_reason === 'max_tokens') {
+      logger.warn(`${p.label}: stop_reason=max_tokens — ответ обрезан`, {
+        maxTokens: baseParams.max_tokens,
+      });
+    }
+
+    // Usage/cache telemetry — подтверждает, что prompt caching работает
+    // (cache_read_input_tokens > 0 на повторных вызовах) и виден расход output.
+    const u = response.usage;
+    logger.info(`${p.label}: usage`, {
+      input: u.input_tokens,
+      cacheRead: u.cache_read_input_tokens ?? 0,
+      cacheWrite: u.cache_creation_input_tokens ?? 0,
+      output: u.output_tokens,
+    });
+
+    const textBlock = response.content.find(b => b.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      return { success: false, error: 'Claude API: no text in response' };
+    }
+    const text = textBlock.text.trim();
+    const parsed = normalizeStructuredResponse(text, p.label);
+    if (!parsed) {
+      return { success: false, error: 'Claude API: failed to parse structured JSON', rawText: text };
+    }
+    logger.info(`${p.label}: parsed`, {
+      invoiceNumber: parsed.invoice_number,
+      itemsCount: parsed.items.length,
+      totalSum: parsed.total_sum,
+    });
+    return { success: true, data: parsed, rawText: text };
+  } catch (err) {
+    const msg = (err as Error).message;
+    logger.error(`${p.label}: error`, { error: msg });
+    return { success: false, error: `Claude API error: ${msg}` };
+  }
+}
+
+/** Собирает user-текст repair-вызова: прошлый JSON + список расхождений. */
+function buildRepairUserText(prevJson: string, issues: ValidationIssue[]): string {
+  const list = issues.map((it, i) => `  ${i + 1}. ${it.message}`).join('\n');
+  return `Ты уже проанализировал этот документ и вернул такой JSON:\n\n${prevJson}\n\n`
+    + `СЕРВЕРНАЯ ПРОВЕРКА арифметики/реквизитов нашла расхождения:\n${list}\n\n`
+    + `Перечитай указанные места на исходном документе и верни ПОЛНЫЙ исправленный JSON по той же схеме. `
+    + `Значения, которые проверку прошли, НЕ меняй. Если проверка ошибочна, а значение верное — оставь как есть.`;
+}
+
+type RepairFn = (prevJson: string, issues: ValidationIssue[]) => Promise<ApiAnalyzerResult>;
+
+/**
+ * Валидация + одно точечное до-чтение. Основной результат прогоняется через
+ * invoiceValidator; при расхождениях делается ОДИН repair-вызов (тот же system —
+ * cache hit, тот же документ). Исправленный результат берётся только при СТРОГОМ
+ * уменьшении числа issues — иначе оставляем первый (защита от «починил верное»).
+ */
+async function verifyAndRepair(
+  label: string,
+  primary: ApiAnalyzerResult,
+  repair: RepairFn,
+): Promise<ApiAnalyzerResult> {
+  if (!primary.success || !primary.data) return primary;
+
+  const issues = validateParsedInvoice(primary.data);
+  if (issues.length === 0) {
+    logger.info(`${label}: validation clean, no repair needed`);
+    return primary;
+  }
+
+  logger.warn(`${label}: validation found ${issues.length} issue(s), running one repair`, {
+    codes: issues.map(i => i.code),
+  });
+
+  const prevJson = primary.rawText ?? JSON.stringify(primary.data);
+  const repaired = await repair(prevJson, issues);
+  if (!repaired.success || !repaired.data) {
+    logger.warn(`${label}: repair call failed, keeping original`, { error: repaired.error });
+    return primary;
+  }
+
+  const after = validateParsedInvoice(repaired.data);
+  if (after.length < issues.length) {
+    logger.info(`${label}: repair ${after.length === 0 ? 'fixed' : 'partial'} (${issues.length}→${after.length} issues)`, {
+      remaining: after.map(i => i.code),
+    });
+    return repaired;
+  }
+  logger.info(`${label}: repair unchanged (${issues.length}→${after.length} issues), keeping original`);
+  return primary;
+}
+
 /**
  * Анализ объединённого OCR-текста нескольких страниц через Anthropic API.
  * Не требует изображений — работает с готовым текстом от Google Vision.
  */
+/** User-текст объединения постраничных результатов в один documento. */
+function buildMultiPageTextUserContent(combinedOcrText: string, pageCount: number): string {
+  return `Это ОДНА многостраничная накладная на ${pageCount} страниц(ы). Ниже — OCR-текст всех страниц `
+    + `(или JSON-результаты постраничного анализа, разделённые маркером "--- СТРАНИЦА ---").\n\n`
+    + `ЗАДАЧА — собери ОДИН итоговый JSON по схеме:\n`
+    + `  1. items = КОНКАТЕНАЦИЯ позиций со всех страниц в порядке row_no. НИ ОДНА позиция не теряется `
+    + `(если стр.1 = row_no 1..9, а стр.2 = row_no 10, в items должно быть ВСЕ 10).\n`
+    + `  2. invoice_number/invoice_date/supplier/supplier_inn/supplier_kpp — из страницы, где они не null (обычно первая).\n`
+    + `  3. total_sum — из ПОСЛЕДНЕЙ страницы со значением (строка "Всего к оплате"). Это общий итог документа, НЕ сумма страниц.\n`
+    + `  4. vat_sum — аналогично, из строки "В том числе НДС" (обычно последняя).\n`
+    + `  5. Проверка: Σ(items.total) ≈ total_sum. Не сходится → пропущена позиция, перечитай страницы.\n`
+    + `Чего нет на странице — бери с той, где есть. НЕ придумывай значения.\n\n`
+    + `OCR-текст всех страниц:\n${combinedOcrText}`;
+}
+
+async function analyzeMultiPageTextCore(
+  combinedOcrText: string,
+  apiKey: string,
+  pageCount: number,
+  modelId: string,
+  catalog?: CatalogEntry[],
+): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
+  const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
+  if (!apiKey) {
+    return { result: { success: false, error: 'Anthropic API key not configured' }, repair: failRepair };
+  }
+
+  logger.info('Claude API Analyzer: starting multi-page TEXT analysis', { textLength: combinedOcrText.length, pageCount, catalogSize: catalog?.length ?? 0 });
+
+  const client = createClient(apiKey);
+  const system = buildSystemBlocks(catalog);
+  const withCatalogIdx = !!(catalog && catalog.length);
+  const call = (content: string, label: string) => callClaudeStructured({
+    client, modelId, system, userContent: content, withCatalogIdx,
+    multipage: true, label, timeoutMs: CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
+  });
+
+  const result = await call(buildMultiPageTextUserContent(combinedOcrText, pageCount), 'Claude API multi-page text');
+  const repair: RepairFn = (prevJson, issues) => call(
+    `${buildRepairUserText(prevJson, issues)}\n\nOCR-текст всех страниц (перечитай):\n${combinedOcrText}`,
+    'Claude API multi-page text repair',
+  );
+  return { result, repair };
+}
+
 export async function analyzeMultiPageTextWithClaudeApi(
   combinedOcrText: string,
   apiKey: string,
@@ -382,68 +759,62 @@ export async function analyzeMultiPageTextWithClaudeApi(
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
 ): Promise<ApiAnalyzerResult> {
+  const { result } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog);
+  return result;
+}
+
+/** Как analyzeMultiPageTextWithClaudeApi, но с серверной валидацией + одним до-чтением. */
+export async function analyzeMultiPageTextWithVerification(
+  combinedOcrText: string,
+  apiKey: string,
+  pageCount: number,
+  modelId: string = 'claude-sonnet-5',
+  catalog?: CatalogEntry[],
+): Promise<ApiAnalyzerResult> {
+  const { result, repair } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog);
+  return verifyAndRepair('Claude API multi-page text', result, repair);
+}
+
+async function analyzeMultipleImagesCore(
+  imagePaths: string[],
+  apiKey: string,
+  modelId: string,
+  catalog?: CatalogEntry[],
+): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
+  const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
   if (!apiKey) {
-    return { success: false, error: 'Anthropic API key not configured' };
+    return { result: { success: false, error: 'Anthropic API key not configured' }, repair: failRepair };
   }
 
-  logger.info('Claude API Analyzer: starting multi-page TEXT analysis', { textLength: combinedOcrText.length, pageCount, catalogSize: catalog?.length ?? 0 });
+  logger.info('Claude API Analyzer: starting multi-page analysis', { pages: imagePaths.length, catalogSize: catalog?.length ?? 0 });
 
+  const imageBlocks: Anthropic.ImageBlockParam[] = [];
   try {
-    const client = createClient(apiKey);
-    const prompt = buildPrompt(catalog);
-
-    const response = await withRetry(
-      (signal) => client.messages.create({
-        model: modelId,
-        max_tokens: 8192,
-        messages: [
-          {
-            role: 'user',
-            content: `${prompt}\n\nВАЖНО — ОБЪЕДИНЕНИЕ СТРАНИЦ:\n`
-              + `Это ОДНА многостраничная накладная на ${pageCount} страниц(ы). Ниже даны JSON-результаты анализа каждой страницы по отдельности, разделённые маркером "--- СТРАНИЦА ---".\n`
-              + `\n`
-              + `ЗАДАЧА: собрать из них ОДИН итоговый JSON. Правила:\n`
-              + `  1. items = КОНКАТЕНАЦИЯ items со всех страниц в порядке row_no. НИ ОДНА ПОЗИЦИЯ не должна быть потеряна. Если на странице 1 items имели row_no 1..9, а на странице 2 — row_no 10, итоговый items должен содержать ВСЕ 10 позиций.\n`
-              + `  2. invoice_number/invoice_date/supplier/supplier_inn/supplier_kpp — бери из той страницы, где они не null (обычно первая).\n`
-              + `  3. total_sum — возьми из ПОСЛЕДНЕЙ страницы, где есть значение (обычно последняя страница содержит строку "Всего к оплате"). Это ОБЩИЙ итог документа, НЕ сумма страниц.\n`
-              + `  4. vat_sum — аналогично, из страницы с "В том числе НДС" (обычно последняя).\n`
-              + `  5. ПРОВЕРКА: Σ(items[i].total) ≈ total_sum (±1 руб). Если не совпадает — значит при чтении страниц какая-то позиция пропущена, ПЕРЕЧИТАЙ обе страницы (OCR-текст ниже).\n`
-              + `\n`
-              + `ЕСЛИ по данным страниц чего-то нет (например на странице 2 не было invoice_number), бери из страницы 1. НЕ придумывай значения.\n`
-              + `\n`
-              + `OCR-текст всех страниц:\n${combinedOcrText}`,
-          },
-        ],
-      }, { signal }),
-      'Claude API multi-page text',
-      CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
-    );
-
-    const textBlock = response.content.find(b => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
-      return { success: false, error: 'Claude API: no text in response' };
+    for (const imagePath of imagePaths) {
+      const { data, mediaType } = await encodeImageForApi(imagePath);
+      imageBlocks.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data } });
     }
-
-    const text = textBlock.text.trim();
-    logger.info('Claude API Analyzer: multi-page text response received', { length: text.length });
-
-    const parsed = safeParseClaudeJson(text, 'Claude API multi-page text');
-    if (!parsed) {
-      return { success: false, error: 'Claude API: failed to parse JSON response', rawText: text };
-    }
-
-    logger.info('Claude API Analyzer: multi-page text parsed successfully', {
-      invoiceNumber: parsed.invoice_number,
-      itemsCount: parsed.items.length,
-      totalSum: parsed.total_sum,
-    });
-
-    return { success: true, data: parsed, rawText: text };
   } catch (err) {
     const msg = (err as Error).message;
-    logger.error('Claude API Analyzer: multi-page text error', { error: msg });
-    return { success: false, error: `Claude API error: ${msg}` };
+    logger.error('Claude API Analyzer: multi-image encode error', { error: msg });
+    return { result: { success: false, error: `Claude API error: ${msg}` }, repair: failRepair };
   }
+
+  const client = createClient(apiKey);
+  const system = buildSystemBlocks(catalog);
+  const withCatalogIdx = !!(catalog && catalog.length);
+  const call = (extraText: string, label: string) => callClaudeStructured({
+    client, modelId, system,
+    userContent: [...imageBlocks, { type: 'text', text: extraText }],
+    withCatalogIdx, multipage: true, label, timeoutMs: CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
+  });
+
+  const task = `Это многостраничная накладная (${imagePaths.length} страниц). Объедини товары со ВСЕХ страниц `
+    + `в один список items (в порядке row_no, ничего не теряя). Итог (total_sum, vat_sum) — из последней страницы, `
+    + `строка "Всего по накладной". Верни данные по схеме.`;
+  const result = await call(task, 'Claude API multi-image');
+  const repair: RepairFn = (prevJson, issues) => call(buildRepairUserText(prevJson, issues), 'Claude API multi-image repair');
+  return { result, repair };
 }
 
 export async function analyzeMultipleImagesWithClaudeApi(
@@ -452,66 +823,19 @@ export async function analyzeMultipleImagesWithClaudeApi(
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
 ): Promise<ApiAnalyzerResult> {
-  if (!apiKey) {
-    return { success: false, error: 'Anthropic API key not configured' };
-  }
+  const { result } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog);
+  return result;
+}
 
-  logger.info('Claude API Analyzer: starting multi-page analysis', { pages: imagePaths.length, catalogSize: catalog?.length ?? 0 });
-
-  try {
-    const content: Anthropic.MessageCreateParams['messages'][0]['content'] = [];
-
-    for (const imagePath of imagePaths) {
-      const { data: base64Image, mediaType } = await encodeImageForApi(imagePath);
-      content.push({
-        type: 'image',
-        source: { type: 'base64', media_type: mediaType, data: base64Image },
-      });
-    }
-
-    const prompt = buildPrompt(catalog);
-    content.push({
-      type: 'text',
-      text: `${prompt}\n\nВАЖНО: Это многостраничная накладная (${imagePaths.length} страниц). Объедини ВСЕ товары со ВСЕХ страниц в один список items. Итоговую сумму возьми из последней страницы (строка "Всего по накладной").`,
-    });
-
-    const client = createClient(apiKey);
-
-    const response = await withRetry(
-      (signal) => client.messages.create({
-        model: modelId,
-        max_tokens: 8192,
-        messages: [{ role: 'user', content }],
-      }, { signal }),
-      'Claude API multi-image',
-      CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
-    );
-
-    const textBlock = response.content.find(b => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
-      return { success: false, error: 'Claude API: no text in response' };
-    }
-
-    const text = textBlock.text.trim();
-    logger.info('Claude API Analyzer: multi-page response received', { length: text.length });
-
-    const parsed = safeParseClaudeJson(text, 'Claude API multi-image');
-    if (!parsed) {
-      return { success: false, error: 'Claude API: failed to parse JSON response', rawText: text };
-    }
-
-    logger.info('Claude API Analyzer: multi-page parsed successfully', {
-      invoiceNumber: parsed.invoice_number,
-      itemsCount: parsed.items.length,
-      totalSum: parsed.total_sum,
-    });
-
-    return { success: true, data: parsed, rawText: text };
-  } catch (err) {
-    const msg = (err as Error).message;
-    logger.error('Claude API Analyzer: multi-page error', { error: msg });
-    return { success: false, error: `Claude API error: ${msg}` };
-  }
+/** Как analyzeMultipleImagesWithClaudeApi, но с серверной валидацией + одним до-чтением. */
+export async function analyzeMultipleImagesWithVerification(
+  imagePaths: string[],
+  apiKey: string,
+  modelId: string = 'claude-sonnet-5',
+  catalog?: CatalogEntry[],
+): Promise<ApiAnalyzerResult> {
+  const { result, repair } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog);
+  return verifyAndRepair('Claude API multi-image', result, repair);
 }
 
 /**
@@ -530,56 +854,96 @@ export async function analyzeMultipleImagesWithClaudeApi(
  * previewBuffers: [rot0, rot90, rot180, rot270] — all already rotated, JPEG.
  * Returns how many degrees CLOCKWISE the ORIGINAL needs to be rotated.
  *
- * Aggressive timeout + no retries: if this hangs or fails, we must fall
- * through to the main OCR quickly (rather than sit on the invoice for
- * minutes). Wrong rotation is a much milder failure than a stuck queue.
+ * Таймаут держим коротким (не сидеть на накладной минутами), но делаем 2 попытки:
+ * разовый транзиентный таймаут = чтение повёрнутой фотки боком = каскад ошибок,
+ * поэтому один ретрай окупается. После двух неудач возвращаем 0 (без поворота).
  */
-const ORIENT_TIMEOUT_MS = 30_000;
+const ORIENT_TIMEOUT_MS = 40_000;
+const ORIENT_MAX_ATTEMPTS = 2;
 
 export async function detectOrientationWithClaude(
   previewsBase64: [string, string, string, string],
   apiKey: string,
 ): Promise<0 | 90 | 180 | 270> {
   const client = createClient(apiKey);
-  try {
-    // Single attempt with its own signal — don't use withRetry. If it
-    // fails, caller gets 0 back and OCR proceeds with the original orientation.
-    const signal = AbortSignal.timeout(ORIENT_TIMEOUT_MS);
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 10,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Вариант 1:' },
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[0] } },
-          { type: 'text', text: 'Вариант 2:' },
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[1] } },
-          { type: 'text', text: 'Вариант 3:' },
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[2] } },
-          { type: 'text', text: 'Вариант 4:' },
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[3] } },
-          {
-            type: 'text',
-            text: 'Выше четыре варианта одной и той же фотографии документа, повернутых по-разному. В каком из них текст читается НОРМАЛЬНО (строки идут горизонтально слева направо, буквы вертикальные)? Ответь одной цифрой: 1, 2, 3 или 4.',
-          },
-        ],
-      }],
-    }, { signal });
-    const textBlock = response.content.find(b => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') return 0;
-    const match = textBlock.text.match(/\b([1-4])\b/);
-    if (!match) {
-      logger.warn('Orientation: unparseable response', { text: textBlock.text.slice(0, 50) });
-      return 0;
+  const content: Anthropic.MessageParam['content'] = [
+    { type: 'text', text: 'Вариант 1:' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[0] } },
+    { type: 'text', text: 'Вариант 2:' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[1] } },
+    { type: 'text', text: 'Вариант 3:' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[2] } },
+    { type: 'text', text: 'Вариант 4:' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previewsBase64[3] } },
+    {
+      type: 'text',
+      text: 'Выше четыре варианта одной и той же фотографии документа, повернутых по-разному. В каком из них текст читается НОРМАЛЬНО (строки идут горизонтально слева направо, буквы вертикальные)? Ответь одной цифрой: 1, 2, 3 или 4.',
+    },
+  ];
+  // Две попытки: разовый таймаут этого вызова роняет ориентацию в 0 (без
+  // поворота), а на повёрнутой фотке это = боковое чтение → каскад ошибок
+  // (перепутанные строки, поставщик вместо покупателя). Ретрай гасит транзиент.
+  for (let attempt = 1; attempt <= ORIENT_MAX_ATTEMPTS; attempt++) {
+    try {
+      const signal = AbortSignal.timeout(ORIENT_TIMEOUT_MS);
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 10,
+        messages: [{ role: 'user', content }],
+      }, { signal });
+      const textBlock = response.content.find(b => b.type === 'text');
+      if (!textBlock || textBlock.type !== 'text') return 0;
+      const match = textBlock.text.match(/\b([1-4])\b/);
+      if (!match) {
+        logger.warn('Orientation: unparseable response', { text: textBlock.text.slice(0, 50) });
+        return 0;
+      }
+      const variant = parseInt(match[1], 10);
+      const rotations: [0, 90, 180, 270] = [0, 90, 180, 270];
+      return rotations[variant - 1];
+    } catch (err) {
+      logger.warn(`Claude orientation detection error (attempt ${attempt}/${ORIENT_MAX_ATTEMPTS})`, { error: (err as Error).message });
+      // Последняя попытка исчерпана — вернём 0 ниже (без поворота).
     }
-    const variant = parseInt(match[1], 10);
-    const rotations: [0, 90, 180, 270] = [0, 90, 180, 270];
-    return rotations[variant - 1];
-  } catch (err) {
-    logger.warn('Claude orientation detection error', { error: (err as Error).message });
-    return 0;
   }
+  return 0;
+}
+
+async function analyzeImageCore(
+  imagePath: string,
+  apiKey: string,
+  modelId: string,
+  catalog?: CatalogEntry[],
+): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
+  const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
+  if (!apiKey) {
+    return { result: { success: false, error: 'Anthropic API key not configured' }, repair: failRepair };
+  }
+
+  logger.info('Claude API Analyzer: starting image analysis', { imagePath, catalogSize: catalog?.length ?? 0 });
+
+  let imageBlock: Anthropic.ImageBlockParam;
+  try {
+    const { data, mediaType } = await encodeImageForApi(imagePath);
+    imageBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+  } catch (err) {
+    const msg = (err as Error).message;
+    logger.error('Claude API Analyzer: image encode error', { error: msg });
+    return { result: { success: false, error: `Claude API error: ${msg}` }, repair: failRepair };
+  }
+
+  const client = createClient(apiKey);
+  const system = buildSystemBlocks(catalog);
+  const withCatalogIdx = !!(catalog && catalog.length);
+  const call = (extraText: string, label: string) => callClaudeStructured({
+    client, modelId, system,
+    userContent: [imageBlock, { type: 'text', text: extraText }],
+    withCatalogIdx, multipage: false, label, timeoutMs: CLAUDE_API_TIMEOUT_SINGLE_MS,
+  });
+
+  const result = await call('Проанализируй эту накладную (одна страница) и верни данные по JSON-схеме.', 'Claude API single image');
+  const repair: RepairFn = (prevJson, issues) => call(buildRepairUserText(prevJson, issues), 'Claude API single image repair');
+  return { result, repair };
 }
 
 export async function analyzeImageWithClaudeApi(
@@ -588,71 +952,19 @@ export async function analyzeImageWithClaudeApi(
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
 ): Promise<ApiAnalyzerResult> {
-  if (!apiKey) {
-    return { success: false, error: 'Anthropic API key not configured' };
-  }
+  const { result } = await analyzeImageCore(imagePath, apiKey, modelId, catalog);
+  return result;
+}
 
-  logger.info('Claude API Analyzer: starting image analysis', { imagePath, catalogSize: catalog?.length ?? 0 });
-
-  try {
-    const { data: base64Image, mediaType } = await encodeImageForApi(imagePath);
-
-    const client = createClient(apiKey);
-    const prompt = buildPrompt(catalog);
-
-    const response = await withRetry(
-      (signal) => client.messages.create({
-        model: modelId,
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mediaType,
-                  data: base64Image,
-                },
-              },
-              {
-                type: 'text',
-                text: prompt,
-              },
-            ],
-          },
-        ],
-      }, { signal }),
-      'Claude API single image'
-    );
-
-    const textBlock = response.content.find(b => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
-      return { success: false, error: 'Claude API: no text in response' };
-    }
-
-    const text = textBlock.text.trim();
-    logger.info('Claude API Analyzer: response received', { length: text.length });
-
-    const parsed = safeParseClaudeJson(text, 'Claude API single image');
-    if (!parsed) {
-      return { success: false, error: 'Claude API: failed to parse JSON response', rawText: text };
-    }
-
-    logger.info('Claude API Analyzer: successfully parsed data', {
-      invoiceNumber: parsed.invoice_number,
-      supplier: parsed.supplier,
-      invoiceType: parsed.invoice_type,
-      itemsCount: parsed.items.length,
-    });
-
-    return { success: true, data: parsed, rawText: text };
-  } catch (err) {
-    const msg = (err as Error).message;
-    logger.error('Claude API Analyzer: error', { error: msg });
-    return { success: false, error: `Claude API error: ${msg}` };
-  }
+/** Как analyzeImageWithClaudeApi, но с серверной валидацией + одним до-чтением. */
+export async function analyzeImageWithVerification(
+  imagePath: string,
+  apiKey: string,
+  modelId: string = 'claude-sonnet-5',
+  catalog?: CatalogEntry[],
+): Promise<ApiAnalyzerResult> {
+  const { result, repair } = await analyzeImageCore(imagePath, apiKey, modelId, catalog);
+  return verifyAndRepair('Claude API single image', result, repair);
 }
 
 /**
