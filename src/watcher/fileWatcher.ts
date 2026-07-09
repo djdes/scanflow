@@ -285,8 +285,14 @@ export class FileWatcher {
     const firstFile = (invoice.file_name || '').split(',')[0].trim();
     if (!firstFile) throw new Error(`Invoice ${invoiceId} has no file_name`);
 
+    // Search processed → failed → inbox → the originally recorded path. Errored
+    // invoices keep their photo in failedDir (see the processFile error path),
+    // so WITHOUT failedDir here, rescanning any errored invoice throws
+    // "Original file not found" even though the photo is on disk.
+    const failedPath = path.join(config.failedDir, firstFile);
     const candidates = [
       path.join(config.processedDir, firstFile),
+      failedPath,
       path.join(config.inboxDir, firstFile),
       invoice.file_path || '',
     ].filter(Boolean);
@@ -446,6 +452,18 @@ export class FileWatcher {
 
     await invoiceRepo.recalculateTotal(invoiceId);
     await invoiceRepo.updateStatus(invoiceId, 'processed');
+
+    // The invoice is 'processed' now — if we rescanned a photo that was still
+    // sitting in failedDir, relocate it to processedDir so the file location
+    // matches the status and photo-retention can eventually reclaim it.
+    if (!config.dryRun && filePath === failedPath) {
+      try {
+        const dest = path.join(config.processedDir, firstFile);
+        if (!fs.existsSync(dest)) fs.renameSync(filePath, dest);
+      } catch (e) {
+        logger.warn('Reprocess: could not move file failed→processed', { invoiceId, error: (e as Error).message });
+      }
+    }
 
     logger.info('Invoice reprocessed successfully', {
       id: invoiceId,
