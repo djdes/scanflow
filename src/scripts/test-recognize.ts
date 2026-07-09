@@ -41,12 +41,14 @@ async function main(): Promise<void> {
   await initDb();
   const ocr = new OcrManager();
 
+  const pageTexts: string[] = [];
   for (let i = 0; i < paths.length; i++) {
     console.log(`\n############ СТРАНИЦА ${i + 1}/${paths.length}: ${paths[i]} ############`);
     const t0 = Date.now();
     const result = await ocr.recognizeWithClaudeApi(paths[i]);
     const dt = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`=== engine: ${result.engine}  (${dt}s) ===`);
+    pageTexts.push(result.text);
     const d = result.structured;
     if (!d) {
       console.log('НЕТ structured результата. text:', (result.text || '').slice(0, 400));
@@ -56,6 +58,24 @@ async function main(): Promise<void> {
     const issues = validateParsedInvoice(d);
     console.log(`\n=== ВАЛИДАТОР: ${issues.length} issue(s) ===`);
     for (const iss of issues) console.log(`  [${iss.code}]${iss.rowNo != null ? ' row ' + iss.rowNo : ''}: ${iss.message}`);
+  }
+
+  // Многостраничная сшивка — ровно как reprocessInvoice/processFile: объединённый
+  // текст страниц → analyzeMultiPageText → единый результат.
+  if (pageTexts.length > 1) {
+    console.log(`\n============ СШИВКА ${pageTexts.length} СТРАНИЦ (analyzeMultiPageText) ============`);
+    const combined = pageTexts.join('\n\n--- СТРАНИЦА ---\n\n');
+    const t0 = Date.now();
+    const merged = await ocr.analyzeMultiPageText(combined, pageTexts.length);
+    console.log(`=== engine: ${merged.engine}  (${((Date.now() - t0) / 1000).toFixed(1)}s) ===`);
+    if (merged.structured) {
+      recap(merged.structured);
+      const issues = validateParsedInvoice(merged.structured);
+      console.log(`\n=== ВАЛИДАТОР (сшивка): ${issues.length} issue(s) ===`);
+      for (const iss of issues) console.log(`  [${iss.code}]${iss.rowNo != null ? ' row ' + iss.rowNo : ''}: ${iss.message}`);
+    } else {
+      console.log('СШИВКА НЕ ДАЛА structured результата.');
+    }
   }
 
   await ocr.terminate();

@@ -282,42 +282,60 @@ export class FileWatcher {
     const invoice = await invoiceRepo.getById(invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
-    const firstFile = (invoice.file_name || '').split(',')[0].trim();
-    if (!firstFile) throw new Error(`Invoice ${invoiceId} has no file_name`);
+    // ВСЕ файлы накладной. Многостраничная = несколько имён через запятую.
+    // Раньше rescan брал ТОЛЬКО первый файл (split(',')[0]) и терял остальные
+    // страницы: у 2-страничной накладной оставались только позиции листа 1 и
+    // его субитог, а позиции листа 2 + общий итог пропадали. Теперь читаем все.
+    const files = (invoice.file_name || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (files.length === 0) throw new Error(`Invoice ${invoiceId} has no file_name`);
 
-    // Search processed → failed → inbox → the originally recorded path. Errored
-    // invoices keep their photo in failedDir (see the processFile error path),
-    // so WITHOUT failedDir here, rescanning any errored invoice throws
-    // "Original file not found" even though the photo is on disk.
-    const failedPath = path.join(config.failedDir, firstFile);
-    const candidates = [
-      path.join(config.processedDir, firstFile),
-      failedPath,
-      path.join(config.inboxDir, firstFile),
-      invoice.file_path || '',
-    ].filter(Boolean);
-    const filePath = candidates.find(p => fs.existsSync(p));
-    if (!filePath) {
-      throw new Error(`Original file not found in any of: ${candidates.join(', ')}`);
-    }
+    // Локатор фото: processed → failed (errored-накладные лежат там) → inbox.
+    const locate = (name: string): string | undefined => [
+      path.join(config.processedDir, name),
+      path.join(config.failedDir, name),
+      path.join(config.inboxDir, name),
+    ].find(p => fs.existsSync(p));
 
-    logger.info('Reprocessing invoice from existing file', { invoiceId, filePath });
-
-    // OCR + structured parse — RESPECT analyzer_config.mode (как в processFile).
-    // Без этого rescan скатывался в OCR-chain (Tesseract) и regex-парсер
-    // даже при mode='claude_api', давая 0.00 сумм.
+    // OCR одной страницы — RESPECT analyzer_config.mode (как в processFile). Без
+    // этого rescan скатывался в OCR-chain (Tesseract) + regex-парсер даже при
+    // mode='claude_api', давая 0.00 сумм.
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    let ocrResult;
-    if (analyzerConfig.mode === 'claude_api') {
-      ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
-    } else if (config.useClaudeAnalyzer) {
-      ocrResult = await this.ocrManager.recognizeHybrid(filePath, true);
-    } else {
-      ocrResult = await this.ocrManager.recognize(filePath);
+    const recognizeOne = (fp: string) =>
+      analyzerConfig.mode === 'claude_api' ? this.ocrManager.recognizeWithClaudeApi(fp)
+        : config.useClaudeAnalyzer ? this.ocrManager.recognizeHybrid(fp, true)
+          : this.ocrManager.recognize(fp);
+
+    // Распознаём каждую найденную страницу по отдельности (как загрузка).
+    const pages: { text: string; engine: string; structured?: ParsedInvoiceData }[] = [];
+    for (const name of files) {
+      const fp = locate(name) ?? (invoice.file_path && fs.existsSync(invoice.file_path) ? invoice.file_path : undefined);
+      if (!fp) { logger.warn('Reprocess: page file not found, skipping', { invoiceId, name }); continue; }
+      logger.info('Reprocessing page from existing file', { invoiceId, filePath: fp });
+      const r = await recognizeOne(fp);
+      pages.push({ text: r.text, engine: r.engine, structured: r.structured });
     }
-    let parsed = ocrResult.structured;
-    if (!parsed) {
-      parsed = parseInvoiceText(ocrResult);
+    if (pages.length === 0) {
+      throw new Error(`Original file(s) not found for invoice ${invoiceId} (looked for: ${files.join(', ')})`);
+    }
+
+    let parsed: ParsedInvoiceData | undefined;
+    let ocrText: string;
+    let ocrEngine: string;
+    if (pages.length === 1) {
+      parsed = pages[0].structured ?? parseInvoiceText({ text: pages[0].text, engine: pages[0].engine, words: [] });
+      ocrText = pages[0].text;
+      ocrEngine = pages[0].engine;
+    } else {
+      // Многостраничная: сшиваем как в processFile — объединённый текст всех
+      // страниц → analyzeMultiPageText → единый structured (все позиции + общий
+      // итог с последнего листа). Каждая страница читается тем же путём, что и
+      // при загрузке, поэтому улучшения распознавания применяются к обеим.
+      ocrText = pages.map(p => p.text).join('\n\n--- СТРАНИЦА ---\n\n');
+      const pageCount = pages.length;
+      logger.info('Reprocess multi-page: merging pages', { invoiceId, pageCount });
+      const multi = await this.ocrManager.analyzeMultiPageText(ocrText, pageCount);
+      parsed = multi.structured;
+      ocrEngine = multi.engine;
     }
     if (!parsed) {
       throw new Error('Failed to parse invoice — neither structured analyzer nor regex parser produced data');
@@ -338,8 +356,8 @@ export class FileWatcher {
       supplier_account: parsed.supplier_account,
       supplier_corr_account: parsed.supplier_corr_account,
       supplier_address: parsed.supplier_address,
-      raw_text: ocrResult.text,
-      ocr_engine: ocrResult.engine,
+      raw_text: ocrText,
+      ocr_engine: ocrEngine,
     });
     // Сбрасываем флаг дубликата — после rescan'а это уже потенциально другая
     // картина. Если новые реквизиты опять совпадут с другой накладной,
@@ -453,22 +471,26 @@ export class FileWatcher {
     await invoiceRepo.recalculateTotal(invoiceId);
     await invoiceRepo.updateStatus(invoiceId, 'processed');
 
-    // The invoice is 'processed' now — if we rescanned a photo that was still
-    // sitting in failedDir, relocate it to processedDir so the file location
-    // matches the status and photo-retention can eventually reclaim it.
-    if (!config.dryRun && filePath === failedPath) {
-      try {
-        const dest = path.join(config.processedDir, firstFile);
-        if (!fs.existsSync(dest)) fs.renameSync(filePath, dest);
-      } catch (e) {
-        logger.warn('Reprocess: could not move file failed→processed', { invoiceId, error: (e as Error).message });
+    // The invoice is 'processed' now — relocate any page photos still sitting in
+    // failedDir into processedDir so the file location matches the status and
+    // photo-retention can eventually reclaim them (handles all pages).
+    if (!config.dryRun) {
+      for (const name of files) {
+        const failedPath = path.join(config.failedDir, name);
+        if (!fs.existsSync(failedPath)) continue;
+        try {
+          const dest = path.join(config.processedDir, name);
+          if (!fs.existsSync(dest)) fs.renameSync(failedPath, dest);
+        } catch (e) {
+          logger.warn('Reprocess: could not move file failed→processed', { invoiceId, name, error: (e as Error).message });
+        }
       }
     }
 
     logger.info('Invoice reprocessed successfully', {
       id: invoiceId,
       itemsCount: parsedItems.length,
-      engine: ocrResult.engine,
+      engine: ocrEngine,
     });
   }
 
