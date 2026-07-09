@@ -276,9 +276,21 @@ router.get('/:id/photos/:filename', async (req: Request, res: Response) => {
 
   // Path-traversal protection: use basename only
   const safeFilename = path.basename(requestedFile);
-  const filePath = path.join(config.processedDir, safeFilename);
 
-  if (!fs.existsSync(filePath)) {
+  // Look in processed → failed → inbox (priority order). Errored invoices keep
+  // their photo in failedDir (see fileWatcher error path), and that's exactly
+  // when the user needs to open the photo to fix the data by hand. Serving only
+  // from processedDir 404'd every error-invoice photo even though it's on disk.
+  let filePath: string | null = null;
+  for (const dir of [config.processedDir, config.failedDir, config.inboxDir]) {
+    const candidate = path.join(dir, safeFilename);
+    if (fs.existsSync(candidate)) {
+      filePath = candidate;
+      break;
+    }
+  }
+
+  if (!filePath) {
     res.status(404).json({ error: 'File not found on disk' });
     return;
   }
