@@ -948,30 +948,31 @@ const Invoices = {
     });
   },
 
-  async rescan(id) {
-    if (!confirm(
+  rescan(id) {
+    this.showConfirm(
+      'Вы уверены?',
       'Полностью пересканировать фото накладной?\n\n' +
       '• Запустит OCR + Claude API заново для исходного изображения.\n' +
       '• Текущие позиции будут заменены новыми.\n' +
       '• Если это была отметка «дубликат» — она снимется.\n' +
-      '• Стоит API-вызов Claude.\n\n' +
-      'Продолжить?'
-    )) return;
-    return this._withGuard(`rescan:${id}`, async () => {
-      try {
-        App.notify('Пересканирование запущено, ожидайте 10–30 сек…', 'info');
-        const res = await App.api(`/invoices/${id}/rescan`, { method: 'POST' });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          App.notify(err.error || `Ошибка ${res.status}`, 'error');
-          return;
+      '• Стоит API-вызов Claude.',
+      () => this._withGuard(`rescan:${id}`, async () => {
+        try {
+          App.notify('Пересканирование запущено, ожидайте 10–30 сек…', 'info');
+          const res = await App.api(`/invoices/${id}/rescan`, { method: 'POST' });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            App.notify(err.error || `Ошибка ${res.status}`, 'error');
+            return;
+          }
+          App.notify('Накладная пересканирована', 'success');
+          this.showDetail(id);
+        } catch (e) {
+          App.notify('Ошибка: ' + e.message, 'error');
         }
-        App.notify('Накладная пересканирована', 'success');
-        this.showDetail(id);
-      } catch (e) {
-        App.notify('Ошибка: ' + e.message, 'error');
-      }
-    });
+      }),
+      { okLabel: 'Да', cancelLabel: 'Нет', okClass: 'btn-primary' }
+    );
   },
 
   // "Дофоткать страницы" — pick/take photo(s), upload to the invoice; their
@@ -1152,14 +1153,24 @@ const Invoices = {
     );
   },
 
-  showConfirm(title, text, onOk) {
+  // opts (all optional):
+  //   okLabel / cancelLabel — button captions (default 'Удалить' / 'Отмена')
+  //   okClass — CSS class for the confirm button (default 'btn-danger')
+  // Defaults preserve the original delete-confirm look for existing callers.
+  showConfirm(title, text, onOk, opts = {}) {
     const modal = document.getElementById('confirm-modal');
     document.getElementById('confirm-modal-title').textContent = title;
-    document.getElementById('confirm-modal-text').textContent = text;
+    const textEl = document.getElementById('confirm-modal-text');
+    textEl.textContent = text;
+    // Render \n in the body as line breaks (bullet lists) without innerHTML/XSS.
+    textEl.style.whiteSpace = 'pre-line';
     modal.style.display = 'flex';
 
     const okBtn = document.getElementById('confirm-modal-ok');
     const cancelBtn = document.getElementById('confirm-modal-cancel');
+    okBtn.textContent = opts.okLabel || 'Удалить';
+    cancelBtn.textContent = opts.cancelLabel || 'Отмена';
+    okBtn.className = 'btn ' + (opts.okClass || 'btn-danger');
 
     const close = () => {
       modal.style.display = 'none';
