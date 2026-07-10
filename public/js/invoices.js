@@ -100,11 +100,11 @@ const Invoices = {
           <td style="text-align:center" data-label="Цены ↑">${this._elevatedCell(inv)}</td>
           <td data-label="Статус">${this._statusCell(inv)}</td>
           <td style="text-align:center" data-label="Сбер">${this._sberCell(inv)}</td>
-          <td style="text-align:center;white-space:nowrap" class="cell-action">
+          <td style="text-align:right;white-space:nowrap" class="cell-action">
             ${inv.status === 'processed' && !inv.approved_for_1c
               ? `<button class="btn btn-primary btn-sm" style="margin-right:4px" title="Отправить в 1С"
                     onclick="Invoices.sendTo1C(${inv.id}, event, true)">&rarr; 1С</button>`
-              : ''}
+              : `<button class="btn btn-primary btn-sm" style="margin-right:4px;visibility:hidden" tabindex="-1" aria-hidden="true" disabled>&rarr; 1С</button>`}
             <button class="btn-icon-danger" title="Удалить накладную"
                     aria-label="Удалить накладную ${inv.id}"
                     onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
