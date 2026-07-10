@@ -98,9 +98,13 @@ const Invoices = {
           <td data-label="Поставщик">${App.esc(inv.supplier || '—')}</td>
           <td style="text-align:right" data-label="Сумма">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
           <td style="text-align:center" data-label="Цены ↑">${this._elevatedCell(inv)}</td>
-          <td data-label="Статус">${App.statusBadge(inv.status)}</td>
+          <td data-label="Статус">${this._statusCell(inv)}</td>
           <td style="text-align:center" data-label="Сбер">${this._sberCell(inv)}</td>
-          <td style="text-align:center" class="cell-action">
+          <td style="text-align:center;white-space:nowrap" class="cell-action">
+            ${inv.status === 'processed' && !inv.approved_for_1c
+              ? `<button class="btn btn-primary btn-sm" style="margin-right:4px" title="Отправить в 1С"
+                    onclick="Invoices.sendTo1C(${inv.id}, event, true)">&rarr; 1С</button>`
+              : ''}
             <button class="btn-icon-danger" title="Удалить накладную"
                     aria-label="Удалить накладную ${inv.id}"
                     onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
@@ -243,6 +247,16 @@ const Invoices = {
     if (n <= 0) return '<span style="color:#cbd5e1" title="Нет позиций дороже обычного">—</span>';
     const noun = this._plural(n, 'позиция', 'позиции', 'позиций');
     return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:12px" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
+  },
+
+  // Status badge for the list. A 'processed' invoice that's been approved for 1C
+  // pickup shows a distinct «Ожидает 1С» badge (full text in the tooltip) instead
+  // of the plain «Обработан» — mirrors the detail page's "Ожидает загрузки в 1С".
+  _statusCell(inv) {
+    if (inv.status === 'processed' && inv.approved_for_1c) {
+      return '<span class="badge badge-sent" title="Ожидает загрузки в 1С">Ожидает 1С</span>';
+    }
+    return App.statusBadge(inv.status);
   },
 
   // Renders one cell in the invoices list that shows whether a Sber payment
@@ -892,7 +906,11 @@ const Invoices = {
     }
   },
 
-  async sendTo1C(id) {
+  // fromList=true → invoked from a row's «→ 1С» button: swallow the row click
+  // (so we don't also navigate to the detail page) and, on success, refresh the
+  // list in place instead of opening the invoice.
+  async sendTo1C(id, event, fromList) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
     return this._withGuard(`send:${id}`, async () => {
       let invoice;
       try {
@@ -911,7 +929,7 @@ const Invoices = {
           title: 'Дозаполните реквизиты для отправки в 1С',
           requiredFields: this._REQUIRED_FOR_1C,
           reasonText: '1С не примет накладную без этих полей',
-          onSaved: () => this.sendTo1C(id),  // retry после сохранения
+          onSaved: () => this.sendTo1C(id, null, fromList),  // retry после сохранения
         });
         return;
       }
@@ -929,7 +947,7 @@ const Invoices = {
       try {
         await App.apiJson(`/invoices/${id}/send`, { method: 'POST' });
         App.notify('Накладная помечена для отправки. Загрузите через обработку в 1С.', 'success');
-        this.showDetail(id);
+        if (fromList) this.loadTable(); else this.showDetail(id);
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
       }
