@@ -5,11 +5,16 @@ import { sendInvoiceNotification } from './telegram/telegramNotifier';
 import { sendMessage } from './telegram/telegramClient';
 import { sendNotification as sendEmail, smtpConfigured } from '../utils/mailer';
 import { renderRealtime } from './templates';
+import { checkAndRecordSend, NOTIFY_HOURLY_CAP } from './rateLimit';
 import { type EventType, type EventPayload } from './types';
 
-// Domain-event entry point. Routes the event to Telegram (current channel).
-// Email infrastructure remains in the codebase as dead code, but no events
-// reach it anymore.
+// Domain-event entry point. Fans the event out to Telegram AND email — both are
+// live: a user with `users.email` set and SMTP configured really does get mail
+// (the 2026-07-14 storm arrived on both channels). Only the *digest* path is
+// dead code.
+//
+// Every send passes the rate limiter first (see ./rateLimit.ts) — a hard cap on
+// notifications per hour, backed by the DB so it survives process restarts.
 //
 // Never throws — failure is logged and swallowed (notifications must never
 // break the main pipeline).
@@ -42,6 +47,27 @@ export async function emit(
     const invoice = await invoiceRepo.getById(payload.invoice_id);
     if (!invoice) {
       logger.debug('notifications.emit: invoice not found', { invoiceId: payload.invoice_id });
+      return;
+    }
+
+    // Circuit breaker. Checked after the config gates (a disabled event must not
+    // burn quota) and before either channel, so it covers Telegram AND email.
+    // Bounds the blast radius of ANY future loop that emits in a hot path.
+    const throttle = await checkAndRecordSend(eventType, payload.invoice_id);
+    if (!throttle.allow) {
+      if (throttle.announce) {
+        const mutedTg = await userRepo.getTelegramConfig(userId);
+        if (mutedTg?.chat_id && mutedTg?.bot_token) {
+          await sendMessage(
+            mutedTg.bot_token,
+            mutedTg.chat_id,
+            `🔇 Уведомления приглушены на час.\n\n`
+            + `За последний час их набралось ${throttle.sentInWindow} (лимит ${NOTIFY_HOURLY_CAP}) — `
+            + `это похоже на сбой, а не на обычную работу. Загляните в логи.\n\n`
+            + `Накладные продолжают обрабатываться как обычно — молчит только рассылка.`,
+          ).catch(() => {});
+        }
+      }
       return;
     }
 

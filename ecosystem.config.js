@@ -22,7 +22,13 @@ module.exports = {
     instances: 1,
     autorestart: true,
     watch: false,
-    max_memory_restart: '256M',
+    // Several photos uploaded at once OCR in parallel, and each Claude image
+    // call holds the decoded bitmap plus its base64 copy — RSS peaks around
+    // 470 MB on a 3-photo batch of 3 MB JPEGs. The old 256 MB ceiling made PM2
+    // kill the process mid-OCR every 90s, and each restart re-ingested the same
+    // photos as brand-new invoices (the 2026-07-14 notification storm). The box
+    // has 62 GB; this is a runaway-leak backstop, not a budget.
+    max_memory_restart: '1G',
     error_file: path.join(os.homedir(), 'logs', 'scanflow-error.log'),
     out_file: path.join(os.homedir(), 'logs', 'scanflow-out.log'),
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',

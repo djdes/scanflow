@@ -755,7 +755,19 @@ export const invoiceRepo = {
     ).get<Invoice>(excludeId);
   },
 
-  async markStaleAsFailed(staleMinutes: number = 5): Promise<number> {
+  /**
+   * Sweep rows stuck in a non-terminal status (e.g. one that died between the
+   * INSERT and its first status flip, so it's still 'new') into 'error'.
+   *
+   * `excludeIds` spares rows that crash recovery has deliberately parked in
+   * 'ocr_processing' pending an in-place OCR retry — without it, this sweep
+   * would mark them failed a moment before they get re-driven.
+   */
+  async markStaleAsFailed(staleMinutes: number = 5, excludeIds: number[] = []): Promise<number> {
+    const mins = Math.floor(staleMinutes);
+    const exclusion = excludeIds.length
+      ? ` AND id NOT IN (${excludeIds.map(() => '?').join(',')})`
+      : '';
     // Don't sweep dispatcher rows here — their lifetime is governed by
     // dispatcher_started_at via markStaleDispatchersAsFailed below.
     const result = await getDb().prepare(
@@ -764,8 +776,8 @@ export const invoiceRepo = {
            error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)')
        WHERE status NOT IN ('processed', 'sent_to_1c', 'duplicate', 'error')
        AND dispatcher_token IS NULL
-       AND created_at < (NOW() - INTERVAL ${staleMinutes} MINUTE)`
-    ).run();
+       AND created_at < (NOW() - INTERVAL ${mins} MINUTE)${exclusion}`
+    ).run(...excludeIds);
     return result.changes;
   },
 
@@ -818,13 +830,32 @@ export const invoiceRepo = {
     ).run(invoiceId);
   },
 
-  async listStaleForRecovery(): Promise<Array<{ id: number; file_name: string; itemsCount: number }>> {
+  async listStaleForRecovery(): Promise<Array<{
+    id: number; file_name: string; itemsCount: number; recovery_attempts: number;
+  }>> {
     return getDb().prepare(
-      `SELECT i.id, i.file_name,
+      `SELECT i.id, i.file_name, i.recovery_attempts,
         (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS itemsCount
        FROM invoices i
        WHERE i.status IN ('ocr_processing', 'parsing')`
-    ).all<{ id: number; file_name: string; itemsCount: number }>();
+    ).all<{ id: number; file_name: string; itemsCount: number; recovery_attempts: number }>();
+  },
+
+  /**
+   * Bump the crash-recovery counter and return the NEW value.
+   *
+   * Call this BEFORE re-driving the invoice through OCR, never after: a photo
+   * that kills the process mid-Claude-call (the 2026-07-14 OOM) must still burn
+   * an attempt, otherwise the next boot sees the same count and retries forever.
+   */
+  async incrementRecoveryAttempts(id: number): Promise<number> {
+    await getDb()
+      .prepare('UPDATE invoices SET recovery_attempts = recovery_attempts + 1 WHERE id = ?')
+      .run(id);
+    const row = await getDb()
+      .prepare('SELECT recovery_attempts FROM invoices WHERE id = ?')
+      .get<{ recovery_attempts: number }>(id);
+    return row?.recovery_attempts ?? 0;
   },
 
   async findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Promise<Invoice | undefined> {

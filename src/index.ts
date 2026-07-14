@@ -1,5 +1,4 @@
 import cron from 'node-cron';
-import fs from 'fs';
 import path from 'path';
 import { config } from './config';
 import { logger } from './utils/logger';
@@ -7,6 +6,8 @@ import { initDb, closeDb } from './database/db';
 import { OcrManager } from './ocr/ocrManager';
 import { NomenclatureMapper } from './mapping/nomenclatureMapper';
 import { FileWatcher } from './watcher/fileWatcher';
+import { recoverStaleInvoices, retryStaleInvoices } from './watcher/crashRecovery';
+import { pruneSendLog } from './notifications/rateLimit';
 import { startServer } from './api/server';
 import { backupDatabase } from './utils/backup';
 import { cleanupOldRequestLogs } from './api/middleware/requestLog';
@@ -45,48 +46,6 @@ async function main(): Promise<void> {
     logger.error('Admin seed failed', { error: (e as Error).message });
   }
 
-  // Recover from crashes / interrupted deploys. After process restart, ANY
-  // invoice in 'ocr_processing'/'parsing' is by definition dead — нет живого
-  // watcher'а, кто бы её сейчас обрабатывал. Two paths:
-  //   - has items already (Claude finished, only status flip didn't run) →
-  //     UPDATE status='processed'.
-  //   - no items (crash happened earlier, mid-Claude or mid-OCR) → DELETE
-  //     запись и переместить файл из processed/ обратно в inbox/, чтобы
-  //     watcher переобработал как новую.
-  try {
-    const stale = await invoiceRepo.listStaleForRecovery();
-    let promoted = 0, requeued = 0;
-    for (const s of stale) {
-      if (s.itemsCount > 0) {
-        await invoiceRepo.updateStatus(s.id, 'processed');
-        promoted++;
-      } else {
-        // Re-queue the file for fresh processing
-        const firstFile = (s.file_name || '').split(',')[0].trim();
-        if (firstFile) {
-          const processedPath = path.join(config.processedDir, firstFile);
-          const inboxPath = path.join(config.inboxDir, firstFile);
-          if (fs.existsSync(processedPath) && !fs.existsSync(inboxPath)) {
-            try { fs.renameSync(processedPath, inboxPath); } catch { /* ignore */ }
-          }
-        }
-        await invoiceRepo.delete(s.id);
-        requeued++;
-      }
-    }
-    if (promoted > 0 || requeued > 0) {
-      logger.warn('Recovered stale invoices', { stuck: stale.length, promoted, requeued });
-    }
-    // Catch-all: anything still non-terminal older than 1 minute → error.
-    // Should be empty after the loop above, but kept as safety net.
-    const fallback = await invoiceRepo.markStaleAsFailed(1);
-    if (fallback > 0) {
-      logger.warn('Marked remaining stale as error', { count: fallback });
-    }
-  } catch (e) {
-    logger.error('Startup stale-invoice recovery failed', { error: (e as Error).message });
-  }
-
   // Initialize OCR
   ocrManager = new OcrManager();
   logger.info('OCR manager ready');
@@ -95,13 +54,43 @@ async function main(): Promise<void> {
   const mapper = new NomenclatureMapper();
   logger.info('Nomenclature mapper ready');
 
-  // Initialize file watcher
+  // Build the watcher BEFORE crash recovery: recovery re-drives stale invoices
+  // through it (in place, same row) instead of deleting them and re-queuing the
+  // photo as a fresh upload. See src/watcher/crashRecovery.ts for why that
+  // distinction is load-bearing.
   fileWatcher = new FileWatcher(ocrManager, mapper);
+
+  // Recover from crashes / interrupted deploys. Returns the ids that still need
+  // an OCR re-run; those are slow (Claude calls), so they're kicked off after
+  // the HTTP server is listening rather than blocking startup.
+  let staleToRetry: number[] = [];
+  try {
+    staleToRetry = await recoverStaleInvoices(fileWatcher);
+
+    // Catch-all for rows recovery doesn't see: a row that died between INSERT
+    // and its first status flip is still 'new', not 'ocr_processing'. Rows
+    // queued for an in-place retry are excluded — they sit in 'ocr_processing'
+    // on purpose and are about to be re-driven.
+    const fallback = await invoiceRepo.markStaleAsFailed(1, staleToRetry);
+    if (fallback > 0) {
+      logger.warn('Marked remaining stale as error', { count: fallback });
+    }
+  } catch (e) {
+    logger.error('Startup stale-invoice recovery failed', { error: (e as Error).message });
+  }
+
   fileWatcher.start();
   logger.info('File watcher ready');
 
   // Start REST API server
   httpServer = startServer(fileWatcher, mapper);
+
+  // Now that we're serving, re-drive the stale invoices in the background —
+  // one at a time (concurrent Claude image calls are what blew the memory
+  // ceiling and started the restart loop this recovery path exists to end).
+  if (staleToRetry.length > 0) {
+    void retryStaleInvoices(fileWatcher, staleToRetry);
+  }
 
   // Schedule daily database backup at 03:00 server time
   cron.schedule('0 3 * * *', () => {
@@ -119,6 +108,9 @@ async function main(): Promise<void> {
     integrationEventRepo.prune(90)
       .then(deleted => { if (deleted > 0) logger.info('Pruned old integration_events', { deleted }); })
       .catch(err => logger.error('integration_events prune failed', { error: (err as Error).message }));
+    pruneSendLog()
+      .then(deleted => { if (deleted > 0) logger.info('Pruned old notification_sends', { deleted }); })
+      .catch(err => logger.error('notification_sends prune failed', { error: (err as Error).message }));
   });
 
   // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files

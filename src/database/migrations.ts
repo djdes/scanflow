@@ -903,6 +903,46 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 42,
+    name: 'invoices.recovery_attempts — bound the crash-recovery retry loop',
+    // Startup recovery used to DELETE a stale invoice and drop its photo back
+    // into inbox/ for the watcher to re-ingest. Deleting the row also erased the
+    // file_hash that processFile's SHA-256 dedup checks, so a photo that
+    // reliably crashed the process came back as a BRAND-NEW invoice — and a
+    // fresh photo_uploaded notification — on every restart. That was the
+    // 2026-07-14 storm: ~20 rounds of 3 invoices in 40 minutes.
+    //
+    // The row is no longer deleted, so this counter survives across restarts and
+    // the retry loop can terminate. See src/watcher/crashRecovery.ts.
+    detect: (exec) => hasColumn(exec, 'invoices', 'recovery_attempts'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'recovery_attempts'))) {
+        await exec.query(
+          `ALTER TABLE invoices ADD COLUMN recovery_attempts TINYINT NOT NULL DEFAULT 0`
+        );
+      }
+    },
+  },
+  {
+    version: 43,
+    name: 'notification_sends — send log backing the notification rate limit',
+    // The rate limiter's counter MUST live in the DB. During the 2026-07-14 storm
+    // PM2 restarted the process every 90 seconds, so an in-memory counter would
+    // have reset on every restart and never tripped. See notifications/rateLimit.ts.
+    detect: (exec) => hasTable(exec, 'notification_sends'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS notification_sends (
+          id         INT AUTO_INCREMENT PRIMARY KEY,
+          event_type VARCHAR(64) NOT NULL,
+          invoice_id INT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_notification_sends_created_at (created_at)
+        )
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
