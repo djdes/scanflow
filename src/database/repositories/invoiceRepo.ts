@@ -285,7 +285,7 @@ export const invoiceRepo = {
   },
 
   async getPendingWithItems(
-    opts: { limit?: number; offset?: number } = {}
+    opts: { limit?: number; offset?: number; ownerUserId?: number } = {}
   ): Promise<{ rows: Array<Invoice & { items: InvoiceItem[] }>; total: number }> {
     const db = getDb();
     const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
@@ -306,15 +306,18 @@ export const invoiceRepo = {
     const holdClause = MULTIPAGE_HOLD_MINUTES > 0
       ? `AND COALESCE(recognized_at, created_at) <= (NOW() - INTERVAL ${MULTIPAGE_HOLD_MINUTES} MINUTE)`
       : '';
+    const ownerClause = opts.ownerUserId != null ? 'AND owner_user_id = ?' : '';
+    const ownerParams = opts.ownerUserId != null ? [opts.ownerUserId] : [];
     const pendingWhere =
       `approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')
        AND (onec_pulled_at IS NULL OR onec_pulled_at < (NOW() - INTERVAL ${RESERVE_MINUTES} MINUTE))
-       ${holdClause}`;
+       ${holdClause}
+       ${ownerClause}`;
 
     const totalRow = await db.prepare(
       `SELECT COUNT(*) as c FROM invoices WHERE ${pendingWhere}`
-    ).get<{ c: number }>();
+    ).get<{ c: number }>(...ownerParams);
     const total = totalRow?.c ?? 0;
 
     // limit/offset are sanitized integers above; inline them (mysql2 rejects
@@ -324,7 +327,7 @@ export const invoiceRepo = {
        WHERE ${pendingWhere}
        ORDER BY created_at ASC
        LIMIT ${limit} OFFSET ${offset}`
-    ).all<Invoice>();
+    ).all<Invoice>(...ownerParams);
 
     if (invoices.length === 0) return { rows: [], total };
 
@@ -334,8 +337,9 @@ export const invoiceRepo = {
     // Reserve the just-pulled invoices so the next poll (concurrent or immediate)
     // skips them. Stamped here, at hand-off time — not at confirm time.
     await db.prepare(
-      `UPDATE invoices SET onec_pulled_at = NOW() WHERE id IN (${placeholders})`
-    ).run(...ids);
+      `UPDATE invoices SET onec_pulled_at = NOW()
+       WHERE id IN (${placeholders})${opts.ownerUserId != null ? ' AND owner_user_id = ?' : ''}`
+    ).run(...ids, ...ownerParams);
 
     const items = await db.prepare(
       `SELECT * FROM invoice_items WHERE invoice_id IN (${placeholders}) ORDER BY id`

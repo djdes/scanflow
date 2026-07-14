@@ -75,18 +75,38 @@ export const userRepo = {
   },
 
   async findByMagicToken(token: string): Promise<User | undefined> {
-    return getDb()
-      .prepare(
+    return getDb().prepare(
+      `SELECT * FROM users
+         WHERE magic_token = ?
+           AND (magic_token_expires_at IS NULL OR magic_token_expires_at > NOW())
+         LIMIT 1`
+    ).get<User>(token);
+  },
+
+  async consumeMagicToken(token: string): Promise<User | undefined> {
+    return getDb().transaction(async (txn) => {
+      const user = await txn.prepare(
         `SELECT * FROM users
            WHERE magic_token = ?
              AND (magic_token_expires_at IS NULL OR magic_token_expires_at > NOW())
-           LIMIT 1`
-      )
-      .get<User>(token);
+           LIMIT 1
+           FOR UPDATE`
+      ).get<User>(token);
+      if (!user) return undefined;
+
+      const result = await txn.prepare(
+        `UPDATE users
+            SET magic_token = NULL,
+                magic_token_expires_at = NULL,
+                last_login_at = NOW()
+          WHERE id = ? AND magic_token = ?`
+      ).run(user.id, token);
+      return result.changes === 1 ? user : undefined;
+    });
   },
 
-  // Set/clear the magic token. `expiresAt` = null означает «без срока годности»
-  // (живёт до следующей перегенерации через /recover).
+  // Set/clear the magic token. Callers should provide a finite expiry; null is
+  // retained only so old rows and explicit token clearing remain compatible.
   async setMagicToken(id: number, token: string | null, expiresAt: Date | null = null): Promise<void> {
     await getDb()
       .prepare('UPDATE users SET magic_token = ?, magic_token_expires_at = ? WHERE id = ?')

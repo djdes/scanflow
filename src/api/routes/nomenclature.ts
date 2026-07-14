@@ -4,6 +4,7 @@ import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { logIntegrationEvent } from '../../integration/integrationLog';
+import { requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ export function setMapper(m: NomenclatureMapper): void {
 }
 
 // POST /api/nomenclature/sync — bulk upsert from 1C
-router.post('/sync', async (req: Request, res: Response) => {
+router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
   const items = req.body?.items as OnecNomenclatureInput[] | undefined;
   if (!Array.isArray(items) || items.length === 0) {
     res.status(400).json({ error: 'items must be a non-empty array' });
@@ -52,7 +53,7 @@ router.post('/sync', async (req: Request, res: Response) => {
 // DELETE /api/nomenclature — clear catalog before a full re-sync from 1C.
 // Called by the BSL "Выгрузить номенклатуру" command to evict stale rows
 // (e.g. finished products after switching to a purchase-documents-only query).
-router.delete('/', async (_req: Request, res: Response) => {
+router.delete('/', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const deleted = await onecNomenclatureRepo.clearAll();
     // Don't removeOrphaned here — catalog is temporarily empty,

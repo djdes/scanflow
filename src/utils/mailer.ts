@@ -291,7 +291,7 @@ function renderAuthEmailHtml(opts: {
           </tr>
           <tr>
             <td style="padding:8px 32px 24px 32px;">
-              <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.55;text-align:center;">Кнопка ведёт в ваш кабинет без ввода пароля. Если она не работает — войдите вручную с указанными данными на <a href="https://scanflow.ru" style="color:#1a6dff;text-decoration:none;">scanflow.ru</a>.</p>
+              <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.55;text-align:center;">Кнопка ведёт в ваш кабинет без ввода пароля и действует один раз в течение 24 часов. Если она не работает — войдите вручную с указанными данными на <a href="https://scanflow.ru" style="color:#1a6dff;text-decoration:none;">scanflow.ru</a>.</p>
             </td>
           </tr>
           <tr>

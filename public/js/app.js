@@ -205,6 +205,8 @@ const App = {
     this.apiKey = '';
     localStorage.removeItem('apiKey');
     sessionStorage.removeItem('apiKey');
+    localStorage.removeItem('adminRole');
+    sessionStorage.removeItem('adminRole');
     // adminUsername оставляем — пригодится для prefill в форме входа.
     const params = new URLSearchParams({ login: '1' });
     if (reason) params.set('reason', reason);
@@ -317,7 +319,7 @@ const App = {
       'sent_to_1c': 'badge-sent',
       'error': 'badge-error'
     };
-    return `<span class="badge ${cls[status] || 'badge-new'}">${this.statusLabel(status)}</span>`;
+    return `<span class="badge ${cls[status] || 'badge-new'}">${this.esc(this.statusLabel(status))}</span>`;
   },
 
   confidenceBadge(val) {
@@ -337,7 +339,7 @@ const App = {
     const isMultipage = e.includes('multipage');
     const label = parts.join(' + ') + (isMultipage ? ' (multi)' : '');
     const cls = e.includes('claude_api') ? 'badge-sent' : e.includes('claude_analyzer') ? 'badge-processed' : 'badge-processing';
-    return `<span class="badge ${cls}" title="${engine}">${label}</span>`;
+    return `<span class="badge ${cls}" title="${this.esc(engine)}">${this.esc(label)}</span>`;
   }
 };
 

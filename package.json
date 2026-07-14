@@ -57,7 +57,7 @@
     "multer": "^2.0.2",
     "mysql2": "^3.22.3",
     "node-cron": "^4.2.1",
-    "nodemailer": "^8.0.4",
+    "nodemailer": "^9.0.3",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0",
     "undici": "^8.0.1",

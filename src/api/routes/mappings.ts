@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+import { requireAdmin } from '../middleware/auth';
 
 const router = Router();
 let mapper: NomenclatureMapper;
@@ -100,7 +101,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/mappings/import — bulk import
-router.post('/import', async (req: Request, res: Response) => {
+router.post('/import', requireAdmin, async (req: Request, res: Response) => {
   const { items } = req.body;
 
   if (!Array.isArray(items)) {

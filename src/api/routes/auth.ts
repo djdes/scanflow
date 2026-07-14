@@ -15,6 +15,11 @@ const router = Router();
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MIN_PASSWORD_LEN = 6;
+const MAGIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+function magicTokenExpiry(): Date {
+  return new Date(Date.now() + MAGIC_TOKEN_TTL_MS);
+}
 
 // Public origin для magic-ссылки в письме. На проде это https://scanflow.ru
 // (берётся из env). Локально fallback на тот же сервер по hostname запроса.
@@ -162,7 +167,7 @@ router.post('/register-email', async (req: Request, res: Response) => {
       role: 'user',
       email: trimmedEmail,
     });
-    await userRepo.setMagicToken(id, magic_token, null); // null = бессрочный до /recover
+    await userRepo.setMagicToken(id, magic_token, magicTokenExpiry());
   } catch (e) {
     logger.error('register-email: failed to create user', { error: (e as Error).message });
     res.status(500).json({ error: 'Не удалось создать аккаунт. Попробуйте ещё раз.' });
@@ -229,7 +234,7 @@ async function sendCredentialsAndRespond(
 
   try {
     await userRepo.updatePasswordHash(userId, password_hash);
-    await userRepo.setMagicToken(userId, magic_token, null);
+    await userRepo.setMagicToken(userId, magic_token, magicTokenExpiry());
   } catch (e) {
     logger.error('recover: failed to update creds', { userId, error: (e as Error).message });
     res.status(500).json({ error: 'Внутренняя ошибка. Попробуйте позже.' });

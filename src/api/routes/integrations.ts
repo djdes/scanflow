@@ -1,13 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { integrationEventRepo } from '../../database/repositories/integrationEventRepo';
 import { syncStateRepo } from '../../database/repositories/syncStateRepo';
+import { requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
 // GET /api/integrations/log?integration=1c|sber|webhook|nomenclature&limit=&offset=
 // Returns the recent integration activity events plus the derived "1C last polled
 // at" signal (most recent /pending hit from api_requests_log).
-router.get('/log', async (req: Request, res: Response) => {
+router.get('/log', requireAdmin, async (req: Request, res: Response) => {
   try {
     const integration = req.query.integration as string | undefined;
     const allowed = ['1c', 'sber', 'webhook', 'nomenclature'];
@@ -28,7 +29,7 @@ router.get('/log', async (req: Request, res: Response) => {
 
 // GET /api/integrations/sync-flag — cheap per-minute check for the 1C scheduled
 // job: is there new nomenclature waiting to be exported back to the site?
-router.get('/sync-flag', async (_req: Request, res: Response) => {
+router.get('/sync-flag', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const st = await syncStateRepo.getNomenclatureSyncState();
     res.json({ data: { nomenclature_sync_requested: st.requested, since: st.since } });
@@ -40,7 +41,7 @@ router.get('/sync-flag', async (_req: Request, res: Response) => {
 // POST /api/integrations/sync-flag/clear { since } — clear after a successful
 // export. Race-guarded: only clears if no newer request arrived (stored <= since).
 // `since` must be the exact string returned by GET /sync-flag.
-router.post('/sync-flag/clear', async (req: Request, res: Response) => {
+router.post('/sync-flag/clear', requireAdmin, async (req: Request, res: Response) => {
   const since = (req.body?.since ?? '') as unknown;
   if (typeof since !== 'string' || !since.trim()) {
     res.status(400).json({ error: 'since is required (the value from GET /sync-flag)' });

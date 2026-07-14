@@ -53,6 +53,40 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('getPendingWithItem
     await invoiceRepo.approveForOneC(id); // clears onec_pulled_at
     expect((await invoiceRepo.getPendingWithItems({})).rows.map(r => r.id)).toContain(id);
   });
+
+  it('scopes selection, count, and reservation to one invoice owner', async () => {
+    await getDb().prepare(
+      `INSERT INTO users (id, username, password_hash, api_key, role, notify_events)
+       VALUES (11, 'tenant_a', 'x', 'ka', 'user', '[]'),
+              (12, 'tenant_b', 'x', 'kb', 'user', '[]')`
+    ).run();
+    const a = await getDb().prepare(
+      `INSERT INTO invoices
+         (file_name, file_path, status, approved_for_1c, approved_at, recognized_at, owner_user_id)
+       VALUES ('a','/a','processed', 1, NOW(), (NOW() - INTERVAL 30 MINUTE), 11)`
+    ).run();
+    const b = await getDb().prepare(
+      `INSERT INTO invoices
+         (file_name, file_path, status, approved_for_1c, approved_at, recognized_at, owner_user_id)
+       VALUES ('b','/b','processed', 1, NOW(), (NOW() - INTERVAL 30 MINUTE), 12)`
+    ).run();
+    const aId = Number(a.lastInsertRowid);
+    const bId = Number(b.lastInsertRowid);
+
+    const onlyA = await invoiceRepo.getPendingWithItems({ ownerUserId: 11 });
+    expect(onlyA.total).toBe(1);
+    expect(onlyA.rows.map(r => r.id)).toEqual([aId]);
+
+    const reservations = await getDb().prepare(
+      'SELECT id, onec_pulled_at FROM invoices WHERE id IN (?, ?) ORDER BY id'
+    ).all<{ id: number; onec_pulled_at: string | null }>(aId, bId);
+    expect(reservations.find(r => r.id === aId)?.onec_pulled_at).not.toBeNull();
+    expect(reservations.find(r => r.id === bId)?.onec_pulled_at).toBeNull();
+
+    const onlyB = await invoiceRepo.getPendingWithItems({ ownerUserId: 12 });
+    expect(onlyB.total).toBe(1);
+    expect(onlyB.rows.map(r => r.id)).toEqual([bId]);
+  });
 });
 
 // Multi-page freshness hold: a just-recognized approved invoice is withheld from

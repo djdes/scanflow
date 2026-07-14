@@ -377,8 +377,13 @@
       if (!f.value) return;
       const div = document.createElement('div');
       div.className = 'result-field';
-      div.innerHTML = `<span class="result-field-label">${f.label}</span>
-                        <span class="result-field-value">${f.value}</span>`;
+      const label = document.createElement('span');
+      label.className = 'result-field-label';
+      label.textContent = f.label;
+      const value = document.createElement('span');
+      value.className = 'result-field-value';
+      value.textContent = String(f.value);
+      div.append(label, value);
       resultFields.appendChild(div);
     });
 
@@ -387,10 +392,17 @@
     const items = data.items || [];
     items.forEach((item) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${item.name || item.original_name || '—'}</td>
-                      <td>${item.qty || item.quantity || ''} ${item.unit || ''}</td>
-                      <td>${formatNum(item.price)} ₽</td>
-                      <td>${formatNum(item.total)} ₽</td>`;
+      const values = [
+        item.name || item.original_name || '—',
+        `${item.qty ?? item.quantity ?? ''} ${item.unit || ''}`.trim(),
+        `${formatNum(item.price)} ₽`,
+        `${formatNum(item.total)} ₽`,
+      ];
+      values.forEach((value) => {
+        const td = document.createElement('td');
+        td.textContent = String(value);
+        tr.appendChild(td);
+      });
       resultItems.appendChild(tr);
     });
 
@@ -452,9 +464,10 @@
   // ========== Auth State (logged-in awareness across landing) ==========
 
   // Read once at startup, then re-read on storage events / after login.
-  // Source of truth: localStorage.apiKey (same key the dashboard writes).
+  // Source of truth: the same persistent key the dashboard reads, with the
+  // legacy sessionStorage fallback kept during the storage migration.
   function readApiKey() {
-    return localStorage.getItem('apiKey') || '';
+    return localStorage.getItem('apiKey') || sessionStorage.getItem('apiKey') || '';
   }
 
   // Toggle every element marked with data-auth-state="in" / "out"
@@ -462,6 +475,10 @@
   // hello-pill on the bottom CTA if present.
   function applyAuthState() {
     const authed = !!readApiKey();
+    document.querySelectorAll('[data-site-logo]').forEach((logo) => {
+      logo.setAttribute('href', authed ? '/app.html#/invoices' : '/');
+      logo.setAttribute('title', authed ? 'К накладным' : 'На главную');
+    });
     document.querySelectorAll('[data-auth-state]').forEach((el) => {
       const want = el.getAttribute('data-auth-state');
       const show = (want === 'in' && authed) || (want === 'out' && !authed);
@@ -469,7 +486,9 @@
     });
     const userEl = document.getElementById('auth-cta-username');
     if (userEl) {
-      const name = localStorage.getItem('adminUsername') || 'администратор';
+      const name = localStorage.getItem('adminUsername')
+        || sessionStorage.getItem('adminUsername')
+        || 'пользователь';
       userEl.textContent = name;
     }
   }
@@ -567,7 +586,11 @@
   if (ctaLogoutBtn) {
     ctaLogoutBtn.addEventListener('click', () => {
       localStorage.removeItem('apiKey');
+      sessionStorage.removeItem('apiKey');
       localStorage.removeItem('adminUsername');
+      sessionStorage.removeItem('adminUsername');
+      localStorage.removeItem('adminRole');
+      sessionStorage.removeItem('adminRole');
       applyAuthState();
     });
   }
@@ -869,6 +892,7 @@
         }
         localStorage.setItem('apiKey', data.apiKey);
         localStorage.setItem('adminUsername', username);
+        localStorage.setItem('adminRole', data.role || 'user');
         applyAuthState();
         window.location.href = '/app.html';
       } catch (err) {

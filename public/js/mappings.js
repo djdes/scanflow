@@ -70,7 +70,7 @@ const Mappings = {
       </div></td></tr>`;
       return;
     }
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     tbody.innerHTML = items.map(g => {
       const total = g.variants.reduce((s, v) => s + (v.times_seen || 0), 0);
       const isExpanded = this.expandedGuid === g.onec_guid;
@@ -110,9 +110,11 @@ const Mappings = {
             <td colspan="2">
               <div style="display:flex;gap:8px;align-items:center">
                 <input type="text" id="add-variant-${esc(g.onec_guid)}" placeholder="Новый вариант..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px"
+                       data-guid="${esc(g.onec_guid)}" data-name="${esc(g.mapped_name)}"
                        onclick="event.stopPropagation()"
-                       onkeydown="if(event.key==='Enter'){event.stopPropagation();Mappings.addVariant('${esc(g.onec_guid)}','${esc(g.mapped_name)}')}">
-                <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();Mappings.addVariant('${esc(g.onec_guid)}','${esc(g.mapped_name)}')">+</button>
+                       onkeydown="if(event.key==='Enter'){event.stopPropagation();Mappings.addVariant(this.dataset.guid,this.dataset.name)}">
+                <button class="btn btn-sm btn-primary" data-guid="${esc(g.onec_guid)}" data-name="${esc(g.mapped_name)}"
+                        onclick="event.stopPropagation();Mappings.addVariant(this.dataset.guid,this.dataset.name)">+</button>
               </div>
             </td>
             <td></td>
@@ -121,13 +123,14 @@ const Mappings = {
 
       const variantIds = g.variants.map(v => v.id).join(',');
       return `
-        <tr class="clickable" onclick="Mappings.toggleExpand('${esc(g.onec_guid)}')">
+        <tr class="clickable" data-guid="${esc(g.onec_guid)}" onclick="Mappings.toggleExpand(this.dataset.guid)">
           <td><strong>${esc(g.mapped_name)}</strong></td>
           <td>${chips}${moreHtml}</td>
           <td style="text-align:right">${total}×</td>
           <td style="white-space:nowrap;text-align:right">
             <button class="btn-icon-danger" title="Удалить группу со всеми вариантами"
-                    onclick="Mappings.removeGroup('${esc(g.onec_guid)}', '${esc(g.mapped_name)}', '${variantIds}', event)">&#10005;</button>
+                    data-guid="${esc(g.onec_guid)}" data-name="${esc(g.mapped_name)}" data-ids="${variantIds}"
+                    onclick="Mappings.removeGroup(this.dataset.guid, this.dataset.name, this.dataset.ids, event)">&#10005;</button>
             <span class="expand-arrow">${isExpanded ? '▼' : '▶'}</span>
           </td>
         </tr>
@@ -302,10 +305,10 @@ const Mappings = {
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
     if (results.length === 0) { dd.style.display = 'none'; return; }
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     dd.innerHTML = results.map(r => `
       <div class="nom-picker-option" data-guid="${esc(r.guid)}" data-name="${esc(r.name)}"
-           onmousedown="event.preventDefault(); Mappings.pickUnmap(${id}, '${esc(r.guid)}', '${esc(r.name)}')">
+           onmousedown="event.preventDefault(); Mappings.pickUnmap(${id}, this.dataset.guid, this.dataset.name)">
         <strong>${esc(r.name)}</strong>
         ${r.unit ? '<span class="nom-unit">' + esc(r.unit) + '</span>' : ''}
       </div>
@@ -349,9 +352,10 @@ const Mappings = {
     if (!q) { dd.style.display = 'none'; return; }
     const results = OnecCatalog.search(q, 10);
     if (results.length === 0) { dd.style.display = 'none'; return; }
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     dd.innerHTML = results.map(r => `
-      <div class="nom-picker-option" onmousedown="event.preventDefault(); Mappings.pickAdd('${esc(r.guid)}', '${esc(r.name)}')">
+      <div class="nom-picker-option" data-guid="${esc(r.guid)}" data-name="${esc(r.name)}"
+           onmousedown="event.preventDefault(); Mappings.pickAdd(this.dataset.guid, this.dataset.name)">
         <strong>${esc(r.name)}</strong>
         ${r.unit ? '<span class="nom-unit">' + esc(r.unit) + '</span>' : ''}
       </div>
@@ -418,7 +422,7 @@ const Mappings = {
       return;
     }
     tbody.innerHTML = items.map((it, i) => {
-      const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       const guidShort = it.guid ? it.guid.substring(0, 8) + '…' : '—';
       return `<tr>
         <td data-label="#">${i + 1}</td>

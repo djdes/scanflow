@@ -116,6 +116,7 @@ async function postPfTask(token: string, projectId: string, description: string)
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ description, status: 'todo' }),
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
     logger.error('dispatcher: PF API unreachable', { error: (err as Error).message });

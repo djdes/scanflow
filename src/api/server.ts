@@ -269,28 +269,58 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
       res.status(404).type('html').send('<h1>Ссылка недействительна</h1><p>Возможно, вы запросили новое письмо — старая ссылка перестала работать. Откройте свежее письмо.</p>');
       return;
     }
-    // Bootstrapping page: setItem + replace. apiKey попадает в localStorage
-    // тем же origin'ом — это безопасно. Token из URL не светится ни в
-    // referrer (replace() заменит запись в history), ни в SPA-хеше.
-    const safeApiKey = JSON.stringify(user.api_key);
-    const safeUsername = JSON.stringify(user.username);
-    const safeRole = JSON.stringify(user.role);
+    // GET only validates the token. The browser exchanges it through same-origin
+    // POST below, so mail-provider link scanners cannot consume a one-time link
+    // merely by prefetching the URL.
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     res.type('html').send(`<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"><title>Входим в ScanFlow…</title>
 <style>body{font-family:-apple-system,sans-serif;background:#f7f9fc;color:#1a1f2e;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}p{font-size:14px;color:#64748b}</style>
 </head><body><p>Открываем кабинет…</p>
 <script>
-  try {
-    localStorage.setItem('apiKey', ${safeApiKey});
-    localStorage.setItem('adminUsername', ${safeUsername});
-    localStorage.setItem('adminRole', ${safeRole});
-    // Onboarding-wizard покажется автоматически, если шаги не завершены.
-    location.replace('/app.html#/onboarding');
-  } catch (e) {
-    document.body.innerHTML = '<p>Не удалось сохранить сессию. Включите cookies/localStorage в браузере и откройте ссылку повторно.</p>';
-  }
+  (async () => {
+    try {
+      const response = await fetch('/magic/${token}/consume', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      });
+      const session = await response.json().catch(() => ({}));
+      if (!response.ok || !session.apiKey) throw new Error('invalid magic link');
+      localStorage.setItem('apiKey', session.apiKey);
+      localStorage.setItem('adminUsername', session.username);
+      localStorage.setItem('adminRole', session.role);
+      // Onboarding-wizard покажется автоматически, если шаги не завершены.
+      location.replace('/app.html#/onboarding');
+    } catch (e) {
+      document.body.innerHTML = '<p>Ссылка уже использована или устарела. Войдите вручную с данными из письма.</p>';
+    }
+  })();
 </script>
 </body></html>`);
+  });
+
+  // POST /magic/:token/consume — atomically exchange a valid one-time link for
+  // the user's existing API key. Kept separate from GET to tolerate safe-link
+  // scanners that prefetch email URLs.
+  app.post('/magic/:token/consume', async (req, res) => {
+    const token = req.params.token;
+    if (!/^[a-f0-9]{32}$/.test(token)) {
+      res.status(404).json({ error: 'Magic link is invalid or expired' });
+      return;
+    }
+    try {
+      const user = await userRepo.consumeMagicToken(token);
+      if (!user) {
+        res.status(404).json({ error: 'Magic link is invalid or expired' });
+        return;
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ apiKey: user.api_key, username: user.username, role: user.role });
+    } catch (e) {
+      logger.error('magic-link consume failed', { error: (e as Error).message });
+      res.status(500).json({ error: 'Internal error' });
+    }
   });
 
   // ─── SEO + Blog routes (must be before the SPA fallback) ───
