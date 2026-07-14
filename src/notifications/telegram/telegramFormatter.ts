@@ -110,12 +110,29 @@ export interface ElevatedItem {
 }
 
 export function buildUrgentMessage(
-  eventType: 'recognition_error' | 'suspicious_total' | 'elevated_prices',
+  eventType: 'recognition_error' | 'suspicious_total' | 'elevated_prices' | 'sber_payment_overdue',
   payload: EventPayload,
 ): string {
   const num = payload.invoice_number ? String(payload.invoice_number) : `#${payload.invoice_id}`;
   const supplier = payload.supplier ? String(payload.supplier) : '—';
   const sum = fmtMoney(payload.total_sum as number | null | undefined);
+
+  if (eventType === 'sber_payment_overdue') {
+    const days = payload.days_overdue != null ? Number(payload.days_overdue) : null;
+    const created = payload.created_at ? String(payload.created_at) : null;
+    const daysText = days != null && Number.isFinite(days)
+      ? ` уже ${days} ${pluralRu(days, 'день', 'дня', 'дней')}`
+      : '';
+    const lines = [
+      `⏰ Счёт в Сбербанк не выставлен${daysText}`,
+      `Накладная: ${num}`,
+      `Поставщик: ${supplier}`,
+      `Сумма: ${sum}`,
+    ];
+    if (created) lines.push(`Загружена: ${created}`);
+    lines.push('', `🔗 ${invoiceUrl(Number(payload.invoice_id))}`);
+    return lines.join('\n');
+  }
 
   if (eventType === 'recognition_error') {
     const err = payload.error_message ? String(payload.error_message) : 'без описания';

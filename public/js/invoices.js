@@ -90,8 +90,11 @@ const Invoices = {
           <td colspan="9">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
         </tr>`);
         }
+        const overdueDays = Number(inv.sber_overdue_days) || 14;
         rowsHtml.push(`
-        <tr class="clickable" data-day="${day}" onclick="App.navigate('#/invoices/${inv.id}')">
+        <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}" data-day="${day}"
+            ${inv.sber_overdue ? `style="box-shadow:inset 3px 0 0 #f59e0b" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней"` : ''}
+            onclick="App.navigate('#/invoices/${inv.id}')">
           <td class="col-id" data-label="ID">${inv.id}</td>
           <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td data-label="Дата">${App.formatDate(inv.invoice_date)}</td>
@@ -264,6 +267,13 @@ const Invoices = {
   // a glance which invoices have already been pushed to the bank.
   _sberCell(inv) {
     const status = inv.sber_payment_status;
+    // Overdue takes precedence: a payable invoice with no (non-failed) Sber
+    // payment past the threshold. The server-side sber_overdue flag already
+    // encodes "payable AND old AND no created/pending payment".
+    if (inv.sber_overdue) {
+      const overdueDays = Number(inv.sber_overdue_days) || 14;
+      return `<span style="color:#d97706;font-weight:600;white-space:nowrap" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней">⏰ ${overdueDays}д+</span>`;
+    }
     if (!status) return '<span style="color:#cbd5e1" title="Платёж в Сбер.Бизнес не создан">—</span>';
     const num = inv.sber_payment_number ? ` №${App.esc(inv.sber_payment_number)}` : '';
     if (status === 'created') {

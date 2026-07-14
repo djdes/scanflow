@@ -14,6 +14,7 @@ const EVENT_LABELS: Record<EventType, string> = {
   invoice_edited:     'Накладная отредактирована',
   approved_for_1c:    'Утверждена для 1С',
   sent_to_1c:         'Отправлена в 1С',
+  sber_payment_overdue: 'Счёт в Сбербанк не выставлен',
 };
 
 function escapeHtml(s: string): string {
@@ -57,6 +58,14 @@ export function renderRealtime(eventType: EventType, payload: EventPayload, base
   }
   if (eventType === 'suspicious_total' && payload.items_total != null) {
     extra = `<p style="margin:8px 0 0;color:#b45309"><b>Сумма строк:</b> ${fmtMoney(payload.items_total as number)} <i>(не сходится с total_sum)</i></p>`;
+  }
+  if (eventType === 'sber_payment_overdue') {
+    const days = payload.days_overdue != null ? Number(payload.days_overdue) : null;
+    const created = payload.created_at ? escapeHtml(String(payload.created_at)) : null;
+    const daysText = days != null && Number.isFinite(days)
+      ? ` уже ${days} ${pluralRu(days, 'день', 'дня', 'дней')}`
+      : '';
+    extra = `<p style="margin:8px 0 0;color:#b45309"><b>⏰ Счёт в Сбербанк не выставлен${daysText}.</b>${created ? ` Загружена ${created}.` : ''}</p>`;
   }
   if (eventType === 'elevated_prices' && Array.isArray(payload.elevated_items)) {
     const items = payload.elevated_items as Array<{ name: string; unit: string | null; price: number; median_price: number; deviation_pct: number }>;

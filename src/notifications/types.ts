@@ -12,7 +12,8 @@ export type EventType =
   | 'elevated_prices'
   | 'invoice_edited'
   | 'approved_for_1c'
-  | 'sent_to_1c';
+  | 'sent_to_1c'
+  | 'sber_payment_overdue';
 
 export const ALL_EVENT_TYPES: readonly EventType[] = [
   'photo_uploaded',
@@ -23,6 +24,7 @@ export const ALL_EVENT_TYPES: readonly EventType[] = [
   'invoice_edited',
   'approved_for_1c',
   'sent_to_1c',
+  'sber_payment_overdue',
 ] as const;
 
 // Events that bypass digest mode and always send immediately.
@@ -30,6 +32,7 @@ export const URGENT_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   'recognition_error',
   'suspicious_total',
   'elevated_prices',
+  'sber_payment_overdue',
 ]);
 
 export type NotifyMode = 'realtime' | 'digest_hourly' | 'digest_daily';

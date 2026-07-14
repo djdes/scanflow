@@ -19,6 +19,32 @@ const MULTIPAGE_HOLD_MINUTES = (() => {
   return Number.isFinite(n) && n >= 0 ? n : 5;
 })();
 
+// A payable invoice with no Sber payment for this many days is "Sber-overdue"
+// (alerted once + highlighted in the UI). Env-tunable without a code change.
+export const SBER_OVERDUE_DAYS = (() => {
+  const n = Number(process.env.SBER_OVERDUE_DAYS);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 14;
+})();
+
+// Single source of truth for "no Sber payment in N days". Interpolates only the
+// clamped integer `days`; references the bare `invoices` table so it works both
+// as a WHERE clause (cron) and as a SELECT expression `(...) AS sber_overdue`
+// (list). A 'failed' payment does NOT count as an issued invoice.
+function sberOverduePredicate(days: number): string {
+  const d = Math.max(1, Math.floor(days));
+  return `(
+    invoices.supplier_inn IS NOT NULL AND invoices.supplier_inn <> ''
+    AND invoices.total_sum > 0
+    AND invoices.duplicate_of IS NULL
+    AND invoices.status <> 'error'
+    AND invoices.created_at < (NOW() - INTERVAL ${d} DAY)
+    AND NOT EXISTS (
+      SELECT 1 FROM sber_payments sp
+      WHERE sp.invoice_id = invoices.id AND sp.status <> 'failed'
+    )
+  )`;
+}
+
 export interface Invoice {
   id: number;
   file_name: string;
@@ -53,6 +79,15 @@ export interface Invoice {
   // Owning tenant (multi-tenant isolation). NULL = system/owner-owned (watcher,
   // camera, legacy). Only read when config.dataScopingEnabled is true.
   owner_user_id: number | null;
+  // Timestamp the "no Sber payment in N days" alert was sent (once-per-invoice).
+  sber_overdue_notified_at: string | null;
+  // Derived (not a column): 1 when this invoice matches the Sber-overdue
+  // predicate. Present only on rows returned by queries that SELECT it (getAll,
+  // getById). Used to highlight the row in the UI.
+  sber_overdue?: number;
+  // Derived alongside sber_overdue so the UI displays the configured threshold
+  // instead of assuming the default value.
+  sber_overdue_days?: number;
 }
 
 export interface InvoiceItem {
@@ -176,7 +211,13 @@ export const invoiceRepo = {
   },
 
   async getById(id: number): Promise<Invoice | undefined> {
-    return getDb().prepare('SELECT * FROM invoices WHERE id = ?').get<Invoice>(id);
+    return getDb()
+      .prepare(
+        `SELECT *, ${sberOverduePredicate(SBER_OVERDUE_DAYS)} AS sber_overdue,
+                ${SBER_OVERDUE_DAYS} AS sber_overdue_days
+         FROM invoices WHERE id = ?`
+      )
+      .get<Invoice>(id);
   },
 
   async getAll(
@@ -206,8 +247,32 @@ export const invoiceRepo = {
     if (opts?.to) { conds.push('created_at < :to'); params.to = opts.to; }
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     return getDb()
-      .prepare(`SELECT * FROM invoices ${where} ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`)
+      .prepare(
+        `SELECT *, ${sberOverduePredicate(SBER_OVERDUE_DAYS)} AS sber_overdue,
+                ${SBER_OVERDUE_DAYS} AS sber_overdue_days
+         FROM invoices ${where} ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`
+      )
       .all<Invoice>(params);
+  },
+
+  // Payable invoices past the Sber-overdue threshold that we haven't alerted on
+  // yet. Driven by the daily cron; markSberOverdueNotified() stamps each one so
+  // the alert fires exactly once.
+  async listNewlyOverdueForSber(): Promise<Invoice[]> {
+    return getDb()
+      .prepare(
+        `SELECT * FROM invoices
+         WHERE ${sberOverduePredicate(SBER_OVERDUE_DAYS)}
+         AND sber_overdue_notified_at IS NULL
+         ORDER BY created_at ASC`
+      )
+      .all<Invoice>();
+  },
+
+  async markSberOverdueNotified(id: number): Promise<void> {
+    await getDb()
+      .prepare('UPDATE invoices SET sber_overdue_notified_at = NOW() WHERE id = ?')
+      .run(id);
   },
 
   async getPending(): Promise<Invoice[]> {

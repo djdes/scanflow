@@ -943,6 +943,44 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 44,
+    name: 'Sber-overdue alerts — invoices.sber_overdue_notified_at + backfill notify_events',
+    // Additive + idempotent. Column marks that we already sent the "no Sber
+    // payment in 14 days" alert (once-per-invoice cadence). Backfill adds the new
+    // sber_payment_overdue event to existing users' notify_events so the alert is
+    // on by default for them too (new users get it via ALL_EVENT_TYPES).
+    // detect() requires BOTH the column AND the backfill so a partial failure
+    // replays cleanly (invariant #16).
+    detect: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'sber_overdue_notified_at'))) return false;
+      const [rows] = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM users WHERE notify_events NOT LIKE '%sber_payment_overdue%'`
+      );
+      return rows[0].cnt === 0;
+    },
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'sber_overdue_notified_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN sber_overdue_notified_at DATETIME NULL`);
+      }
+      // Backfill notify_events (TEXT holding a JSON array) in TS so we don't
+      // depend on JSON functions and can guard against malformed rows.
+      const [users] = await exec.query<RowDataPacket[]>(
+        `SELECT id, notify_events FROM users WHERE notify_events NOT LIKE '%sber_payment_overdue%'`
+      );
+      for (const u of users) {
+        let events: string[];
+        try {
+          events = JSON.parse((u.notify_events as string) || '[]');
+          if (!Array.isArray(events)) events = [];
+        } catch {
+          events = [];
+        }
+        if (!events.includes('sber_payment_overdue')) events.push('sber_payment_overdue');
+        await exec.query(`UPDATE users SET notify_events = ? WHERE id = ?`, [JSON.stringify(events), u.id]);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

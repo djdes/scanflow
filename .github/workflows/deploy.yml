@@ -77,8 +77,11 @@ jobs:
             ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/www/scanflow.ru/app/
 
       - name: Install dependencies and restart
+        env:
+          ANTHROPIC_PROXY_URL: ${{ secrets.ANTHROPIC_PROXY_URL }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=accept-new ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'ENDSSH'
+          ANTHROPIC_PROXY_URL_B64="$(printf '%s' "$ANTHROPIC_PROXY_URL" | base64 -w 0)"
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=accept-new ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "ANTHROPIC_PROXY_URL_B64='$ANTHROPIC_PROXY_URL_B64' bash -s" << 'ENDSSH'
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
@@ -110,6 +113,20 @@ jobs:
             echo "DATA_SCOPING_ENABLED=true ensured in .env"
           else
             echo "WARNING: .env not found — DATA_SCOPING_ENABLED not set"
+          fi
+
+          # Keep the proxy credential in GitHub Secrets and the server-only .env.
+          # Replace just this key while preserving every other production value.
+          if [ -n "$ANTHROPIC_PROXY_URL_B64" ]; then
+            proxy_url="$(printf '%s' "$ANTHROPIC_PROXY_URL_B64" | base64 -d)"
+            touch .env
+            awk '!/^ANTHROPIC_PROXY_URL=/' .env > .env.proxy.tmp
+            printf 'ANTHROPIC_PROXY_URL=%s\n' "$proxy_url" >> .env.proxy.tmp
+            chmod 600 .env.proxy.tmp
+            mv .env.proxy.tmp .env
+            echo "ANTHROPIC_PROXY_URL ensured in .env"
+          else
+            echo "WARNING: ANTHROPIC_PROXY_URL GitHub secret is empty"
           fi
 
           # Restart with PM2

@@ -14,9 +14,9 @@ import { cleanupOldRequestLogs } from './api/middleware/requestLog';
 import { integrationEventRepo } from './database/repositories/integrationEventRepo';
 import { cleanupOldPhotos } from './utils/photoRetention';
 import { checkDiskSpace } from './utils/diskMonitor';
-import { invoiceRepo } from './database/repositories/invoiceRepo';
+import { invoiceRepo, SBER_OVERDUE_DAYS } from './database/repositories/invoiceRepo';
 import { supplierExtractJobRepo } from './database/repositories/supplierExtractJobRepo';
-import { notifySupplierExtractError } from './notifications/events';
+import { notifySupplierExtractError, emit as emitNotification } from './notifications/events';
 import { seedAdminUser } from './auth/seedAdmin';
 import { startDigestWorker } from './notifications/digestWorker';
 
@@ -124,6 +124,41 @@ async function main(): Promise<void> {
   // Emails when free space < 5 GB.
   cron.schedule('0 */6 * * *', () => {
     checkDiskSpace().catch(err => logger.error('disk space check failed', { error: (err as Error).message }));
+  });
+
+  // Sber-overdue alert: daily at 09:00. Notify (Telegram + email, once per
+  // invoice) about payable invoices that have had no Sber payment for
+  // SBER_OVERDUE_DAYS. markSberOverdueNotified stamps each so it fires once.
+  cron.schedule('0 9 * * *', () => {
+    (async () => {
+      const overdue = await invoiceRepo.listNewlyOverdueForSber();
+      if (!overdue.length) return;
+      logger.warn('Sber-overdue sweep: invoices without a Sber payment', {
+        count: overdue.length, days: SBER_OVERDUE_DAYS,
+      });
+      for (const inv of overdue) {
+        const daysOverdue = inv.created_at
+          ? Math.floor((Date.now() - new Date(inv.created_at + 'Z').getTime()) / 86_400_000)
+          : SBER_OVERDUE_DAYS;
+        // emit() never throws; still guard markSberOverdueNotified so one bad row
+        // doesn't abort the loop (and re-alert everyone next day).
+        await emitNotification('sber_payment_overdue', {
+          invoice_id: inv.id,
+          invoice_number: inv.invoice_number,
+          supplier: inv.supplier,
+          total_sum: inv.total_sum,
+          created_at: inv.created_at,
+          days_overdue: daysOverdue,
+        }, inv.owner_user_id);
+        try {
+          await invoiceRepo.markSberOverdueNotified(inv.id);
+        } catch (err) {
+          logger.error('Failed to mark invoice sber-overdue-notified', {
+            invoiceId: inv.id, error: (err as Error).message,
+          });
+        }
+      }
+    })().catch(err => logger.error('sber-overdue sweep failed', { error: (err as Error).message }));
   });
 
   // Dispatcher-mode timeout sweep: every 5 min. Queue-aware — measures the
