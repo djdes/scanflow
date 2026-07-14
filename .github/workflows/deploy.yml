@@ -156,3 +156,17 @@ jobs:
 
           echo "Deploy complete!"
           ENDSSH
+
+      - name: Verify public endpoint
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 10 https://scanflow.ru/health | grep -q '"status":"ok"'; then
+              echo "Public health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Public health check attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
+
+          echo "::error::Public endpoint is unavailable after deploy"
+          exit 1

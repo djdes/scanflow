@@ -60,7 +60,7 @@
     "nodemailer": "^9.0.3",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0",
-    "undici": "^8.0.1",
+    "undici": "^7.16.0",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"
   }
