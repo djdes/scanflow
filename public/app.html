@@ -450,8 +450,9 @@
           <div class="field-hint" id="catalog-sync-info" style="white-space:nowrap"></div>
         </div>
         <div class="field-hint" style="margin-bottom:12px; color:var(--text-muted)">
-          Справочник обновляется автоматически при каждой загрузке накладных из 1С. Для ручного обновления: в 1С → Обработка → "Выгрузить номенклатуру".
-          <br>Товары с пометкой на удаление в 1С не выгружаются.
+          Первый запуск без программиста: выгрузите список товаров из 1С в XLSX/CSV или скопируйте таблицу — это занимает примерно 2–10 минут.
+          <a href="#/operations" onclick="Operations.activeTab='onec'">Открыть быстрый импорт →</a>
+          <br>После подключения обработки справочник будет обновляться автоматически.
         </div>
         <div class="table-wrap">
           <table class="cards-mobile">

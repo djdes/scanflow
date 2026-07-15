@@ -1,18 +1,89 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
 import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repositories/onecNomenclatureRepo';
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { requireAdmin } from '../middleware/auth';
+import { parseCatalogSpreadsheet } from '../../integration/catalogSpreadsheet';
 
 const router = Router();
+const catalogUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+
+function receiveCatalogFile(req: Request, res: Response, next: NextFunction): void {
+  catalogUpload.single('file')(req, res, error => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({ error: 'Файл больше 5 МБ. Оставьте только нужные колонки или разделите каталог.' });
+      return;
+    }
+    if (error) {
+      res.status(400).json({ error: 'Не удалось принять файл: ' + error.message });
+      return;
+    }
+    next();
+  });
+}
 
 // Optional mapper injection so we can invalidate the cache after sync
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
 }
+
+// POST /api/nomenclature/import — one-time XLSX/CSV/TSV import for a simple
+// first start without installing the 1C external processing.
+router.post('/import', requireAdmin, receiveCatalogFile, async (req: Request, res: Response) => {
+  if (!req.file?.buffer?.length) return res.status(400).json({ error: 'Выберите XLSX, CSV или вставьте таблицу из буфера' });
+  const mode = req.body?.mode === 'replace' ? 'replace' : 'merge';
+  let parsed: Awaited<ReturnType<typeof parseCatalogSpreadsheet>>;
+  try {
+    // Parse and validate the complete workbook before touching the catalog.
+    parsed = await parseCatalogSpreadsheet(req.file.buffer, req.file.originalname || 'catalog.csv');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Не удалось прочитать таблицу';
+    logger.warn('Nomenclature spreadsheet import rejected', { error: message });
+    return res.status(400).json({ error: message });
+  }
+  try {
+    let deleted = 0;
+    let upserted = 0;
+    if (mode === 'replace') {
+      ({ deleted, upserted } = await onecNomenclatureRepo.replaceAll(parsed.items));
+    } else {
+      upserted = await onecNomenclatureRepo.bulkUpsert(parsed.items);
+    }
+    const orphaned = await mappingRepo.removeOrphaned();
+    mapper?.invalidateCache();
+    logger.info('Nomenclature spreadsheet import completed', {
+      mode, upserted, deleted, skipped: parsed.skippedRows, generatedIds: parsed.generatedIds,
+    });
+    void logIntegrationEvent({
+      integration: 'nomenclature', event_type: 'catalog_imported',
+      summary: `Каталог загружен из таблицы: ${upserted} позиций (${mode === 'replace' ? 'замена' : 'добавление'})`,
+      detail: { source: 'spreadsheet', generated_ids: parsed.generatedIds, skipped: parsed.skippedRows },
+    });
+    res.json({
+      data: {
+        mode,
+        upserted,
+        deleted_before_import: deleted,
+        orphaned_removed: orphaned,
+        source_rows: parsed.sourceRows,
+        skipped_rows: parsed.skippedRows,
+        duplicate_rows: parsed.duplicateRows,
+        generated_ids: parsed.generatedIds,
+        sheet: parsed.sheet,
+        header_row: parsed.headerRow,
+        detected_columns: parsed.detectedColumns,
+        warnings: parsed.warnings,
+      },
+    });
+  } catch (error) {
+    logger.error('Nomenclature spreadsheet import failed', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: 'Не удалось сохранить каталог. Повторите загрузку позже.' });
+  }
+});
 
 // POST /api/nomenclature/sync — bulk upsert from 1C
 router.post('/sync', requireAdmin, async (req: Request, res: Response) => {

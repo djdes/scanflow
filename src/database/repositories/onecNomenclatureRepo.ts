@@ -1,4 +1,4 @@
-import { getDb } from '../db';
+import { DbAdapter, getDb } from '../db';
 
 export interface OnecNomenclatureRow {
   guid: string;
@@ -23,6 +23,39 @@ export interface OnecNomenclatureInput {
   is_weighted?: boolean;
 }
 
+async function upsertWith(db: DbAdapter, items: OnecNomenclatureInput[]): Promise<number> {
+  const stmt = db.prepare(`
+    INSERT INTO onec_nomenclature
+      (guid, code, name, full_name, unit, parent_guid, is_folder, is_weighted, synced_at)
+    VALUES
+      (:guid, :code, :name, :full_name, :unit, :parent_guid, :is_folder, :is_weighted, NOW())
+    ON DUPLICATE KEY UPDATE
+      code        = VALUES(code),
+      name        = VALUES(name),
+      full_name   = VALUES(full_name),
+      unit        = VALUES(unit),
+      parent_guid = VALUES(parent_guid),
+      is_folder   = VALUES(is_folder),
+      is_weighted = VALUES(is_weighted),
+      synced_at   = VALUES(synced_at)
+  `);
+  let count = 0;
+  for (const item of items) {
+    await stmt.run({
+      guid: item.guid,
+      code: item.code ?? null,
+      name: item.name,
+      full_name: item.full_name ?? null,
+      unit: item.unit ?? null,
+      parent_guid: item.parent_guid ?? null,
+      is_folder: item.is_folder ? 1 : 0,
+      is_weighted: item.is_weighted ? 1 : 0,
+    });
+    count++;
+  }
+  return count;
+}
+
 export const onecNomenclatureRepo = {
   /**
    * Upsert a batch of items. Existing rows are updated by guid; new rows inserted.
@@ -31,37 +64,16 @@ export const onecNomenclatureRepo = {
   async bulkUpsert(items: OnecNomenclatureInput[]): Promise<number> {
     if (items.length === 0) return 0;
     const db = getDb();
-    return db.transaction(async (txn) => {
-      let count = 0;
-      const stmt = txn.prepare(`
-        INSERT INTO onec_nomenclature
-          (guid, code, name, full_name, unit, parent_guid, is_folder, is_weighted, synced_at)
-        VALUES
-          (:guid, :code, :name, :full_name, :unit, :parent_guid, :is_folder, :is_weighted, NOW())
-        ON DUPLICATE KEY UPDATE
-          code        = VALUES(code),
-          name        = VALUES(name),
-          full_name   = VALUES(full_name),
-          unit        = VALUES(unit),
-          parent_guid = VALUES(parent_guid),
-          is_folder   = VALUES(is_folder),
-          is_weighted = VALUES(is_weighted),
-          synced_at   = VALUES(synced_at)
-      `);
-      for (const item of items) {
-        await stmt.run({
-          guid: item.guid,
-          code: item.code ?? null,
-          name: item.name,
-          full_name: item.full_name ?? null,
-          unit: item.unit ?? null,
-          parent_guid: item.parent_guid ?? null,
-          is_folder: item.is_folder ? 1 : 0,
-          is_weighted: item.is_weighted ? 1 : 0,
-        });
-        count++;
-      }
-      return count;
+    return db.transaction(txn => upsertWith(txn, items));
+  },
+
+  /** Replace the complete catalog atomically after an uploaded file was parsed. */
+  async replaceAll(items: OnecNomenclatureInput[]): Promise<{ deleted: number; upserted: number }> {
+    if (items.length === 0) return { deleted: 0, upserted: 0 };
+    return getDb().transaction(async txn => {
+      const deleted = (await txn.prepare('DELETE FROM onec_nomenclature').run()).changes;
+      const upserted = await upsertWith(txn, items);
+      return { deleted, upserted };
     });
   },
 

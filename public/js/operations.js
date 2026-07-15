@@ -7,6 +7,8 @@ const Operations = {
   loading: false,
   assistantMessages: [],
   onecSecret: null,
+  onecImportFile: null,
+  onecImportResult: null,
   selectedExceptions: new Set(),
   selectedApprovals: new Set(),
 
@@ -77,7 +79,11 @@ const Operations = {
     else if (this.activeTab === 'suppliers') el.innerHTML = this.renderSuppliers();
     else if (this.activeTab === 'channels') el.innerHTML = this.renderChannels();
     else if (this.activeTab === 'reports') el.innerHTML = this.renderReports();
-    else if (this.activeTab === 'onec') el.innerHTML = this.renderOnec();
+    else if (this.activeTab === 'onec') {
+      el.innerHTML = this.renderOnec();
+      const quickStart = el.querySelector('.onec-quickstart');
+      if (quickStart) el.prepend(quickStart);
+    }
     else if (this.activeTab === 'assistant') el.innerHTML = this.renderAssistant();
     else el.innerHTML = this.renderControl();
   },
@@ -290,6 +296,10 @@ const Operations = {
     const state = this.onec || { connections: [], catalog: {}, sync_state: {} };
     const connections = state.connections || [];
     const secret = this.onecSecret ? `<div class="channel-secret onec-secret"><strong>Скопируйте токен сейчас — повторно он не показывается</strong><code>${App.esc(this.onecSecret.token)}</code><code>${App.esc(this.onecSecret.exchange_url)}</code><button class="btn btn-primary btn-sm" onclick="Operations.copyOnecSecret()">Скопировать настройки</button></div>` : '';
+    const importResult = this.onecImportResult ? `<div class="onec-import-result ${this.onecImportResult.error ? 'is-error' : 'is-success'}">
+      <strong>${this.onecImportResult.error ? 'Файл не загружен' : `Готово: ${this.onecImportResult.upserted} товаров`}</strong>
+      <span>${App.esc(this.onecImportResult.message || '')}</span>
+    </div>` : '';
     return `<div class="operations-grid operations-grid--control">
       <article class="card operations-panel">
         <div class="operations-panel__head"><div><span class="operations-eyebrow">Новая база 1С</span><h3>Безопасное подключение</h3></div><span class="status-badge status-processed">Scoped token</span></div>
@@ -303,8 +313,40 @@ const Operations = {
         <button class="btn btn-outline btn-sm" onclick="Operations.downloadOnecSource('form')">Скачать модуль формы</button>
       </article>
     </div>
+    <article class="card operations-panel operations-panel--wide onec-quickstart">
+      <div class="operations-panel__head"><div><span class="operations-eyebrow">Быстрый старт · 5–10 минут</span><h3>Загрузите товары без программиста 1С</h3></div><span class="status-badge status-processed">XLSX / CSV</span></div>
+      <p class="onec-quickstart__lead">Для первой оценки не нужно ставить обработку. В 1С выведите список номенклатуры, сохраните его как Excel и загрузите сюда — обязательна только колонка «Наименование».</p>
+      <div class="onec-fast-steps">
+        <div><b>1</b><span>1С → Номенклатура</span><small>Откройте обычный список товаров</small></div>
+        <div><b>2</b><span>Ещё → Вывести список…</span><small>Код, Наименование, Ед., при наличии GUID</small></div>
+        <div><b>3</b><span>Сохранить как XLSX</span><small>Или CSV/TSV — сайт сам найдёт колонки</small></div>
+        <div><b>4</b><span>Загрузить ниже</span><small>Каталог сразу готов для сопоставления</small></div>
+      </div>
+      <form class="onec-import-form" onsubmit="Operations.importOnecCatalog(event)">
+        <label class="onec-file-drop" for="onec-catalog-file" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('onec-catalog-file').click()}" ondragover="Operations.catalogDrag(event, true)" ondragleave="Operations.catalogDrag(event, false)" ondrop="Operations.dropCatalogFile(event)">
+          <input id="onec-catalog-file" type="file" accept=".xlsx,.csv,.tsv,.txt" onchange="Operations.selectCatalogFile(this)">
+          <span class="onec-file-drop__icon">⇧</span>
+          <strong id="onec-catalog-file-label">Выбрать Excel/CSV или перетащить сюда</strong>
+          <small>До 5 МБ и 50 000 строк. Старый XLS пересохраните в XLSX.</small>
+        </label>
+        <div class="onec-import-actions">
+          <label class="operations-check"><input id="onec-import-replace" type="checkbox"> Заменить текущий каталог целиком</label>
+          <button class="btn btn-outline btn-sm" type="button" onclick="Operations.downloadCatalogTemplate()">Скачать пример CSV</button>
+          <button class="btn btn-primary" type="submit">Загрузить товары</button>
+        </div>
+      </form>
+      <details class="onec-paste-panel">
+        <summary>Ещё быстрее: вставить таблицу прямо из 1С или Excel · 2–3 минуты</summary>
+        <p>Скопируйте вместе с заголовками колонки «Код», «Наименование», «Единица измерения» и вставьте ниже.</p>
+        <textarea id="onec-catalog-paste" rows="6" placeholder="Код    Наименование    Единица измерения&#10;0001    Молоко 3,2%    шт"></textarea>
+        <button class="btn btn-primary btn-sm" type="button" onclick="Operations.importOnecPaste()">Загрузить вставленную таблицу</button>
+      </details>
+      ${importResult}
+      <div class="onec-mode-note"><strong>Полуавтомат:</strong> раз в неделю повторяйте «Вывести список» и загружайте файл без галочки замены — новые товары добавятся, существующие обновятся. Обычно 2–3 минуты.</div>
+      <a class="onec-official-link" href="https://v8.1c.ru/platforma/vyvod-spiskov/" target="_blank" rel="noopener">Официальная инструкция 1С по команде «Вывести список» ↗</a>
+    </article>
     <article class="card operations-panel operations-panel--wide"><div class="operations-panel__head"><div><span class="operations-eyebrow">Подключённые базы</span><h3>${connections.length}</h3></div></div><div class="onec-connections">${connections.map(row => `<div><span class="connection-dot ${row.active ? 'is-active' : ''}"></span><div><strong>${App.esc(row.name)}</strong><small>${row.active ? `токен ${App.esc(row.token_prefix)}… · использован ${App.esc(row.last_used_at || 'ещё нет')}` : `отозван ${App.esc(row.revoked_at || '')}`}</small></div>${row.active ? `<button class="btn btn-outline btn-sm" onclick="Operations.revokeOnecConnection(${row.id})">Отозвать</button>` : ''}</div>`).join('') || this.empty('Подключений пока нет')}</div></article>
-    <article class="card operations-panel operations-panel--wide"><div class="operations-panel__head"><div><span class="operations-eyebrow">Последовательность</span><h3>Первый обмен за 6 шагов</h3></div></div><ol class="onec-steps"><li>Создайте подключение и сохраните токен.</li><li>Обновите или соберите внешнюю обработку из исходников.</li><li>Вставьте токен в поле обработки и нажмите «Сохранить подключение».</li><li>Выберите категории и выгрузите номенклатуру.</li><li>Одобрите тестовую накладную в ScanFlow и загрузите её в 1С.</li><li>После проверки включите регламентную синхронизацию каждые 10–15 минут.</li></ol></article>`;
+    <article class="card operations-panel operations-panel--wide"><div class="operations-panel__head"><div><span class="operations-eyebrow">Автоматический режим · 20–40 минут один раз</span><h3>Когда пробный запуск понравился</h3></div></div><ol class="onec-steps"><li>Создайте подключение и сохраните токен.</li><li>Обновите или соберите внешнюю обработку из исходников.</li><li>Вставьте токен в поле обработки и нажмите «Сохранить подключение».</li><li>Выберите категории и выгрузите номенклатуру.</li><li>Одобрите тестовую накладную в ScanFlow и загрузите её в 1С.</li><li>После проверки включите регламентную синхронизацию каждые 10–15 минут.</li></ol></article>`;
   },
 
   renderAssistant() {
@@ -454,6 +496,78 @@ const Operations = {
     const cell = value => { const raw = String(value ?? ''); const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw; return `"${safe.replace(/"/g, '""')}"`; };
     const csv = '\uFEFF' + rows.map(row => row.map(cell).join(';')).join('\n');
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = `scanflow-report-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href);
+  },
+
+  selectCatalogFile(input) {
+    const file = input?.files?.[0] || null;
+    this.onecImportFile = file;
+    const label = document.getElementById('onec-catalog-file-label');
+    if (label) label.textContent = file ? file.name : 'Выбрать Excel/CSV или перетащить сюда';
+  },
+
+  catalogDrag(event, active) {
+    event.preventDefault();
+    event.currentTarget?.classList.toggle('is-dragover', active);
+  },
+
+  dropCatalogFile(event) {
+    event.preventDefault();
+    event.currentTarget?.classList.remove('is-dragover');
+    const file = event.dataTransfer?.files?.[0] || null;
+    if (!file) return;
+    this.onecImportFile = file;
+    const label = document.getElementById('onec-catalog-file-label');
+    if (label) label.textContent = file.name;
+  },
+
+  async importOnecCatalog(event) {
+    event.preventDefault();
+    const file = this.onecImportFile || document.getElementById('onec-catalog-file')?.files?.[0];
+    if (!file) { App.notify('Сначала выберите XLSX или CSV', 'error'); return; }
+    const replace = document.getElementById('onec-import-replace')?.checked === true;
+    if (replace && !confirm('Полностью заменить текущий каталог товарами из этого файла? Сначала файл будет проверен, но отсутствующие в нём товары исчезнут из каталога.')) return;
+    await this.uploadOnecCatalog(file, replace ? 'replace' : 'merge');
+  },
+
+  async importOnecPaste() {
+    const textarea = document.getElementById('onec-catalog-paste');
+    const text = textarea?.value?.trim();
+    if (!text) { App.notify('Вставьте скопированную таблицу', 'error'); return; }
+    const file = new File([text], 'catalog-from-clipboard.tsv', { type: 'text/tab-separated-values;charset=utf-8' });
+    await this.uploadOnecCatalog(file, 'merge');
+  },
+
+  async uploadOnecCatalog(file, mode) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('mode', mode);
+    try {
+      const response = await App.apiJson('/nomenclature/import', { method: 'POST', body: form });
+      const data = response.data;
+      const columns = Object.values(data.detected_columns || {}).join(', ');
+      const warnings = (data.warnings || []).join(' ');
+      this.onecImportResult = {
+        upserted: data.upserted,
+        message: `Прочитано строк: ${data.source_rows}; пропущено: ${data.skipped_rows}; колонки: ${columns || 'по расположению'}.${warnings ? ` ${warnings}` : ''}`,
+      };
+      this.onecImportFile = null;
+      this.onec = (await App.apiJson('/onec/connections')).data;
+      this.render();
+      App.notify(`Каталог готов: ${data.upserted} товаров`, 'success');
+    } catch (error) {
+      this.onecImportResult = { error: true, message: error.message };
+      this.render();
+      App.notify(error.message, 'error');
+    }
+  },
+
+  downloadCatalogTemplate() {
+    const csv = '\uFEFFКод;Наименование;Единица измерения;GUID\n0001;Молоко 3,2%;шт;\n0002;Сахар-песок;кг;';
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = 'primer-kataloga-scanflow.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
   },
 
   async createOnecConnection(event) {
