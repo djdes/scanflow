@@ -6,6 +6,7 @@ import {
 } from '../../utils/invoiceNumber';
 import { recomputeMedianForGuids } from '../../pricing/priceStats';
 import { deriveVatSum, isStatedVatConsistent } from '../../parser/itemSanitizer';
+import { DuplicateItemLike, scoreDuplicate } from '../../duplicate/duplicateScorer';
 
 // Multi-page hold: a freshly-recognized invoice is withheld from /pending for
 // this many minutes so a SECOND photographed page still has time to auto-merge
@@ -73,6 +74,8 @@ export interface Invoice {
   items_total_mismatch: number;
   telegram_message_id: number | null;
   duplicate_of: number | null;
+  duplicate_score: number | null;
+  duplicate_reasons: string | null;
   recognized_at: string | null;   // set by updateStatus('processed') on first recognition, never at create()
   upload_source: string | null;
   upload_user_agent: string | null;
@@ -765,6 +768,8 @@ export const invoiceRepo = {
     invoiceDate: string | null,
     totalSum: number | null,
     days: number = 30,
+    incomingItems: DuplicateItemLike[] = [],
+    bank?: { account?: string | null; bic?: string | null },
   ): Promise<Invoice | undefined> {
     if (!invoiceNumber || !invoiceDate || totalSum == null) return undefined;
     if (!supplierInn && !supplierName) return undefined;
@@ -772,44 +777,73 @@ export const invoiceRepo = {
     const targetNormalized = normalizeInvoiceNumber(invoiceNumber);
     if (!targetNormalized) return undefined;
 
+    const incoming = await this.getById(excludeId);
+    const ownerUserId = incoming?.owner_user_id ?? null;
     const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE id != ?
+         AND ((? IS NULL AND owner_user_id IS NULL) OR owner_user_id = ?)
          AND duplicate_of IS NULL
          AND status NOT IN ('duplicate', 'failed')
          AND invoice_number IS NOT NULL
-         AND invoice_date = ?
+         AND invoice_date IS NOT NULL
          AND total_sum IS NOT NULL
          AND created_at > (NOW() - INTERVAL ${days} DAY)
        ORDER BY created_at DESC`
-    ).all<Invoice>(excludeId, invoiceDate);
+    ).all<Invoice>(excludeId, ownerUserId, ownerUserId);
 
+    let best: Invoice | undefined;
+    let bestScore = 0;
     for (const candidate of candidates) {
-      if (normalizeInvoiceNumber(candidate.invoice_number) !== targetNormalized) continue;
-      if (candidate.total_sum == null) continue;
-      if (Math.abs(candidate.total_sum - totalSum) > 1.0) continue;
-
       if (supplierInn && candidate.supplier_inn) {
-        if (supplierInn === candidate.supplier_inn) return candidate;
+        if (supplierInn !== candidate.supplier_inn) continue;
+      } else if (!supplierName || !candidate.supplier || !suppliersMatch(supplierName, candidate.supplier)) {
         continue;
       }
-      if (supplierName && candidate.supplier && suppliersMatch(supplierName, candidate.supplier)) {
-        return candidate;
+
+      const candidateItems = await this.getItems(candidate.id);
+      const evidence = scoreDuplicate({
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceDate,
+        supplier: supplierName,
+        supplier_inn: supplierInn,
+        total_sum: totalSum,
+        supplier_account: bank?.account ?? null,
+        supplier_bik: bank?.bic ?? null,
+        items: incomingItems,
+      }, {
+        invoice_number: candidate.invoice_number,
+        invoice_date: candidate.invoice_date,
+        supplier: candidate.supplier,
+        supplier_inn: candidate.supplier_inn,
+        total_sum: candidate.total_sum,
+        supplier_account: candidate.supplier_account,
+        supplier_bik: candidate.supplier_bik,
+        items: candidateItems,
+      });
+      const exactNumber = normalizeInvoiceNumber(candidate.invoice_number) === targetNormalized;
+      const compositionStrong = evidence.item_similarity != null && evidence.item_similarity >= 0.75;
+      if (evidence.score >= 0.86 && (exactNumber || compositionStrong) && evidence.score > bestScore) {
+        bestScore = evidence.score;
+        best = {
+          ...candidate,
+          duplicate_score: evidence.score,
+          duplicate_reasons: JSON.stringify(evidence.reasons),
+        };
       }
     }
-
-    return undefined;
+    return best;
   },
 
-  async markAsDuplicate(id: number, originalId: number): Promise<void> {
+  async markAsDuplicate(id: number, originalId: number, score?: number | null, reasons?: string | null): Promise<void> {
     await getDb().prepare(
-      `UPDATE invoices SET duplicate_of = ?, status = 'duplicate' WHERE id = ?`
-    ).run(originalId, id);
+      `UPDATE invoices SET duplicate_of = ?, duplicate_score = ?, duplicate_reasons = ?, status = 'duplicate' WHERE id = ?`
+    ).run(originalId, score ?? null, reasons ?? null, id);
   },
 
   async unmarkAsDuplicate(id: number): Promise<void> {
     await getDb().prepare(
-      `UPDATE invoices SET duplicate_of = NULL, status = 'processed' WHERE id = ?`
+      `UPDATE invoices SET duplicate_of = NULL, duplicate_score = NULL, duplicate_reasons = NULL, status = 'processed' WHERE id = ?`
     ).run(id);
   },
 

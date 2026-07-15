@@ -27,6 +27,8 @@ import sberRouter from './routes/sber';
 import suppliersRouter from './routes/suppliers';
 import integrationsRouter from './routes/integrations';
 import usersRouter from './routes/users';
+import operationsRouter from './routes/operations';
+import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -141,6 +143,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setDispatcherMapper(mapper);
   setFileWatcher(fileWatcher);
   setInvoicesFileWatcher(fileWatcher);
+  setInboundFileWatcher(fileWatcher);
 
   // Health check (no auth) — runs real probes against the DB, credentials
   // file, anthropic key, and inbox queue depth. Returns 503 if any critical
@@ -224,6 +227,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // since path differs — /api/dispatcher/* vs /api/invoices/* — but order
   // costs nothing).
   app.use('/api/dispatcher', dispatcherRouter);
+  // Public document-ingress webhooks authenticate their own high-entropy
+  // secrets. Mount before apiKey-authenticated routes.
+  app.use('/api/inbound/public', inboundPublicRouter);
 
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
@@ -238,6 +244,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/sber', apiKeyAuth, sberRouter);
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);
+  app.use('/api/operations', apiKeyAuth, operationsRouter);
+  app.use('/api/inbound', apiKeyAuth, inboundConfigRouter);
   // User management (list + role changes) — admin only.
   app.use('/api/users', apiKeyAuth, requireAdmin, usersRouter);
 

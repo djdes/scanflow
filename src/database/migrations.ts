@@ -981,6 +981,104 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 45,
+    name: 'operations suite — autopilot, approvals, inbound channels and supplier mappings',
+    // A single additive release. detect() requires every column and table so a
+    // partial MySQL DDL failure replays the guarded statements on the next boot.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'analyzer_config', 'auto_require_all_mapped')) &&
+      (await hasColumn(exec, 'analyzer_config', 'auto_block_total_mismatch')) &&
+      (await hasColumn(exec, 'analyzer_config', 'auto_min_mapping_confidence')) &&
+      (await hasColumn(exec, 'analyzer_config', 'auto_max_total')) &&
+      (await hasColumn(exec, 'analyzer_config', 'auto_require_verified_supplier')) &&
+      (await hasColumn(exec, 'analyzer_config', 'payment_approval_threshold')) &&
+      (await hasColumn(exec, 'invoices', 'duplicate_score')) &&
+      (await hasColumn(exec, 'invoices', 'duplicate_reasons')) &&
+      (await hasColumn(exec, 'suppliers', 'payment_terms_days')) &&
+      (await hasTable(exec, 'approval_requests')) &&
+      (await hasTable(exec, 'inbound_channels')) &&
+      (await hasTable(exec, 'supplier_nomenclature_mappings')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'auto_require_all_mapped'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN auto_require_all_mapped TINYINT(1) NOT NULL DEFAULT 1`);
+      }
+      if (!(await hasColumn(exec, 'analyzer_config', 'auto_block_total_mismatch'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN auto_block_total_mismatch TINYINT(1) NOT NULL DEFAULT 1`);
+      }
+      if (!(await hasColumn(exec, 'analyzer_config', 'auto_min_mapping_confidence'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN auto_min_mapping_confidence DOUBLE NOT NULL DEFAULT 0.80`);
+      }
+      if (!(await hasColumn(exec, 'analyzer_config', 'auto_max_total'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN auto_max_total DOUBLE NULL`);
+      }
+      if (!(await hasColumn(exec, 'analyzer_config', 'auto_require_verified_supplier'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN auto_require_verified_supplier TINYINT(1) NOT NULL DEFAULT 1`);
+      }
+      if (!(await hasColumn(exec, 'analyzer_config', 'payment_approval_threshold'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN payment_approval_threshold DOUBLE NULL DEFAULT 50000`);
+      }
+
+      if (!(await hasColumn(exec, 'invoices', 'duplicate_score'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN duplicate_score DOUBLE NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'duplicate_reasons'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN duplicate_reasons TEXT NULL`);
+      }
+
+      if (!(await hasColumn(exec, 'suppliers', 'payment_terms_days'))) {
+        await exec.query(`ALTER TABLE suppliers ADD COLUMN payment_terms_days INT NOT NULL DEFAULT 7`);
+      }
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS approval_requests (
+          id            INT AUTO_INCREMENT PRIMARY KEY,
+          invoice_id    INT NOT NULL,
+          action        VARCHAR(16) NOT NULL,
+          status        VARCHAR(16) NOT NULL DEFAULT 'pending',
+          requested_by  INT NULL,
+          decided_by    INT NULL,
+          request_note  TEXT NULL,
+          decision_note TEXT NULL,
+          execution_error TEXT NULL,
+          created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          decided_at    DATETIME NULL,
+          INDEX idx_approval_status_created (status, created_at),
+          INDEX idx_approval_invoice (invoice_id),
+          CONSTRAINT fk_approval_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS inbound_channels (
+          user_id                 INT PRIMARY KEY,
+          telegram_enabled        TINYINT(1) NOT NULL DEFAULT 0,
+          telegram_secret_hash    CHAR(64) NULL,
+          email_enabled           TINYINT(1) NOT NULL DEFAULT 0,
+          email_secret_hash       CHAR(64) NULL,
+          telegram_last_update_id BIGINT NULL,
+          updated_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          CONSTRAINT fk_inbound_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS supplier_nomenclature_mappings (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          supplier_key   VARCHAR(64) NOT NULL,
+          scanned_hash   CHAR(64) NOT NULL,
+          scanned_name   VARCHAR(512) NOT NULL,
+          mapped_name_1c VARCHAR(512) NOT NULL,
+          onec_guid      VARCHAR(64) NOT NULL,
+          times_seen     INT NOT NULL DEFAULT 1,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_supplier_scan (supplier_key, scanned_hash),
+          INDEX idx_supplier_mapping_guid (onec_guid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

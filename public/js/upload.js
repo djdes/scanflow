@@ -82,7 +82,7 @@ const Upload = {
   },
 
   _addMultiple(files) {
-    const ALLOWED = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'];
+    const ALLOWED = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf'];
     for (const file of files) {
       const ext = '.' + (file.name || '').split('.').pop().toLowerCase();
       if (!ALLOWED.includes(ext)) {
@@ -637,8 +637,12 @@ const Upload = {
           <button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Удалить</button>
         `;
       }
+      const isPdf = String(h.name || '').toLowerCase().endsWith('.pdf');
+      const preview = isPdf
+        ? '<div class="upload-history-file" aria-hidden="true">PDF</div>'
+        : `<img src="${esc(h.url)}" alt="">`;
       return `<div class="upload-history-item">
-        <img src="${esc(h.url)}" alt="">
+        ${preview}
         <div class="upload-history-info">
           <div class="upload-history-name">${esc(h.name)}</div>
           ${statusHtml}

@@ -33,7 +33,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
-    const allowed = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
+    const allowed = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.pdf'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) {
       cb(null, true);

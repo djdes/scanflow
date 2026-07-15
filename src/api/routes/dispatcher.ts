@@ -16,6 +16,7 @@ import { validateDispatcherToken, clearDispatcherState, validateSupplierJobToken
 import { logger } from '../../utils/logger';
 import { ParsedInvoiceData, ParsedInvoiceItem } from '../../ocr/types';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+import { evaluateInvoiceQuality } from '../../automation/qualityGate';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
@@ -50,7 +51,15 @@ async function runAutoSendHooks(targetInvoiceId: number): Promise<void> {
   try {
     const finalInv = await invoiceRepo.getById(targetInvoiceId);
     const cfg = await invoiceRepo.getAnalyzerConfig();
-    const canAutoSend = !!finalInv && finalInv.status === 'processed' && finalInv.duplicate_of == null;
+    const quality = await evaluateInvoiceQuality(targetInvoiceId);
+    const canAutoSend = !!finalInv && quality.allowed;
+    if (!canAutoSend && (cfg.auto_send_1c || cfg.auto_send_sber)) {
+      logger.info('dispatcher: autopilot quality gate held invoice', {
+        id: targetInvoiceId,
+        score: quality.score,
+        reasons: quality.reasons.map(reason => reason.code),
+      });
+    }
     if (!canAutoSend) return;
 
     const whCfg = await getDb()
@@ -485,7 +494,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       let mapping: Awaited<ReturnType<NomenclatureMapper['map']>> | null = null;
       if (mapper && it.name) {
         try {
-          mapping = await mapper.map(it.name);
+          mapping = await mapper.map(it.name, { supplierInn: data.supplier_inn, supplierName: data.supplier });
         } catch (err) {
           logger.warn('dispatcher result: mapping failed', { itemName: it.name, error: (err as Error).message });
         }

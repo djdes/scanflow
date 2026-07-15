@@ -96,7 +96,7 @@ const Invoices = {
             ${inv.sber_overdue ? `style="box-shadow:inset 3px 0 0 #f59e0b" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней"` : ''}
             onclick="App.navigate('#/invoices/${inv.id}')">
           <td class="col-id" data-label="ID">${inv.id}</td>
-          <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
+          <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}${inv.duplicate_score ? `, вероятность ${Math.round(inv.duplicate_score * 100)}%` : ''}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td data-label="Дата">${App.formatDate(inv.invoice_date)}</td>
           <td data-label="Поставщик">${App.esc(inv.supplier || '—')}</td>
           <td style="text-align:right" data-label="Сумма">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
@@ -404,12 +404,18 @@ const Invoices = {
       // Duplicate banner — превалирует над всем остальным. Дубликаты не сохраняют
       // items, поэтому 1С/Сбер actions ниже им бесполезны.
       if (data.duplicate_of) {
+        let duplicateReasons = [];
+        try { duplicateReasons = JSON.parse(data.duplicate_reasons || '[]'); } catch { duplicateReasons = []; }
+        const evidence = duplicateReasons.length
+          ? duplicateReasons.map(reason => App.esc(reason)).join(' · ')
+          : 'Совпали ключевые реквизиты документа';
+        const probability = data.duplicate_score ? `, вероятность ${Math.round(data.duplicate_score * 100)}%` : '';
         actionsHtml += `
           <div class="duplicate-banner">
             <div class="duplicate-banner-text">
               🔁 <strong>Дубликат накладной</strong>
               <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a>
-              — позиции и сумма совпадают с оригиналом, в эту запись items не сохранены.
+              ${App.esc(probability)} — ${evidence}. Позиции в эту запись не сохранены.
             </div>
             <div class="duplicate-banner-actions">
               <button class="btn btn-outline btn-sm" onclick="Invoices.unlinkDuplicate(${data.id})">Не дубликат</button>
@@ -631,6 +637,8 @@ const Invoices = {
       web: 'Загрузка с сайта',
       camera: 'Камера телефона',
       inbox: 'Папка-инбокс / автозагрузка',
+      telegram: 'Telegram-бот',
+      email: 'Входящая почта',
     };
     const sourceLabel = data.upload_source
       ? (SOURCE_LABELS[data.upload_source] || App.esc(data.upload_source))

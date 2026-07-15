@@ -175,6 +175,10 @@ const App = {
       document.getElementById('view-integrations-log').style.display = 'block';
       this.activateNavTab('integrations-log');
       IntegrationsLog.load();
+    } else if (hash === '#/operations') {
+      document.getElementById('view-operations').style.display = 'block';
+      this.activateNavTab('operations');
+      Operations.load();
     } else if (hash === '#/settings') {
       document.getElementById('view-settings').style.display = 'block';
       this.activateNavTab('settings');

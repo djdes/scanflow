@@ -275,7 +275,7 @@ function cleanJsonString(raw: string): string {
 // output_config.format (см. normalizeStructuredResponse ниже). cleanJsonString
 // оставлен: им ещё пользуется mapItemsWithClaudeApi (mapping-only вызов).
 
-function createClient(apiKey: string): Anthropic {
+export function createClient(apiKey: string): Anthropic {
   const proxyUrl = config.anthropicProxyUrl;
   if (proxyUrl) {
     logger.info('Claude API: using HTTP proxy', { proxy: proxyUrl.replace(/\/\/.*@/, '//*:*@') });
@@ -922,10 +922,15 @@ async function analyzeImageCore(
 
   logger.info('Claude API Analyzer: starting image analysis', { imagePath, catalogSize: catalog?.length ?? 0 });
 
-  let imageBlock: Anthropic.ImageBlockParam;
+  let documentBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam;
   try {
-    const { data, mediaType } = await encodeImageForApi(imagePath);
-    imageBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    if (path.extname(imagePath).toLowerCase() === '.pdf') {
+      const data = fs.readFileSync(imagePath).toString('base64');
+      documentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } };
+    } else {
+      const { data, mediaType } = await encodeImageForApi(imagePath);
+      documentBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    }
   } catch (err) {
     const msg = (err as Error).message;
     logger.error('Claude API Analyzer: image encode error', { error: msg });
@@ -937,11 +942,11 @@ async function analyzeImageCore(
   const withCatalogIdx = !!(catalog && catalog.length);
   const call = (extraText: string, label: string) => callClaudeStructured({
     client, modelId, system,
-    userContent: [imageBlock, { type: 'text', text: extraText }],
+    userContent: [documentBlock, { type: 'text', text: extraText }],
     withCatalogIdx, multipage: false, label, timeoutMs: CLAUDE_API_TIMEOUT_SINGLE_MS,
   });
 
-  const result = await call('Проанализируй эту накладную (одна страница) и верни данные по JSON-схеме.', 'Claude API single image');
+  const result = await call('Проанализируй эту накладную или счёт и верни данные по JSON-схеме.', 'Claude API single document');
   const repair: RepairFn = (prevJson, issues) => call(buildRepairUserText(prevJson, issues), 'Claude API single image repair');
   return { result, repair };
 }

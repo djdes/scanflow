@@ -2,7 +2,8 @@
 //   'web'    — uploaded from the dashboard (POST /api/upload, no filename query)
 //   'camera' — mobile camera page (POST /api/upload?filename=photo_<ts>_<id>.<ext>)
 //   'inbox'  — dropped straight into data/inbox/ (watcher pickup, no HTTP request)
-export type UploadSource = 'web' | 'camera' | 'inbox';
+//   'telegram' / 'email' — authenticated inbound channel webhooks
+export type UploadSource = 'web' | 'camera' | 'inbox' | 'telegram' | 'email';
 
 // Same pattern the upload route's multer filename guard uses to accept the
 // camera page's custom name (see src/api/routes/upload.ts).

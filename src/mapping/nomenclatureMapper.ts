@@ -4,13 +4,14 @@ import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositor
 import { detectPackFromName } from './packTransform';
 import { cleanItemName } from './nameCleaner';
 import { logger } from '../utils/logger';
+import { makeSupplierKey, supplierMappingRepo } from '../database/repositories/supplierMappingRepo';
 
 export interface MappingResult {
   original_name: string;
   mapped_name: string;
   onec_guid: string | null;
   confidence: number;
-  source: 'learned' | 'onec_exact' | 'onec_token' | 'onec_fuzzy' | 'legacy' | 'none';
+  source: 'supplier' | 'learned' | 'onec_exact' | 'onec_token' | 'onec_fuzzy' | 'legacy' | 'none';
   mapping_id: number | null; // id of nomenclature_mappings row if matched
   // Pack transform carried through from the learned mapping (if any).
   // When both are non-null, the watcher rewrites the item:
@@ -317,8 +318,41 @@ export class NomenclatureMapper {
    *   2. Fuzzy search against onec_nomenclature (confidence ≥ 0.7)
    *   3. None
    */
-  async map(scannedName: string): Promise<MappingResult> {
+  async mapSupplierOverride(
+    scannedName: string,
+    context?: { supplierInn?: string | null; supplierName?: string | null },
+  ): Promise<MappingResult | null> {
+    const supplierKey = makeSupplierKey(context?.supplierInn, context?.supplierName);
+    if (supplierKey) {
+      const supplierMapping = await supplierMappingRepo.get(supplierKey, scannedName);
+      if (supplierMapping) {
+        const onec = await onecNomenclatureRepo.getByGuid(supplierMapping.onec_guid);
+        if (onec) {
+          const global = await mappingRepo.getByScannedName(scannedName);
+          return {
+            original_name: scannedName,
+            mapped_name: onec.name,
+            onec_guid: supplierMapping.onec_guid,
+            confidence: 1,
+            source: 'supplier',
+            mapping_id: null,
+            pack_size: global?.pack_size ?? null,
+            pack_unit: global?.pack_unit ?? null,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  async map(scannedName: string, context?: { supplierInn?: string | null; supplierName?: string | null }): Promise<MappingResult> {
     const cleanName = normalizeName(scannedName);
+
+    // Supplier-specific corrections outrank both the global learning table and
+    // Claude catalog picks. The caller can query this method separately when it
+    // already has an LLM pick, avoiding a full fuzzy search.
+    const supplierOverride = await this.mapSupplierOverride(scannedName, context);
+    if (supplierOverride) return supplierOverride;
 
     // 1. Learned mapping (try original first, then cleaned)
     const learned = (await mappingRepo.getByScannedName(scannedName))

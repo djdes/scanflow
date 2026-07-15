@@ -29,6 +29,9 @@ import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
 import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
 import { requireAdmin } from '../middleware/auth';
+import { automationRepo } from '../../database/repositories/automationRepo';
+import { approvalRepo } from '../../database/repositories/approvalRepo';
+import { makeSupplierKey, supplierMappingRepo } from '../../database/repositories/supplierMappingRepo';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -511,6 +514,18 @@ router.post('/:id/send', async (req: Request, res: Response) => {
     return;
   }
 
+  const onecAutomation = await automationRepo.get();
+  if (onecAutomation.payment_approval_threshold != null
+      && (invoice.total_sum ?? 0) > onecAutomation.payment_approval_threshold
+      && !(await approvalRepo.hasApproved(id, '1c'))) {
+    const approval = await approvalRepo.create(id, '1c', req.user?.id ?? null, 'Автоматически создано по лимиту суммы');
+    return res.status(409).json({
+      error: `Накладная выше лимита ${onecAutomation.payment_approval_threshold.toFixed(2)} ₽ и ожидает согласования`,
+      needs_approval: true,
+      approval_id: approval.id,
+    });
+  }
+
   // Also try the legacy webhook if configured — backward compat for anyone
   // who has a webhook URL set up. If no webhook is configured, this is a no-op.
   try {
@@ -785,7 +800,8 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     // run pack-transform below so a pack_size learned AFTER first ingest can
     // retroactively convert qty/unit (e.g. 7 шт ведра → 21 кг сельди).
     const shouldLookup = includeAll || !alreadyMapped;
-    const result = shouldLookup ? await mapper.map(item.original_name) : null;
+    const mappingContext = { supplierInn: invoice.supplier_inn, supplierName: invoice.supplier };
+    const result = shouldLookup ? await mapper.map(item.original_name, mappingContext) : null;
 
     if (result?.onec_guid) {
       if (result.onec_guid !== item.onec_guid) changed++;
@@ -824,7 +840,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     // When we skipped the mapper lookup above (already-mapped item without
     // ?all=true), fetch the current mapping directly so pack_size can still
     // be honoured.
-    const mappingForPack = result ?? await mapper.map(item.original_name);
+    const mappingForPack = result ?? await mapper.map(item.original_name, mappingContext);
     // Prefer the unit from whatever catalog row this item resolves to —
     // either the mapping's guid (learned mapping) or the item's own guid
     // (freshly placed by LLM-remap without a mappings row yet). Without
@@ -1345,6 +1361,15 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
         upsertPayload.pack_unit = pack_unit;
       }
       await mappingRepo.upsert(upsertPayload);
+      const supplierKey = makeSupplierKey(invoice.supplier_inn, invoice.supplier);
+      if (supplierKey) {
+        await supplierMappingRepo.upsert({
+          supplierKey,
+          scannedName: item.original_name,
+          mappedName: resolvedName as string,
+          onecGuid: onec_guid,
+        });
+      }
     }
     // Touch txn so unused-param lint stays quiet — actual writes go through repos.
     void txn;
@@ -1532,6 +1557,21 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  // Amount-based approval gate. The existing payment route remains the single
+  // execution path; a large payment first creates an auditable request and can
+  // only continue after an admin decision.
+  const automation = await automationRepo.get();
+  if (automation.payment_approval_threshold != null
+      && (invoice.total_sum ?? 0) > automation.payment_approval_threshold
+      && !(await approvalRepo.hasApproved(id, 'sber'))) {
+    const approval = await approvalRepo.create(id, 'sber', req.user?.id ?? null, 'Автоматически создано по лимиту суммы');
+    return res.status(409).json({
+      error: `Платёж выше лимита ${automation.payment_approval_threshold.toFixed(2)} ₽ и ожидает согласования`,
+      needs_approval: true,
+      approval_id: approval.id,
+    });
+  }
 
   const existingPayment = await sberPaymentRepo.findByInvoiceId(id);
   if (existingPayment) {

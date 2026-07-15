@@ -10,6 +10,7 @@ import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/in
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import type { MappingResult } from '../mapping/nomenclatureMapper';
+import { evaluateInvoiceQuality } from '../automation/qualityGate';
 import type { ParsedInvoiceData } from '../ocr/types';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
@@ -404,7 +405,11 @@ export class FileWatcher {
 
       const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
       let mapping: MappingResult;
-      if (llmPicked) {
+      const mappingContext = { supplierInn: parsed.supplier_inn, supplierName: parsed.supplier };
+      const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingContext);
+      if (supplierOverride) {
+        mapping = supplierOverride;
+      } else if (llmPicked) {
         const existingMapping = await mappingRepo.getByScannedName(item.name);
         mapping = {
           original_name: item.name,
@@ -430,7 +435,7 @@ export class FileWatcher {
         }
         this.mapper.invalidateCache();
       } else {
-        mapping = await this.mapper.map(item.name);
+        mapping = await this.mapper.map(item.name, mappingContext);
       }
 
       // packTransform runs unconditionally — even for unmapped items, the
@@ -557,7 +562,7 @@ export class FileWatcher {
       const sanity = sanitizeItemArithmetic({
         quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
       });
-      const mapping = await this.mapper.map(item.name);
+      const mapping = await this.mapper.map(item.name, { supplierInn: target.supplier_inn, supplierName: target.supplier });
       const onec1cUnit = mapping.onec_guid
         ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid))?.unit ?? null
         : null;
@@ -679,7 +684,12 @@ export class FileWatcher {
       // 2. OCR (hybrid mode: Google Vision + Claude analyzer if enabled)
       await invoiceRepo.updateStatus(invoice.id, 'ocr_processing');
       let ocrResult;
-      if (forceEngine) {
+      if (path.extname(filePath).toLowerCase() === '.pdf') {
+        // Anthropic supports native PDF document blocks. Other OCR engines in
+        // the chain are image-only, so inbound/uploaded PDFs always take the
+        // same structured Claude path as production images.
+        ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
+      } else if (forceEngine) {
         ocrResult = await this.ocrManager.recognizeWithEngine(filePath, forceEngine);
       } else {
         // Check analyzer mode from DB config. Known values: 'claude_api', 'hybrid'.
@@ -1027,7 +1037,11 @@ export class FileWatcher {
                 // LLM-mapper path (see normal flow below for full comment).
                 const llmPicked = this.resolveCatalogIdx(item.catalog_idx, mergedCatalog);
                 let mapping: MappingResult;
-                if (llmPicked) {
+                const mappingContext = { supplierInn: parsed.supplier_inn, supplierName: parsed.supplier };
+                const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingContext);
+                if (supplierOverride) {
+                  mapping = supplierOverride;
+                } else if (llmPicked) {
                   mapping = {
                     original_name: item.name,
                     mapped_name: llmPicked.name,
@@ -1052,7 +1066,7 @@ export class FileWatcher {
                   }
                   this.mapper.invalidateCache();
                 } else {
-                  mapping = await this.mapper.map(item.name);
+                  mapping = await this.mapper.map(item.name, mappingContext);
                 }
 
                 // packTransform unconditionally: container/looksLikeContainer
@@ -1195,6 +1209,8 @@ export class FileWatcher {
           parsed.invoice_date ?? null,
           parsed.total_sum ?? null,
           30,
+          parsed.items,
+          { account: parsed.supplier_account, bic: parsed.supplier_bik },
         );
         if (dupOriginal) {
           logger.info('Duplicate invoice detected', {
@@ -1204,7 +1220,12 @@ export class FileWatcher {
             supplier: parsed.supplier,
             totalSum: parsed.total_sum,
           });
-          await invoiceRepo.markAsDuplicate(invoice.id, dupOriginal.id);
+          await invoiceRepo.markAsDuplicate(
+            invoice.id,
+            dupOriginal.id,
+            dupOriginal.duplicate_score,
+            dupOriginal.duplicate_reasons,
+          );
 
           // Move file to processed before returning, как в normal flow ниже
           if (!config.dryRun) {
@@ -1272,7 +1293,11 @@ export class FileWatcher {
         // context (brand/OCR garbage) that Jaccard tokens can't.
         const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
         let mapping: MappingResult;
-        if (llmPicked) {
+        const mappingContext = { supplierInn: parsed.supplier_inn, supplierName: parsed.supplier };
+        const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingContext);
+        if (supplierOverride) {
+          mapping = supplierOverride;
+        } else if (llmPicked) {
           // Preserve any previously-learned pack transform on the existing
           // mapping (if any) so pack-transform still fires even when LLM
           // picked the GUID. Look up by scanned_name.
@@ -1302,7 +1327,7 @@ export class FileWatcher {
           }
           this.mapper.invalidateCache();
         } else {
-          mapping = await this.mapper.map(item.name);
+          mapping = await this.mapper.map(item.name, mappingContext);
         }
 
         // packTransform unconditionally: Claude's pack_size hint ("*48",
@@ -1394,7 +1419,15 @@ export class FileWatcher {
       try {
         const finalInv = await invoiceRepo.getById(targetInvoiceId);
         const cfg = await invoiceRepo.getAnalyzerConfig();
-        const canAutoSend = finalInv && finalInv.status === 'processed' && finalInv.duplicate_of == null;
+        const quality = await evaluateInvoiceQuality(targetInvoiceId);
+        const canAutoSend = !!finalInv && quality.allowed;
+        if (!quality.allowed && (cfg.auto_send_1c || cfg.auto_send_sber)) {
+          logger.info('Autopilot quality gate held invoice', {
+            id: targetInvoiceId,
+            score: quality.score,
+            reasons: quality.reasons.map(reason => reason.code),
+          });
+        }
 
         // Legacy webhook flag — оставляем для back-compat. ИЛИ с новым analyzer_config.
         const db = (await import('../database/db')).getDb();
