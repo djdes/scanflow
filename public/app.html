@@ -21,6 +21,7 @@
 <!-- Main App. Auth is handled on the landing (/) — if user lands here without
      a valid apiKey, app.js redirects to /?login=1 which opens the модалку. -->
 <div id="app">
+  <a class="skip-link" href="#app-main">Перейти к содержимому</a>
   <header>
     <div class="header-inner">
       <a href="#/invoices" class="logo" title="К накладным">
@@ -32,7 +33,7 @@
         </svg>
         <span>ScanFlow</span>
       </a>
-      <nav>
+      <nav id="app-primary-nav">
         <a href="#/invoices" data-tab="invoices">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           Накладные
@@ -79,7 +80,7 @@
           Выйти
         </a>
       </nav>
-      <button class="nav-toggle" id="nav-toggle" aria-label="Меню" aria-expanded="false">
+      <button class="nav-toggle" id="nav-toggle" aria-label="Меню" aria-controls="app-primary-nav" aria-expanded="false">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
       </button>
       <div class="header-right">
@@ -91,7 +92,7 @@
     </div>
   </header>
 
-  <main>
+  <main id="app-main" tabindex="-1">
     <!-- Onboarding banner — sticky at the top of every dashboard view while
          wizard not finished; кнопка ведёт обратно на #/onboarding. JS прячет
          его на самой странице wizard'а и когда все шаги пройдены. -->
@@ -121,7 +122,8 @@
         <div class="section-tools">
           <div class="search-field">
             <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="search" id="invoices-search" placeholder="Поиск: номер, поставщик, ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off">
+            <input type="search" id="invoices-search" placeholder="Поиск: номер, поставщик, ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" aria-keyshortcuts="/" title="Нажмите / для быстрого поиска">
+            <kbd class="search-field__shortcut" aria-hidden="true">/</kbd>
           </div>
           <a href="#/upload" class="btn btn-primary btn-sm" id="btn-upload-from-list">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -943,6 +945,21 @@
       </div>
     </section>
   </main>
+
+  <nav class="mobile-tabbar" aria-label="Основная навигация">
+    <a href="#/invoices" data-tab="invoices">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5h14M5 12h14M5 19h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Накладные</span>
+    </a>
+    <a href="#/upload" data-tab="upload" class="mobile-tabbar__primary">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <span>Загрузить</span>
+    </a>
+    <a href="#/profile" data-tab="profile">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4.5 21a7.5 7.5 0 0115 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Профиль</span>
+    </a>
+  </nav>
 
   <div id="top-progress" class="top-progress" aria-hidden="true"></div>
   <div id="notifications" aria-live="polite" aria-atomic="false"></div>

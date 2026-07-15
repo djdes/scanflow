@@ -1455,6 +1455,118 @@ details[open] summary { margin-bottom: 12px; }
   border: 0;
 }
 
+/* ========== Keyboard access + mobile primary navigation ========== */
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 12000;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(-160%);
+  transition: transform 0.2s ease;
+}
+.skip-link:focus { transform: translateY(0); }
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.search-field__shortcut {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-tertiary);
+  font: 600 12px/1 var(--mono);
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+.search-field:focus-within .search-field__shortcut { opacity: 0; }
+.search-field:has(.search-field__shortcut) input[type="search"] { padding-right: 44px; }
+
+.mobile-tabbar { display: none; }
+
+@media (max-width: 768px) {
+  #app main { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+  .search-field__shortcut { display: none; }
+  .search-field:has(.search-field__shortcut) input[type="search"] { padding-right: 14px; }
+
+  .mobile-tabbar {
+    position: fixed;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 98;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 7px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(255,255,255,0.94);
+    box-shadow: 0 16px 44px rgba(15,23,42,0.20), 0 2px 8px rgba(15,23,42,0.08);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    max-height: none;
+    overflow: visible;
+  }
+  .mobile-tabbar a {
+    width: auto;
+    min-width: 0;
+    min-height: 52px;
+    padding: 7px 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border-radius: 12px;
+    color: var(--text-tertiary);
+    font-size: 10.5px;
+    font-weight: 650;
+    line-height: 1.1;
+    text-align: center;
+  }
+  .mobile-tabbar a svg { display: block; opacity: 0.72; }
+  .mobile-tabbar a:hover { background: var(--bg); color: var(--text); }
+  .mobile-tabbar a.active {
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
+  .mobile-tabbar a.active svg { opacity: 1; }
+  .mobile-tabbar .mobile-tabbar__primary {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 7px 16px rgba(35,131,226,0.28);
+  }
+  .mobile-tabbar .mobile-tabbar__primary:hover,
+  .mobile-tabbar .mobile-tabbar__primary.active {
+    background: var(--primary-hover);
+    color: #fff;
+  }
+  .mobile-tabbar .mobile-tabbar__primary svg { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link { transition: none; }
+}
+
 /* ========== Loading States ==========
  * Three complementary techniques, not a lazy spinner:
  *  1. Top progress bar — always visible during any API call

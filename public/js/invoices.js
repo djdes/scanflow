@@ -23,7 +23,7 @@ const Invoices = {
       (data.byStatus || []).forEach(s => { counts[s.status] = s.count; });
       const cur = this.currentStatus || 'all';
       const cardHtml = (filter, value, label) => `
-        <button type="button" class="stat-card stat-card--${filter}${cur === filter ? ' active' : ''}" data-filter="${filter}" onclick="Invoices.setFilter('${filter}')">
+        <button type="button" class="stat-card stat-card--${filter}${cur === filter ? ' active' : ''}" data-filter="${filter}" aria-pressed="${cur === filter ? 'true' : 'false'}" onclick="Invoices.setFilter('${filter}')">
           <span class="stat-value">${value || 0}</span>
           <span class="stat-label">${label}</span>
         </button>`;
@@ -139,6 +139,12 @@ const Invoices = {
     // shows everything instead of querying a non-existent status='all'.
     this.currentStatus = (status && status !== 'all') ? status : null;
     this.offset = 0;
+    const activeFilter = this.currentStatus || 'all';
+    document.querySelectorAll('#invoices-stats button[data-filter]').forEach((button) => {
+      const active = button.dataset.filter === activeFilter;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
     this.loadTable();
   },
 
@@ -209,7 +215,7 @@ const Invoices = {
       { key: '30d', label: '30 дней' },
     ];
     el.innerHTML = `<span class="period-filter__label">Период:</span>` + presets.map(p =>
-      `<button type="button" class="period-btn${this.period === p.key ? ' active' : ''}" onclick="Invoices.setPeriod('${p.key}')">${p.label}</button>`
+      `<button type="button" class="period-btn${this.period === p.key ? ' active' : ''}" aria-pressed="${this.period === p.key ? 'true' : 'false'}" onclick="Invoices.setPeriod('${p.key}')">${p.label}</button>`
     ).join('');
   },
 

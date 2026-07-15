@@ -65,7 +65,10 @@
 
   function closeMobileMenu() {
     mainNav.classList.remove('open');
-    if (menuBtn) menuBtn.classList.remove('active');
+    if (menuBtn) {
+      menuBtn.classList.remove('active');
+      menuBtn.setAttribute('aria-expanded', 'false');
+    }
     moveActionsBackToHeader();
   }
 
@@ -74,6 +77,7 @@
       const opening = !mainNav.classList.contains('open');
       mainNav.classList.toggle('open');
       menuBtn.classList.toggle('active');
+      menuBtn.setAttribute('aria-expanded', opening ? 'true' : 'false');
       if (opening) {
         moveActionsIntoNav();
       } else {
@@ -90,6 +94,13 @@
     window.addEventListener('resize', () => {
       if (window.innerWidth > 768 && mainNav.classList.contains('open')) {
         closeMobileMenu();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && mainNav.classList.contains('open')) {
+        closeMobileMenu();
+        menuBtn.focus();
       }
     });
   }
@@ -491,6 +502,13 @@
         || 'пользователь';
       userEl.textContent = name;
     }
+    const mobileDock = document.getElementById('mobile-action-dock');
+    const mobileDockLabel = document.getElementById('mobile-action-dock-label');
+    if (mobileDock && mobileDockLabel) {
+      mobileDock.setAttribute('href', authed ? '/app.html#/invoices' : '#try');
+      mobileDock.setAttribute('aria-label', authed ? 'Открыть накладные' : 'Попробовать ScanFlow бесплатно');
+      mobileDockLabel.textContent = authed ? 'Открыть накладные' : 'Попробовать бесплатно';
+    }
   }
 
   applyAuthState();
@@ -499,6 +517,28 @@
   window.addEventListener('storage', (e) => {
     if (e.key === 'apiKey' || e.key === 'adminUsername') applyAuthState();
   });
+
+  // On a long mobile landing keep one useful next action within thumb reach.
+  // It stays out of the way while the hero, upload demo or footer is visible.
+  (function setupMobileActionDock() {
+    const dock = document.getElementById('mobile-action-dock');
+    const hero = document.getElementById('main-content');
+    const demo = document.getElementById('try');
+    const footer = document.querySelector('.site-footer');
+    if (!dock || !hero || !('IntersectionObserver' in window)) return;
+
+    const visibility = new Map([[hero, true], [demo, false], [footer, false]]);
+    const render = () => {
+      const blocked = visibility.get(hero) || visibility.get(demo) || visibility.get(footer);
+      dock.classList.toggle('is-visible', !blocked);
+    };
+    const dockObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => visibility.set(entry.target, entry.isIntersecting));
+      render();
+    }, { threshold: 0.08 });
+    [hero, demo, footer].filter(Boolean).forEach((el) => dockObserver.observe(el));
+    render();
+  })();
 
   // Bottom CTA (logged-out variant): «Создать аккаунт» → модалка с табой
   // register; «Уже есть? Войти» → та же модалка с табой login.

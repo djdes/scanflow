@@ -98,11 +98,13 @@ const App = {
   // .nav-group dropdown, also highlight the group's trigger so the user
   // sees which dropdown is open.
   activateNavTab(tab) {
-    const link = document.querySelector(`nav a[data-tab="${tab}"]:not(.nav-group-trigger)`);
-    if (!link) return;
-    link.classList.add('active');
-    const group = link.closest('.nav-group');
-    if (group) group.querySelector('.nav-group-trigger')?.classList.add('active');
+    const links = document.querySelectorAll(`nav a[data-tab="${tab}"]:not(.nav-group-trigger)`);
+    links.forEach((link) => {
+      link.classList.add('active');
+      link.setAttribute('aria-current', 'page');
+      const group = link.closest('.nav-group');
+      if (group) group.querySelector('.nav-group-trigger')?.classList.add('active');
+    });
   },
 
   route() {
@@ -114,7 +116,10 @@ const App = {
     // Hide all sections
     document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
     // Remove active tab
-    document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('nav a').forEach((a) => {
+      a.classList.remove('active');
+      a.removeAttribute('aria-current');
+    });
 
     // Onboarding banner — пересчитываем на каждой навигации. JS внутри сам
     // решает показывать или скрывать в зависимости от текущего hash и состояния.
@@ -225,6 +230,32 @@ const App = {
         navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
       });
     }
+
+    // Fast, discoverable keyboard search on the primary work screen.
+    // Slash focuses the invoice search; Escape clears it, then releases focus.
+    document.addEventListener('keydown', (event) => {
+      const search = document.getElementById('invoices-search');
+      if (!search) return;
+      const target = event.target;
+      const isEditing = target instanceof HTMLElement
+        && (target.matches('input, textarea, select') || target.isContentEditable);
+
+      const hash = window.location.hash;
+      const isInvoiceList = hash === '' || hash === '#/' || hash === '#/invoices';
+
+      if (event.key === '/' && !isEditing && isInvoiceList) {
+        event.preventDefault();
+        search.focus();
+        search.select();
+      } else if (event.key === 'Escape' && document.activeElement === search) {
+        if (search.value) {
+          search.value = '';
+          search.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          search.blur();
+        }
+      }
+    });
 
     if (this.apiKey) {
       // Optimistic: render the app immediately. If the stored key is invalid
