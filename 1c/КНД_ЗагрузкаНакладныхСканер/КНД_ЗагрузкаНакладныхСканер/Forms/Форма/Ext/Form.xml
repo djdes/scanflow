@@ -10,6 +10,19 @@
 		<AutoFill>false</AutoFill>
 	</AutoCommandBar>
 	<ChildItems>
+		<InputField name="ТокенПодключения" id="5">
+			<DataPath>ТокенПодключения</DataPath>
+			<PasswordMode>true</PasswordMode>
+			<ContextMenu name="ТокенПодключенияКонтекстноеМеню" id="6">
+				<AutoFill>true</AutoFill>
+			</ContextMenu>
+			<ExtendedTooltip name="ТокенПодключенияРасширеннаяПодсказка" id="7"/>
+		</InputField>
+		<Button name="СохранитьПодключение" id="8">
+			<Type>UsualButton</Type>
+			<CommandName>Form.Command.СохранитьПодключение</CommandName>
+			<ExtendedTooltip name="СохранитьПодключениеРасширеннаяПодсказка" id="9"/>
+		</Button>
 		<Button name="ЗагрузитьНакладные" id="1">
 			<Type>UsualButton</Type>
 			<CommandName>Form.Command.ЗагрузитьНакладные</CommandName>
@@ -27,6 +40,15 @@
 				<v8:Type>cfg:ExternalDataProcessorObject.КНД_ЗагрузкаНакладныхСканер</v8:Type>
 			</Type>
 			<MainAttribute>true</MainAttribute>
+		</Attribute>
+		<Attribute name="ТокенПодключения" id="2">
+			<Title>
+				<v8:item><v8:lang>ru</v8:lang><v8:content>Токен подключения ScanFlow</v8:content></v8:item>
+			</Title>
+			<Type>
+				<v8:Type>xs:string</v8:Type>
+				<v8:StringQualifiers><v8:Length>255</v8:Length><v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers>
+			</Type>
 		</Attribute>
 	</Attributes>
 	<Commands>
@@ -59,6 +81,15 @@
 				</v8:item>
 			</ToolTip>
 			<Action>ВыгрузитьНоменклатуру</Action>
+		</Command>
+		<Command name="СохранитьПодключение" id="3">
+			<Title>
+				<v8:item><v8:lang>ru</v8:lang><v8:content>Сохранить подключение</v8:content></v8:item>
+			</Title>
+			<ToolTip>
+				<v8:item><v8:lang>ru</v8:lang><v8:content>Сохранить отдельный токен подключения 1С из мастера ScanFlow</v8:content></v8:item>
+			</ToolTip>
+			<Action>СохранитьПодключение</Action>
 		</Command>
 	</Commands>
 </form:Form>

@@ -153,10 +153,14 @@ ${lines}`;
   return `Ты эксперт по русским товарным накладным. Проанализируй изображение и верни ТОЛЬКО валидный JSON (без markdown, без комментариев, без пояснений).
 
 ================================================================
-СТРУКТУРА НАКЛАДНОЙ (ТОРГ-12, УПД, счёт-фактура, счёт на оплату)
+СТРУКТУРА ДОКУМЕНТА (ТОРГ-12, УПД, счёт-фактура, счёт на оплату,
+акт, кассовый чек, авансовый отчёт)
 ================================================================
 
 1) ШАПКА (верх страницы, до таблицы товаров):
+   • Сначала определи invoice_type по заголовку. Для акта выполненных работ — "акт",
+     кассового/товарного чека — "кассовый_чек", авансового отчёта — "авансовый_отчет".
+     Если документ не относится ни к одному поддержанному виду — "прочее".
    • "Счёт-фактура №", "УПД №", "Накладная №", "Счёт №" → invoice_number
      (обычно короткий: "261", "1/153468", "17-0048600")
    • "от DD месяца YYYY г." → invoice_date (YYYY-MM-DD)
@@ -251,7 +255,7 @@ ${lines}`;
 ФОРМАТ ОТВЕТА (строго этот JSON, никаких markdown-ограждений)
 ================================================================
 
-{"invoice_type":"счет_на_оплату|торг_12|упд|счет_фактура","invoice_number":"...","invoice_date":"YYYY-MM-DD","supplier":"...","supplier_inn":"...","supplier_kpp":"...","supplier_bik":"...","supplier_account":"...","supplier_corr_account":"...","supplier_address":"...","total_sum":число,"vat_sum":число,"items":[{"name":"...","quantity":число,"unit":"шт|кг|л|уп","price":число,"total":число,"vat_rate":число,"row_no":число,"pack_size":число_или_null${catalogBlock ? ',"catalog_idx":номер_или_null' : ''}}]}
+{"invoice_type":"счет_на_оплату|торг_12|упд|счет_фактура|акт|кассовый_чек|авансовый_отчет|прочее","invoice_number":"...","invoice_date":"YYYY-MM-DD","supplier":"...","supplier_inn":"...","supplier_kpp":"...","supplier_bik":"...","supplier_account":"...","supplier_corr_account":"...","supplier_address":"...","total_sum":число,"vat_sum":число,"items":[{"name":"...","quantity":число,"unit":"шт|кг|л|уп","price":число,"total":число,"vat_rate":число,"row_no":число,"pack_size":число_или_null${catalogBlock ? ',"catalog_idx":номер_или_null' : ''}}]}
 
 Все незаполненные поля ставь null. Числа — с точкой (30.60). Никогда не оборачивай JSON в три обратные кавычки.${catalogBlock}`;
 }
@@ -527,7 +531,7 @@ export function buildInvoiceSchema(withCatalogIdx: boolean): Record<string, unkn
     // required + nullable — модель вернёт поле всегда (значение или null).
     required: ['invoice_type', 'invoice_number', 'invoice_date', 'supplier', 'supplier_inn', 'supplier_kpp', 'total_sum', 'vat_sum', 'items'],
     properties: {
-      invoice_type: { type: 'string', enum: ['счет_на_оплату', 'торг_12', 'упд', 'счет_фактура'] },
+      invoice_type: { type: 'string', enum: ['счет_на_оплату', 'торг_12', 'упд', 'счет_фактура', 'акт', 'кассовый_чек', 'авансовый_отчет', 'прочее'] },
       invoice_number: str,
       invoice_date: str,
       supplier: str,

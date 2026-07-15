@@ -13,6 +13,7 @@ export interface ApprovalRequestRow {
   request_note: string | null;
   decision_note: string | null;
   execution_error: string | null;
+  batch_id: string | null;
   created_at: string;
   decided_at: string | null;
   invoice_number?: string | null;
@@ -23,7 +24,7 @@ export interface ApprovalRequestRow {
 }
 
 export const approvalRepo = {
-  async create(invoiceId: number, action: ApprovalAction, requestedBy: number | null, note?: string | null): Promise<ApprovalRequestRow> {
+  async create(invoiceId: number, action: ApprovalAction, requestedBy: number | null, note?: string | null, batchId?: string | null): Promise<ApprovalRequestRow> {
     const existing = await getDb().prepare(`
       SELECT * FROM approval_requests
        WHERE invoice_id = ? AND action = ? AND status = 'pending'
@@ -31,9 +32,9 @@ export const approvalRepo = {
     `).get<ApprovalRequestRow>(invoiceId, action);
     if (existing) return existing;
     const result = await getDb().prepare(`
-      INSERT INTO approval_requests (invoice_id, action, requested_by, request_note)
-      VALUES (?, ?, ?, ?)
-    `).run(invoiceId, action, requestedBy, note?.trim().slice(0, 2000) || null);
+      INSERT INTO approval_requests (invoice_id, action, requested_by, request_note, batch_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(invoiceId, action, requestedBy, note?.trim().slice(0, 2000) || null, batchId || null);
     return (await this.getById(Number(result.lastInsertRowid)))!;
   },
 

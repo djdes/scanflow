@@ -9,6 +9,7 @@ export interface AutomationSettings {
   max_total: number | null;
   require_verified_supplier: boolean;
   payment_approval_threshold: number | null;
+  payment_cash_balance: number | null;
 }
 
 interface AutomationRow {
@@ -20,6 +21,7 @@ interface AutomationRow {
   auto_max_total: number | null;
   auto_require_verified_supplier: number | null;
   payment_approval_threshold: number | null;
+  payment_cash_balance: number | null;
 }
 
 export const automationRepo = {
@@ -28,7 +30,8 @@ export const automationRepo = {
       SELECT auto_send_1c, auto_send_sber,
              auto_require_all_mapped, auto_block_total_mismatch,
              auto_min_mapping_confidence, auto_max_total,
-             auto_require_verified_supplier, payment_approval_threshold
+             auto_require_verified_supplier, payment_approval_threshold,
+             payment_cash_balance
         FROM analyzer_config WHERE id = 1
     `).get<AutomationRow>();
     return {
@@ -41,6 +44,9 @@ export const automationRepo = {
       require_verified_supplier: (row?.auto_require_verified_supplier ?? 1) === 1,
       payment_approval_threshold: row?.payment_approval_threshold && row.payment_approval_threshold > 0
         ? row.payment_approval_threshold
+        : null,
+      payment_cash_balance: row?.payment_cash_balance != null && row.payment_cash_balance >= 0
+        ? row.payment_cash_balance
         : null,
     };
   },
@@ -55,6 +61,7 @@ export const automationRepo = {
       max_total: 'auto_max_total',
       require_verified_supplier: 'auto_require_verified_supplier',
       payment_approval_threshold: 'payment_approval_threshold',
+      payment_cash_balance: 'payment_cash_balance',
     };
     const booleanKeys = new Set<keyof AutomationSettings>([
       'auto_send_1c', 'auto_send_sber', 'require_all_mapped',

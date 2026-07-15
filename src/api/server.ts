@@ -29,6 +29,7 @@ import integrationsRouter from './routes/integrations';
 import usersRouter from './routes/users';
 import operationsRouter from './routes/operations';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
+import { onecAdminRouter, onecExchangeRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -144,6 +145,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setFileWatcher(fileWatcher);
   setInvoicesFileWatcher(fileWatcher);
   setInboundFileWatcher(fileWatcher);
+  setOnecMapper(mapper);
 
   // Health check (no auth) — runs real probes against the DB, credentials
   // file, anthropic key, and inbox queue depth. Returns 503 if any critical
@@ -230,6 +232,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Public document-ingress webhooks authenticate their own high-entropy
   // secrets. Mount before apiKey-authenticated routes.
   app.use('/api/inbound/public', inboundPublicRouter);
+  // Dedicated 1C tokens are authenticated and scope-limited inside this router.
+  app.use('/api/onec/exchange', onecExchangeRouter);
 
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
@@ -245,6 +249,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);
   app.use('/api/operations', apiKeyAuth, operationsRouter);
+  app.use('/api/onec', apiKeyAuth, requireAdmin, onecAdminRouter);
   app.use('/api/inbound', apiKeyAuth, inboundConfigRouter);
   // User management (list + role changes) — admin only.
   app.use('/api/users', apiKeyAuth, requireAdmin, usersRouter);

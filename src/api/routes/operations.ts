@@ -1,16 +1,30 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
+import multer from 'multer';
 import { config } from '../../config';
 import { requireAdmin } from '../middleware/auth';
 import { automationRepo, AutomationSettings } from '../../database/repositories/automationRepo';
-import { approvalRepo, ApprovalAction, ApprovalStatus } from '../../database/repositories/approvalRepo';
+import { approvalRepo, ApprovalAction, ApprovalStatus, ApprovalRequestRow } from '../../database/repositories/approvalRepo';
 import { operationsRepo, ExceptionRow, ReconciliationRow } from '../../database/repositories/operationsRepo';
 import { evaluateInvoiceQuality } from '../../automation/qualityGate';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { getDb } from '../../database/db';
 import { logger } from '../../utils/logger';
 import { createClient } from '../../ocr/claudeApiAnalyzer';
+import { parseBankStatement } from '../../operations/bankStatement';
+import { bankStatementRepo } from '../../database/repositories/bankStatementRepo';
+import { supplierRepo } from '../../database/repositories/supplierRepo';
+import { lookupPartyByInn, DadataNotConfiguredError } from '../../sber/dadata';
+import { approvalDelegateRepo } from '../../database/repositories/approvalDelegateRepo';
+import { userRepo } from '../../database/repositories/userRepo';
 
 const router = Router();
+const statementUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+
+function numericIds(value: unknown, limit = 100): number[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item: unknown) => Number(item)).filter((item: number) => Number.isFinite(item) && item > 0))].slice(0, limit);
+}
 
 function ownerScopeFor(req: Request): number | null {
   return config.dataScopingEnabled && req.user?.role !== 'admin' ? (req.user?.id ?? -1) : null;
@@ -34,10 +48,13 @@ function exceptionReasons(row: ExceptionRow, settings: AutomationSettings): stri
   if (settings.require_verified_supplier && row.supplier_verified !== 1) reasons.push('Поставщик не подтверждён');
   if (row.pending_approvals > 0) reasons.push('Ожидает согласования');
   if (row.failed_approvals > 0) reasons.push('Ошибка исполнения согласования');
+  if (row.onec_status === 'error') reasons.push(`Ошибка 1С${row.onec_error ? `: ${row.onec_error.slice(0, 120)}` : ''}`);
+  if (row.onec_status === 'rejected') reasons.push(`Отклонено в 1С${row.onec_error ? `: ${row.onec_error.slice(0, 120)}` : ''}`);
   return reasons;
 }
 
 function classifyPayment(row: ReconciliationRow): { code: string; label: string; tone: string } {
+  if (row.statement_id) return { code: 'paid', label: 'Оплачено по банковской выписке', tone: 'success' };
   const status = (row.payment_status || '').toLowerCase();
   const amountMismatch = row.payment_amount != null && row.total_sum != null
     && Math.abs(row.payment_amount - row.total_sum) > 1;
@@ -53,16 +70,84 @@ function classifyPayment(row: ReconciliationRow): { code: string; label: string;
   return { code: 'pending', label: status === 'created' ? 'Черновик создан' : 'В обработке', tone: 'info' };
 }
 
+function aggregateRootCauses(rows: Array<ExceptionRow & { reasons: string[] }>) {
+  const counts = (values: string[]) => [...values.reduce((map, value) => map.set(value, (map.get(value) || 0) + 1), new Map<string, number>())]
+    .map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  return {
+    by_reason: counts(rows.flatMap(row => row.reasons)),
+    by_supplier: counts(rows.map(row => row.supplier || 'Поставщик не определён')).slice(0, 10),
+    by_document_type: counts(rows.map(row => row.invoice_type || 'Тип не определён')),
+  };
+}
+
+async function verifySupplier(inn: string, dadataKey?: string | null): Promise<{ inn: string; status: 'verified' | 'not_found' | 'error'; risk?: string[]; error?: string }> {
+  try {
+    const supplier = await supplierRepo.findByInn(inn);
+    if (!supplier) return { inn, status: 'error', error: 'Поставщик отсутствует в справочнике' };
+    const key = dadataKey === undefined ? (await invoiceRepo.getAnalyzerConfig()).dadata_api_key : dadataKey;
+    const party = await lookupPartyByInn(inn, key);
+    if (!party) return { inn, status: 'not_found' };
+    const clean = (value: string | null) => (value || '').toLocaleLowerCase('ru-RU').replace(/[ё]/g, 'е').replace(/\s+/g, ' ').trim();
+    const risk: string[] = [];
+    if (party.name && supplier.name && clean(party.name) !== clean(supplier.name)) risk.push('Наименование отличается от ЕГРЮЛ/ЕГРИП');
+    if (party.kpp && supplier.kpp && party.kpp !== supplier.kpp) risk.push('КПП отличается');
+    if (party.address && supplier.address && clean(party.address) !== clean(supplier.address)) risk.push('Адрес отличается');
+    const fingerprint = crypto.createHash('sha256').update(JSON.stringify(party)).digest('hex');
+    await supplierRepo.update(inn, {
+      verified: 1,
+      verification_source: 'dadata',
+      verified_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      verification_fingerprint: fingerprint,
+      verification_risk: risk.length ? JSON.stringify(risk) : null,
+    });
+    return { inn, status: 'verified', risk };
+  } catch (error) {
+    return { inn, status: 'error', error: error instanceof DadataNotConfiguredError ? 'DaData не настроена' : (error as Error).message };
+  }
+}
+
+async function executeApprovedAction(req: Request, approval: ApprovalRequestRow): Promise<void> {
+  if (approval.action === '1c') {
+    await invoiceRepo.approveForOneC(approval.invoice_id);
+    return;
+  }
+  const apiKey = req.headers['x-api-key'];
+  const response = await fetch(`http://127.0.0.1:${config.apiPort}/api/invoices/${approval.invoice_id}/send-sber`, {
+    method: 'POST',
+    headers: { 'X-API-Key': String(apiKey || ''), 'Content-Type': 'application/json', 'X-Approval-Execution': String(approval.id) },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error || `Sber HTTP ${response.status}`);
+  }
+}
+
+async function canDecideApproval(req: Request, approval: ApprovalRequestRow): Promise<boolean> {
+  if (req.user?.role === 'admin') return true;
+  if (!req.user?.id || !(await canAccessInvoice(req, approval.invoice_id))) return false;
+  const delegation = await approvalDelegateRepo.activeForUser(req.user.id);
+  if (!delegation) return false;
+  if (delegation.max_amount == null) return true;
+  const invoice = await invoiceRepo.getById(approval.invoice_id);
+  return Number(invoice?.total_sum || 0) <= delegation.max_amount;
+}
+
 async function buildOverview(req: Request) {
   const owner = ownerScopeFor(req);
   const settings = await automationRepo.get();
-  const [exceptionRows, approvals, reconciliationRows, suppliers, forecast] = await Promise.all([
+  const [exceptionRows, approvals, reconciliationRows, suppliers, forecast, reports, delegation] = await Promise.all([
     operationsRepo.exceptions(owner, settings.min_mapping_confidence, settings.require_verified_supplier),
     approvalRepo.list(100, undefined, owner),
     operationsRepo.reconciliation(owner),
     operationsRepo.supplierScores(owner),
     operationsRepo.forecast(owner),
+    operationsRepo.reports(owner),
+    req.user?.role === 'admin' || !req.user?.id ? Promise.resolve(null) : approvalDelegateRepo.activeForUser(req.user.id),
   ]);
+  const [delegates, approvalUsers] = req.user?.role === 'admin'
+    ? await Promise.all([approvalDelegateRepo.list(), userRepo.listAll()])
+    : [[], []];
   const exceptions = exceptionRows.map(row => ({ ...row, reasons: exceptionReasons(row, settings) }))
     .filter(row => row.reasons.length > 0);
   const reconciliation = reconciliationRows.map(row => ({ ...row, reconciliation: classifyPayment(row) }));
@@ -71,8 +156,9 @@ async function buildOverview(req: Request) {
     acc[code] = (acc[code] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+  const calendar = await operationsRepo.calendar(owner, settings.payment_cash_balance);
   return {
-    permissions: { manage: req.user?.role === 'admin' },
+    permissions: { manage: req.user?.role === 'admin', approve: req.user?.role === 'admin' || !!delegation, approval_limit: delegation?.max_amount ?? null },
     settings,
     exceptions,
     approvals,
@@ -80,6 +166,11 @@ async function buildOverview(req: Request) {
     payment_summary: paymentSummary,
     suppliers,
     forecast,
+    calendar,
+    reports,
+    root_causes: aggregateRootCauses(exceptions),
+    approval_delegates: delegates,
+    approval_users: approvalUsers.map(user => ({ id: user.id, username: user.username, role: user.role })),
   };
 }
 
@@ -110,6 +201,11 @@ router.put('/autopilot', requireAdmin, async (req: Request, res: Response) => {
       patch[key] = value;
     }
   }
+  if (body.payment_cash_balance !== undefined) {
+    const value = body.payment_cash_balance == null ? null : Number(body.payment_cash_balance);
+    if (value != null && (!Number.isFinite(value) || value < 0)) return res.status(400).json({ error: 'payment_cash_balance must be zero, a positive number or null' });
+    patch.payment_cash_balance = value;
+  }
   res.json({ data: await automationRepo.update(patch) });
 });
 
@@ -136,37 +232,173 @@ router.post('/approvals', async (req: Request, res: Response) => {
   res.status(201).json({ data: row, quality });
 });
 
-router.post('/approvals/:id/decision', requireAdmin, async (req: Request, res: Response) => {
+router.post('/approvals/:id/decision', async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const decision = req.body?.decision as 'approved' | 'rejected';
   if (!Number.isFinite(id) || !['approved', 'rejected'].includes(decision)) return res.status(400).json({ error: 'decision must be approved or rejected' });
   const approval = await approvalRepo.getById(id);
   if (!approval) return res.status(404).json({ error: 'Approval request not found' });
+  if (!(await canDecideApproval(req, approval))) return res.status(403).json({ error: 'Нет права согласовать эту сумму' });
   const changed = await approvalRepo.decide(id, decision, req.user?.id ?? null, req.body?.note);
   if (!changed) return res.status(409).json({ error: 'Approval request has already been decided' });
   if (decision === 'rejected') return res.json({ success: true });
 
   try {
-    if (approval.action === '1c') {
-      await invoiceRepo.approveForOneC(approval.invoice_id);
-    } else {
-      const apiKey = req.headers['x-api-key'];
-      const response = await fetch(`http://127.0.0.1:${config.apiPort}/api/invoices/${approval.invoice_id}/send-sber`, {
-        method: 'POST',
-        headers: { 'X-API-Key': String(apiKey || ''), 'Content-Type': 'application/json', 'X-Approval-Execution': String(id) },
-        body: JSON.stringify({}),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error || `Sber HTTP ${response.status}`);
-      }
-    }
+    await executeApprovedAction(req, approval);
     await approvalRepo.setExecutionError(id, null);
     res.json({ success: true, executed: true });
   } catch (error) {
     await approvalRepo.setExecutionError(id, (error as Error).message);
     res.status(502).json({ error: `Согласование сохранено, но выполнение не удалось: ${(error as Error).message}` });
   }
+});
+
+router.post('/approvals/batch', async (req: Request, res: Response) => {
+  const invoiceIds = numericIds(req.body?.invoice_ids);
+  const action = req.body?.action as ApprovalAction;
+  if (invoiceIds.length === 0 || !['sber', '1c'].includes(action)) return res.status(400).json({ error: 'invoice_ids and action are required' });
+  const batchId = crypto.randomUUID();
+  const results: Array<{ invoice_id: number; approval_id?: number; error?: string }> = [];
+  for (const invoiceId of invoiceIds) {
+    if (!(await canAccessInvoice(req, invoiceId))) { results.push({ invoice_id: invoiceId, error: 'Нет доступа к документу' }); continue; }
+    try {
+      const row = await approvalRepo.create(invoiceId, action, req.user?.id ?? null, req.body?.note, batchId);
+      results.push({ invoice_id: invoiceId, approval_id: row.id });
+    } catch (error) {
+      results.push({ invoice_id: invoiceId, error: (error as Error).message });
+    }
+  }
+  res.status(201).json({ data: { batch_id: batchId, results } });
+});
+
+router.post('/approval-batches/decision', async (req: Request, res: Response) => {
+  const ids = numericIds(req.body?.approval_ids);
+  const decision = req.body?.decision as 'approved' | 'rejected';
+  if (ids.length === 0 || !['approved', 'rejected'].includes(decision)) return res.status(400).json({ error: 'approval_ids and decision are required' });
+  const results: Array<{ approval_id: number; executed?: boolean; error?: string }> = [];
+  for (const id of ids) {
+    const approval = await approvalRepo.getById(id);
+    if (!approval) { results.push({ approval_id: id, error: 'Запрос не найден' }); continue; }
+    if (!(await canDecideApproval(req, approval))) { results.push({ approval_id: id, error: 'Нет права согласовать эту сумму' }); continue; }
+    const changed = await approvalRepo.decide(id, decision, req.user?.id ?? null, req.body?.note);
+    if (!changed) { results.push({ approval_id: id, error: 'Решение уже принято' }); continue; }
+    if (decision === 'rejected') { results.push({ approval_id: id, executed: false }); continue; }
+    try {
+      await executeApprovedAction(req, approval);
+      await approvalRepo.setExecutionError(id, null);
+      results.push({ approval_id: id, executed: true });
+    } catch (error) {
+      await approvalRepo.setExecutionError(id, (error as Error).message);
+      results.push({ approval_id: id, error: (error as Error).message });
+    }
+  }
+  res.json({ data: { results } });
+});
+
+router.post('/exceptions/bulk', async (req: Request, res: Response) => {
+  const invoiceIds = numericIds(req.body?.invoice_ids);
+  const action = String(req.body?.action || '');
+  if (invoiceIds.length === 0 || !['request_1c', 'request_sber', 'approve_1c', 'release_duplicate', 'verify_supplier'].includes(action)) {
+    return res.status(400).json({ error: 'Некорректное массовое действие' });
+  }
+  if (action === 'approve_1c' && req.user?.role !== 'admin') return res.status(403).json({ error: 'Требуется роль администратора' });
+  const batchId = crypto.randomUUID();
+  const results: Array<{ invoice_id: number; success: boolean; error?: string }> = [];
+  for (const invoiceId of invoiceIds) {
+    if (!(await canAccessInvoice(req, invoiceId))) { results.push({ invoice_id: invoiceId, success: false, error: 'Нет доступа' }); continue; }
+    try {
+      if (action === 'release_duplicate') {
+        await getDb().prepare(`UPDATE invoices SET duplicate_of = NULL, duplicate_score = NULL, duplicate_reasons = NULL,
+          status = CASE WHEN status = 'duplicate' THEN 'processed' ELSE status END WHERE id = ?`).run(invoiceId);
+      } else if (action === 'verify_supplier') {
+        const invoice = await invoiceRepo.getById(invoiceId);
+        const inn = String(invoice?.supplier_inn || '');
+        if (!/^\d{10}(\d{2})?$/.test(inn)) throw new Error('У поставщика нет корректного ИНН');
+        const verified = await verifySupplier(inn);
+        if (verified.status !== 'verified') throw new Error(verified.error || 'Поставщик не найден');
+      } else {
+        const approval = await approvalRepo.create(invoiceId, action === 'request_sber' ? 'sber' : '1c', req.user?.id ?? null, req.body?.note, batchId);
+        if (action === 'approve_1c') {
+          await approvalRepo.decide(approval.id, 'approved', req.user?.id ?? null, 'Массовое решение');
+          await executeApprovedAction(req, approval);
+        }
+      }
+      results.push({ invoice_id: invoiceId, success: true });
+    } catch (error) {
+      results.push({ invoice_id: invoiceId, success: false, error: (error as Error).message });
+    }
+  }
+  res.json({ data: { batch_id: batchId, results } });
+});
+
+router.post('/bank-statement/import', statementUpload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) return res.status(400).json({ error: 'Выберите CSV-файл выписки' });
+  try {
+    const entries = parseBankStatement(req.file.buffer);
+    const result = await bankStatementRepo.import(entries, req.user?.id ?? -1, ownerScopeFor(req));
+    res.status(201).json({ data: { ...result, parsed: entries.length } });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+router.get('/bank-statement', async (req: Request, res: Response) => {
+  res.json({ data: await bankStatementRepo.list(ownerScopeFor(req)) });
+});
+
+router.patch('/calendar/:invoiceId', async (req: Request, res: Response) => {
+  const invoiceId = Number(req.params.invoiceId);
+  if (!Number.isFinite(invoiceId) || !(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Документ не найден' });
+  const dueDate = req.body?.payment_due_date == null || req.body.payment_due_date === '' ? null : String(req.body.payment_due_date);
+  const priority = String(req.body?.payment_priority || 'normal');
+  const holdReason = String(req.body?.payment_hold_reason || '').trim().slice(0, 512) || null;
+  if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return res.status(400).json({ error: 'Дата должна быть в формате ГГГГ-ММ-ДД' });
+  if (!['low', 'normal', 'high', 'critical'].includes(priority)) return res.status(400).json({ error: 'Некорректный приоритет' });
+  await getDb().prepare('UPDATE invoices SET payment_due_date = ?, payment_priority = ?, payment_hold_reason = ? WHERE id = ?')
+    .run(dueDate, priority, holdReason, invoiceId);
+  res.json({ success: true });
+});
+
+router.post('/suppliers/verify', requireAdmin, async (req: Request, res: Response) => {
+  const rawInns: string[] = Array.isArray(req.body?.inns) ? req.body.inns.map((value: unknown) => String(value).replace(/\D/g, '')) : [];
+  const inns = [...new Set(rawInns)].filter((inn: string) => /^\d{10}(\d{2})?$/.test(inn)).slice(0, 100);
+  if (inns.length === 0) return res.status(400).json({ error: 'Передайте список ИНН' });
+  const key = (await invoiceRepo.getAnalyzerConfig()).dadata_api_key;
+  const results: Awaited<ReturnType<typeof verifySupplier>>[] = [];
+  for (let offset = 0; offset < inns.length; offset += 4) {
+    results.push(...await Promise.all(inns.slice(offset, offset + 4).map(inn => verifySupplier(inn, key))));
+  }
+  res.json({ data: { results } });
+});
+
+router.post('/approval-delegates', requireAdmin, async (req: Request, res: Response) => {
+  const delegateUserId = Number(req.body?.delegate_user_id);
+  const maxAmount = req.body?.max_amount == null || req.body.max_amount === '' ? null : Number(req.body.max_amount);
+  const validUntil = req.body?.valid_until == null || req.body.valid_until === '' ? null : String(req.body.valid_until);
+  if (!Number.isFinite(delegateUserId) || delegateUserId === req.user?.id || (maxAmount != null && (!Number.isFinite(maxAmount) || maxAmount < 0))) {
+    return res.status(400).json({ error: 'Некорректный заместитель или лимит' });
+  }
+  if (validUntil && !/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) return res.status(400).json({ error: 'Дата должна быть ГГГГ-ММ-ДД' });
+  const user = await userRepo.findById(delegateUserId);
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  res.status(201).json({ data: await approvalDelegateRepo.create(req.user?.id ?? -1, delegateUserId, maxAmount, validUntil) });
+});
+
+router.delete('/approval-delegates/:id', requireAdmin, async (req: Request, res: Response) => {
+  const revoked = await approvalDelegateRepo.revoke(Number(req.params.id));
+  if (!revoked) return res.status(404).json({ error: 'Активное делегирование не найдено' });
+  res.json({ success: true });
+});
+
+router.get('/reports', async (req: Request, res: Response) => {
+  const owner = ownerScopeFor(req);
+  const settings = await automationRepo.get();
+  const [reports, rows] = await Promise.all([
+    operationsRepo.reports(owner),
+    operationsRepo.exceptions(owner, settings.min_mapping_confidence, settings.require_verified_supplier),
+  ]);
+  const exceptions = rows.map(row => ({ ...row, reasons: exceptionReasons(row, settings) })).filter(row => row.reasons.length > 0);
+  res.json({ data: { ...reports, root_causes: aggregateRootCauses(exceptions) } });
 });
 
 router.patch('/suppliers/:inn/terms', requireAdmin, async (req: Request, res: Response) => {

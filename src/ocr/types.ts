@@ -18,7 +18,7 @@ export interface OcrResult {
 export interface ParsedInvoiceData {
   invoice_number?: string;
   invoice_date?: string;
-  invoice_type?: 'счет_на_оплату' | 'торг_12' | 'упд' | 'счет_фактура';
+  invoice_type?: 'счет_на_оплату' | 'торг_12' | 'упд' | 'счет_фактура' | 'акт' | 'кассовый_чек' | 'авансовый_отчет' | 'прочее';
   supplier?: string;
   supplier_inn?: string;
   supplier_kpp?: string;

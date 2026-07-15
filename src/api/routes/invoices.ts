@@ -32,6 +32,7 @@ import { requireAdmin } from '../middleware/auth';
 import { automationRepo } from '../../database/repositories/automationRepo';
 import { approvalRepo } from '../../database/repositories/approvalRepo';
 import { makeSupplierKey, supplierMappingRepo } from '../../database/repositories/supplierMappingRepo';
+import { ocrCorrectionRepo, supplierCorrectionKey } from '../../database/repositories/ocrCorrectionRepo';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -384,6 +385,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (config.dataScopingEnabled && req.user?.role !== 'admin' && invoice.owner_user_id !== req.user?.id) {
+    return res.status(404).json({ error: 'Invoice not found' });
+  }
 
   const body = req.body as Record<string, unknown>;
   const update: Record<string, unknown> = {};
@@ -417,6 +421,13 @@ router.patch('/:id', async (req: Request, res: Response) => {
   // Validate + collect
   const invoice_number = trimOrNull(body.invoice_number);
   if (invoice_number !== undefined) update.invoice_number = invoice_number;
+
+  const invoiceType = trimOrNull(body.invoice_type);
+  const invoiceTypes = ['счет_на_оплату', 'торг_12', 'упд', 'счет_фактура', 'акт', 'кассовый_чек', 'авансовый_отчет', 'прочее'];
+  if (invoiceType !== undefined) {
+    if (invoiceType !== null && !invoiceTypes.includes(invoiceType)) return res.status(400).json({ error: 'unsupported invoice_type' });
+    update.invoice_type = invoiceType;
+  }
 
   const invoice_date = trimOrNull(body.invoice_date);
   if (invoice_date !== undefined) {
@@ -483,6 +494,11 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 
   await invoiceRepo.updateInvoiceData(id, update);
+  const correctionSupplierKey = supplierCorrectionKey(invoice);
+  for (const [field, corrected] of Object.entries(update)) {
+    const original = (invoice as unknown as Record<string, unknown>)[field];
+    await ocrCorrectionRepo.remember(correctionSupplierKey, field, original, corrected);
+  }
   const updated = await invoiceRepo.getById(id);
   return res.json({ data: updated ? await enrichInvoiceWithSupplier(updated) : null });
 });
@@ -1302,6 +1318,11 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
     res.status(404).json({ error: 'Invoice item not found' });
     return;
   }
+  const parentInvoice = await invoiceRepo.getById(invoiceId);
+  if (!parentInvoice || (config.dataScopingEnabled && req.user?.role !== 'admin' && parentInvoice.owner_user_id !== req.user?.id)) {
+    res.status(404).json({ error: 'Invoice item not found' });
+    return;
+  }
 
   // If setting a mapping, validate the GUID exists in the synced catalog
   let resolvedName: string | null = null;
@@ -1374,7 +1395,6 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
     // Touch txn so unused-param lint stays quiet — actual writes go through repos.
     void txn;
   });
-
   // Invalidate mapper cache so the next fuzzy lookup rebuilds
   if (mapper) mapper.invalidateCache();
 
@@ -1403,6 +1423,11 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
 
   const item = await invoiceRepo.getItemById(itemId);
   if (!item || item.invoice_id !== invoiceId) {
+    res.status(404).json({ error: 'Invoice item not found' });
+    return;
+  }
+  const editedInvoice = await invoiceRepo.getById(invoiceId);
+  if (!editedInvoice || (config.dataScopingEnabled && req.user?.role !== 'admin' && editedInvoice.owner_user_id !== req.user?.id)) {
     res.status(404).json({ error: 'Invoice item not found' });
     return;
   }
@@ -1472,6 +1497,9 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
     await invoiceRepo.recalculateTotal(invoiceId);
     void txn;
   });
+  if ('unit' in fields) {
+    await ocrCorrectionRepo.remember(supplierCorrectionKey(editedInvoice), 'item_unit', item.unit, fields.unit);
+  }
 
   const updated = await invoiceRepo.getItemById(itemId);
   const invoice = await invoiceRepo.getById(invoiceId);

@@ -1079,6 +1079,146 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 46,
+    name: 'business control and secure 1C onboarding',
+    // Additive and replay-safe. Every ALTER is guarded because MySQL DDL is
+    // implicitly committed and a deploy can stop between statements.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'invoices', 'payment_due_date')) &&
+      (await hasColumn(exec, 'invoices', 'payment_priority')) &&
+      (await hasColumn(exec, 'invoices', 'payment_hold_reason')) &&
+      (await hasColumn(exec, 'invoices', 'onec_status')) &&
+      (await hasColumn(exec, 'invoices', 'onec_document_ref')) &&
+      (await hasColumn(exec, 'invoices', 'onec_error')) &&
+      (await hasColumn(exec, 'invoices', 'onec_updated_at')) &&
+      (await hasColumn(exec, 'approval_requests', 'batch_id')) &&
+      (await hasColumn(exec, 'suppliers', 'verification_source')) &&
+      (await hasColumn(exec, 'suppliers', 'verified_at')) &&
+      (await hasColumn(exec, 'suppliers', 'verification_fingerprint')) &&
+      (await hasColumn(exec, 'suppliers', 'verification_risk')) &&
+      (await hasColumn(exec, 'analyzer_config', 'payment_cash_balance')) &&
+      (await hasTable(exec, 'bank_statement_entries')) &&
+      (await hasTable(exec, 'ocr_corrections')) &&
+      (await hasTable(exec, 'onec_connections')) &&
+      (await hasTable(exec, 'approval_delegates')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'payment_due_date'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN payment_due_date DATE NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'payment_priority'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN payment_priority VARCHAR(16) NOT NULL DEFAULT 'normal'`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'payment_hold_reason'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN payment_hold_reason VARCHAR(512) NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'onec_status'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN onec_status VARCHAR(24) NOT NULL DEFAULT 'not_sent'`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'onec_document_ref'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN onec_document_ref VARCHAR(255) NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'onec_error'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN onec_error TEXT NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'onec_updated_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN onec_updated_at DATETIME NULL`);
+      }
+      if (!(await hasColumn(exec, 'approval_requests', 'batch_id'))) {
+        await exec.query(`ALTER TABLE approval_requests ADD COLUMN batch_id CHAR(36) NULL`);
+        if (!(await hasIndex(exec, 'approval_requests', 'idx_approval_batch'))) {
+          await exec.query(`CREATE INDEX idx_approval_batch ON approval_requests(batch_id)`);
+        }
+      }
+      for (const [column, ddl] of [
+        ['verification_source', 'VARCHAR(32) NULL'],
+        ['verified_at', 'DATETIME NULL'],
+        ['verification_fingerprint', 'CHAR(64) NULL'],
+        ['verification_risk', 'TEXT NULL'],
+      ] as const) {
+        if (!(await hasColumn(exec, 'suppliers', column))) {
+          await exec.query(`ALTER TABLE suppliers ADD COLUMN ${column} ${ddl}`);
+        }
+      }
+      if (!(await hasColumn(exec, 'analyzer_config', 'payment_cash_balance'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN payment_cash_balance DOUBLE NULL`);
+      }
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS bank_statement_entries (
+          id                    INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id         INT NULL,
+          operation_date        DATE NOT NULL,
+          amount                DOUBLE NOT NULL,
+          direction             VARCHAR(8) NOT NULL,
+          counterparty          VARCHAR(512) NULL,
+          counterparty_inn      VARCHAR(32) NULL,
+          account               VARCHAR(64) NULL,
+          purpose               TEXT NULL,
+          external_id           VARCHAR(128) NULL,
+          operation_hash        CHAR(64) NOT NULL,
+          matched_invoice_id    INT NULL,
+          match_score           DOUBLE NULL,
+          match_reason          VARCHAR(512) NULL,
+          imported_by           INT NULL,
+          created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_bank_entry_owner_hash (owner_user_id, operation_hash),
+          INDEX idx_bank_entry_invoice (matched_invoice_id),
+          INDEX idx_bank_entry_date (operation_date),
+          CONSTRAINT fk_bank_entry_invoice FOREIGN KEY (matched_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS ocr_corrections (
+          id               INT AUTO_INCREMENT PRIMARY KEY,
+          supplier_key     VARCHAR(128) NOT NULL,
+          field_name       VARCHAR(64) NOT NULL,
+          original_hash    CHAR(64) NOT NULL,
+          original_value   VARCHAR(1024) NOT NULL,
+          corrected_value  VARCHAR(1024) NOT NULL,
+          times_seen       INT NOT NULL DEFAULT 1,
+          created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          last_used_at     DATETIME NULL,
+          UNIQUE KEY uq_ocr_correction (supplier_key, field_name, original_hash)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS onec_connections (
+          id            INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id INT NOT NULL,
+          name          VARCHAR(128) NOT NULL,
+          token_hash    CHAR(64) NOT NULL UNIQUE,
+          token_prefix  VARCHAR(12) NOT NULL,
+          active        TINYINT(1) NOT NULL DEFAULT 1,
+          last_used_at  DATETIME NULL,
+          last_ip       VARCHAR(64) NULL,
+          created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          revoked_at    DATETIME NULL,
+          INDEX idx_onec_connection_owner (owner_user_id, active),
+          CONSTRAINT fk_onec_connection_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS approval_delegates (
+          id                INT AUTO_INCREMENT PRIMARY KEY,
+          delegator_user_id INT NOT NULL,
+          delegate_user_id  INT NOT NULL,
+          max_amount        DOUBLE NULL,
+          valid_until       DATE NULL,
+          active            TINYINT(1) NOT NULL DEFAULT 1,
+          created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          revoked_at        DATETIME NULL,
+          INDEX idx_approval_delegate_active (delegate_user_id, active, valid_until),
+          CONSTRAINT fk_approval_delegator FOREIGN KEY (delegator_user_id) REFERENCES users(id) ON DELETE CASCADE,
+          CONSTRAINT fk_approval_delegate FOREIGN KEY (delegate_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

@@ -375,6 +375,9 @@ const Invoices = {
         if (data.invoice_type) {
           html += `<div class="invoice-field"><div class="field-label">Тип документа</div><div class="field-value">${App.esc(data.invoice_type)}</div></div>`;
         }
+        if (data.onec_status && data.onec_status !== 'not_sent') {
+          html += `<div class="invoice-field"><div class="field-label">Статус в 1С</div><div class="field-value">${App.esc(data.onec_status)}${data.onec_document_ref ? ` · ${App.esc(data.onec_document_ref)}` : ''}${data.onec_error ? `<small class="text-danger">${App.esc(data.onec_error)}</small>` : ''}</div></div>`;
+        }
         if (data.supplier_inn) {
           html += `<div class="invoice-field"><div class="field-label">ИНН</div><div class="field-value">${App.esc(data.supplier_inn)}</div></div>`;
         }
@@ -788,6 +791,7 @@ const Invoices = {
   _REQUIRED_FOR_SBER: ['supplier', 'supplier_inn', 'supplier_bik', 'total_sum'],
 
   _FIELD_LABELS: {
+    invoice_type: 'Тип документа',
     invoice_number: 'Номер накладной',
     invoice_date: 'Дата (YYYY-MM-DD)',
     supplier: 'Поставщик (название)',
@@ -847,7 +851,7 @@ const Invoices = {
     const missing = new Set(this._missingFields(invoice, requiredFields));
 
     const fieldOrder = [
-      'invoice_number', 'invoice_date', 'total_sum', 'vat_sum',
+      'invoice_type', 'invoice_number', 'invoice_date', 'total_sum', 'vat_sum',
       'supplier', 'supplier_inn', 'supplier_kpp',
       'supplier_bik', 'supplier_account', 'supplier_corr_account',
       'supplier_address',
@@ -863,6 +867,10 @@ const Invoices = {
       const inputType = name === 'invoice_date' ? 'date' :
                         (name === 'total_sum' || name === 'vat_sum') ? 'number' : 'text';
       const step = inputType === 'number' ? 'step="0.01"' : '';
+      if (name === 'invoice_type') {
+        const types = [['счет_на_оплату','Счёт на оплату'],['торг_12','ТОРГ-12'],['упд','УПД'],['счет_фактура','Счёт-фактура'],['акт','Акт'],['кассовый_чек','Кассовый чек'],['авансовый_отчет','Авансовый отчёт'],['прочее','Прочее']];
+        return `<label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--muted,#64748b)">${label}</span><select name="invoice_type">${types.map(([type, title]) => `<option value="${type}"${value === type ? ' selected' : ''}>${title}</option>`).join('')}</select></label>`;
+      }
       return `
         <label style="display:flex;flex-direction:column;gap:4px;${wide ? 'grid-column:1/-1' : ''}">
           <span style="font-size:12px;color:var(--muted,#64748b)">${label}${star}</span>

@@ -15,6 +15,10 @@ export interface Supplier {
   created_at: string;
   updated_at: string;
   last_used_at: string | null;
+  verification_source: string | null;
+  verified_at: string | null;
+  verification_fingerprint: string | null;
+  verification_risk: string | null;
 }
 
 export interface CreateSupplierInput {
@@ -29,6 +33,10 @@ export interface CreateSupplierInput {
   verified?: number;
   source?: string | null;
   notes?: string | null;
+  verification_source?: string | null;
+  verified_at?: string | null;
+  verification_fingerprint?: string | null;
+  verification_risk?: string | null;
 }
 
 export interface ListOptions {
@@ -46,6 +54,7 @@ export interface ListOptions {
 const SUPPLIER_UPDATE_COLUMNS = new Set<string>([
   'name', 'kpp', 'account', 'bank_bic', 'bank_corr_account',
   'bank_name', 'address', 'verified', 'source', 'notes', 'last_used_at',
+  'verification_source', 'verified_at', 'verification_fingerprint', 'verification_risk',
 ]);
 
 export const supplierRepo = {

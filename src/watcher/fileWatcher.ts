@@ -20,6 +20,7 @@ import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 import { UploadSource } from '../utils/uploadSource';
+import { ocrCorrectionRepo } from '../database/repositories/ocrCorrectionRepo';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -341,6 +342,7 @@ export class FileWatcher {
     if (!parsed) {
       throw new Error('Failed to parse invoice — neither structured analyzer nor regex parser produced data');
     }
+    parsed = await ocrCorrectionRepo.apply(parsed as unknown as Record<string, unknown>) as unknown as ParsedInvoiceData;
 
     // Заменяем metadata + raw_text + items
     await invoiceRepo.deleteItems(invoiceId);
@@ -521,7 +523,9 @@ export class FileWatcher {
     } else {
       ocrResult = await this.ocrManager.recognize(filePath);
     }
-    const parsed = ocrResult.structured ?? parseInvoiceText(ocrResult);
+    const parsed = await ocrCorrectionRepo.apply(
+      (ocrResult.structured ?? parseInvoiceText(ocrResult)) as unknown as Record<string, unknown>,
+    ) as unknown as ParsedInvoiceData;
     if (!parsed) throw new Error('Failed to parse the added page');
 
     // Photo → gallery; move file from inbox to processed so it serves and the
@@ -748,7 +752,9 @@ export class FileWatcher {
 
       // 3. Parse: use Claude's structured data if available, else regex parser
       await invoiceRepo.updateStatus(invoice.id, 'parsing');
-      const parsed = ocrResult.structured ?? parseInvoiceText(ocrResult);
+      const parsed = await ocrCorrectionRepo.apply(
+        (ocrResult.structured ?? parseInvoiceText(ocrResult)) as unknown as Record<string, unknown>,
+      ) as unknown as ParsedInvoiceData;
 
       if (ocrResult.structured) {
         logger.info('Using Claude analyzer structured data', {
@@ -973,7 +979,9 @@ export class FileWatcher {
 
             const multiResult = await this.ocrManager.analyzeMultiPageText(combinedText, pageCount);
             if (multiResult.structured) {
-              const unifiedParsed = multiResult.structured;
+              const unifiedParsed = await ocrCorrectionRepo.apply(
+                multiResult.structured as unknown as Record<string, unknown>,
+              ) as unknown as ParsedInvoiceData;
 
               // Delete old items and re-save all from unified result
               await invoiceRepo.deleteItems(targetInvoiceId);

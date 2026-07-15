@@ -364,7 +364,7 @@ export const invoiceRepo = {
     // Clear any stale reservation so a (re-)approved invoice is immediately
     // pullable by the next /pending poll instead of waiting out an old window.
     await getDb()
-      .prepare("UPDATE invoices SET approved_for_1c = 1, approved_at = NOW(), onec_pulled_at = NULL WHERE id = ?")
+      .prepare("UPDATE invoices SET approved_for_1c = 1, approved_at = NOW(), onec_pulled_at = NULL, onec_status = 'queued', onec_error = NULL, onec_updated_at = NOW() WHERE id = ?")
       .run(id);
   },
 
@@ -475,7 +475,7 @@ export const invoiceRepo = {
 
   async markSent(id: number): Promise<void> {
     await getDb()
-      .prepare("UPDATE invoices SET status = 'sent_to_1c', sent_at = NOW() WHERE id = ?")
+      .prepare("UPDATE invoices SET status = 'sent_to_1c', sent_at = NOW(), onec_status = 'posted', onec_error = NULL, onec_updated_at = NOW() WHERE id = ?")
       .run(id);
   },
 
