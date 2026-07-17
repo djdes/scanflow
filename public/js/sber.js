@@ -23,7 +23,9 @@ const Sber = {
       `;
       return;
     }
-    const expiredText = s.token_expired ? 'просрочен (нужно обновить)' : 'активен';
+    const expiredText = s.token_expired
+      ? '<strong style="color:#f59e0b">просрочен — обновите ниже</strong>'
+      : '<strong style="color:#10b981">активен</strong>';
     const dotColor = s.token_expired ? '#f59e0b' : '#10b981';
     card.innerHTML = `
       <p>● <strong style="color:${dotColor}">Подключено: ${App.esc(s.org_name || '?')}</strong></p>
@@ -31,7 +33,24 @@ const Sber = {
       <p class="muted">Токен: ${expiredText}</p>
       <p class="muted">Реквизиты плательщика: ${s.payer_complete ? 'заполнены' : '<strong style="color:#f59e0b">НЕПОЛНЫЕ — заполните ниже</strong>'}</p>
     `;
+    const tokenBorder = s.token_expired ? 'border-color:#f59e0b' : '';
     actions.innerHTML = `
+      <div class="card" style="margin-bottom:24px;${tokenBorder}">
+        <h3 style="margin-bottom:4px">Токен API СберБизнес</h3>
+        <p class="muted" style="margin-bottom:12px">
+          Вставьте новый Access и Refresh токен, чтобы продлить доступ — реквизиты плательщика при этом сохранятся.
+        </p>
+        ${this.tokenHelpHtml()}
+        <form id="sber-token-form" style="display:grid;gap:12px;max-width:480px;margin-top:16px">
+          <label>Access Token<input name="access_token" autocomplete="off" spellcheck="false" required></label>
+          <label>Refresh Token<input name="refresh_token" autocomplete="off" spellcheck="false" required></label>
+          <label>Действует до <span class="muted" style="font-weight:400">(необязательно, по умолчанию +30 дней)</span><input name="expires_at" type="date"></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary" type="submit">Сохранить токен</button>
+            <button type="button" class="btn btn-outline" onclick="window.location.href='/api/sber/authorize?key='+encodeURIComponent(App.apiKey)">Обновить через OAuth (автоматически)</button>
+          </div>
+        </form>
+      </div>
       <h3 style="margin-bottom:12px">Реквизиты плательщика</h3>
       <form id="sber-payer-form" style="display:grid;gap:12px;max-width:480px;margin-bottom:16px">
         <label>ИНН<input name="payer_inn" value="${App.esc(s.payer_inn || '')}" pattern="[0-9]{10}|[0-9]{12}" required></label>
@@ -42,7 +61,61 @@ const Sber = {
       </form>
       <button class="btn btn-danger" onclick="Sber.disconnect()">Отключить Сбербанк</button>
     `;
+    document.getElementById('sber-token-form').addEventListener('submit', (e) => Sber.saveSeed(e));
     document.getElementById('sber-payer-form').addEventListener('submit', (e) => Sber.savePayer(e));
+  },
+
+  // Пошаговая инструкция «где взять токен на СберБизнес». Используется и в
+  // подключённом состоянии (обновление токена), и в форме первичного ввода.
+  tokenHelpHtml() {
+    const SBBOL_URL = 'https://sbi.sberbank.ru:9443/ic/ufs/host/index.html#/sbbapi/org-account';
+    return `
+      <details class="help-block">
+        <summary>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          Где взять токен на СберБизнес и какой именно
+        </summary>
+        <ol class="help-steps">
+          <li>
+            <span class="help-step-num">1</span>
+            <div>Откройте <b>СберБизнес → раздел «Интеграция по API»</b>. Кнопка ниже ведёт прямо на нужную страницу управления API-доступом.
+              <div style="margin-top:8px">
+                <a href="${SBBOL_URL}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">Открыть СберБизнес →</a>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="help-step-num">2</span>
+            <div>Выберите вашу организацию и <b>расчётный счёт</b>, по которому пойдут платежи.</div>
+          </li>
+          <li>
+            <span class="help-step-num">3</span>
+            <div>В правах доступа отметьте продукт <b>«Платежи»</b> — право <code>PAY_DOC_RU</code>. Без него ScanFlow не сможет создавать платёжные поручения.</div>
+          </li>
+          <li>
+            <span class="help-step-num">4</span>
+            <div>Подтвердите доступ (токен/SMS). Портал покажет <b>два значения</b>:
+              <ul style="margin:6px 0 0;padding-left:18px">
+                <li><b>Access token</b> (токен доступа) — им ScanFlow подписывает каждый запрос. Именно он «протухает» через несколько часов/дней — тогда его и нужно обновить здесь.</li>
+                <li><b>Refresh token</b> (токен обновления) — длинный, живёт дольше; используется, чтобы автоматически продлевать access-токен.</li>
+              </ul>
+            </div>
+          </li>
+          <li>
+            <span class="help-step-num">5</span>
+            <div>Скопируйте оба значения и вставьте в поля ниже: access → в <b>«Access Token»</b>, refresh → в <b>«Refresh Token»</b>. Если портал показал срок действия — впишите его в <b>«Действует до»</b>.</div>
+          </li>
+          <li>
+            <span class="help-step-num">6</span>
+            <div>Нажмите <b>«Сохранить токен»</b>. Готово — доступ продлён.</div>
+          </li>
+        </ol>
+        <p class="muted" style="margin-top:8px;font-size:12px">
+          Названия разделов на портале могут немного отличаться. Чтобы не обновлять токен вручную каждый раз — нажмите
+          <b>«Обновить через OAuth»</b>: ScanFlow проведёт авторизацию и будет продлевать access-токен сам.
+        </p>
+      </details>
+    `;
   },
 
   toggleSeedForm() {
@@ -50,11 +123,12 @@ const Sber = {
     if (wrap.style.display === 'none' || !wrap.innerHTML) {
       wrap.innerHTML = `
         <div class="card">
-          <h3 style="margin-bottom:12px">Manual seed-token</h3>
-          <p class="muted" style="margin-bottom:12px">Вставьте токены и реквизиты с портала developers.sber.ru.</p>
-          <form id="seed-form" style="display:grid;gap:12px;max-width:480px">
-            <label>Access Token<input name="access_token" required></label>
-            <label>Refresh Token<input name="refresh_token" required></label>
+          <h3 style="margin-bottom:12px">Ввод токенов вручную</h3>
+          <p class="muted" style="margin-bottom:12px">Вставьте Access и Refresh токен с СберБизнес, а также реквизиты плательщика.</p>
+          ${this.tokenHelpHtml()}
+          <form id="seed-form" style="display:grid;gap:12px;max-width:480px;margin-top:16px">
+            <label>Access Token<input name="access_token" autocomplete="off" spellcheck="false" required></label>
+            <label>Refresh Token<input name="refresh_token" autocomplete="off" spellcheck="false" required></label>
             <label>Номер расчётного счёта (20 цифр)<input name="account_number" pattern="[0-9]{20}"></label>
             <label>Наименование организации<input name="org_name"></label>
             <label>ИНН<input name="payer_inn" pattern="[0-9]{10}|[0-9]{12}"></label>
