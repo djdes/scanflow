@@ -144,6 +144,7 @@ router.post('/extract-from-photo', extractUpload.single('file'), async (req: Req
         file_name: req.file.originalname,
         file_path: tmpPath,
         content_type: contentTypeForExt(ext),
+        owner_user_id: req.user?.id ?? null,
       });
       await dispatchSupplierExtract(jobId, token, ext || '.jpg');
       logger.info('Supplier extract: dispatched', { jobId, fileName: req.file.originalname });

@@ -1219,6 +1219,22 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 47,
+    name: 'supplier_extract_jobs.owner_user_id — владелец задачи извлечения реквизитов',
+    // Аддитивно и идемпотентно: только nullable-колонка + индекс, ключи не трогаем.
+    // Бэкфилл не нужен — задачи одноразовые и живут минуты; строка без владельца
+    // просто не породит уведомление (см. notifySupplierExtractError).
+    detect: async (exec) => hasColumn(exec, 'supplier_extract_jobs', 'owner_user_id'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'supplier_extract_jobs', 'owner_user_id'))) {
+        await exec.query(`ALTER TABLE supplier_extract_jobs ADD COLUMN owner_user_id INT NULL`);
+        await exec.query(
+          `CREATE INDEX idx_supplier_extract_jobs_owner ON supplier_extract_jobs(owner_user_id)`
+        );
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
