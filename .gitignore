@@ -54,3 +54,10 @@ _view/
 
 # subagent-driven-development scratch (ledger, reports, review packages)
 .superpowers/
+
+# Локальные вспомогательные скрипты (не часть продукта) — дважды случайно
+# попадали в коммит через "git add src".
+src/scripts/fill-mappings.py
+src/scripts/generate-mappings.ts
+src/scripts/ingest-photo.ts
+src/scripts/test-claude-direct.ts
