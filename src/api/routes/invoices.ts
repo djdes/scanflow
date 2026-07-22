@@ -1630,9 +1630,17 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'payer details incomplete (settings → Сбербанк)' });
   }
 
+  // Справочник поставщиков пер-тенантный: работаем только в области владельца
+  // накладной. Без владельца платить нельзя — иначе реквизиты пришлось бы
+  // искать в чужой компании.
+  const supplierOwnerId = invoice.owner_user_id;
+  if (supplierOwnerId == null) {
+    return res.status(400).json({ error: 'У накладной не указан владелец — отправка в Сбербанк невозможна' });
+  }
+
   // Resolve supplier
   const overrides = (req.body as { supplier_overrides?: Record<string, unknown> }).supplier_overrides;
-  let supplier = await supplierRepo.findByInn(invoice.supplier_inn);
+  let supplier = await supplierRepo.findByInn(invoice.supplier_inn, supplierOwnerId);
   if (overrides) {
     const o = overrides as {
       inn?: string; name?: string; kpp?: string;
@@ -1648,7 +1656,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       bank_corr_account: o.bank_corr_account ?? null,
       bank_name: o.bank_name ?? null, address: o.address ?? null,
       verified: 1, source: 'invoice',
-    });
+    }, supplierOwnerId);
   }
   if (!supplier || !supplier.verified) {
     // Prefill the confirmation modal from the saved supplier card (looked up by
@@ -1768,7 +1776,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       sber_payment_number: result.number ?? null,
       response_body: JSON.stringify(redact(result)),
     });
-    await supplierRepo.touchLastUsed(supplier.inn);
+    await supplierRepo.touchLastUsed(supplier.inn, supplierOwnerId);
     logger.info('[sber] payment created', { invoice_id: id, number: result.number, externalId });
     void logIntegrationEvent({
       integration: 'sber', event_type: 'payment_created', invoice_id: id,

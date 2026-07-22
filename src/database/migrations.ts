@@ -1235,6 +1235,76 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 48,
+    name: 'supplier_cards — пер-тенантный справочник поставщиков (без DROP)',
+    // СТРОГО АДДИТИВНАЯ миграция: только CREATE TABLE + копирование строк.
+    // Никаких DROP и никаких ALTER существующих таблиц.
+    //
+    // Почему новая таблица, а не перестройка `suppliers`: там PRIMARY KEY (inn),
+    // то есть один ИНН физически может существовать лишь в одном экземпляре, и
+    // две компании не могут держать свои реквизиты одного поставщика. Убрать это
+    // ограничение можно только сняв первичный ключ — а DROP запрещён. Поэтому
+    // заводим новую таблицу нужной формы, а старая `suppliers` остаётся нетронутой.
+    //
+    // Побочная выгода: откат = вернуть код. Данные в `suppliers` при этом целы,
+    // терять нечего даже при полном провале выкатки.
+    detect: async (exec) => hasTable(exec, 'supplier_cards'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS supplier_cards (
+          id                       INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id            INT NULL,
+          inn                      VARCHAR(32) NOT NULL,
+          name                     VARCHAR(512) NOT NULL,
+          kpp                      VARCHAR(32) NULL,
+          account                  VARCHAR(64) NULL,
+          bank_bic                 VARCHAR(32) NOT NULL,
+          bank_corr_account        VARCHAR(64) NULL,
+          bank_name                VARCHAR(512) NULL,
+          address                  VARCHAR(1024) NULL,
+          verified                 TINYINT(1) NOT NULL DEFAULT 0,
+          source                   VARCHAR(64) NULL,
+          notes                    TEXT NULL,
+          created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_used_at             DATETIME NULL,
+          payment_terms_days       INT NOT NULL DEFAULT 7,
+          verification_source      VARCHAR(32) NULL,
+          verified_at              DATETIME NULL,
+          verification_fingerprint CHAR(64) NULL,
+          verification_risk        TEXT NULL,
+          UNIQUE KEY uq_supplier_cards_owner_inn (owner_user_id, inn),
+          INDEX idx_supplier_cards_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      // Переносим существующий справочник админской компании. Владельца
+      // проставляем конкретным id, а не NULL: MySQL не схлопывает NULL в UNIQUE,
+      // поэтому строки с NULL потеряли бы защиту от дублей.
+      //
+      // ON DUPLICATE KEY делает копирование идемпотентным: повторный прогон
+      // (в т.ч. после обрыва деплоя) не создаёт дублей и ничего не перетирает.
+      if (await hasTable(exec, 'suppliers')) {
+        await exec.query(`
+          INSERT INTO supplier_cards
+            (owner_user_id, inn, name, kpp, account, bank_bic, bank_corr_account,
+             bank_name, address, verified, source, notes, created_at, updated_at,
+             last_used_at, payment_terms_days, verification_source, verified_at,
+             verification_fingerprint, verification_risk)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 s.inn, s.name, s.kpp, s.account, s.bank_bic, s.bank_corr_account,
+                 s.bank_name, s.address, s.verified, s.source, s.notes,
+                 s.created_at, s.updated_at, s.last_used_at, s.payment_terms_days,
+                 s.verification_source, s.verified_at,
+                 s.verification_fingerprint, s.verification_risk
+            FROM suppliers s
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE supplier_cards.id = supplier_cards.id
+        `);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

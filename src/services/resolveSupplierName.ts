@@ -25,10 +25,13 @@ import { supplierRepo } from '../database/repositories/supplierRepo';
 export async function resolveSupplierName(
   rawSupplier: string | null | undefined,
   inn: string | null | undefined,
+  ownerUserId: number | null,
 ): Promise<string | undefined> {
   const innTrim = inn ? String(inn).trim() : '';
-  if (innTrim) {
-    const dir = await supplierRepo.findByInn(innTrim);
+  // Справочник пер-тенантный: без владельца в него не заглядываем — иначе
+  // название подставилось бы из карточки чужой компании.
+  if (innTrim && ownerUserId != null) {
+    const dir = await supplierRepo.findByInn(innTrim, ownerUserId);
     if (dir && dir.verified && dir.name) return dir.name;
   }
   if (!rawSupplier) return undefined;

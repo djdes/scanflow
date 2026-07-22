@@ -39,8 +39,9 @@ export function setMapper(m: NomenclatureMapper): void { mapper = m; }
 async function resolveSupplier(
   rawSupplier: string | null | undefined,
   inn: string | null | undefined,
+  ownerUserId: number | null,
 ): Promise<string | undefined> {
-  return resolveSupplierName(rawSupplier, inn);
+  return resolveSupplierName(rawSupplier, inn, ownerUserId);
 }
 
 /**
@@ -432,7 +433,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       // (which only appears on the LAST page).
       await invoiceRepo.updateInvoiceData(targetInvoiceId, {
         invoice_number: mergeTarget.invoice_number ? undefined : (data.invoice_number ?? undefined),
-        supplier: mergeTarget.supplier ? undefined : await resolveSupplier(data.supplier, data.supplier_inn),
+        supplier: mergeTarget.supplier ? undefined : await resolveSupplier(data.supplier, data.supplier_inn, row.owner_user_id),
         total_sum: data.total_sum ?? undefined,
         vat_sum: data.vat_sum ?? undefined,
       });
@@ -443,7 +444,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         invoice_type: data.invoice_type ?? undefined,
         invoice_number: data.invoice_number ?? undefined,
         invoice_date: data.invoice_date ?? undefined,
-        supplier: await resolveSupplier(data.supplier, data.supplier_inn),
+        supplier: await resolveSupplier(data.supplier, data.supplier_inn, row.owner_user_id),
         supplier_inn: data.supplier_inn ?? undefined,
         supplier_bik: data.supplier_bik ?? undefined,
         supplier_account: data.supplier_account ?? undefined,

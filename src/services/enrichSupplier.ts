@@ -21,10 +21,14 @@ import type { Invoice } from '../database/repositories/invoiceRepo';
  */
 export async function enrichInvoiceWithSupplier<T extends Pick<Invoice,
   'supplier' | 'supplier_inn' | 'supplier_kpp' | 'supplier_bik' |
-  'supplier_account' | 'supplier_corr_account' | 'supplier_address'
+  'supplier_account' | 'supplier_corr_account' | 'supplier_address' | 'owner_user_id'
 >>(invoice: T): Promise<T> {
   if (!invoice.supplier_inn) return invoice;
-  const supplier = await supplierRepo.findByInn(invoice.supplier_inn);
+  // Справочник пер-тенантный: подтягиваем карточку только владельца накладной.
+  // Накладная без владельца (файл положили прямо в inbox/) справочником не
+  // обогащается — претендента на неё нет, а брать чужую карточку нельзя.
+  if (invoice.owner_user_id == null) return invoice;
+  const supplier = await supplierRepo.findByInn(invoice.supplier_inn, invoice.owner_user_id);
   if (!supplier || !supplier.verified) return invoice;
 
   return {

@@ -266,16 +266,21 @@ export async function validateSupplierJobToken(
 export async function validateDispatcherToken(
   invoiceId: number,
   token: string,
-): Promise<{ id: number; file_path: string; status: string } | null> {
+): Promise<{ id: number; file_path: string; status: string; owner_user_id: number | null } | null> {
   if (!token || typeof token !== 'string' || token.length !== 64) return null;
   const row = await getDb()
     .prepare(
-      'SELECT id, file_path, status, dispatcher_token FROM invoices WHERE id = ?',
+      'SELECT id, file_path, status, owner_user_id, dispatcher_token FROM invoices WHERE id = ?',
     )
-    .get<{ id: number; file_path: string; status: string; dispatcher_token: string | null }>(invoiceId);
+    .get<{
+      id: number; file_path: string; status: string;
+      owner_user_id: number | null; dispatcher_token: string | null;
+    }>(invoiceId);
   if (!row) return null;
   if (!row.dispatcher_token || row.dispatcher_token !== token) return null;
-  return { id: row.id, file_path: row.file_path, status: row.status };
+  // owner_user_id пробрасывается: справочник поставщиков пер-тенантный, и
+  // обработчик результата должен смотреть в него от имени владельца накладной.
+  return { id: row.id, file_path: row.file_path, status: row.status, owner_user_id: row.owner_user_id };
 }
 
 /**

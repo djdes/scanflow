@@ -70,17 +70,26 @@ function validateSupplier(body: SupplierBody | undefined): string | null {
   return null;
 }
 
+// Владелец справочника — всегда текущий пользователь. Значения по умолчанию нет:
+// роут закрыт apiKeyAuth, поэтому запрос без пользователя сюда не доходит, а если
+// дойдёт — пусть падает явно, а не читает чужие банковские реквизиты.
+function ownerOf(req: Request): number {
+  const id = req.user?.id;
+  if (id == null) throw new Error('supplier route reached without an authenticated user');
+  return id;
+}
+
 router.get('/', async (req: Request, res: Response) => {
   const q = (req.query.q as string | undefined) || undefined;
   const verified = req.query.verified !== undefined ? Number(req.query.verified) : undefined;
   const limit = Math.min(parseInt((req.query.limit as string) || '100', 10), 500);
   const offset = parseInt((req.query.offset as string) || '0', 10);
-  const suppliers = await supplierRepo.list({ q, verified, limit, offset });
+  const suppliers = await supplierRepo.list({ ownerUserId: ownerOf(req), q, verified, limit, offset });
   return res.json({ suppliers });
 });
 
 router.get('/:inn', async (req: Request, res: Response) => {
-  const supplier = await supplierRepo.findByInn((req.params.inn as string));
+  const supplier = await supplierRepo.findByInn((req.params.inn as string), ownerOf(req));
   if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
   return res.json({ supplier });
 });
@@ -89,7 +98,7 @@ router.post('/', async (req: Request, res: Response) => {
   const err = validateSupplier(req.body as SupplierBody);
   if (err) return res.status(400).json({ error: err });
   const body = req.body as Required<Pick<SupplierBody, 'inn' | 'name' | 'bank_bic'>> & SupplierBody;
-  if (await supplierRepo.findByInn(body.inn)) {
+  if (await supplierRepo.findByInn(body.inn, ownerOf(req))) {
     return res.status(409).json({ error: 'Supplier with this INN already exists' });
   }
   const supplier = await supplierRepo.create({
@@ -100,23 +109,23 @@ router.post('/', async (req: Request, res: Response) => {
     verified: 1, // ручное создание = подтверждено
     source: body.source ?? 'manual',
     notes: body.notes ?? null,
-  });
+  }, ownerOf(req));
   return res.status(201).json({ supplier });
 });
 
 router.patch('/:inn', async (req: Request, res: Response) => {
-  const existing = await supplierRepo.findByInn((req.params.inn as string));
+  const existing = await supplierRepo.findByInn((req.params.inn as string), ownerOf(req));
   if (!existing) return res.status(404).json({ error: 'Supplier not found' });
   const body = req.body as SupplierBody;
   if (body.bank_bic && !BIC_RE.test(body.bank_bic)) return res.status(400).json({ error: 'bank_bic must be 9 digits' });
   if (body.account && !ACC_RE.test(body.account)) return res.status(400).json({ error: 'account must be 20 digits' });
   if (body.bank_corr_account && !ACC_RE.test(body.bank_corr_account)) return res.status(400).json({ error: 'bank_corr_account must be 20 digits' });
-  await supplierRepo.update((req.params.inn as string), body);
-  return res.json({ supplier: await supplierRepo.findByInn((req.params.inn as string)) });
+  await supplierRepo.update((req.params.inn as string), ownerOf(req), body);
+  return res.json({ supplier: await supplierRepo.findByInn((req.params.inn as string), ownerOf(req)) });
 });
 
 router.delete('/:inn', async (req: Request, res: Response) => {
-  await supplierRepo.delete((req.params.inn as string));
+  await supplierRepo.delete((req.params.inn as string), ownerOf(req));
   return res.json({ success: true });
 });
 
@@ -230,7 +239,7 @@ router.post('/merge', async (req: Request, res: Response) => {
     verified: body.verified ?? 0,
     source: body.source ?? 'photo-extract',
     notes: body.notes ?? null,
-  });
+  }, ownerOf(req));
   return res.json(result);
 });
 

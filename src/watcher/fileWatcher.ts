@@ -208,8 +208,9 @@ export class FileWatcher {
   private async resolveSupplier(
     rawSupplier: string | null | undefined,
     inn: string | null | undefined,
+    ownerUserId: number | null,
   ): Promise<string | undefined> {
-    return resolveSupplierName(rawSupplier, inn);
+    return resolveSupplierName(rawSupplier, inn, ownerUserId);
   }
 
   /**
@@ -306,7 +307,7 @@ export class FileWatcher {
     await invoiceRepo.updateInvoiceData(invoiceId, {
       invoice_number: parsed.invoice_number,
       invoice_date: parsed.invoice_date,
-      supplier: await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
+      supplier: await this.resolveSupplier(parsed.supplier, parsed.supplier_inn, invoice.owner_user_id),
       total_sum: parsed.total_sum,
       vat_sum: parsed.vat_sum,
       invoice_type: parsed.invoice_type,
@@ -551,7 +552,7 @@ export class FileWatcher {
     // page prints the running total). recalculateTotal re-derives vat_sum and
     // re-checks the mismatch flag from the combined item set.
     await invoiceRepo.updateInvoiceData(targetInvoiceId, {
-      supplier: target.supplier ? undefined : await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
+      supplier: target.supplier ? undefined : await this.resolveSupplier(parsed.supplier, parsed.supplier_inn, target.owner_user_id),
       invoice_number: target.invoice_number ? undefined : (parsed.invoice_number ?? undefined),
       invoice_date: target.invoice_date ? undefined : (parsed.invoice_date ?? undefined),
       supplier_inn: target.supplier_inn ? undefined : (parsed.supplier_inn ?? undefined),
@@ -947,7 +948,7 @@ export class FileWatcher {
               await invoiceRepo.updateInvoiceData(targetInvoiceId, {
                 invoice_number: unifiedParsed.invoice_number,
                 invoice_date: unifiedParsed.invoice_date,
-                supplier: await this.resolveSupplier(unifiedParsed.supplier, unifiedParsed.supplier_inn),
+                supplier: await this.resolveSupplier(unifiedParsed.supplier, unifiedParsed.supplier_inn, invoice.owner_user_id),
                 total_sum: unifiedParsed.total_sum,
                 vat_sum: unifiedParsed.vat_sum,
                 invoice_type: unifiedParsed.invoice_type,
@@ -1148,7 +1149,7 @@ export class FileWatcher {
         await invoiceRepo.updateInvoiceData(invoice.id, {
           invoice_number: parsed.invoice_number,
           invoice_date: parsed.invoice_date,
-          supplier: await this.resolveSupplier(parsed.supplier, parsed.supplier_inn),
+          supplier: await this.resolveSupplier(parsed.supplier, parsed.supplier_inn, invoice.owner_user_id),
           total_sum: parsed.total_sum,
           vat_sum: parsed.vat_sum,
           invoice_type: parsed.invoice_type,

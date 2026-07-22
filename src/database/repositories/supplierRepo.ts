@@ -1,6 +1,9 @@
 import { getDb } from '../db';
 
 export interface Supplier {
+  id: number;
+  /** Компания-владелец карточки. Справочник пер-тенантный: у каждой компании свои реквизиты одного и того же ИНН. */
+  owner_user_id: number | null;
   inn: string;
   name: string;
   kpp: string | null;
@@ -40,6 +43,7 @@ export interface CreateSupplierInput {
 }
 
 export interface ListOptions {
+  ownerUserId: number;
   q?: string;
   verified?: number;
   limit: number;
@@ -57,19 +61,23 @@ const SUPPLIER_UPDATE_COLUMNS = new Set<string>([
   'verification_source', 'verified_at', 'verification_fingerprint', 'verification_risk',
 ]);
 
+// Владелец — обязательный параметр каждого метода, без значения по умолчанию.
+// Это единственное, что превращает забытый вызывающий из тихой межтенантной
+// утечки в ошибку компиляции.
 export const supplierRepo = {
-  async findByInn(inn: string): Promise<Supplier | null> {
+  async findByInn(inn: string, ownerUserId: number): Promise<Supplier | null> {
     const row = await getDb()
-      .prepare('SELECT * FROM suppliers WHERE inn = ?')
-      .get<Supplier>(inn);
+      .prepare('SELECT * FROM supplier_cards WHERE inn = ? AND owner_user_id = ?')
+      .get<Supplier>(inn, ownerUserId);
     return row ?? null;
   },
 
-  async create(input: CreateSupplierInput): Promise<Supplier> {
+  async create(input: CreateSupplierInput, ownerUserId: number): Promise<Supplier> {
     await getDb().prepare(`
-      INSERT INTO suppliers (inn, name, kpp, account, bank_bic, bank_corr_account, bank_name, address, verified, source, notes)
-      VALUES (:inn, :name, :kpp, :account, :bank_bic, :bank_corr_account, :bank_name, :address, :verified, :source, :notes)
+      INSERT INTO supplier_cards (owner_user_id, inn, name, kpp, account, bank_bic, bank_corr_account, bank_name, address, verified, source, notes)
+      VALUES (:owner_user_id, :inn, :name, :kpp, :account, :bank_bic, :bank_corr_account, :bank_name, :address, :verified, :source, :notes)
     `).run({
+      owner_user_id: ownerUserId,
       inn: input.inn,
       name: input.name,
       kpp: input.kpp ?? null,
@@ -82,17 +90,17 @@ export const supplierRepo = {
       source: input.source ?? null,
       notes: input.notes ?? null,
     });
-    return (await this.findByInn(input.inn))!;
+    return (await this.findByInn(input.inn, ownerUserId))!;
   },
 
-  async upsert(input: CreateSupplierInput): Promise<Supplier> {
-    const existing = await this.findByInn(input.inn);
+  async upsert(input: CreateSupplierInput, ownerUserId: number): Promise<Supplier> {
+    const existing = await this.findByInn(input.inn, ownerUserId);
     if (existing) {
-      await this.update(input.inn, input);
+      await this.update(input.inn, ownerUserId, input);
     } else {
-      await this.create(input);
+      await this.create(input, ownerUserId);
     }
-    return (await this.findByInn(input.inn))!;
+    return (await this.findByInn(input.inn, ownerUserId))!;
   },
 
   /**
@@ -100,10 +108,13 @@ export const supplierRepo = {
    * bulk supplier extraction from photos — multiple uploads of similar
    * payment slips shouldn't overwrite user-corrected data.
    */
-  async mergeEmpty(input: CreateSupplierInput): Promise<{ supplier: Supplier; mode: 'created' | 'merged' | 'unchanged' }> {
-    const existing = await this.findByInn(input.inn);
+  async mergeEmpty(
+    input: CreateSupplierInput,
+    ownerUserId: number,
+  ): Promise<{ supplier: Supplier; mode: 'created' | 'merged' | 'unchanged' }> {
+    const existing = await this.findByInn(input.inn, ownerUserId);
     if (!existing) {
-      return { supplier: await this.create(input), mode: 'created' };
+      return { supplier: await this.create(input, ownerUserId), mode: 'created' };
     }
     const patch: Partial<CreateSupplierInput> = {};
     for (const [k, raw] of Object.entries(input)) {
@@ -117,11 +128,11 @@ export const supplierRepo = {
     if (Object.keys(patch).length === 0) {
       return { supplier: existing, mode: 'unchanged' };
     }
-    await this.update(input.inn, patch);
-    return { supplier: (await this.findByInn(input.inn))!, mode: 'merged' };
+    await this.update(input.inn, ownerUserId, patch);
+    return { supplier: (await this.findByInn(input.inn, ownerUserId))!, mode: 'merged' };
   },
 
-  async update(inn: string, patch: Partial<CreateSupplierInput>): Promise<void> {
+  async update(inn: string, ownerUserId: number, patch: Partial<CreateSupplierInput>): Promise<void> {
     const sets: string[] = [];
     const vals: unknown[] = [];
     for (const [k, v] of Object.entries(patch)) {
@@ -132,21 +143,27 @@ export const supplierRepo = {
     }
     if (sets.length === 0) return;
     sets.push(`updated_at = NOW()`);
-    vals.push(inn);
-    await getDb().prepare(`UPDATE suppliers SET ${sets.join(', ')} WHERE inn = ?`).run(...vals);
+    vals.push(inn, ownerUserId);
+    await getDb()
+      .prepare(`UPDATE supplier_cards SET ${sets.join(', ')} WHERE inn = ? AND owner_user_id = ?`)
+      .run(...vals);
   },
 
-  async touchLastUsed(inn: string): Promise<void> {
-    await getDb().prepare(`UPDATE suppliers SET last_used_at = NOW() WHERE inn = ?`).run(inn);
+  async touchLastUsed(inn: string, ownerUserId: number): Promise<void> {
+    await getDb()
+      .prepare(`UPDATE supplier_cards SET last_used_at = NOW() WHERE inn = ? AND owner_user_id = ?`)
+      .run(inn, ownerUserId);
   },
 
-  async delete(inn: string): Promise<void> {
-    await getDb().prepare('DELETE FROM suppliers WHERE inn = ?').run(inn);
+  async delete(inn: string, ownerUserId: number): Promise<void> {
+    await getDb()
+      .prepare('DELETE FROM supplier_cards WHERE inn = ? AND owner_user_id = ?')
+      .run(inn, ownerUserId);
   },
 
   async list(opts: ListOptions): Promise<Supplier[]> {
-    const wheres: string[] = [];
-    const params: unknown[] = [];
+    const wheres: string[] = ['owner_user_id = ?'];
+    const params: unknown[] = [opts.ownerUserId];
     if (opts.q) {
       // utf8mb4_unicode_ci collation makes LIKE case-insensitive by default
       wheres.push('(name LIKE ? OR inn LIKE ?)');
@@ -163,8 +180,8 @@ export const supplierRepo = {
     const lim = Math.max(1, Math.min(500, Math.trunc(Number(opts.limit)) || 100));
     const off = Math.max(0, Math.trunc(Number(opts.offset)) || 0);
     const sql = `
-      SELECT * FROM suppliers
-      ${wheres.length > 0 ? 'WHERE ' + wheres.join(' AND ') : ''}
+      SELECT * FROM supplier_cards
+      WHERE ${wheres.join(' AND ')}
       ORDER BY (last_used_at IS NULL), last_used_at DESC, name
       LIMIT ${lim} OFFSET ${off}
     `;

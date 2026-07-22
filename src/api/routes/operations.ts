@@ -80,9 +80,11 @@ function aggregateRootCauses(rows: Array<ExceptionRow & { reasons: string[] }>) 
   };
 }
 
-async function verifySupplier(inn: string, dadataKey?: string | null): Promise<{ inn: string; status: 'verified' | 'not_found' | 'error'; risk?: string[]; error?: string }> {
+// ownerUserId обязателен: справочник пер-тенантный, и подтверждать реквизиты
+// можно только в карточке своей компании.
+async function verifySupplier(inn: string, ownerUserId: number, dadataKey?: string | null): Promise<{ inn: string; status: 'verified' | 'not_found' | 'error'; risk?: string[]; error?: string }> {
   try {
-    const supplier = await supplierRepo.findByInn(inn);
+    const supplier = await supplierRepo.findByInn(inn, ownerUserId);
     if (!supplier) return { inn, status: 'error', error: 'Поставщик отсутствует в справочнике' };
     const key = dadataKey === undefined ? (await invoiceRepo.getAnalyzerConfig()).dadata_api_key : dadataKey;
     const party = await lookupPartyByInn(inn, key);
@@ -93,7 +95,7 @@ async function verifySupplier(inn: string, dadataKey?: string | null): Promise<{
     if (party.kpp && supplier.kpp && party.kpp !== supplier.kpp) risk.push('КПП отличается');
     if (party.address && supplier.address && clean(party.address) !== clean(supplier.address)) risk.push('Адрес отличается');
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(party)).digest('hex');
-    await supplierRepo.update(inn, {
+    await supplierRepo.update(inn, ownerUserId, {
       verified: 1,
       verification_source: 'dadata',
       verified_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
@@ -314,7 +316,7 @@ router.post('/exceptions/bulk', async (req: Request, res: Response) => {
         const invoice = await invoiceRepo.getById(invoiceId);
         const inn = String(invoice?.supplier_inn || '');
         if (!/^\d{10}(\d{2})?$/.test(inn)) throw new Error('У поставщика нет корректного ИНН');
-        const verified = await verifySupplier(inn);
+        const verified = await verifySupplier(inn, req.user?.id ?? -1);
         if (verified.status !== 'verified') throw new Error(verified.error || 'Поставщик не найден');
       } else {
         const approval = await approvalRepo.create(invoiceId, action === 'request_sber' ? 'sber' : '1c', req.user?.id ?? null, req.body?.note, batchId);
@@ -366,7 +368,7 @@ router.post('/suppliers/verify', requireAdmin, async (req: Request, res: Respons
   const key = (await invoiceRepo.getAnalyzerConfig()).dadata_api_key;
   const results: Awaited<ReturnType<typeof verifySupplier>>[] = [];
   for (let offset = 0; offset < inns.length; offset += 4) {
-    results.push(...await Promise.all(inns.slice(offset, offset + 4).map(inn => verifySupplier(inn, key))));
+    results.push(...await Promise.all(inns.slice(offset, offset + 4).map(inn => verifySupplier(inn, req.user?.id ?? -1, key))));
   }
   res.json({ data: { results } });
 });
