@@ -37,9 +37,9 @@
 
 | План | Область | Состояние |
 |---|---|---|
-| **2A (этот)** | `suppliers` — 17 вызовов | к реализации |
-| 2B | `onec_nomenclature` + `nomenclature_mappings` + `nomenclature_price_stats` + кэш `NomenclatureMapper` — 71 вызов | план не написан |
-| 2C | `sber_tokens` пер-тенантно; снимает временное ограничение в `src/services/autoSendSber.ts` | план не написан |
+| **2A (этот)** | `suppliers` → `supplier_cards` — 17 вызовов | реализован и выкачен |
+| [2C](2026-07-22-multitenant-stage2c-sber-connections.md) | `sber_tokens` → `sber_connections` — 10 вызовов; снимает заглушку в `src/services/autoSendSber.ts` | план написан, **выкатывать раньше 2B** |
+| [2B](2026-07-22-multitenant-stage2b-catalog-and-mappings.md) | каталог 1С, сопоставления, статистика цен, кэш `NomenclatureMapper` — 71 вызов | план написан |
 | 2D | Удаление `DATA_SCOPING_ENABLED` и сквозного доступа `admin` — 11 веток | план не написан, **должен быть последним** |
 
 2D идёт последним сознательно: это выключатель, который начинает принуждать изоляцию. Пока справочники не разделены, включать его нечестно.
