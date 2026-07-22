@@ -129,17 +129,16 @@ const addPagesUpload = multer({
 
 const router = Router();
 
-// ── Multi-tenant ownership guard (flag-gated) ───────────────────────────────
-// Runs for every :id / :invoiceId route below. When DATA_SCOPING_ENABLED is on,
-// a non-admin may only touch invoices they own; admins and integration callers
-// (1C/dispatcher use the admin key → role 'admin') pass through. Completely
-// inert (immediate next()) when the flag is off, so prod behaviour is unchanged
-// until isolation is deliberately enabled.
+// ── Multi-tenant ownership guard ────────────────────────────────────────────
+// Runs for every :id / :invoiceId route below.
+// Isolation is unconditional: a company may only reach its own invoices, and the
+// admin role does NOT bypass it. A request without an authenticated user is left
+// to the auth middleware to reject.
 async function invoiceOwnershipGuard(
   req: Request, res: Response, next: NextFunction, value: string,
 ): Promise<void> {
   try {
-    if (!config.dataScopingEnabled || req.user?.role === 'admin') { next(); return; }
+    if (req.user == null) { next(); return; }
     const id = parseInt(value, 10);
     if (!Number.isFinite(id)) { next(); return; }
     const inv = await invoiceRepo.getById(id);
@@ -155,10 +154,14 @@ async function invoiceOwnershipGuard(
 router.param('id', invoiceOwnershipGuard);
 router.param('invoiceId', invoiceOwnershipGuard);
 
-// Effective owner filter for list/stats: the caller's id when scoping is on and
-// they're not an admin, else undefined (no filter).
+// Owner filter for list/stats. Always the caller's own id — isolation is
+// unconditional and the admin role grants NO cross-company data access.
+//
+// admin remains privileged for PLATFORM configuration (analyzer settings, models,
+// webhook, debug) — that is enforced by requireAdmin on those routes and is
+// orthogonal to who owns a company's invoices.
 function ownerScopeFor(req: Request): number | undefined {
-  return config.dataScopingEnabled && req.user?.role !== 'admin' ? req.user?.id : undefined;
+  return req.user?.id;
 }
 
 function deleteStoredInvoiceFiles(fileNameList: string | null | undefined): void {
@@ -230,7 +233,7 @@ router.get('/', async (req: Request, res: Response) => {
     const invoice = await invoiceRepo.findByFileName(fileName);
     // Respect ownership: a non-admin polling by filename only sees their own.
     const visible = invoice
-      && (!config.dataScopingEnabled || req.user?.role === 'admin' || invoice.owner_user_id === req.user?.id)
+      && invoice.owner_user_id === req.user?.id
       ? invoice : null;
     const enriched = visible ? [await enrichInvoiceWithSupplier(visible)] : [];
     res.json({ data: enriched, count: enriched.length });
@@ -387,7 +390,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-  if (config.dataScopingEnabled && req.user?.role !== 'admin' && invoice.owner_user_id !== req.user?.id) {
+  if (invoice.owner_user_id !== req.user?.id) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
 
@@ -1125,10 +1128,7 @@ router.post('/delete-batch', async (req: Request, res: Response) => {
   const ids = [...new Set(rawIds as number[])];
   const invoices = await Promise.all(ids.map(id => invoiceRepo.getById(id)));
   for (const invoice of invoices) {
-    const visible = invoice
-      && (!config.dataScopingEnabled
-        || req.user?.role === 'admin'
-        || invoice.owner_user_id === req.user?.id);
+    const visible = invoice && invoice.owner_user_id === req.user?.id;
     if (!visible) {
       // Preflight the whole batch before deleting anything. A mixed-owner batch
       // must not partially succeed, and 404 avoids leaking another tenant's ids.
@@ -1336,7 +1336,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
     return;
   }
   const parentInvoice = await invoiceRepo.getById(invoiceId);
-  if (!parentInvoice || (config.dataScopingEnabled && req.user?.role !== 'admin' && parentInvoice.owner_user_id !== req.user?.id)) {
+  if (!parentInvoice || parentInvoice.owner_user_id !== req.user?.id) {
     res.status(404).json({ error: 'Invoice item not found' });
     return;
   }
@@ -1406,7 +1406,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
           scannedName: item.original_name,
           mappedName: resolvedName as string,
           onecGuid: onec_guid,
-        });
+        }, mappingOwnerId);
       }
     }
     // Touch txn so unused-param lint stays quiet — actual writes go through repos.
@@ -1444,7 +1444,7 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
     return;
   }
   const editedInvoice = await invoiceRepo.getById(invoiceId);
-  if (!editedInvoice || (config.dataScopingEnabled && req.user?.role !== 'admin' && editedInvoice.owner_user_id !== req.user?.id)) {
+  if (!editedInvoice || editedInvoice.owner_user_id !== req.user?.id) {
     res.status(404).json({ error: 'Invoice item not found' });
     return;
   }

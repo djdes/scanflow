@@ -24,7 +24,7 @@ async function setupUser(): Promise<string> {
 
 async function createProcessedInvoice(): Promise<number> {
   const r = await getDb().prepare(
-    `INSERT INTO invoices (file_name, file_path, status, invoice_number) VALUES ('f','/f','processed','N-1')`
+    `INSERT INTO invoices (file_name, file_path, status, invoice_number, owner_user_id) VALUES ('f','/f','processed','N-1',1)`
   ).run();
   return Number(r.lastInsertRowid);
 }

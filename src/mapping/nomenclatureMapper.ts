@@ -369,7 +369,7 @@ export class NomenclatureMapper {
   ): Promise<MappingResult | null> {
     const supplierKey = makeSupplierKey(context?.supplierInn, context?.supplierName);
     if (supplierKey) {
-      const supplierMapping = await supplierMappingRepo.get(supplierKey, scannedName);
+      const supplierMapping = await supplierMappingRepo.get(supplierKey, scannedName, ownerUserId);
       if (supplierMapping) {
         const onec = await onecNomenclatureRepo.getByGuid(supplierMapping.onec_guid, ownerUserId);
         if (onec) {

@@ -80,7 +80,7 @@ export interface Invoice {
   upload_source: string | null;
   upload_user_agent: string | null;
   // Owning tenant (multi-tenant isolation). NULL = system/owner-owned (watcher,
-  // camera, legacy). Only read when config.dataScopingEnabled is true.
+  // camera, legacy). Always authoritative — isolation is unconditional.
   owner_user_id: number | null;
   // Timestamp the "no Sber payment in N days" alert was sent (once-per-invoice).
   sber_overdue_notified_at: string | null;

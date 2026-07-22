@@ -65,7 +65,6 @@ export const config = {
   // invoices they own (admin sees everything). Default OFF so activation is a
   // deliberate, verifiable step — toggling needs no redeploy. See
   // docs/superpowers/specs/2026-06-24-multitenant-data-isolation-design.md
-  dataScopingEnabled: envBool('DATA_SCOPING_ENABLED', false),
 
   // Debug
   debug: envBool('DEBUG', false),

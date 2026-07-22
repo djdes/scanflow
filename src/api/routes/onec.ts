@@ -46,7 +46,9 @@ function catalogOwner(req: Request): number {
 }
 
 function exchangeOwner(req: Request): number | null {
-  return config.dataScopingEnabled ? (req.onecConnection?.owner_user_id ?? -1) : null;
+  // Обмен всегда идёт в контексте своего подключения 1С: владелец обязателен,
+  // и -1 (несуществующая компания) безопаснее, чем отсутствие фильтра.
+  return req.onecConnection?.owner_user_id ?? -1;
 }
 
 async function canAccess(req: Request, invoiceId: number): Promise<boolean> {

@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   assert(r3.confidence === 0, `confidence=0, got ${r3.confidence}`);
 
   console.log('\n=== Case 4: learned mapping without onec_guid is still returned (legacy) ===');
-  await db.prepare(`INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c) VALUES (?, ?)`)
+  await db.prepare(`INSERT INTO nomenclature_mapping_cards (owner_user_id, scanned_name, mapped_name_1c) VALUES (1, ?, ?)`)
     .run('testmap:legacy', 'Legacy Item Name');
   mapper.invalidateCache();
   const r4 = await mapper.map('testmap:legacy', SCRIPT_OWNER_ID);
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   assert(r4.mapped_name === 'Legacy Item Name', `mapped_name=Legacy Item Name, got ${r4.mapped_name}`);
 
   console.log('\n=== Case 5: learned mapping points at deleted onec_nomenclature row → falls through ===');
-  await db.prepare(`INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c, onec_guid) VALUES (?, ?, ?)`)
+  await db.prepare(`INSERT INTO nomenclature_mapping_cards (owner_user_id, scanned_name, mapped_name_1c, onec_guid) VALUES (1, ?, ?, ?)`)
     .run('testmap:deadlink', 'Some old name', 'test-map-deleted-guid-xyz');
   mapper.invalidateCache();
   const r5 = await mapper.map('testmap:deadlink', SCRIPT_OWNER_ID);

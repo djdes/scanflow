@@ -27,8 +27,8 @@ async function createInvoiceWithItems(
   opts: { file: string; supplier: string; number: string | null; total: number; items: Array<{ total: number; row_no: number }> },
 ): Promise<number> {
   const r = await getDb().prepare(
-    `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum)
-     VALUES (?, ?, 'processed', ?, ?, '2026-05-26', ?)`
+    `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum, owner_user_id)
+     VALUES (?, ?, 'processed', ?, ?, '2026-05-26', ?, 1)`
   ).run(opts.file, `/t/${opts.file}`, opts.supplier, opts.number, opts.total);
   const id = Number(r.lastInsertRowid);
   for (const it of opts.items) {

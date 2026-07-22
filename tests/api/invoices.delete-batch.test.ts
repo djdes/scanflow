@@ -13,11 +13,9 @@ import { FileWatcher } from '../../src/watcher/fileWatcher';
 import { NomenclatureMapper } from '../../src/mapping/nomenclatureMapper';
 
 let app: express.Express;
-const originalScoping = config.dataScopingEnabled;
 
 describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/invoices/delete-batch ownership', () => {
   beforeAll(() => {
-    config.dataScopingEnabled = true;
     app = createServer(
       new FileWatcher(undefined as never, undefined as never),
       new NomenclatureMapper(),
@@ -25,7 +23,6 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/invoices
   });
   beforeEach(async () => { await resetDb(); });
   afterAll(async () => {
-    config.dataScopingEnabled = originalScoping;
     await closeTestDb();
   });
 

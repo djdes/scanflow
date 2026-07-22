@@ -87,6 +87,10 @@ export async function resetDb(): Promise<mysql.Pool> {
     'supplier_cards',
     'supplier_extract_jobs',
     'notification_events',
+    // Журнал отправок, на котором стоит часовой лимит уведомлений. Без очистки
+    // счётчик копится между прогонами, пересекает NOTIFY_HOURLY_CAP и глушит
+    // рассылку навсегда — тесты уведомлений начинают падать «на ровном месте».
+    'notification_sends',
     'users',
     'webhook_config',
     'analyzer_config',

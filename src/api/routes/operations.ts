@@ -26,15 +26,17 @@ function numericIds(value: unknown, limit = 100): number[] {
   return [...new Set(value.map((item: unknown) => Number(item)).filter((item: number) => Number.isFinite(item) && item > 0))].slice(0, limit);
 }
 
-function ownerScopeFor(req: Request): number | null {
-  return config.dataScopingEnabled && req.user?.role !== 'admin' ? (req.user?.id ?? -1) : null;
+// Изоляция безусловна: сводки операций строятся только по своей компании.
+// Роль admin сквозного доступа к данным не даёт. -1 для запроса без пользователя
+// (сюда такой не доходит) безопаснее, чем отсутствие фильтра.
+function ownerScopeFor(req: Request): number {
+  return req.user?.id ?? -1;
 }
 
 async function canAccessInvoice(req: Request, invoiceId: number): Promise<boolean> {
   const invoice = await invoiceRepo.getById(invoiceId);
   if (!invoice) return false;
-  const owner = ownerScopeFor(req);
-  return owner == null || invoice.owner_user_id === owner;
+  return invoice.owner_user_id === ownerScopeFor(req);
 }
 
 function exceptionReasons(row: ExceptionRow, settings: AutomationSettings): string[] {
@@ -409,7 +411,11 @@ router.patch('/suppliers/:inn/terms', requireAdmin, async (req: Request, res: Re
   if (!/^\d{10}(\d{2})?$/.test(inn) || !Number.isInteger(days) || days < 0 || days > 365) {
     return res.status(400).json({ error: 'ИНН или срок оплаты некорректен' });
   }
-  await getDb().prepare('UPDATE suppliers SET payment_terms_days = ?, updated_at = NOW() WHERE inn = ?').run(days, inn);
+  // Справочник пер-тенантный: правим карточку своей компании. Раньше запись шла
+  // в общую таблицу по одному ИНН — после разделения она уходила бы в никуда.
+  await getDb()
+    .prepare('UPDATE supplier_cards SET payment_terms_days = ?, updated_at = NOW() WHERE inn = ? AND owner_user_id = ?')
+    .run(days, inn, ownerScopeFor(req));
   res.json({ success: true });
 });
 
