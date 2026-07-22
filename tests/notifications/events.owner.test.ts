@@ -56,14 +56,27 @@ describe('emit(): получатель — владелец накладной',
     expect(sendInvoiceNotification).toHaveBeenCalledTimes(1);
   });
 
-  it('ничего не шлёт, если у накладной нет владельца и вызов фоновый', async () => {
+  it('не адресует накладную с владельцем инициатору другой компании', async () => {
+    // Даже если действие инициировал кто-то другой, получатель — владелец.
+    await emit('photo_uploaded', { invoice_id: 10 } as never, 99);
+
+    expect(userRepo.getTelegramConfig).toHaveBeenCalledWith(7);
+    expect(userRepo.getTelegramConfig).not.toHaveBeenCalledWith(99);
+  });
+
+  // Накладная без владельца создаётся, когда файл кладут прямо в inbox/ —
+  // у watcher нет пользовательского контекста. Она не принадлежит ни одной
+  // компании, поэтому откат к администратору платформы допустим и утечкой
+  // между компаниями не является.
+  it('для накладной без владельца откатывается к администратору платформы', async () => {
     (invoiceRepo.getById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 11, owner_user_id: null, invoice_number: '№2', supplier: 'X', total_sum: 1,
     });
 
     await emit('photo_uploaded', { invoice_id: 11 } as never, null);
 
-    expect(sendInvoiceNotification).not.toHaveBeenCalled();
-    expect(userRepo.firstUserId).not.toHaveBeenCalled();
+    expect(userRepo.firstUserId).toHaveBeenCalled();
+    expect(userRepo.getTelegramConfig).toHaveBeenCalledWith(1);
+    expect(sendInvoiceNotification).toHaveBeenCalledTimes(1);
   });
 });

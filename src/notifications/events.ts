@@ -34,14 +34,21 @@ export async function emit(
       return;
     }
 
-    // Получатель — владелец накладной. triggeredByUserId остаётся только
-    // подстраховкой для легаси-строк без проставленного владельца.
+    // Получатель — владелец накладной.
     //
-    // Отката к firstUserId() здесь быть не должно: именно он доставлял события
-    // одной компании в Telegram-бот другой (инцидент 2026-07-22).
-    const userId = invoice.owner_user_id ?? triggeredByUserId;
+    // Ключевое правило: накладная, У КОТОРОЙ ЕСТЬ владелец, никогда не
+    // адресуется никому другому. Раньше здесь безусловно вызывался
+    // firstUserId(), из-за чего события одной компании уходили в Telegram-бот
+    // другой (инцидент 2026-07-22).
+    //
+    // Накладная БЕЗ владельца ничьей компании не принадлежит: так создаются
+    // файлы, положенные прямо в inbox/ — у watcher нет пользовательского
+    // контекста. Для неё откат допустим (инициатор, затем администратор
+    // платформы) и кросс-тенантной доставкой не является — претендента на такую
+    // накладную просто нет.
+    const userId = invoice.owner_user_id ?? triggeredByUserId ?? (await userRepo.firstUserId());
     if (userId == null) {
-      logger.debug('notifications.emit: invoice has no owner, skipping', {
+      logger.debug('notifications.emit: no recipient, skipping', {
         eventType, invoiceId: payload.invoice_id,
       });
       return;
