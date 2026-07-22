@@ -1352,6 +1352,33 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 50,
+    name: 'бэкфилл invoices.owner_user_id для накладных из inbox/',
+    // Накладные, подхваченные watcher-ом из папки inbox/, создавались без
+    // владельца: у файла на диске нет пользовательского контекста. Пока данные
+    // были общими, это ни на что не влияло. После разделения по компаниям такая
+    // накладная перестала работать — справочник поставщиков не подставлялся,
+    // отправка в Сбер отклонялась с «не указан владелец».
+    //
+    // Папка inbox/ на сервере принадлежит оператору платформы, поэтому «ничьи»
+    // накладные достаются админской компании — ровно как сделала миграция 40 для
+    // легаси-строк. Только UPDATE, ничего не создаётся и не удаляется.
+    detect: async (exec) => {
+      const [rows] = await exec.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM invoices WHERE owner_user_id IS NULL`
+      );
+      return Number(rows[0].cnt) === 0;
+    },
+    run: async (exec) => {
+      await exec.query(
+        `UPDATE invoices
+            SET owner_user_id = (SELECT MIN(id) FROM users WHERE role = 'admin')
+          WHERE owner_user_id IS NULL
+            AND EXISTS (SELECT 1 FROM users WHERE role = 'admin')`
+      );
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

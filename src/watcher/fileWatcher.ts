@@ -7,6 +7,7 @@ import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/invoiceRepo';
+import { userRepo } from '../database/repositories/userRepo';
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import type { MappingResult } from '../mapping/nomenclatureMapper';
@@ -130,8 +131,18 @@ export class FileWatcher {
 
     logger.info('New invoice image detected', { fileName });
 
+    // Файл, положенный прямо в inbox/, приходит без пользовательского контекста.
+    // Раньше такая накладная оставалась БЕЗ владельца, и после разделения данных
+    // по компаниям это ломало всё, что владельца требует: справочник поставщиков
+    // не подставлялся, отправка в Сбер отклонялась, уведомление уходило не туда.
+    // Папка inbox/ на сервере принадлежит оператору платформы — им и помечаем.
+    const inboxOwnerId = await userRepo.firstUserId();
+    if (inboxOwnerId == null) {
+      logger.warn('Inbox file detected but there is no user to own it', { fileName });
+    }
+
     try {
-      await this.processFile(filePath, fileName);
+      await this.processFile(filePath, fileName, undefined, { ownerUserId: inboxOwnerId });
     } catch (err) {
       logger.error('Failed to process invoice', { fileName, error: (err as Error).message });
     } finally {
