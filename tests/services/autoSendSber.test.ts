@@ -7,9 +7,6 @@ vi.mock('../../src/database/db', () => ({
 vi.mock('../../src/database/repositories/invoiceRepo', () => ({
   invoiceRepo: { getById: vi.fn(async () => ({ id: 5, owner_user_id: 7 })) },
 }));
-vi.mock('../../src/database/repositories/userRepo', () => ({
-  userRepo: { firstUserId: vi.fn(async () => 7) },
-}));
 // config и logger мокаем обязательно: настоящий src/config грузит dotenv
 // побочным эффектом и подставляет боевые DB_*. Тест не должен уметь дотянуться
 // до реальной базы даже случайно (правило 17).
@@ -20,7 +17,6 @@ vi.mock('../../src/utils/logger', () => ({
 
 import { autoSendSberForInvoice } from '../../src/services/autoSendSber';
 import { invoiceRepo } from '../../src/database/repositories/invoiceRepo';
-import { userRepo } from '../../src/database/repositories/userRepo';
 
 describe('autoSendSberForInvoice', () => {
   beforeEach(() => {
@@ -38,12 +34,17 @@ describe('autoSendSberForInvoice', () => {
     expect(init.headers['X-API-Key']).toBe('key-of-owner');
   });
 
-  it('не отправляет, если владелец накладной не владеет подключением к Сберу', async () => {
-    (userRepo.firstUserId as ReturnType<typeof vi.fn>).mockResolvedValueOnce(99);
+  // До этапа 2C подключение к Сберу было одно на установку, и здесь стояла
+  // проверка «владелец накладной должен владеть подключением». Теперь
+  // подключение пер-тенантное, и защита переехала на уровень эндпоинта:
+  // у компании без своего подключения /send-sber отвечает «Sber not connected».
+  it('переживает отказ эндпоинта, не роняя конвейер', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: false, status: 400, text: async () => 'Sber not connected',
+    })) as never;
 
-    await autoSendSberForInvoice(5);
-
-    expect(global.fetch).not.toHaveBeenCalled();
+    await expect(autoSendSberForInvoice(5)).resolves.toBeUndefined();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('не отправляет, если у накладной нет владельца', async () => {

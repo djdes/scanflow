@@ -75,6 +75,7 @@ export async function resetDb(): Promise<mysql.Pool> {
     'nomenclature_mappings',
     'onec_nomenclature',
     'sber_tokens',
+    'sber_connections',
     'suppliers',
     'supplier_cards',
     'supplier_extract_jobs',

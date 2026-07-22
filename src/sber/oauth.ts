@@ -99,16 +99,21 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenDat
 // stored token unusable until a manual reconnect. Serialize refresh within the
 // process by sharing a single in-flight promise. (PM2 single-instance; a
 // clustered deploy would additionally need a DB row lock — see design notes.)
-let inflightRefresh: Promise<string> | null = null;
+// Обновление дедуплицируется НА КОМПАНИЮ. Общая переменная отдала бы одной
+// компании промис обновления чужого подключения — то есть чужой access_token.
+const inflightRefresh = new Map<number, Promise<string>>();
 
-export async function getValidAccessToken(): Promise<string> {
-  const row = await sberTokenRepo.get();
+export async function getValidAccessToken(ownerUserId: number): Promise<string> {
+  const row = await sberTokenRepo.get(ownerUserId);
   if (!row) throw new Error('Sber not connected');
   const buffer = 5 * 60 * 1000;
   const expiresAt = new Date(row.expires_at).getTime();
   if (expiresAt > Date.now() + buffer) return row.access_token;
-  if (inflightRefresh) return inflightRefresh;
-  inflightRefresh = (async () => {
+
+  const existing = inflightRefresh.get(ownerUserId);
+  if (existing) return existing;
+
+  const refresh = (async () => {
     try {
       const fresh = await refreshAccessToken(row.refresh_token);
       const newExpiresAt = new Date(Date.now() + fresh.expiresIn * 1000).toISOString();
@@ -116,11 +121,12 @@ export async function getValidAccessToken(): Promise<string> {
         access_token: fresh.accessToken,
         refresh_token: fresh.refreshToken,
         expires_at: newExpiresAt,
-      });
+      }, ownerUserId);
       return fresh.accessToken;
     } finally {
-      inflightRefresh = null;
+      inflightRefresh.delete(ownerUserId);
     }
   })();
-  return inflightRefresh;
+  inflightRefresh.set(ownerUserId, refresh);
+  return refresh;
 }

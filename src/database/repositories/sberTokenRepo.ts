@@ -2,6 +2,8 @@ import { getDb } from '../db';
 
 export interface SberToken {
   id: number;
+  /** Компания-владелец подключения. Подключение пер-тенантное: у каждой компании свой банк. */
+  owner_user_id: number;
   access_token: string;
   refresh_token: string;
   expires_at: string;
@@ -27,22 +29,25 @@ export interface UpsertSberTokenInput {
   payer_bank_corr_account?: string | null;
 }
 
+// Владелец — обязательный параметр каждого метода, без значения по умолчанию.
+// Это единственное, что превращает забытый вызывающий из «платёж со счёта чужой
+// компании» в ошибку компиляции.
 export const sberTokenRepo = {
-  async get(): Promise<SberToken | null> {
+  async get(ownerUserId: number): Promise<SberToken | null> {
     const row = await getDb()
-      .prepare('SELECT * FROM sber_tokens WHERE id = 1')
-      .get<SberToken>();
+      .prepare('SELECT * FROM sber_connections WHERE owner_user_id = ?')
+      .get<SberToken>(ownerUserId);
     return row ?? null;
   },
 
-  async upsert(input: UpsertSberTokenInput): Promise<void> {
+  async upsert(input: UpsertSberTokenInput, ownerUserId: number): Promise<void> {
     await getDb().prepare(`
-      INSERT INTO sber_tokens (
-        id, access_token, refresh_token, expires_at,
+      INSERT INTO sber_connections (
+        owner_user_id, access_token, refresh_token, expires_at,
         account_number, org_name, payer_inn, payer_kpp,
         payer_bank_bic, payer_bank_corr_account, updated_at
       ) VALUES (
-        1, :access_token, :refresh_token, :expires_at,
+        :owner_user_id, :access_token, :refresh_token, :expires_at,
         :account_number, :org_name, :payer_inn, :payer_kpp,
         :payer_bank_bic, :payer_bank_corr_account, NOW()
       )
@@ -50,14 +55,15 @@ export const sberTokenRepo = {
         access_token = :access_token,
         refresh_token = :refresh_token,
         expires_at = :expires_at,
-        account_number = COALESCE(:account_number, sber_tokens.account_number),
-        org_name = COALESCE(:org_name, sber_tokens.org_name),
-        payer_inn = COALESCE(:payer_inn, sber_tokens.payer_inn),
-        payer_kpp = COALESCE(:payer_kpp, sber_tokens.payer_kpp),
-        payer_bank_bic = COALESCE(:payer_bank_bic, sber_tokens.payer_bank_bic),
-        payer_bank_corr_account = COALESCE(:payer_bank_corr_account, sber_tokens.payer_bank_corr_account),
+        account_number = COALESCE(:account_number, sber_connections.account_number),
+        org_name = COALESCE(:org_name, sber_connections.org_name),
+        payer_inn = COALESCE(:payer_inn, sber_connections.payer_inn),
+        payer_kpp = COALESCE(:payer_kpp, sber_connections.payer_kpp),
+        payer_bank_bic = COALESCE(:payer_bank_bic, sber_connections.payer_bank_bic),
+        payer_bank_corr_account = COALESCE(:payer_bank_corr_account, sber_connections.payer_bank_corr_account),
         updated_at = NOW()
     `).run({
+      owner_user_id: ownerUserId,
       access_token: input.access_token,
       refresh_token: input.refresh_token,
       expires_at: input.expires_at,
@@ -70,12 +76,15 @@ export const sberTokenRepo = {
     });
   },
 
-  async updateTokens(input: { access_token: string; refresh_token: string; expires_at: string }): Promise<void> {
+  async updateTokens(
+    input: { access_token: string; refresh_token: string; expires_at: string },
+    ownerUserId: number,
+  ): Promise<void> {
     await getDb().prepare(`
-      UPDATE sber_tokens
+      UPDATE sber_connections
          SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = NOW()
-       WHERE id = 1
-    `).run(input.access_token, input.refresh_token, input.expires_at);
+       WHERE owner_user_id = ?
+    `).run(input.access_token, input.refresh_token, input.expires_at, ownerUserId);
   },
 
   async updatePayerDetails(input: {
@@ -85,10 +94,11 @@ export const sberTokenRepo = {
     payer_kpp?: string | null;
     payer_bank_bic?: string | null;
     payer_bank_corr_account?: string | null;
-  }): Promise<void> {
+  }, ownerUserId: number): Promise<void> {
     // Column names are interpolated into SQL (identifier position), so restrict
     // to a fixed allow-list — defends against any future caller passing a raw
     // request body (current callers use fixed keys). See supplierRepo.update.
+    // The owner is a BOUND parameter, never part of this list.
     const ALLOWED = new Set<string>([
       'account_number', 'org_name', 'payer_inn', 'payer_kpp',
       'payer_bank_bic', 'payer_bank_corr_account',
@@ -103,10 +113,15 @@ export const sberTokenRepo = {
     }
     if (sets.length === 0) return;
     sets.push(`updated_at = NOW()`);
-    await getDb().prepare(`UPDATE sber_tokens SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
+    vals.push(ownerUserId);
+    await getDb()
+      .prepare(`UPDATE sber_connections SET ${sets.join(', ')} WHERE owner_user_id = ?`)
+      .run(...vals);
   },
 
-  async clear(): Promise<void> {
-    await getDb().prepare('DELETE FROM sber_tokens WHERE id = 1').run();
+  async clear(ownerUserId: number): Promise<void> {
+    await getDb()
+      .prepare('DELETE FROM sber_connections WHERE owner_user_id = ?')
+      .run(ownerUserId);
   },
 };

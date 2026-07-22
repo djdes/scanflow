@@ -1623,19 +1623,19 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'invoice has no supplier_inn' });
   }
 
-  const tokenRow = await sberTokenRepo.get();
+  // Подключение к Сберу и справочник поставщиков пер-тенантные: работаем только
+  // в области владельца накладной. Без владельца платить нельзя — иначе и счёт
+  // списания, и реквизиты пришлось бы брать у чужой компании.
+  const supplierOwnerId = invoice.owner_user_id;
+  if (supplierOwnerId == null) {
+    return res.status(400).json({ error: 'У накладной не указан владелец — отправка в Сбербанк невозможна' });
+  }
+
+  const tokenRow = await sberTokenRepo.get(supplierOwnerId);
   if (!tokenRow) return res.status(400).json({ error: 'Sber not connected' });
   if (!tokenRow.account_number || !tokenRow.org_name || !tokenRow.payer_inn ||
       !tokenRow.payer_bank_bic || !tokenRow.payer_bank_corr_account) {
     return res.status(400).json({ error: 'payer details incomplete (settings → Сбербанк)' });
-  }
-
-  // Справочник поставщиков пер-тенантный: работаем только в области владельца
-  // накладной. Без владельца платить нельзя — иначе реквизиты пришлось бы
-  // искать в чужой компании.
-  const supplierOwnerId = invoice.owner_user_id;
-  if (supplierOwnerId == null) {
-    return res.status(400).json({ error: 'У накладной не указан владелец — отправка в Сбербанк невозможна' });
   }
 
   // Resolve supplier
@@ -1682,7 +1682,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   // Get token (auto-refresh)
   let accessToken: string;
   try {
-    accessToken = await getValidAccessToken();
+    accessToken = await getValidAccessToken(supplierOwnerId);
   } catch (err) {
     // NB: must NOT be 401 here. The frontend treats *any* 401 as "your ScanFlow
     // X-API-Key is dead" and logs the user out (see App.api in public/js/app.js).

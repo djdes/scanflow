@@ -1,33 +1,19 @@
 import { getDb } from '../database/db';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
-import { userRepo } from '../database/repositories/userRepo';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-
-/**
- * Владелец единственного подключения к Сберу.
- *
- * ВРЕМЕННО: пока `sber_tokens` — одна строка на всю установку (CHECK (id = 1)),
- * подключение принадлежит начальному админу. Этап 2 мультитенантности добавит
- * `sber_tokens.owner_user_id`, и эта функция станет чтением этой колонки.
- *
- * Это единственное оставшееся законное использование firstUserId() вне
- * бутстрапа, и оно только ОГРАНИЧИВАЕТ отправку, а не расширяет её.
- */
-async function sberConnectionOwnerId(): Promise<number | null> {
-  return userRepo.firstUserId();
-}
 
 /**
  * Loopback POST на /send-sber в контексте ВЛАДЕЛЬЦА накладной — переиспользуем
  * всю валидацию эндпоинта (проверенный поставщик, реквизиты плательщика,
  * строка платежа, вызов Sber API), не дублируя её.
  *
- * Два правила, которые нельзя ослаблять:
- *  1. Ключ — владельца накладной, а не «первого админа»; иначе платёж создаётся
- *     от имени и со счёта другой компании.
- *  2. Пока подключение к Сберу одно на установку, автоотправка разрешена только
- *     компании-владельцу этого подключения; остальные пропускаются.
+ * Правило, которое нельзя ослаблять: ключ — владельца накладной, а не «первого
+ * админа»; иначе платёж создаётся от имени и со счёта другой компании.
+ *
+ * Отдельная проверка владельца подключения больше не нужна: подключение к Сберу
+ * пер-тенантное, и у компании без своего подключения /send-sber вернёт
+ * «Sber not connected» — автоотправка молча не сработает.
  *
  * Никогда не бросает: автоотправка не должна ронять конвейер обработки.
  */
@@ -37,14 +23,6 @@ export async function autoSendSberForInvoice(invoiceId: number): Promise<void> {
     const ownerId = invoice?.owner_user_id ?? null;
     if (ownerId == null) {
       logger.warn('Auto-send Sber: у накладной нет владельца, пропуск', { invoiceId });
-      return;
-    }
-
-    const connectionOwnerId = await sberConnectionOwnerId();
-    if (connectionOwnerId == null || connectionOwnerId !== ownerId) {
-      logger.warn('Auto-send Sber: владелец накладной не владеет подключением, пропуск', {
-        invoiceId, ownerId, connectionOwnerId,
-      });
       return;
     }
 

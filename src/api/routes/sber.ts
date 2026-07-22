@@ -15,9 +15,21 @@ const ACC_RE = /^[0-9]{20}$/;
 const BIC_RE = /^[0-9]{9}$/;
 const INN_RE = /^([0-9]{10}|[0-9]{12})$/;
 
-router.get('/authorize', requireAdmin, async (_req: Request, res: Response) => {
+// Владелец подключения — всегда текущий пользователь. Значения по умолчанию нет:
+// роуты под apiKeyAuth, запрос без пользователя сюда не доходит, а если дойдёт —
+// пусть падает явно, а не работает с чужим банковским подключением.
+function ownerOf(req: Request): number {
+  const id = req.user?.id;
+  if (id == null) throw new Error('sber route reached without an authenticated user');
+  return id;
+}
+
+router.get('/authorize', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const state = await createOAuthState({ purpose: 'connect' });
+    // Владелец кладётся в подписанное состояние OAuth: /callback приходит
+    // редиректом от Сбера и своего req.user не имеет, а подпись HS256 не даёт
+    // подменить компанию, на которую ляжет подключение.
+    const state = await createOAuthState({ purpose: 'connect', owner_user_id: ownerOf(req) });
     const url = buildAuthUrl(state);
     return res.redirect(url);
   } catch (err) {
@@ -41,6 +53,11 @@ router.get('/callback', async (req: Request, res: Response) => {
   const stateData = await verifyOAuthState(state);
   if (!stateData) return fail('invalid_state');
 
+  // Владелец берётся из подписанного состояния, а не из запроса: редирект от
+  // Сбера не аутентифицирован. Без владельца подключение класть некуда.
+  const ownerUserId = typeof stateData.owner_user_id === 'number' ? stateData.owner_user_id : null;
+  if (ownerUserId == null) return fail('state_without_owner');
+
   try {
     const token = await exchangeCodeForToken(code);
     const expiresAt = new Date(Date.now() + token.expiresIn * 1000).toISOString();
@@ -48,13 +65,13 @@ router.get('/callback', async (req: Request, res: Response) => {
       access_token: token.accessToken,
       refresh_token: token.refreshToken,
       expires_at: expiresAt,
-    });
+    }, ownerUserId);
     try {
       const info = await fetchClientInfo(token.accessToken);
       await sberTokenRepo.updatePayerDetails({
         org_name: info.orgName,
         account_number: info.accountNumber,
-      });
+      }, ownerUserId);
     } catch (infoErr) {
       logger.warn('[sber] client-info fetch failed (non-fatal)', { err: (infoErr as Error).message });
     }
@@ -97,13 +114,13 @@ router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => 
     payer_kpp: payer_kpp ?? null,
     payer_bank_bic: payer_bank_bic ?? null,
     payer_bank_corr_account: payer_bank_corr_account ?? null,
-  });
+  }, ownerOf(req));
   void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк подключён (токен вручную)' });
   return res.json({ success: true });
 });
 
 router.patch('/payer', requireAdmin, async (req: Request, res: Response) => {
-  const t = await sberTokenRepo.get();
+  const t = await sberTokenRepo.get(ownerOf(req));
   if (!t) return res.status(404).json({ error: 'Sber not connected' });
   const {
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
@@ -124,12 +141,12 @@ router.patch('/payer', requireAdmin, async (req: Request, res: Response) => {
   await sberTokenRepo.updatePayerDetails({
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
     account_number, org_name,
-  });
+  }, ownerOf(req));
   return res.json({ success: true });
 });
 
 router.get('/status', async (req: Request, res: Response) => {
-  const t = await sberTokenRepo.get();
+  const t = await sberTokenRepo.get(ownerOf(req));
   if (!t) return res.json({ connected: false });
   const tokenExpired = new Date(t.expires_at).getTime() < Date.now();
   const payerComplete = !!(
@@ -157,8 +174,8 @@ router.get('/status', async (req: Request, res: Response) => {
   });
 });
 
-router.post('/disconnect', requireAdmin, async (_req: Request, res: Response) => {
-  await sberTokenRepo.clear();
+router.post('/disconnect', requireAdmin, async (req: Request, res: Response) => {
+  await sberTokenRepo.clear(ownerOf(req));
   void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк отключён' });
   return res.json({ success: true });
 });

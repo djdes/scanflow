@@ -1305,6 +1305,53 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 49,
+    name: 'sber_connections — подключение к Сберу на компанию (без DROP)',
+    // Строго аддитивно. sber_tokens имеет CHECK (id = 1), то есть физически
+    // допускает одно подключение на всю установку; снять это можно только через
+    // DROP, что запрещено. Поэтому новая таблица, а старая остаётся нетронутой.
+    detect: async (exec) => hasTable(exec, 'sber_connections'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS sber_connections (
+          id                       INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id            INT NOT NULL,
+          access_token             TEXT NOT NULL,
+          refresh_token            TEXT NOT NULL,
+          expires_at               DATETIME NOT NULL,
+          account_number           VARCHAR(64) NULL,
+          org_name                 VARCHAR(512) NULL,
+          payer_inn                VARCHAR(32) NULL,
+          payer_kpp                VARCHAR(32) NULL,
+          payer_bank_bic           VARCHAR(32) NULL,
+          payer_bank_corr_account  VARCHAR(64) NULL,
+          created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_sber_connections_owner (owner_user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      // Переносим единственное существующее подключение админской компании.
+      // ON DUPLICATE KEY делает повторный прогон no-op: токены не перетираются,
+      // если после копирования успел пройти refresh.
+      if (await hasTable(exec, 'sber_tokens')) {
+        await exec.query(`
+          INSERT INTO sber_connections
+            (owner_user_id, access_token, refresh_token, expires_at, account_number,
+             org_name, payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
+             created_at, updated_at)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 t.access_token, t.refresh_token, t.expires_at, t.account_number,
+                 t.org_name, t.payer_inn, t.payer_kpp, t.payer_bank_bic,
+                 t.payer_bank_corr_account, t.created_at, t.updated_at
+            FROM sber_tokens t
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE sber_connections.id = sber_connections.id
+        `);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
