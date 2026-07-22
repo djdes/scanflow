@@ -35,6 +35,9 @@ const TOKEN = 'a'.repeat(64);
 async function makeJob(): Promise<number> {
   return supplierExtractJobRepo.create({
     token: TOKEN, file_name: 'pay.pdf', file_path: '/tmp/none-pay.pdf', content_type: 'application/pdf',
+    // Владелец задачи — компания, загрузившая документ (setupUser заводит её с id 1).
+    // Именно ему адресуется уведомление об ошибке распознавания.
+    owner_user_id: 1,
   });
 }
 
@@ -140,8 +143,13 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('supplier requisite
     });
     expect(res.status).toBe(200);
     expect(res.body.mode).toBe('created');
-    const row = await getDb().prepare('SELECT inn, name FROM suppliers WHERE inn = ?').get<{ inn: string; name: string }>('504410008491');
+    // Справочник теперь пер-тенантный: карточка ложится в supplier_cards под
+    // владельцем-компанией, а не в общую таблицу suppliers.
+    const row = await getDb()
+      .prepare('SELECT inn, name, owner_user_id FROM supplier_cards WHERE inn = ?')
+      .get<{ inn: string; name: string; owner_user_id: number | null }>('504410008491');
     expect(row?.name).toContain('ЧИХИНОВ');
+    expect(row?.owner_user_id).toBe(1);
   });
 
   it('error callback fires a Telegram notification when telegram + recognition_error are configured', async () => {

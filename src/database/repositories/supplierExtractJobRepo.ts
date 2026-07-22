@@ -33,7 +33,10 @@ export const supplierExtractJobRepo = {
       file_name: data.file_name,
       file_path: data.file_path,
       content_type: data.content_type,
-      owner_user_id: data.owner_user_id,
+      // Колонка nullable, но mysql2 отвергает undefined в bind-параметрах —
+      // приводим явно. Тип поля при этом остаётся обязательным, так что
+      // вызывающий в src/ всё равно обязан осознанно указать владельца.
+      owner_user_id: data.owner_user_id ?? null,
     });
     return Number(result.lastInsertRowid);
   },
