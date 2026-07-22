@@ -19,18 +19,31 @@ import { type EventType, type EventPayload } from './types';
 // Never throws — failure is logged and swallowed (notifications must never
 // break the main pipeline).
 //
-// triggeredByUserId: pass req.user?.id when in HTTP context. When the
-// caller is a background process (file watcher, cron), pass null —
-// we'll use the first user as the recipient (single-user system).
+// triggeredByUserId: pass req.user?.id when in HTTP context. Background callers
+// (file watcher, cron) pass null — the recipient is then the invoice's owner.
 export async function emit(
   eventType: EventType,
   payload: EventPayload,
   triggeredByUserId: number | null,
 ): Promise<void> {
   try {
-    const userId = triggeredByUserId ?? (await userRepo.firstUserId());
+    // Накладная загружается ПЕРВОЙ: получатель выводится из неё.
+    const invoice = await invoiceRepo.getById(payload.invoice_id);
+    if (!invoice) {
+      logger.debug('notifications.emit: invoice not found', { invoiceId: payload.invoice_id });
+      return;
+    }
+
+    // Получатель — владелец накладной. triggeredByUserId остаётся только
+    // подстраховкой для легаси-строк без проставленного владельца.
+    //
+    // Отката к firstUserId() здесь быть не должно: именно он доставлял события
+    // одной компании в Telegram-бот другой (инцидент 2026-07-22).
+    const userId = invoice.owner_user_id ?? triggeredByUserId;
     if (userId == null) {
-      logger.debug('notifications.emit: no user, skipping', { eventType });
+      logger.debug('notifications.emit: invoice has no owner, skipping', {
+        eventType, invoiceId: payload.invoice_id,
+      });
       return;
     }
 
@@ -41,12 +54,6 @@ export async function emit(
     }
     if (!cfg.notify_events.includes(eventType)) {
       logger.debug('notifications.emit: event disabled in config', { eventType, userId });
-      return;
-    }
-
-    const invoice = await invoiceRepo.getById(payload.invoice_id);
-    if (!invoice) {
-      logger.debug('notifications.emit: invoice not found', { invoiceId: payload.invoice_id });
       return;
     }
 
