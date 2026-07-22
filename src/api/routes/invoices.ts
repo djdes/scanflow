@@ -1688,10 +1688,12 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
 
   // Render purpose
   const purposeOverride = (req.body as { purpose_override?: string }).purpose_override;
-  const userId = (await userRepo.firstUserId()) ?? 1;
+  // Шаблон назначения — профильное (индивидуальное) поле, поэтому берётся у
+  // владельца накладной. firstUserId() подставлял сюда шаблон чужой компании.
+  const templateOwnerId = invoice.owner_user_id;
   const tpl =
     purposeOverride ??
-    (await userRepo.getPurposeTemplate(userId)) ??
+    (templateOwnerId != null ? await userRepo.getPurposeTemplate(templateOwnerId) : null) ??
     'Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}';
   const items = await invoiceRepo.getItems(id);
   const firstVatRate = items[0]?.vat_rate ?? null;
