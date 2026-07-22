@@ -20,6 +20,7 @@ import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 import { UploadSource } from '../utils/uploadSource';
+import { autoSendSberForInvoice } from '../services/autoSendSber';
 import { ocrCorrectionRepo } from '../database/repositories/ocrCorrectionRepo';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
@@ -180,50 +181,6 @@ export class FileWatcher {
       logger.warn('Failed to persist pack fallback to mapping', {
         mappingId,
         error: (err as Error).message,
-      });
-    }
-  }
-
-  /**
-   * Отправить накладную в Сбер.Бизнес через loopback HTTP — переиспользуем
-   * всю валидацию /send-sber endpoint без дублирования кода. API-ключ берётся
-   * у первого админа (single-tenant система). Если что-то не получилось
-   * (нет supplier verified, нет sber_token, Sber API вернул 4xx) — log warn
-   * и продолжаем; накладная остаётся доступной для ручной отправки через UI.
-   */
-  private async autoSendSber(invoiceId: number): Promise<void> {
-    try {
-      const adminId = await (await import('../database/repositories/userRepo')).userRepo.firstUserId();
-      if (!adminId) {
-        logger.warn('Auto-send Sber: no admin user', { invoiceId });
-        return;
-      }
-      const db = (await import('../database/db')).getDb();
-      const row = await db.prepare('SELECT api_key FROM users WHERE id = ?').get<{ api_key: string }>(adminId);
-      const apiKey = row?.api_key;
-      if (!apiKey) {
-        logger.warn('Auto-send Sber: admin has no api_key', { invoiceId });
-        return;
-      }
-
-      const url = `http://127.0.0.1:${config.apiPort}/api/invoices/${invoiceId}/send-sber`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({})) as { payment_number?: string };
-        logger.info('Auto-sent to Sber', { invoiceId, paymentNumber: data.payment_number ?? null });
-      } else {
-        const text = await res.text().catch(() => '');
-        logger.warn('Auto-send Sber rejected', {
-          invoiceId, status: res.status, body: text.slice(0, 300),
-        });
-      }
-    } catch (err) {
-      logger.warn('Auto-send Sber error', {
-        invoiceId, error: (err as Error).message,
       });
     }
   }
@@ -1451,7 +1408,7 @@ export class FileWatcher {
         // /send-sber endpoint: check supplier verified, payer details,
         // create payment row, call Sber API). API key админа берётся из БД.
         if (canAutoSend && cfg.auto_send_sber) {
-          await this.autoSendSber(targetInvoiceId);
+          await autoSendSberForInvoice(targetInvoiceId);
         }
       } catch (e) {
         logger.warn('Auto-send hooks failed', { id: targetInvoiceId, error: (e as Error).message });

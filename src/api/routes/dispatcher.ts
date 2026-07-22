@@ -24,6 +24,7 @@ import { preprocessInvoiceImage } from '../../ocr/imagePreprocess';
 import { emit as emitNotification, notifySupplierExtractError, emitElevatedPricesIfAny } from '../../notifications/events';
 import { normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
 import { resolveSupplierName } from '../../services/resolveSupplierName';
+import { autoSendSberForInvoice } from '../../services/autoSendSber';
 import { userRepo } from '../../database/repositories/userRepo';
 import { getDb } from '../../database/db';
 import { config } from '../../config';
@@ -71,39 +72,13 @@ async function runAutoSendHooks(targetInvoiceId: number): Promise<void> {
       logger.info('dispatcher: auto-approved for 1C', { id: targetInvoiceId });
     }
     if (cfg.auto_send_sber) {
-      await autoSendSber(targetInvoiceId);
+      await autoSendSberForInvoice(targetInvoiceId);
     }
   } catch (e) {
     logger.warn('dispatcher: auto-send hooks failed', { id: targetInvoiceId, error: (e as Error).message });
   }
 }
 
-// Loopback POST to /send-sber (reuses the full endpoint logic: verified-supplier
-// check, payer details, payment row, Sber API call). Admin api_key from DB.
-async function autoSendSber(invoiceId: number): Promise<void> {
-  try {
-    const adminId = await userRepo.firstUserId();
-    if (!adminId) { logger.warn('dispatcher auto-send Sber: no admin user', { invoiceId }); return; }
-    const row = await getDb().prepare('SELECT api_key FROM users WHERE id = ?').get<{ api_key: string }>(adminId);
-    const apiKey = row?.api_key;
-    if (!apiKey) { logger.warn('dispatcher auto-send Sber: admin has no api_key', { invoiceId }); return; }
-    const url = `http://127.0.0.1:${config.apiPort}/api/invoices/${invoiceId}/send-sber`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    if (res.ok) {
-      const d = (await res.json().catch(() => ({}))) as { payment_number?: string };
-      logger.info('dispatcher: auto-sent to Sber', { invoiceId, paymentNumber: d.payment_number ?? null });
-    } else {
-      const text = await res.text().catch(() => '');
-      logger.warn('dispatcher: auto-send Sber rejected', { invoiceId, status: res.status, body: text.slice(0, 300) });
-    }
-  } catch (err) {
-    logger.warn('dispatcher: auto-send Sber error', { invoiceId, error: (err as Error).message });
-  }
-}
 
 function contentTypeFor(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
