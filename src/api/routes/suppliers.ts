@@ -155,7 +155,7 @@ router.post('/extract-from-photo', extractUpload.single('file'), async (req: Req
       // doesn't sit in 'processing' until the 15-min stale sweep. The client
       // gets a clear status and offers a Retry (re-uploads the file → new job).
       if (jobId != null) await supplierExtractJobRepo.setError(jobId, (err as Error).message).catch(() => {});
-      notifySupplierExtractError(req.file.originalname, (err as Error).message).catch(() => {});
+      notifySupplierExtractError(req.file.originalname, (err as Error).message, req.user?.id ?? null).catch(() => {});
       if (err instanceof DispatcherConfigError) return res.status(503).json({ error: err.message });
       if (err instanceof DispatcherApiError) return res.status(502).json({ error: err.message });
       logger.error('Supplier extract dispatch failed', { error: (err as Error).message });

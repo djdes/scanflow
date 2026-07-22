@@ -174,7 +174,7 @@ async function main(): Promise<void> {
         if (!jobs.length) return;
         logger.warn('Supplier-extract timeout sweep: marked as error', { count: jobs.length });
         for (const j of jobs) {
-          notifySupplierExtractError(j.file_name, 'Диспетчер не ответил в течение 15 минут (таймаут).').catch(() => {});
+          notifySupplierExtractError(j.file_name, 'Диспетчер не ответил в течение 15 минут (таймаут).', j.owner_user_id ?? null).catch(() => {});
         }
       })
       .catch(err => logger.error('supplier-extract timeout sweep failed', { error: (err as Error).message }));

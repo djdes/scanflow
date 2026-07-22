@@ -219,7 +219,7 @@ router.post('/supplier-result/:jobId', async (req: Request, res: Response) => {
     await supplierExtractJobRepo.setError(id, msg);
     fs.promises.unlink(job.file_path).catch(() => { /* best-effort */ });
     logger.warn('dispatcher supplier-result: error reported', { jobId: id, error: msg });
-    notifySupplierExtractError(job.file_name, msg).catch(() => {});
+    notifySupplierExtractError(job.file_name, msg, job.owner_user_id ?? null).catch(() => {});
     return res.json({ ok: true, status: 'error' });
   }
   if (!body.success || !body.data || typeof body.data !== 'object') {

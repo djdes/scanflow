@@ -161,10 +161,19 @@ export async function emitElevatedPricesIfAny(invoiceId: number): Promise<void> 
   }
 }
 
-export async function notifySupplierExtractError(fileName: string, errorMessage: string): Promise<void> {
+export async function notifySupplierExtractError(
+  fileName: string,
+  errorMessage: string,
+  ownerUserId: number | null,
+): Promise<void> {
   try {
-    const userId = await userRepo.firstUserId();
-    if (userId == null) return;
+    // ownerUserId обязателен и не имеет значения по умолчанию: молчание
+    // безопаснее, чем доставка чужой компании. Отката к firstUserId() быть не должно.
+    if (ownerUserId == null) {
+      logger.debug('notifySupplierExtractError: no owner, skipping', { fileName });
+      return;
+    }
+    const userId = ownerUserId;
     const cfg = await userRepo.getNotifyConfig(userId);
     if (!cfg || !cfg.notify_events.includes('recognition_error')) return;
     const tg = await userRepo.getTelegramConfig(userId);
