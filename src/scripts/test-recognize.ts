@@ -15,6 +15,11 @@ import { OcrManager } from '../ocr/ocrManager';
 import { validateParsedInvoice } from '../ocr/invoiceValidator';
 import type { ParsedInvoiceData } from '../ocr/types';
 
+// Каталог и сопоставления пер-тенантные. Вспомогательные скрипты запускаются
+// вручную оператором платформы, поэтому работают в области админской компании.
+const SCRIPT_OWNER_ID = 1;
+
+
 function recap(d: ParsedInvoiceData): void {
   console.log('\n--- ПОЛЯ ШАПКИ ---');
   console.log(`  type=${d.invoice_type} № ${d.invoice_number} date=${d.invoice_date}`);
@@ -45,7 +50,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < paths.length; i++) {
     console.log(`\n############ СТРАНИЦА ${i + 1}/${paths.length}: ${paths[i]} ############`);
     const t0 = Date.now();
-    const result = await ocr.recognizeWithClaudeApi(paths[i]);
+    const result = await ocr.recognizeWithClaudeApi(paths[i], SCRIPT_OWNER_ID);
     const dt = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`=== engine: ${result.engine}  (${dt}s) ===`);
     pageTexts.push(result.text);
@@ -66,7 +71,7 @@ async function main(): Promise<void> {
     console.log(`\n============ СШИВКА ${pageTexts.length} СТРАНИЦ (analyzeMultiPageText) ============`);
     const combined = pageTexts.join('\n\n--- СТРАНИЦА ---\n\n');
     const t0 = Date.now();
-    const merged = await ocr.analyzeMultiPageText(combined, pageTexts.length);
+    const merged = await ocr.analyzeMultiPageText(combined, pageTexts.length, SCRIPT_OWNER_ID);
     console.log(`=== engine: ${merged.engine}  (${((Date.now() - t0) / 1000).toFixed(1)}s) ===`);
     if (merged.structured) {
       recap(merged.structured);

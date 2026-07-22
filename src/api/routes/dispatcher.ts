@@ -470,7 +470,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       let mapping: Awaited<ReturnType<NomenclatureMapper['map']>> | null = null;
       if (mapper && it.name) {
         try {
-          mapping = await mapper.map(it.name, { supplierInn: data.supplier_inn, supplierName: data.supplier });
+          mapping = await mapper.map(it.name, row.owner_user_id ?? -1, { supplierInn: data.supplier_inn, supplierName: data.supplier });
         } catch (err) {
           logger.warn('dispatcher result: mapping failed', { itemName: it.name, error: (err as Error).message });
         }
@@ -481,7 +481,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       //   - the final coerce step rebrands any countable supplier unit
       //     (уп/кор/банка/пач) to "шт" — our 1С catalog only tracks {шт, кг, л}.
       {
-        const onec = mapping?.onec_guid ? await onecNomenclatureRepo.getByGuid(mapping.onec_guid) : null;
+        const onec = mapping?.onec_guid ? await onecNomenclatureRepo.getByGuid(mapping.onec_guid, row.owner_user_id ?? -1) : null;
         const hintedPackSize = it.pack_size ?? mapping?.pack_size ?? null;
         const hintedPackUnit = it.pack_size ? 'шт' : (mapping?.pack_unit ?? null);
         const r = resolveAndApplyPackTransform(

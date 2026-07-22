@@ -5,10 +5,21 @@ import { recomputeMedianForGuid, recomputeMedianForGuids } from '../../src/prici
 
 const GUID = 'aaaa-bbbb-cccc-dddd';
 
+// Статистика цен пер-тенантная: медиана считается по накладным одной компании и
+// пишется в её строку. Заводим владельца и проставляем его накладным.
+const OWNER = 1;
+
+async function insertOwner(): Promise<void> {
+  await getDb().prepare(
+    `INSERT INTO users (id, username, password_hash, api_key, role, notify_events)
+     VALUES (1, 'owner', 'x', 'k-owner', 'admin', '[]')`
+  ).run();
+}
+
 async function insertInvoice(date: string): Promise<number> {
   const r = await getDb().prepare(
-    `INSERT INTO invoices (file_name, file_path, status, invoice_date) VALUES (?, ?, 'processed', ?)`,
-  ).run(`f-${date}`, `/test/${date}`, date);
+    `INSERT INTO invoices (file_name, file_path, status, invoice_date, owner_user_id) VALUES (?, ?, 'processed', ?, ?)`,
+  ).run(`f-${date}`, `/test/${date}`, date, OWNER);
   return Number(r.lastInsertRowid);
 }
 
@@ -30,14 +41,14 @@ async function insertItem(
 
 async function getStats(guid: string) {
   return getDb()
-    .prepare('SELECT * FROM nomenclature_price_stats WHERE onec_guid = ?')
-    .get<{ onec_guid: string; median_price: number; price_unit: string; samples: number }>(guid);
+    .prepare('SELECT * FROM nomenclature_price_stat_cards WHERE onec_guid = ? AND owner_user_id = ?')
+    .get<{ onec_guid: string; median_price: number; price_unit: string; samples: number }>(guid, OWNER);
 }
 
 // Skip in CI when DB_HOST is not set. Local dev: set DB_HOST=127.0.0.1 +
 // DB_PASSWORD + DB_NAME=scanflow_test before running.
 describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianForGuid', () => {
-  beforeEach(async () => { await resetDb(); });
+  beforeEach(async () => { await resetDb(); await insertOwner(); });
   afterAll(async () => { await closeTestDb(); });
 
   it('writes nothing when fewer than 3 samples exist', async () => {
@@ -45,7 +56,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
     await insertItem(inv, { price: 100 });
     await insertItem(inv, { price: 110 });
 
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result).toBeNull();
     expect(await getStats(GUID)).toBeUndefined();
   });
@@ -55,7 +66,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(`2026-01-0${i + 1}`);
       await insertItem(inv, { price });
     }
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result).not.toBeNull();
     expect(result!.median_price).toBe(30);
     expect(result!.samples).toBe(5);
@@ -70,7 +81,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(`2026-01-0${i + 1}`);
       await insertItem(inv, { price });
     }
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result!.median_price).toBe(25);
     expect(result!.samples).toBe(4);
   });
@@ -84,7 +95,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(`2026-02-0${i + 1}`);
       await insertItem(inv, { price, unit: 'шт' });
     }
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result!.price_unit).toBe('кг');
     expect(result!.samples).toBe(4);
     expect(result!.median_price).toBe(25);
@@ -99,7 +110,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(`2026-02-0${i + 1}`);
       await insertItem(inv, { price, unit: 'шт' });
     }
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result!.price_unit).toBe('шт');
     expect(result!.samples).toBe(3);
   });
@@ -109,7 +120,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(`2026-${String(i).padStart(2, '0')}-01`);
       await insertItem(inv, { price: i });
     }
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result!.samples).toBe(10);
     expect(result!.median_price).toBe(6.5);
   });
@@ -121,7 +132,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(dates[i]);
       await insertItem(inv, { price: prices[i] });
     }
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result!.samples).toBe(3);
     expect(result!.median_price).toBe(20);
   });
@@ -131,13 +142,13 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(`2026-01-0${i + 1}`);
       await insertItem(inv, { price });
     }
-    await recomputeMedianForGuid(GUID);
-    await recomputeMedianForGuid(GUID);
-    await recomputeMedianForGuid(GUID);
+    await recomputeMedianForGuid(GUID, OWNER);
+    await recomputeMedianForGuid(GUID, OWNER);
+    await recomputeMedianForGuid(GUID, OWNER);
 
     const row = await getDb()
-      .prepare('SELECT COUNT(*) AS c FROM nomenclature_price_stats WHERE onec_guid = ?')
-      .get<{ c: number }>(GUID);
+      .prepare('SELECT COUNT(*) AS c FROM nomenclature_price_stat_cards WHERE onec_guid = ? AND owner_user_id = ?')
+      .get<{ c: number }>(GUID, OWNER);
     expect(row!.c).toBe(1);
   });
 
@@ -146,18 +157,18 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       const inv = await insertInvoice(`2026-01-0${i + 1}`);
       await insertItem(inv, { price });
     }
-    await recomputeMedianForGuid(GUID);
+    await recomputeMedianForGuid(GUID, OWNER);
     expect(await getStats(GUID)).not.toBeUndefined();
 
     await getDb().prepare('DELETE FROM invoice_items WHERE onec_guid = ?').run(GUID);
-    const result = await recomputeMedianForGuid(GUID);
+    const result = await recomputeMedianForGuid(GUID, OWNER);
     expect(result).toBeNull();
     expect(await getStats(GUID)).toBeUndefined();
   });
 });
 
 describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianForGuids (batch)', () => {
-  beforeEach(async () => { await resetDb(); });
+  beforeEach(async () => { await resetDb(); await insertOwner(); });
   afterAll(async () => { await closeTestDb(); });
 
   it('processes multiple GUIDs and skips null/empty entries', async () => {
@@ -169,7 +180,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('recomputeMedianFor
       await insertItem(inv, { price: price * 2, guid: G2 });
     }
     // null/empty deliberately passed to confirm the runtime filter (TS would normally reject).
-    await recomputeMedianForGuids([G1, G2, null as unknown as string, '']);
+    await recomputeMedianForGuids([G1, G2, null as unknown as string, ''], OWNER);
     expect((await getStats(G1))!.median_price).toBe(20);
     expect((await getStats(G2))!.median_price).toBe(40);
   });

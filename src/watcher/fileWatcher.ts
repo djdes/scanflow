@@ -180,11 +180,12 @@ export class FileWatcher {
   private async persistPackFallback(
     mappingId: number | null,
     resolved: { usedFallback: boolean; packSize: number | null; packUnit: string | null },
+    ownerUserId: number,
   ): Promise<void> {
     if (!mappingId || !resolved.usedFallback) return;
     if (!resolved.packSize || !resolved.packUnit) return;
     try {
-      await mappingRepo.update(mappingId, {
+      await mappingRepo.update(mappingId, ownerUserId, {
         pack_size: resolved.packSize,
         pack_unit: resolved.packUnit,
       });
@@ -253,6 +254,11 @@ export class FileWatcher {
     const invoice = await invoiceRepo.getById(invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
+    // Каталог, сопоставления и подсказка каталога для Claude — пер-тенантные:
+    // весь разбор идёт в области владельца этой накладной. У «ничьей» накладной
+    // каталога нет, сопоставление вернёт «не найдено» — это корректно.
+    const mappingOwnerId = invoice.owner_user_id ?? -1;
+
     // ВСЕ файлы накладной. Многостраничная = несколько имён через запятую.
     // Раньше rescan брал ТОЛЬКО первый файл (split(',')[0]) и терял остальные
     // страницы: у 2-страничной накладной оставались только позиции листа 1 и
@@ -272,8 +278,8 @@ export class FileWatcher {
     // mode='claude_api', давая 0.00 сумм.
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     const recognizeOne = (fp: string) =>
-      analyzerConfig.mode === 'claude_api' ? this.ocrManager.recognizeWithClaudeApi(fp)
-        : config.useClaudeAnalyzer ? this.ocrManager.recognizeHybrid(fp, true)
+      analyzerConfig.mode === 'claude_api' ? this.ocrManager.recognizeWithClaudeApi(fp, mappingOwnerId)
+        : config.useClaudeAnalyzer ? this.ocrManager.recognizeHybrid(fp, mappingOwnerId, true)
           : this.ocrManager.recognize(fp);
 
     // Распознаём каждую найденную страницу по отдельности (как загрузка).
@@ -304,7 +310,7 @@ export class FileWatcher {
       ocrText = pages.map(p => p.text).join('\n\n--- СТРАНИЦА ---\n\n');
       const pageCount = pages.length;
       logger.info('Reprocess multi-page: merging pages', { invoiceId, pageCount });
-      const multi = await this.ocrManager.analyzeMultiPageText(ocrText, pageCount);
+      const multi = await this.ocrManager.analyzeMultiPageText(ocrText, pageCount, mappingOwnerId);
       parsed = multi.structured;
       ocrEngine = multi.engine;
     }
@@ -365,7 +371,7 @@ export class FileWatcher {
     // Mapping pipeline
     const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
     const catalog = analyzerCfg.llm_mapper_enabled
-      ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
+      ? await onecNomenclatureRepo.listItems({ ownerUserId: mappingOwnerId, excludeFolders: true })
       : null;
 
     for (const item of parsedItems) {
@@ -377,11 +383,11 @@ export class FileWatcher {
       const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
       let mapping: MappingResult;
       const mappingContext = { supplierInn: parsed.supplier_inn, supplierName: parsed.supplier };
-      const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingContext);
+      const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingOwnerId, mappingContext);
       if (supplierOverride) {
         mapping = supplierOverride;
       } else if (llmPicked) {
-        const existingMapping = await mappingRepo.getByScannedName(item.name);
+        const existingMapping = await mappingRepo.getByScannedName(item.name, mappingOwnerId);
         mapping = {
           original_name: item.name,
           mapped_name: llmPicked.name,
@@ -398,7 +404,7 @@ export class FileWatcher {
             mapped_name_1c: llmPicked.name,
             onec_guid: llmPicked.guid,
             approved: false,
-          });
+          }, mappingOwnerId);
         } catch (e) {
           logger.warn('Reprocess: failed to persist learned mapping', {
             name: item.name, error: (e as Error).message,
@@ -406,7 +412,7 @@ export class FileWatcher {
         }
         this.mapper.invalidateCache();
       } else {
-        mapping = await this.mapper.map(item.name, mappingContext);
+        mapping = await this.mapper.map(item.name, mappingOwnerId, mappingContext);
       }
 
       // packTransform runs unconditionally — even for unmapped items, the
@@ -414,7 +420,7 @@ export class FileWatcher {
       // packs (уп/кор/банка) to "шт" so 1С never sees non-{шт,кг,л} units.
       const resolved = await (async () => {
         const onec1cUnit = mapping.onec_guid
-          ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid))?.unit ?? null
+          ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
           : null;
         const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
         const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
@@ -426,7 +432,7 @@ export class FileWatcher {
           mapping.mapped_name,
           onec1cUnit,
         );
-        if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r);
+        if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r, mappingOwnerId);
         return r;
       })();
 
@@ -482,13 +488,18 @@ export class FileWatcher {
     const invoice = await invoiceRepo.getById(invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
+    // Каталог, сопоставления и подсказка каталога для Claude — пер-тенантные:
+    // весь разбор идёт в области владельца этой накладной. У «ничьей» накладной
+    // каталога нет, сопоставление вернёт «не найдено» — это корректно.
+    const mappingOwnerId = invoice.owner_user_id ?? -1;
+
     // OCR — respect analyzer_config.mode (как в processFile/reprocessInvoice).
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     let ocrResult;
     if (analyzerConfig.mode === 'claude_api') {
-      ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
+      ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
     } else if (config.useClaudeAnalyzer) {
-      ocrResult = await this.ocrManager.recognizeHybrid(filePath, true);
+      ocrResult = await this.ocrManager.recognizeHybrid(filePath, mappingOwnerId, true);
     } else {
       ocrResult = await this.ocrManager.recognize(filePath);
     }
@@ -529,15 +540,19 @@ export class FileWatcher {
     const target = await invoiceRepo.getById(targetInvoiceId);
     if (!target) throw new Error(`Invoice ${targetInvoiceId} not found`);
 
+    // Каталог и сопоставления пер-тенантные: страница присоединяется к чужой
+    // накладной, поэтому и сопоставляется в области ЕЁ владельца.
+    const mappingOwnerId = target.owner_user_id ?? -1;
+
     let added = 0;
     for (const item of parsed.items) {
       if (!item.name) continue;
       const sanity = sanitizeItemArithmetic({
         quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
       });
-      const mapping = await this.mapper.map(item.name, { supplierInn: target.supplier_inn, supplierName: target.supplier });
+      const mapping = await this.mapper.map(item.name, mappingOwnerId, { supplierInn: target.supplier_inn, supplierName: target.supplier });
       const onec1cUnit = mapping.onec_guid
-        ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid))?.unit ?? null
+        ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
         : null;
       const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
       const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
@@ -645,6 +660,13 @@ export class FileWatcher {
       throw err;
     }
 
+    // Каталог и сопоставления пер-тенантные: весь разбор этого файла идёт в
+    // области владельца созданной накладной. Объявлено здесь, а не ниже, потому
+    // что ветка многостраничного слияния обращается к каталогу раньше обычной.
+    // У «ничьей» накладной каталога нет — сопоставление вернёт «не найдено», и
+    // это корректно: претендента на неё не существует.
+    const mappingOwnerId = invoice.owner_user_id ?? -1;
+
     // Fire-and-forget: notify that a new invoice row was created.
     emitNotification('photo_uploaded', {
       invoice_id: invoice.id,
@@ -661,7 +683,7 @@ export class FileWatcher {
         // Anthropic supports native PDF document blocks. Other OCR engines in
         // the chain are image-only, so inbound/uploaded PDFs always take the
         // same structured Claude path as production images.
-        ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
+        ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
       } else if (forceEngine) {
         ocrResult = await this.ocrManager.recognizeWithEngine(filePath, forceEngine);
       } else {
@@ -704,10 +726,10 @@ export class FileWatcher {
 
         if (analyzerConfig.mode === 'claude_api') {
           // Claude API mode: send image directly to Anthropic API
-          ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath);
+          ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
         } else if (config.useClaudeAnalyzer) {
           // Hybrid mode: Google Vision OCR + Claude API text analyzer
-          ocrResult = await this.ocrManager.recognizeHybrid(filePath, true);
+          ocrResult = await this.ocrManager.recognizeHybrid(filePath, mappingOwnerId, true);
         } else {
           // Last-resort fallback: Google Vision only + regex parser
           ocrResult = await this.ocrManager.recognize(filePath);
@@ -946,7 +968,7 @@ export class FileWatcher {
               combinedTextLength: combinedText.length,
             });
 
-            const multiResult = await this.ocrManager.analyzeMultiPageText(combinedText, pageCount);
+            const multiResult = await this.ocrManager.analyzeMultiPageText(combinedText, pageCount, mappingOwnerId);
             if (multiResult.structured) {
               const unifiedParsed = await ocrCorrectionRepo.apply(
                 multiResult.structured as unknown as Record<string, unknown>,
@@ -999,7 +1021,7 @@ export class FileWatcher {
               // Save unified items
               const mergedAnalyzerCfg = await invoiceRepo.getAnalyzerConfig();
               const mergedCatalog = mergedAnalyzerCfg.llm_mapper_enabled
-                ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
+                ? await onecNomenclatureRepo.listItems({ ownerUserId: mappingOwnerId, excludeFolders: true })
                 : null;
 
               for (const item of mergedItems) {
@@ -1015,7 +1037,7 @@ export class FileWatcher {
                 const llmPicked = this.resolveCatalogIdx(item.catalog_idx, mergedCatalog);
                 let mapping: MappingResult;
                 const mappingContext = { supplierInn: parsed.supplier_inn, supplierName: parsed.supplier };
-                const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingContext);
+                const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingOwnerId, mappingContext);
                 if (supplierOverride) {
                   mapping = supplierOverride;
                 } else if (llmPicked) {
@@ -1035,7 +1057,7 @@ export class FileWatcher {
                       mapped_name_1c: llmPicked.name,
                       onec_guid: llmPicked.guid,
                       approved: false,
-                    });
+                    }, mappingOwnerId);
                   } catch (e) {
                     logger.warn('LLM-mapper (merge): failed to persist learned mapping', {
                       name: item.name, error: (e as Error).message,
@@ -1043,7 +1065,7 @@ export class FileWatcher {
                   }
                   this.mapper.invalidateCache();
                 } else {
-                  mapping = await this.mapper.map(item.name, mappingContext);
+                  mapping = await this.mapper.map(item.name, mappingOwnerId, mappingContext);
                 }
 
                 // packTransform unconditionally: container/looksLikeContainer
@@ -1053,7 +1075,7 @@ export class FileWatcher {
                 // relabels supplier packs (уп/кор/банка) to "шт".
                 const mergedResolved = await (async () => {
                   const onec1cUnit = mapping.onec_guid
-                    ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid))?.unit ?? null
+                    ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
                     : null;
                   const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
                   const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
@@ -1065,7 +1087,7 @@ export class FileWatcher {
                     mapping.mapped_name,
                     onec1cUnit,
                   );
-                  if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r);
+                  if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r, mappingOwnerId);
                   return r;
                 })();
                 await invoiceRepo.addItem({
@@ -1253,7 +1275,7 @@ export class FileWatcher {
       // Resolve those first; fall back to fuzzy mapper only when LLM missed.
       const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
       const catalog = analyzerCfg.llm_mapper_enabled
-        ? await onecNomenclatureRepo.listItems({ excludeFolders: true })
+        ? await onecNomenclatureRepo.listItems({ ownerUserId: mappingOwnerId, excludeFolders: true })
         : null;
 
       for (const item of parsedItems) {
@@ -1271,14 +1293,14 @@ export class FileWatcher {
         const llmPicked = this.resolveCatalogIdx(item.catalog_idx, catalog);
         let mapping: MappingResult;
         const mappingContext = { supplierInn: parsed.supplier_inn, supplierName: parsed.supplier };
-        const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingContext);
+        const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingOwnerId, mappingContext);
         if (supplierOverride) {
           mapping = supplierOverride;
         } else if (llmPicked) {
           // Preserve any previously-learned pack transform on the existing
           // mapping (if any) so pack-transform still fires even when LLM
           // picked the GUID. Look up by scanned_name.
-          const existingMapping = await mappingRepo.getByScannedName(item.name);
+          const existingMapping = await mappingRepo.getByScannedName(item.name, mappingOwnerId);
           mapping = {
             original_name: item.name,
             mapped_name: llmPicked.name,
@@ -1296,7 +1318,7 @@ export class FileWatcher {
               mapped_name_1c: llmPicked.name,
               onec_guid: llmPicked.guid,
               approved: false,
-            });
+            }, mappingOwnerId);
           } catch (e) {
             logger.warn('LLM-mapper: failed to persist learned mapping', {
               name: item.name, error: (e as Error).message,
@@ -1304,7 +1326,7 @@ export class FileWatcher {
           }
           this.mapper.invalidateCache();
         } else {
-          mapping = await this.mapper.map(item.name, mappingContext);
+          mapping = await this.mapper.map(item.name, mappingOwnerId, mappingContext);
         }
 
         // packTransform unconditionally: Claude's pack_size hint ("*48",
@@ -1312,7 +1334,7 @@ export class FileWatcher {
         // supplier packs to "шт" so 1С never sees уп/кор/банка.
         const resolved = await (async () => {
           const onec1cUnit = mapping.onec_guid
-            ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid))?.unit ?? null
+            ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
             : null;
           const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
           const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
@@ -1324,7 +1346,7 @@ export class FileWatcher {
             mapping.mapped_name,
             onec1cUnit,
           );
-          if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r);
+          if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r, mappingOwnerId);
           return r;
         })();
         await invoiceRepo.addItem({

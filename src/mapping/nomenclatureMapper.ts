@@ -213,18 +213,60 @@ interface LearnedToken {
   tokens: Set<string>;
 }
 
-export class NomenclatureMapper {
-  private onecFuse: Fuse<OnecNomenclatureRow> | null = null;
-  private learnedTokens: LearnedToken[] | null = null;
-  private onecTokenIndex: OnecTokenDoc[] | null = null;
-  private onecIdf: ((token: string) => number) | null = null;
-  private onecDf: Map<string, number> | null = null;
+/**
+ * Построенный индекс каталога ОДНОЙ компании.
+ *
+ * Раньше эти шесть полей лежали прямо на экземпляре маппера, а экземпляр один на
+ * процесс. Это означало, что после первого же запроса каталог одной компании
+ * отвечал на запросы всех остальных — фильтрация в SQL такое не ловит, потому что
+ * индекс живёт в памяти между запросами.
+ */
+interface CatalogIndex {
+  onecFuse: Fuse<OnecNomenclatureRow> | null;
+  learnedTokens: LearnedToken[] | null;
+  onecTokenIndex: OnecTokenDoc[] | null;
+  onecIdf: ((token: string) => number) | null;
+  onecDf: Map<string, number> | null;
   // exactKey → catalog row, or null when >1 catalog rows share that key (ambiguous).
-  private onecExactIndex: Map<string, OnecNomenclatureRow | null> | null = null;
+  onecExactIndex: Map<string, OnecNomenclatureRow | null> | null;
+}
 
-  private async refreshIndex(): Promise<void> {
-    const items = await onecNomenclatureRepo.listItems({ excludeFolders: true });
-    this.onecFuse = new Fuse(items, ONEC_FUSE_OPTIONS);
+function emptyIndex(): CatalogIndex {
+  return {
+    onecFuse: null, learnedTokens: null, onecTokenIndex: null,
+    onecIdf: null, onecDf: null, onecExactIndex: null,
+  };
+}
+
+// Каталог 1С бывает крупным, а индексов столько же, сколько активных компаний.
+// Держим ограниченное число, вытесняя наименее недавно использованный.
+const MAX_CACHED_INDEXES = 8;
+
+export class NomenclatureMapper {
+  private indexes = new Map<number, CatalogIndex>();
+
+  private indexFor(ownerUserId: number): CatalogIndex {
+    let ix = this.indexes.get(ownerUserId);
+    if (!ix) {
+      if (this.indexes.size >= MAX_CACHED_INDEXES) {
+        // Map хранит ключи в порядке вставки — первый и есть самый давний.
+        const oldest = this.indexes.keys().next().value as number | undefined;
+        if (oldest !== undefined) this.indexes.delete(oldest);
+      }
+      ix = emptyIndex();
+      this.indexes.set(ownerUserId, ix);
+    } else {
+      // Освежаем позицию в порядке вставки, чтобы вытеснялся действительно давний.
+      this.indexes.delete(ownerUserId);
+      this.indexes.set(ownerUserId, ix);
+    }
+    return ix;
+  }
+
+  private async refreshIndex(ownerUserId: number): Promise<void> {
+    const ix = this.indexFor(ownerUserId);
+    const items = await onecNomenclatureRepo.listItems({ ownerUserId, excludeFolders: true });
+    ix.onecFuse = new Fuse(items, ONEC_FUSE_OPTIONS);
 
     // Build the stemmed-token index + IDF weights over the same catalog.
     const docs = items.map(it => ({
@@ -236,9 +278,9 @@ export class NomenclatureMapper {
     const N = docs.length || 1;
     // +1 smoothing keeps common tokens positive but small; rare tokens score high.
     const idf = (tk: string): number => Math.log(N / (1 + (df.get(tk) ?? 0))) + 1;
-    this.onecIdf = idf;
-    this.onecDf = df;
-    this.onecTokenIndex = docs.map(d => {
+    ix.onecIdf = idf;
+    ix.onecDf = df;
+    ix.onecTokenIndex = docs.map(d => {
       let idfSum = 0;
       let topToken: string | null = null;
       let topIdf = -1;
@@ -270,44 +312,46 @@ export class NomenclatureMapper {
         if (k2 && k2 !== k1) addExact(k2, it);
       }
     }
-    this.onecExactIndex = exact;
+    ix.onecExactIndex = exact;
 
-    logger.debug('Nomenclature mapper index refreshed', { onecItems: items.length });
+    logger.debug('Nomenclature mapper index refreshed', { ownerUserId, onecItems: items.length });
   }
 
-  private async refreshLearnedIndex(): Promise<void> {
+  private async refreshLearnedIndex(ownerUserId: number): Promise<void> {
+    const ix = this.indexFor(ownerUserId);
     // Only rows with a live onec_guid — legacy rows without guid can't help
     // link a new scan to 1С.
-    const all = (await mappingRepo.getAll()).filter(m => m.onec_guid);
-    this.learnedTokens = all.map(row => ({
+    const all = (await mappingRepo.getAll(ownerUserId)).filter(m => m.onec_guid);
+    ix.learnedTokens = all.map(row => ({
       row,
       tokens: tokenize(normalizeName(row.scanned_name)),
     }));
-    logger.debug('Learned mappings index refreshed', { learnedCount: all.length });
+    logger.debug('Learned mappings index refreshed', { ownerUserId, learnedCount: all.length });
   }
 
-  private async ensureIndex(): Promise<Fuse<OnecNomenclatureRow>> {
-    if (!this.onecFuse) {
-      await this.refreshIndex();
+  private async ensureIndex(ownerUserId: number): Promise<Fuse<OnecNomenclatureRow>> {
+    if (!this.indexFor(ownerUserId).onecFuse) {
+      await this.refreshIndex(ownerUserId);
     }
-    return this.onecFuse!;
+    return this.indexFor(ownerUserId).onecFuse!;
   }
 
-  private async ensureLearnedIndex(): Promise<LearnedToken[]> {
-    if (!this.learnedTokens) {
-      await this.refreshLearnedIndex();
+  private async ensureLearnedIndex(ownerUserId: number): Promise<LearnedToken[]> {
+    if (!this.indexFor(ownerUserId).learnedTokens) {
+      await this.refreshLearnedIndex(ownerUserId);
     }
-    return this.learnedTokens!;
+    return this.indexFor(ownerUserId).learnedTokens!;
   }
 
-  invalidateCache(): void {
-    this.onecFuse = null;
-    this.learnedTokens = null;
-    this.onecTokenIndex = null;
-    this.onecIdf = null;
-    this.onecDf = null;
-    this.onecExactIndex = null;
-    logger.info('Nomenclature mapper cache invalidated');
+  /** Без аргумента сбрасывает индексы ВСЕХ компаний (полная пересинхронизация, тесты). */
+  invalidateCache(ownerUserId?: number): void {
+    if (ownerUserId == null) {
+      this.indexes.clear();
+      logger.info('Nomenclature mapper cache invalidated (all tenants)');
+      return;
+    }
+    this.indexes.delete(ownerUserId);
+    logger.info('Nomenclature mapper cache invalidated', { ownerUserId });
   }
 
   /**
@@ -320,15 +364,16 @@ export class NomenclatureMapper {
    */
   async mapSupplierOverride(
     scannedName: string,
+    ownerUserId: number,
     context?: { supplierInn?: string | null; supplierName?: string | null },
   ): Promise<MappingResult | null> {
     const supplierKey = makeSupplierKey(context?.supplierInn, context?.supplierName);
     if (supplierKey) {
       const supplierMapping = await supplierMappingRepo.get(supplierKey, scannedName);
       if (supplierMapping) {
-        const onec = await onecNomenclatureRepo.getByGuid(supplierMapping.onec_guid);
+        const onec = await onecNomenclatureRepo.getByGuid(supplierMapping.onec_guid, ownerUserId);
         if (onec) {
-          const global = await mappingRepo.getByScannedName(scannedName);
+          const global = await mappingRepo.getByScannedName(scannedName, ownerUserId);
           return {
             original_name: scannedName,
             mapped_name: onec.name,
@@ -345,21 +390,24 @@ export class NomenclatureMapper {
     return null;
   }
 
-  async map(scannedName: string, context?: { supplierInn?: string | null; supplierName?: string | null }): Promise<MappingResult> {
+  async map(scannedName: string, ownerUserId: number, context?: { supplierInn?: string | null; supplierName?: string | null }): Promise<MappingResult> {
+    // Индекс каталога — строго этой компании. Держим ссылку локально: все
+    // обращения ниже идут через неё, а не через поля экземпляра.
+    const ix = this.indexFor(ownerUserId);
     const cleanName = normalizeName(scannedName);
 
     // Supplier-specific corrections outrank both the global learning table and
     // Claude catalog picks. The caller can query this method separately when it
     // already has an LLM pick, avoiding a full fuzzy search.
-    const supplierOverride = await this.mapSupplierOverride(scannedName, context);
+    const supplierOverride = await this.mapSupplierOverride(scannedName, ownerUserId, context);
     if (supplierOverride) return supplierOverride;
 
     // 1. Learned mapping (try original first, then cleaned)
-    const learned = (await mappingRepo.getByScannedName(scannedName))
-      || (cleanName !== scannedName ? (await mappingRepo.getByScannedName(cleanName)) : null);
+    const learned = (await mappingRepo.getByScannedName(scannedName, ownerUserId))
+      || (cleanName !== scannedName ? (await mappingRepo.getByScannedName(cleanName, ownerUserId)) : null);
     if (learned) {
       if (learned.onec_guid) {
-        const onec = await onecNomenclatureRepo.getByGuid(learned.onec_guid);
+        const onec = await onecNomenclatureRepo.getByGuid(learned.onec_guid, ownerUserId);
         if (onec) {
           return {
             original_name: scannedName,
@@ -408,7 +456,7 @@ export class NomenclatureMapper {
     // Jaccard is used instead of Fuse because Fuse's char-level scoring
     // stays >0.7 even on pairs like ("…йогуртовый без наполнителя 3кг",
     // "…йогуртовый 20% ведро 3л") that obviously refer to the same item.
-    const learnedIdx = await this.ensureLearnedIndex();
+    const learnedIdx = await this.ensureLearnedIndex(ownerUserId);
     const incomingTokens = tokenize(cleanName || scannedName);
     if (incomingTokens.size >= 2 && learnedIdx.length > 0) {
       let best: { row: NomenclatureMapping; sim: number } | null = null;
@@ -419,7 +467,7 @@ export class NomenclatureMapper {
         }
       }
       if (best && best.row.onec_guid) {
-        const onec = await onecNomenclatureRepo.getByGuid(best.row.onec_guid);
+        const onec = await onecNomenclatureRepo.getByGuid(best.row.onec_guid, ownerUserId);
         if (onec) {
           logger.info('Mapping via learned-name token fuzzy', {
             scannedName,
@@ -443,14 +491,14 @@ export class NomenclatureMapper {
       }
     }
 
-    const fuse = await this.ensureIndex();
+    const fuse = await this.ensureIndex(ownerUserId);
     const searchTerm = cleanName || scannedName;
 
     // 1.9. Exact normalized-name match against the catalog. A verbatim catalog
     // name (e.g. "Лист винограда (ведро)") must always map, deterministically,
     // regardless of Fuse/token scoring. Ambiguous keys (null) fall through.
-    if (this.onecExactIndex) {
-      const hit = this.onecExactIndex.get(exactKey(scannedName));
+    if (ix.onecExactIndex) {
+      const hit = ix.onecExactIndex.get(exactKey(scannedName));
       if (hit) {
         logger.info('Mapping via catalog exact name', { scannedName, target: hit.name });
         return {
@@ -476,12 +524,12 @@ export class NomenclatureMapper {
     // Catalog-absent tokens (потрошеная, пряного) are skipped — they can never
     // be shared and must not become an impossible requirement.
     let qIdentity: string | null = null;
-    if (this.onecIdf && this.onecDf) {
+    if (ix.onecIdf && ix.onecDf) {
       let bestIdf = -1;
       for (const tk of qTokens) {
         if (SPECIES.has(tk)) continue;
-        if ((this.onecDf.get(tk) ?? 0) === 0) continue;
-        const w = this.onecIdf(tk);
+        if ((ix.onecDf.get(tk) ?? 0) === 0) continue;
+        const w = ix.onecIdf(tk);
         if (w > bestIdf) { bestIdf = w; qIdentity = tk; }
       }
     }
@@ -491,12 +539,12 @@ export class NomenclatureMapper {
     // positives. Score = asymmetric IDF overlap (best of query-coverage and
     // catalog-coverage), so a short catalog name fully contained in a verbose
     // scan ("Анчоусы" ⊂ "Анчоусы Пряного Посола") still scores ~1.
-    if (qIdentity && this.onecTokenIndex && this.onecTokenIndex.length > 0 && this.onecIdf) {
+    if (qIdentity && ix.onecTokenIndex && ix.onecTokenIndex.length > 0 && ix.onecIdf) {
       let qSum = 0;
-      for (const tk of qTokens) qSum += this.onecIdf(tk);
+      for (const tk of qTokens) qSum += ix.onecIdf(tk);
       if (qTokens.size > 0 && qSum > 0) {
         let best: { item: OnecNomenclatureRow; score: number } | null = null;
-        for (const doc of this.onecTokenIndex) {
+        for (const doc of ix.onecTokenIndex) {
           // The scan's identity word must be present in the candidate.
           if (!doc.tokens.has(qIdentity)) continue;
           // The candidate's identity word must be present in the scan.
@@ -504,7 +552,7 @@ export class NomenclatureMapper {
           // Never cross species (beef ≠ pork ≠ chicken …).
           if (speciesConflict(qSpecies, speciesOf(doc.tokens))) continue;
           let shared = 0;
-          for (const tk of qTokens) if (doc.tokens.has(tk)) shared += this.onecIdf(tk);
+          for (const tk of qTokens) if (doc.tokens.has(tk)) shared += ix.onecIdf(tk);
           if (shared <= 0) continue;
           const score = Math.max(shared / qSum, shared / (doc.idfSum || 1));
           if (!best || score > best.score) best = { item: doc.item, score };
@@ -538,7 +586,7 @@ export class NomenclatureMapper {
       // identity word (фарш) is absent from the scan.
       const fuseItemTokens = stemmedTokenSet(`${best.item.name} ${best.item.full_name ?? ''}`);
       let fuseTop: string | null = null, fuseTopIdf = -1;
-      if (this.onecIdf) for (const tk of fuseItemTokens) { const w = this.onecIdf(tk); if (w > fuseTopIdf) { fuseTopIdf = w; fuseTop = tk; } }
+      if (ix.onecIdf) for (const tk of fuseItemTokens) { const w = ix.onecIdf(tk); if (w > fuseTopIdf) { fuseTopIdf = w; fuseTop = tk; } }
       const fuseIdentityOk = !!qIdentity && fuseItemTokens.has(qIdentity) && (!fuseTop || qTokens.has(fuseTop));
       const fuseSpeciesOk = !speciesConflict(qSpecies, speciesOf(fuseItemTokens));
       if (confidence >= MIN_FUZZY_CONFIDENCE && fuseIdentityOk && fuseSpeciesOk) {
@@ -553,25 +601,25 @@ export class NomenclatureMapper {
             const packFields = detected
               ? { pack_size: detected.pack_size, pack_unit: detected.pack_unit }
               : {};
-            const existing = await mappingRepo.getByScannedName(scannedName);
+            const existing = await mappingRepo.getByScannedName(scannedName, ownerUserId);
             if (!existing) {
               await mappingRepo.create({
                 scanned_name: scannedName,
                 mapped_name_1c: best.item.name,
                 onec_guid: best.item.guid,
                 ...packFields,
-              });
+              }, ownerUserId);
             }
             // Also save cleaned name variant if different
             if (cleanName !== scannedName) {
-              const existingClean = await mappingRepo.getByScannedName(cleanName);
+              const existingClean = await mappingRepo.getByScannedName(cleanName, ownerUserId);
               if (!existingClean) {
                 // Cleaned name has no pack suffix, so no pack fields here.
                 await mappingRepo.create({
                   scanned_name: cleanName,
                   mapped_name_1c: best.item.name,
                   onec_guid: best.item.guid,
-                });
+                }, ownerUserId);
               }
             }
           } catch (e) {
@@ -606,16 +654,16 @@ export class NomenclatureMapper {
     };
   }
 
-  async mapAll(names: string[]): Promise<MappingResult[]> {
+  async mapAll(names: string[], ownerUserId: number): Promise<MappingResult[]> {
     const results: MappingResult[] = [];
     for (const n of names) {
-      results.push(await this.map(n));
+      results.push(await this.map(n, ownerUserId));
     }
     return results;
   }
 
-  async getSuggestions(scannedName: string, limit: number = 5): Promise<Array<{ guid: string; name: string; confidence: number }>> {
-    const fuse = await this.ensureIndex();
+  async getSuggestions(scannedName: string, ownerUserId: number, limit: number = 5): Promise<Array<{ guid: string; name: string; confidence: number }>> {
+    const fuse = await this.ensureIndex(ownerUserId);
     const results = fuse.search(normalizeName(scannedName) || scannedName, { limit });
     return results.map(r => ({
       guid: r.item.guid,

@@ -24,8 +24,8 @@ const GUID = 'guid-tomato';
 async function seedHistory(prices: number[]): Promise<void> {
   for (let i = 0; i < prices.length; i++) {
     const r = await getDb().prepare(
-      `INSERT INTO invoices (file_name, file_path, status, invoice_date)
-       VALUES (?, ?, 'processed', ?)`
+      `INSERT INTO invoices (file_name, file_path, status, invoice_date, owner_user_id)
+       VALUES (?, ?, 'processed', ?, 1)`
     ).run(`h${i}`, `/t/h${i}`, `2026-01-0${i + 1}`);
     const id = Number(r.lastInsertRowid);
     await getDb().prepare(
@@ -38,8 +38,8 @@ async function seedHistory(prices: number[]): Promise<void> {
 
 async function seedCurrent(price: number): Promise<number> {
   const r = await getDb().prepare(
-    `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum)
-     VALUES ('c.jpg','/t/c.jpg','processed','ООО "Овощи"','НК-1','2026-02-01', ?)`
+    `INSERT INTO invoices (file_name, file_path, status, supplier, invoice_number, invoice_date, total_sum, owner_user_id)
+     VALUES ('c.jpg','/t/c.jpg','processed','ООО "Овощи"','НК-1','2026-02-01', ?, 1)`
   ).run(price);
   const id = Number(r.lastInsertRowid);
   await getDb().prepare(

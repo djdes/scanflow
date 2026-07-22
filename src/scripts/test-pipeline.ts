@@ -11,6 +11,11 @@ import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
+// Каталог и сопоставления пер-тенантные. Вспомогательные скрипты запускаются
+// вручную оператором платформы, поэтому работают в области админской компании.
+const SCRIPT_OWNER_ID = 1;
+
+
 async function main(): Promise<void> {
   const imagePath = process.argv[2];
   if (!imagePath) {
@@ -52,7 +57,7 @@ async function main(): Promise<void> {
   // Step 3: Mapping
   console.log('[3/3] Mapping nomenclature...');
   const mappedItems = await Promise.all(parsed.items.map(async item => {
-    const mapping = await mapper.map(item.name);
+    const mapping = await mapper.map(item.name, SCRIPT_OWNER_ID);
     return {
       original_name: item.name,
       mapped_name: mapping.mapped_name,

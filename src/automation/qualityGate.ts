@@ -75,7 +75,7 @@ export async function evaluateInvoiceQuality(invoiceId: number): Promise<Quality
            MAX(COALESCE(s.verified, 0)) AS supplier_verified
       FROM invoices i
       LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-      LEFT JOIN suppliers s ON s.inn = i.supplier_inn
+      LEFT JOIN supplier_cards s ON s.inn = i.supplier_inn AND s.owner_user_id = i.owner_user_id
      WHERE i.id = ?
      GROUP BY i.id
   `).get<QualitySubject>(invoiceId);

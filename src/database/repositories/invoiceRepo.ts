@@ -163,8 +163,18 @@ export interface CreateInvoiceItemData {
  * already committed by the time we get here, and a failed stats refresh
  * must not surface as a user-visible failure.
  */
-function triggerStatsRecompute(guids: Array<string | null | undefined>): void {
-  void recomputeMedianForGuids(guids).catch(() => { /* logged inside */ });
+function triggerStatsRecompute(guids: Array<string | null | undefined>, invoiceId: number | null | undefined): void {
+  // Статистика цен пер-тенантная, поэтому владелец резолвится здесь по накладной:
+  // тащить его параметром через восемь методов репозитория пришлось бы наружу,
+  // до всех их вызывающих. У «ничьей» накладной считать не для кого — выходим,
+  // иначе медиана попала бы в чужую компанию.
+  if (invoiceId == null) return;
+  void (async () => {
+    const inv = await invoiceRepo.getById(invoiceId);
+    const owner = inv?.owner_user_id ?? null;
+    if (owner == null) return;
+    await recomputeMedianForGuids(guids, owner);
+  })().catch(() => { /* logged inside */ });
 }
 
 export const invoiceRepo = {
@@ -500,7 +510,7 @@ export const invoiceRepo = {
     const created = (await db
       .prepare('SELECT * FROM invoice_items WHERE id = ?')
       .get<InvoiceItem>(Number(result.lastInsertRowid)))!;
-    triggerStatsRecompute([created.onec_guid]);
+    triggerStatsRecompute([created.onec_guid], created.invoice_id);
     return created;
   },
 
@@ -518,13 +528,13 @@ export const invoiceRepo = {
 
   async mapItem(itemId: number, onecGuid: string | null, mappedName: string | null): Promise<InvoiceItem | undefined> {
     const db = getDb();
-    const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
-      .get<{ onec_guid: string | null }>(itemId);
+    const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     // Catalog map (or clear) supersedes any manual name override.
     await db.prepare(
       `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name), name_overridden = 0 WHERE id = ?`
     ).run(onecGuid, mappedName, itemId);
-    triggerStatsRecompute([prev?.onec_guid, onecGuid]);
+    triggerStatsRecompute([prev?.onec_guid, onecGuid], prev?.invoice_id);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
   },
 
@@ -538,9 +548,9 @@ export const invoiceRepo = {
     await db.prepare(
       `UPDATE invoice_items SET quantity = ?, unit = ?, price = ? WHERE id = ?`
     ).run(quantity, unit, price, itemId);
-    const after = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
-      .get<{ onec_guid: string | null }>(itemId);
-    triggerStatsRecompute([after?.onec_guid]);
+    const after = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
+    triggerStatsRecompute([after?.onec_guid], after?.invoice_id);
   },
 
   async updateItemFields(
@@ -558,20 +568,20 @@ export const invoiceRepo = {
     const db = getDb();
     await db.prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     if ('price' in fields || 'unit' in fields) {
-      const after = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
-        .get<{ onec_guid: string | null }>(itemId);
-      triggerStatsRecompute([after?.onec_guid]);
+      const after = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
+        .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
+      triggerStatsRecompute([after?.onec_guid], after?.invoice_id);
     }
   },
 
   async updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number): Promise<void> {
     const db = getDb();
-    const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
-      .get<{ onec_guid: string | null }>(itemId);
+    const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     await db.prepare(
       `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ?, name_overridden = 0 WHERE id = ?`
     ).run(onecGuid, mappedName, confidence, itemId);
-    triggerStatsRecompute([prev?.onec_guid, onecGuid]);
+    triggerStatsRecompute([prev?.onec_guid, onecGuid], prev?.invoice_id);
   },
 
   async updateItemMappingName(itemId: number, mappedName: string, confidence: number): Promise<void> {
@@ -588,12 +598,12 @@ export const invoiceRepo = {
    */
   async setItemCustomName(itemId: number, name: string): Promise<InvoiceItem | undefined> {
     const db = getDb();
-    const prev = await db.prepare('SELECT onec_guid FROM invoice_items WHERE id = ?')
-      .get<{ onec_guid: string | null }>(itemId);
+    const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     await db.prepare(
       `UPDATE invoice_items SET mapped_name = ?, onec_guid = NULL, name_overridden = 1, mapping_confidence = 1 WHERE id = ?`
     ).run(name, itemId);
-    triggerStatsRecompute([prev?.onec_guid, null]);
+    triggerStatsRecompute([prev?.onec_guid, null], prev?.invoice_id);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
   },
 
@@ -615,10 +625,11 @@ export const invoiceRepo = {
               ps.price_unit         AS median_price_unit,
               ps.samples            AS median_samples
        FROM invoice_items ii
-       LEFT JOIN nomenclature_price_stats ps ON ps.onec_guid = ii.onec_guid
+       LEFT JOIN nomenclature_price_stat_cards ps
+              ON ps.onec_guid = ii.onec_guid AND ps.owner_user_id = ?
        WHERE ii.invoice_id = ?
        ORDER BY ii.id`
-    ).all<InvoiceItem & { median_price: number | null; median_price_unit: string | null; median_samples: number | null }>(id);
+    ).all<InvoiceItem & { median_price: number | null; median_price_unit: string | null; median_samples: number | null }>(invoice.owner_user_id, id);
     return { ...invoice, items };
   },
 
@@ -1130,7 +1141,7 @@ export const invoiceRepo = {
       'SELECT DISTINCT onec_guid FROM invoice_items WHERE invoice_id = ? AND onec_guid IS NOT NULL'
     ).all<{ onec_guid: string }>(invoiceId);
     await db.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(invoiceId);
-    triggerStatsRecompute(guids.map(g => g.onec_guid));
+    triggerStatsRecompute(guids.map(g => g.onec_guid), invoiceId);
   },
 
   async delete(id: number): Promise<{ file_name: string | null }> {
@@ -1140,11 +1151,17 @@ export const invoiceRepo = {
     const guids = await db.prepare(
       'SELECT DISTINCT onec_guid FROM invoice_items WHERE invoice_id = ? AND onec_guid IS NOT NULL'
     ).all<{ onec_guid: string }>(id);
+    // Владельца снимаем ДО удаления: после транзакции строки накладной уже нет,
+    // и resolve по invoice_id вернул бы пусто — статистика осталась бы стухшей.
+    const ownerForStats = invoice?.owner_user_id ?? null;
     await db.transaction(async (txn) => {
       await txn.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(id);
       await txn.prepare('DELETE FROM invoices WHERE id = ?').run(id);
     });
-    triggerStatsRecompute(guids.map(g => g.onec_guid));
+    if (ownerForStats != null) {
+      void recomputeMedianForGuids(guids.map(g => g.onec_guid), ownerForStats)
+        .catch(() => { /* logged inside */ });
+    }
     return { file_name: fileName };
   },
 

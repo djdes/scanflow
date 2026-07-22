@@ -6,14 +6,22 @@ import { requireAdmin } from '../middleware/auth';
 const router = Router();
 let mapper: NomenclatureMapper;
 
+// Владелец сопоставлений — всегда текущий пользователь. Значения по умолчанию
+// нет: роут под apiKeyAuth, запрос без пользователя сюда не доходит.
+function ownerOf(req: Request): number {
+  const id = req.user?.id;
+  if (id == null) throw new Error('mappings route reached without an authenticated user');
+  return id;
+}
+
 export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
 }
 
 // GET /api/mappings — grouped by 1C item
-router.get('/', async (_req: Request, res: Response) => {
-  const grouped = await mappingRepo.getAllGrouped();
-  const unmapped = await mappingRepo.getUnmapped();
+router.get('/', async (req: Request, res: Response) => {
+  const grouped = await mappingRepo.getAllGrouped(ownerOf(req));
+  const unmapped = await mappingRepo.getUnmapped(ownerOf(req));
   res.json({ data: { grouped, unmapped } });
 });
 
@@ -60,16 +68,16 @@ router.post('/', async (req: Request, res: Response) => {
     approved: approved ?? false,
     onec_guid: onec_guid ?? null,
     ...pack,
-  });
+  }, ownerOf(req));
 
-  if (mapper) mapper.invalidateCache();
+  if (mapper) mapper.invalidateCache(ownerOf(req));
   res.status(201).json({ data: mapping });
 });
 
 // PUT /api/mappings/:id — update mapping
 router.put('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const existing = await mappingRepo.getById(id);
+  const existing = await mappingRepo.getById(id, ownerOf(req));
 
   if (!existing) {
     res.status(404).json({ error: 'Mapping not found' });
@@ -78,25 +86,25 @@ router.put('/:id', async (req: Request, res: Response) => {
 
   const { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid } = req.body;
   const pack = parsePackFields(req.body);
-  await mappingRepo.update(id, { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, ...pack });
-  if (mapper) mapper.invalidateCache();
+  await mappingRepo.update(id, ownerOf(req), { scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, ...pack });
+  if (mapper) mapper.invalidateCache(ownerOf(req));
 
-  const updated = await mappingRepo.getById(id);
+  const updated = await mappingRepo.getById(id, ownerOf(req));
   res.json({ data: updated });
 });
 
 // DELETE /api/mappings/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
-  const existing = await mappingRepo.getById(id);
+  const existing = await mappingRepo.getById(id, ownerOf(req));
 
   if (!existing) {
     res.status(404).json({ error: 'Mapping not found' });
     return;
   }
 
-  await mappingRepo.delete(id);
-  if (mapper) mapper.invalidateCache();
+  await mappingRepo.delete(id, ownerOf(req));
+  if (mapper) mapper.invalidateCache(ownerOf(req));
   res.json({ message: 'Deleted' });
 });
 
@@ -109,8 +117,8 @@ router.post('/import', requireAdmin, async (req: Request, res: Response) => {
     return;
   }
 
-  const count = await mappingRepo.importBulk(items);
-  if (mapper) mapper.invalidateCache();
+  const count = await mappingRepo.importBulk(items, ownerOf(req));
+  if (mapper) mapper.invalidateCache(ownerOf(req));
   res.json({ message: `Imported ${count} mappings`, count });
 });
 
@@ -122,7 +130,7 @@ router.get('/suggest', async (req: Request, res: Response) => {
     return;
   }
 
-  const suggestions = mapper ? await mapper.getSuggestions(name) : [];
+  const suggestions = mapper ? await mapper.getSuggestions(name, ownerOf(req)) : [];
   res.json({ data: suggestions });
 });
 

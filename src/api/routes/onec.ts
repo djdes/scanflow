@@ -37,6 +37,14 @@ async function onecTokenAuth(req: Request, res: Response, next: NextFunction): P
 
 onecExchangeRouter.use(onecTokenAuth);
 
+// Каталог пер-тенантный НЕЗАВИСИМО от флага скоупинга: обмен всегда идёт в
+// контексте конкретного подключения 1С, у которого владелец обязателен.
+function catalogOwner(req: Request): number {
+  const id = req.onecConnection?.owner_user_id;
+  if (id == null) throw new Error('1C exchange route reached without a connection owner');
+  return id;
+}
+
 function exchangeOwner(req: Request): number | null {
   return config.dataScopingEnabled ? (req.onecConnection?.owner_user_id ?? -1) : null;
 }
@@ -51,7 +59,7 @@ async function canAccess(req: Request, invoiceId: number): Promise<boolean> {
 onecAdminRouter.get('/connections', async (req: Request, res: Response) => {
   const [connections, catalog, syncState, lastPoll] = await Promise.all([
     onecConnectionRepo.list(req.user?.id ?? -1),
-    onecNomenclatureRepo.stats(),
+    onecNomenclatureRepo.stats(catalogOwner(req)),
     syncStateRepo.getNomenclatureSyncState(),
     integrationEventRepo.last1cPollAt(),
   ]);
@@ -121,7 +129,7 @@ onecAdminRouter.get('/source/:part', (req: Request, res: Response) => {
 });
 
 onecExchangeRouter.get('/status', async (req: Request, res: Response) => {
-  const [catalog, syncState] = await Promise.all([onecNomenclatureRepo.stats(), syncStateRepo.getNomenclatureSyncState()]);
+  const [catalog, syncState] = await Promise.all([onecNomenclatureRepo.stats(catalogOwner(req)), syncStateRepo.getNomenclatureSyncState()]);
   res.json({ data: { ok: true, connection: req.onecConnection?.name, catalog, sync_state: syncState, server_time: new Date().toISOString() } });
 });
 
@@ -190,9 +198,9 @@ onecExchangeRouter.post('/invoices/:id/status', async (req: Request, res: Respon
   res.json({ data: { id, status, document_ref: documentRef } });
 });
 
-onecExchangeRouter.delete('/nomenclature', async (_req: Request, res: Response) => {
-  const deleted = await onecNomenclatureRepo.clearAll();
-  mapper?.invalidateCache();
+onecExchangeRouter.delete('/nomenclature', async (req: Request, res: Response) => {
+  const deleted = await onecNomenclatureRepo.clearAll(catalogOwner(req));
+  mapper?.invalidateCache(catalogOwner(req));
   res.json({ data: { deleted } });
 });
 
@@ -201,9 +209,9 @@ onecExchangeRouter.post('/nomenclature/sync', async (req: Request, res: Response
   if (!Array.isArray(items) || items.length === 0 || items.length > 5000) return res.status(400).json({ error: 'items: от 1 до 5000 позиций' });
   if (items.some(item => !String(item?.guid || '').trim() || !String(item?.name || '').trim())) return res.status(400).json({ error: 'У каждой позиции обязательны guid и name' });
   try {
-    const upserted = await onecNomenclatureRepo.bulkUpsert(items);
-    const orphaned = await mappingRepo.removeOrphaned();
-    mapper?.invalidateCache();
+    const upserted = await onecNomenclatureRepo.bulkUpsert(items, catalogOwner(req));
+    const orphaned = await mappingRepo.removeOrphaned(catalogOwner(req));
+    mapper?.invalidateCache(catalogOwner(req));
     void logIntegrationEvent({ integration: 'nomenclature', event_type: 'catalog_synced', summary: `1С «${req.onecConnection?.name}»: синхронизировано ${upserted} позиций` });
     res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });
   } catch (error) {

@@ -8,6 +8,11 @@ import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureR
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { getDb, initDb, closeDb } from '../database/db';
 
+// Каталог и сопоставления пер-тенантные. Вспомогательные скрипты запускаются
+// вручную оператором платформы, поэтому работают в области админской компании.
+const SCRIPT_OWNER_ID = 1;
+
+
 let passCount = 0;
 let failCount = 0;
 function assert(condition: boolean, message: string): void {
@@ -22,20 +27,20 @@ async function main(): Promise<void> {
 
   // Clean slate
   const db = getDb();
-  await db.prepare("DELETE FROM nomenclature_mappings WHERE scanned_name LIKE 'testmap:%'").run();
-  await db.prepare("DELETE FROM onec_nomenclature WHERE guid LIKE 'test-map-%'").run();
+  await db.prepare("DELETE FROM nomenclature_mapping_cards WHERE scanned_name LIKE 'testmap:%'").run();
+  await db.prepare("DELETE FROM onec_nomenclature_cards WHERE guid LIKE 'test-map-%'").run();
 
   // Seed onec_nomenclature
   await onecNomenclatureRepo.bulkUpsert([
     { guid: 'test-map-1', code: 'НФ-001', name: 'Картофель сырой', unit: 'кг', is_folder: false, is_weighted: true },
     { guid: 'test-map-2', code: 'НФ-002', name: 'Морковь свежая', unit: 'кг', is_folder: false, is_weighted: true },
     { guid: 'test-map-3', code: 'НФ-003', name: 'Молоко 3.2% 1л', unit: 'шт', is_folder: false, is_weighted: false },
-  ]);
+  ], SCRIPT_OWNER_ID);
 
   const mapper = new NomenclatureMapper();
 
   console.log('\n=== Case 1: no mapping, fuzzy hit against onec_nomenclature ===');
-  const r1 = await mapper.map('Картофель');
+  const r1 = await mapper.map('Картофель', SCRIPT_OWNER_ID);
   assert(r1.source === 'onec_fuzzy', `source=onec_fuzzy, got ${r1.source}`);
   assert(r1.onec_guid === 'test-map-1', `onec_guid test-map-1, got ${r1.onec_guid}`);
   assert(r1.mapped_name === 'Картофель сырой', `mapped_name=Картофель сырой, got ${r1.mapped_name}`);
@@ -46,15 +51,15 @@ async function main(): Promise<void> {
     scanned_name: 'testmap:моло',
     mapped_name_1c: 'Молоко 3.2% 1л',
     onec_guid: 'test-map-3',
-  });
+  }, SCRIPT_OWNER_ID);
   mapper.invalidateCache();
-  const r2 = await mapper.map('testmap:моло');
+  const r2 = await mapper.map('testmap:моло', SCRIPT_OWNER_ID);
   assert(r2.source === 'learned', `source=learned, got ${r2.source}`);
   assert(r2.onec_guid === 'test-map-3', `onec_guid test-map-3, got ${r2.onec_guid}`);
   assert(r2.confidence === 1.0, `confidence=1.0, got ${r2.confidence}`);
 
   console.log('\n=== Case 3: nothing matches → source = none, onec_guid = null ===');
-  const r3 = await mapper.map('xyzunknown12345');
+  const r3 = await mapper.map('xyzunknown12345', SCRIPT_OWNER_ID);
   assert(r3.source === 'none', `source=none, got ${r3.source}`);
   assert(r3.onec_guid === null, `onec_guid null, got ${r3.onec_guid}`);
   assert(r3.confidence === 0, `confidence=0, got ${r3.confidence}`);
@@ -63,7 +68,7 @@ async function main(): Promise<void> {
   await db.prepare(`INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c) VALUES (?, ?)`)
     .run('testmap:legacy', 'Legacy Item Name');
   mapper.invalidateCache();
-  const r4 = await mapper.map('testmap:legacy');
+  const r4 = await mapper.map('testmap:legacy', SCRIPT_OWNER_ID);
   assert(r4.source === 'legacy', `source=legacy, got ${r4.source}`);
   assert(r4.onec_guid === null, `onec_guid null for legacy, got ${r4.onec_guid}`);
   assert(r4.mapped_name === 'Legacy Item Name', `mapped_name=Legacy Item Name, got ${r4.mapped_name}`);
@@ -72,15 +77,15 @@ async function main(): Promise<void> {
   await db.prepare(`INSERT INTO nomenclature_mappings (scanned_name, mapped_name_1c, onec_guid) VALUES (?, ?, ?)`)
     .run('testmap:deadlink', 'Some old name', 'test-map-deleted-guid-xyz');
   mapper.invalidateCache();
-  const r5 = await mapper.map('testmap:deadlink');
+  const r5 = await mapper.map('testmap:deadlink', SCRIPT_OWNER_ID);
   assert(r5.onec_guid !== 'test-map-deleted-guid-xyz', 'does not propagate dead GUID');
   assert(r5.source === 'none', `falls through to none (no fuzzy match for scan name), got ${r5.source}`);
   assert(r5.confidence === 0, `confidence=0 after fallthrough, got ${r5.confidence}`);
 
   // Cleanup
-  await mappingRepo.delete(created.id);
-  await db.prepare("DELETE FROM nomenclature_mappings WHERE scanned_name LIKE 'testmap:%'").run();
-  await db.prepare("DELETE FROM onec_nomenclature WHERE guid LIKE 'test-map-%'").run();
+  await mappingRepo.delete(created.id, SCRIPT_OWNER_ID);
+  await db.prepare("DELETE FROM nomenclature_mapping_cards WHERE scanned_name LIKE 'testmap:%'").run();
+  await db.prepare("DELETE FROM onec_nomenclature_cards WHERE guid LIKE 'test-map-%'").run();
 
   await closeDb();
   console.log(`\n========================`);

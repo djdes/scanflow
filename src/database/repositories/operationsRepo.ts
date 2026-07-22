@@ -96,9 +96,11 @@ export const operationsRepo = {
              (SELECT MIN(COALESCE(x.mapping_confidence, 0)) FROM invoice_items x
                WHERE x.invoice_id = i.id) AS min_confidence,
              (SELECT COUNT(*) FROM invoice_items x
-               JOIN nomenclature_price_stats ps ON ps.onec_guid = x.onec_guid
+               JOIN nomenclature_price_stat_cards ps
+                 ON ps.onec_guid = x.onec_guid AND ps.owner_user_id = i.owner_user_id
               WHERE x.invoice_id = i.id AND x.price > ps.median_price * 1.10) AS elevated_count,
-             COALESCE((SELECT MAX(s.verified) FROM suppliers s WHERE s.inn = i.supplier_inn), 0) AS supplier_verified,
+             COALESCE((SELECT MAX(s.verified) FROM supplier_cards s
+                        WHERE s.inn = i.supplier_inn AND s.owner_user_id = i.owner_user_id), 0) AS supplier_verified,
              (SELECT COUNT(*) FROM approval_requests ar
                WHERE ar.invoice_id = i.id AND ar.status = 'pending') AS pending_approvals
              ,(SELECT COUNT(*) FROM approval_requests ar
@@ -110,12 +112,15 @@ export const operationsRepo = {
            COALESCE(i.items_total_mismatch, 0) = 1 OR
            EXISTS (SELECT 1 FROM invoice_items x WHERE x.invoice_id = i.id AND (x.onec_guid IS NULL OR x.onec_guid = '')) OR
            EXISTS (SELECT 1 FROM invoice_items x WHERE x.invoice_id = i.id AND COALESCE(x.mapping_confidence, 0) < ?) OR
-           EXISTS (SELECT 1 FROM invoice_items x JOIN nomenclature_price_stats ps ON ps.onec_guid = x.onec_guid
+           EXISTS (SELECT 1 FROM invoice_items x
+                     JOIN nomenclature_price_stat_cards ps
+                       ON ps.onec_guid = x.onec_guid AND ps.owner_user_id = i.owner_user_id
                     WHERE x.invoice_id = i.id AND x.price > ps.median_price * 1.10) OR
            EXISTS (SELECT 1 FROM approval_requests ar WHERE ar.invoice_id = i.id AND ar.status = 'pending') OR
            EXISTS (SELECT 1 FROM approval_requests ar WHERE ar.invoice_id = i.id AND ar.execution_error IS NOT NULL) OR
            i.onec_status IN ('error', 'rejected') OR
-           (? = 1 AND NOT EXISTS (SELECT 1 FROM suppliers s WHERE s.inn = i.supplier_inn AND s.verified = 1))
+           (? = 1 AND NOT EXISTS (SELECT 1 FROM supplier_cards s
+                                    WHERE s.inn = i.supplier_inn AND s.owner_user_id = i.owner_user_id AND s.verified = 1))
          )
        ORDER BY i.created_at DESC
        LIMIT 200
@@ -143,7 +148,7 @@ export const operationsRepo = {
         LEFT JOIN bank_statement_entries bs ON bs.id = (
           SELECT MAX(bx.id) FROM bank_statement_entries bx WHERE bx.matched_invoice_id = i.id
         )
-        LEFT JOIN suppliers s ON s.inn = i.supplier_inn
+        LEFT JOIN supplier_cards s ON s.inn = i.supplier_inn AND s.owner_user_id = i.owner_user_id
        WHERE ${owner.clause}
          AND i.status NOT IN ('failed', 'error', 'duplicate')
          AND i.duplicate_of IS NULL
@@ -168,7 +173,8 @@ export const operationsRepo = {
              SUM(CASE WHEN i.duplicate_of IS NOT NULL OR i.status = 'duplicate' THEN 1 ELSE 0 END) AS duplicates,
              SUM(COALESCE(i.items_total_mismatch, 0)) AS mismatches,
              SUM((SELECT COUNT(*) FROM invoice_items x
-                    JOIN nomenclature_price_stats ps ON ps.onec_guid = x.onec_guid
+                    JOIN nomenclature_price_stat_cards ps
+                      ON ps.onec_guid = x.onec_guid AND ps.owner_user_id = i.owner_user_id
                    WHERE x.invoice_id = i.id AND x.price > ps.median_price * 1.10)) AS elevated_prices,
              SUM(CASE WHEN sp.id IS NOT NULL OR bs.id IS NOT NULL THEN 1 ELSE 0 END) AS payments,
              SUM(CASE WHEN i.invoice_date REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -178,7 +184,7 @@ export const operationsRepo = {
                       THEN 1 ELSE 0 END) AS overdue,
              MAX(i.created_at) AS last_invoice_at
         FROM invoices i
-        LEFT JOIN suppliers s ON s.inn = i.supplier_inn
+        LEFT JOIN supplier_cards s ON s.inn = i.supplier_inn AND s.owner_user_id = i.owner_user_id
         LEFT JOIN sber_payments sp ON sp.invoice_id = i.id
         LEFT JOIN bank_statement_entries bs ON bs.id = (
           SELECT MAX(bx.id) FROM bank_statement_entries bx WHERE bx.matched_invoice_id = i.id
@@ -220,7 +226,7 @@ export const operationsRepo = {
                       THEN DATE_ADD(STR_TO_DATE(i.invoice_date, '%Y-%m-%d'), INTERVAL COALESCE(s.payment_terms_days, 7) DAY)
                       ELSE NULL END) AS due_date
           FROM invoices i
-          LEFT JOIN suppliers s ON s.inn = i.supplier_inn
+          LEFT JOIN supplier_cards s ON s.inn = i.supplier_inn AND s.owner_user_id = i.owner_user_id
           LEFT JOIN sber_payments sp ON sp.invoice_id = i.id
          WHERE ${owner.clause}
            AND i.status NOT IN ('failed', 'error', 'duplicate')
@@ -254,7 +260,7 @@ export const operationsRepo = {
                     THEN DATE_FORMAT(DATE_ADD(STR_TO_DATE(i.invoice_date, '%Y-%m-%d'), INTERVAL COALESCE(s.payment_terms_days, 7) DAY), '%Y-%m-%d')
                     ELSE NULL END) AS due_date
         FROM invoices i
-        LEFT JOIN suppliers s ON s.inn = i.supplier_inn
+        LEFT JOIN supplier_cards s ON s.inn = i.supplier_inn AND s.owner_user_id = i.owner_user_id
         LEFT JOIN sber_payments sp ON sp.invoice_id = i.id
        WHERE ${owner.clause}
          AND i.status NOT IN ('failed', 'error', 'duplicate') AND i.duplicate_of IS NULL

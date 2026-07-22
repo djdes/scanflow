@@ -80,7 +80,9 @@ async function attachElevatedPriceCount<T extends { id: number }>(invoices: T[])
   const rows = await getDb().prepare(
     `SELECT ii.invoice_id AS invoice_id, COUNT(*) AS c
        FROM invoice_items ii
-       JOIN nomenclature_price_stats ps ON ps.onec_guid = ii.onec_guid
+       JOIN invoices i ON i.id = ii.invoice_id
+       JOIN nomenclature_price_stat_cards ps
+         ON ps.onec_guid = ii.onec_guid AND ps.owner_user_id = i.owner_user_id
       WHERE ii.invoice_id IN (${placeholders})
         AND ps.samples >= 3
         AND ps.median_price > 0
@@ -735,6 +737,11 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     return;
   }
 
+  // Каталог и сопоставления пер-тенантные: работаем в области владельца
+  // накладной, а не действующего пользователя — так админ, правящий чужую
+  // накладную, всё равно видит каталог её компании.
+  const mappingOwnerId = invoice.owner_user_id ?? -1;
+
   if (!mapper) {
     res.status(500).json({ error: 'Mapper not initialized' });
     return;
@@ -817,7 +824,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     // retroactively convert qty/unit (e.g. 7 шт ведра → 21 кг сельди).
     const shouldLookup = includeAll || !alreadyMapped;
     const mappingContext = { supplierInn: invoice.supplier_inn, supplierName: invoice.supplier };
-    const result = shouldLookup ? await mapper.map(item.original_name, mappingContext) : null;
+    const result = shouldLookup ? await mapper.map(item.original_name, mappingOwnerId, mappingContext) : null;
 
     if (result?.onec_guid) {
       if (result.onec_guid !== item.onec_guid) changed++;
@@ -856,7 +863,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     // When we skipped the mapper lookup above (already-mapped item without
     // ?all=true), fetch the current mapping directly so pack_size can still
     // be honoured.
-    const mappingForPack = result ?? await mapper.map(item.original_name, mappingContext);
+    const mappingForPack = result ?? await mapper.map(item.original_name, mappingOwnerId, mappingContext);
     // Prefer the unit from whatever catalog row this item resolves to —
     // either the mapping's guid (learned mapping) or the item's own guid
     // (freshly placed by LLM-remap without a mappings row yet). Without
@@ -864,7 +871,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     // is countable (e.g. "Бутылка ПЭТ 0,3 …" → qty × 150 × 150).
     const packGuid = mappingForPack.onec_guid || item.onec_guid;
     const remapOnec1cUnit = packGuid
-      ? (await onecNomenclatureRepo.getByGuid(packGuid))?.unit ?? null
+      ? (await onecNomenclatureRepo.getByGuid(packGuid, mappingOwnerId))?.unit ?? null
       : null;
     const resolved = resolveAndApplyPackTransform(
       { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
@@ -917,6 +924,11 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     return;
   }
 
+  // Каталог и сопоставления пер-тенантные: работаем в области владельца
+  // накладной, а не действующего пользователя — так админ, правящий чужую
+  // накладную, всё равно видит каталог её компании.
+  const mappingOwnerId = invoice.owner_user_id ?? -1;
+
   const items = await invoiceRepo.getItems(id);
   const targets = includeAll ? items : items.filter(it => !it.onec_guid);
   if (targets.length === 0) {
@@ -932,7 +944,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   // Build the catalog snapshot ONCE — the same ordering is used both to
   // build the prompt and to resolve catalog_idx back to a guid in the
   // response.
-  const catalogRows = await onecNomenclatureRepo.listItems({ excludeFolders: true });
+  const catalogRows = await onecNomenclatureRepo.listItems({ ownerUserId: mappingOwnerId, excludeFolders: true });
   if (catalogRows.length === 0) {
     res.status(400).json({ error: 'Справочник 1С пуст — нечего сопоставлять. Сначала выгрузите номенклатуру из 1С.' });
     return;
@@ -974,7 +986,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
         await invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
         changed++;
       }
-      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(hit.guid))?.unit ?? null;
+      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(hit.guid, mappingOwnerId))?.unit ?? null;
 
       // Pack-transforms multiply qty — so we only run them when this row is
       // either NEW (was unmapped) or the guid switched. Otherwise we'd double-
@@ -988,7 +1000,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
         // "Мука (50кг)" — without it, items that were originally unmapped
         // and only got their guid via this LLM-remap call would never get
         // their qty/unit corrected from "1 шт" to "50 кг".
-        const learnedMapping = await mappingRepo.getByScannedName(it.original_name || '');
+        const learnedMapping = await mappingRepo.getByScannedName(it.original_name || '', mappingOwnerId);
         const llmGavePackHint = !!(hit.pack_size && hit.pack_size > 0 && hit.unit_override);
         const hintedSize = llmGavePackHint ? hit.pack_size : (learnedMapping?.pack_size ?? null);
         const hintedUnit = llmGavePackHint ? hit.unit_override : (learnedMapping?.pack_unit ?? null);
@@ -1018,7 +1030,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
         // Persist regex-detected pack back to the mapping (как watcher) —
         // следующий llm-remap пойдёт по learned-mapping ветке, а не regex.
         if (resolved.usedFallback && learnedMapping && resolved.packSize && resolved.packUnit) {
-          await mappingRepo.update(learnedMapping.id, {
+          await mappingRepo.update(learnedMapping.id, mappingOwnerId, {
             pack_size: resolved.packSize,
             pack_unit: resolved.packUnit,
           });
@@ -1043,7 +1055,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     // coerce the unit if the row was already mapped previously and is
     // sitting in a non-1C unit (e.g. "л" while 1C tracks in "кг").
     if (!wasUnmapped) {
-      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(it.onec_guid as string))?.unit ?? null;
+      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(it.onec_guid as string, mappingOwnerId))?.unit ?? null;
       const coerced = coerceToOnec1cUnit(
         { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
         onec1cUnit,
@@ -1313,6 +1325,11 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
     res.status(404).json({ error: 'Invoice not found' });
     return;
   }
+
+  // Каталог и сопоставления пер-тенантные: работаем в области владельца
+  // накладной, а не действующего пользователя — так админ, правящий чужую
+  // накладную, всё равно видит каталог её компании.
+  const mappingOwnerId = invoice.owner_user_id ?? -1;
   const item = await invoiceRepo.getItemById(itemId);
   if (!item || item.invoice_id !== invoiceId) {
     res.status(404).json({ error: 'Invoice item not found' });
@@ -1327,7 +1344,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   // If setting a mapping, validate the GUID exists in the synced catalog
   let resolvedName: string | null = null;
   if (onec_guid) {
-    const onecRow = await onecNomenclatureRepo.getByGuid(onec_guid);
+    const onecRow = await onecNomenclatureRepo.getByGuid(onec_guid, mappingOwnerId);
     if (!onecRow) {
       res.status(400).json({ error: 'onec_guid not found in onec_nomenclature' });
       return;
@@ -1381,7 +1398,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
         upsertPayload.pack_size = pack_size;
         upsertPayload.pack_unit = pack_unit;
       }
-      await mappingRepo.upsert(upsertPayload);
+      await mappingRepo.upsert(upsertPayload, mappingOwnerId);
       const supplierKey = makeSupplierKey(invoice.supplier_inn, invoice.supplier);
       if (supplierKey) {
         await supplierMappingRepo.upsert({

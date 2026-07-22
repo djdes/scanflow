@@ -83,7 +83,7 @@ async function main(): Promise<void> {
   // Cleanup via direct DB access
   const { getDb } = await import('../database/db');
   const db = getDb();
-  db.prepare("DELETE FROM onec_nomenclature WHERE guid LIKE 'test-api-%'").run();
+  db.prepare("DELETE FROM onec_nomenclature_cards WHERE guid LIKE 'test-api-%'").run();
 
   console.log(`\n===========================`);
   console.log(`Results: ${passCount} passed, ${failCount} failed`);

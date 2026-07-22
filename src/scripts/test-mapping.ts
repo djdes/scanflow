@@ -7,6 +7,11 @@ import { initDb, closeDb } from '../database/db';
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
+// Каталог и сопоставления пер-тенантные. Вспомогательные скрипты запускаются
+// вручную оператором платформы, поэтому работают в области админской компании.
+const SCRIPT_OWNER_ID = 1;
+
+
 async function main(): Promise<void> {
   await initDb();
   const name = process.argv[2];
@@ -15,7 +20,7 @@ async function main(): Promise<void> {
     console.log('Example: npm run test:mapping -- "Молоко 3.2%"\n');
 
     // Show current mappings
-    const allMappings = await mappingRepo.getAll();
+    const allMappings = await mappingRepo.getAll(SCRIPT_OWNER_ID);
     console.log(`Current mappings in database: ${allMappings.length}`);
 
     if (allMappings.length === 0) {
@@ -38,7 +43,7 @@ async function main(): Promise<void> {
   console.log(`\n=== Mapping test for: "${name}" ===\n`);
 
   // Direct mapping
-  const result = await mapper.map(name);
+  const result = await mapper.map(name, SCRIPT_OWNER_ID);
   console.log('Direct mapping:');
   console.log(`  Original: ${result.original_name}`);
   console.log(`  Mapped:   ${result.mapped_name}`);
@@ -47,7 +52,7 @@ async function main(): Promise<void> {
 
   // Suggestions
   console.log('\nTop-5 suggestions:');
-  const suggestions = await mapper.getSuggestions(name);
+  const suggestions = await mapper.getSuggestions(name, SCRIPT_OWNER_ID);
   if (suggestions.length === 0) {
     console.log('  No suggestions (add mappings to database first)');
   } else {

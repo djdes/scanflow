@@ -9,6 +9,13 @@ import { requireAdmin } from '../middleware/auth';
 import { parseCatalogSpreadsheet } from '../../integration/catalogSpreadsheet';
 
 const router = Router();
+
+// Каталог 1С пер-тенантный: у каждой компании своя база 1С и свой справочник.
+function ownerOf(req: Request): number {
+  const id = req.user?.id;
+  if (id == null) throw new Error('nomenclature route reached without an authenticated user');
+  return id;
+}
 const catalogUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
 function receiveCatalogFile(req: Request, res: Response, next: NextFunction): void {
@@ -49,12 +56,12 @@ router.post('/import', requireAdmin, receiveCatalogFile, async (req: Request, re
     let deleted = 0;
     let upserted = 0;
     if (mode === 'replace') {
-      ({ deleted, upserted } = await onecNomenclatureRepo.replaceAll(parsed.items));
+      ({ deleted, upserted } = await onecNomenclatureRepo.replaceAll(parsed.items, ownerOf(req)));
     } else {
-      upserted = await onecNomenclatureRepo.bulkUpsert(parsed.items);
+      upserted = await onecNomenclatureRepo.bulkUpsert(parsed.items, ownerOf(req));
     }
-    const orphaned = await mappingRepo.removeOrphaned();
-    mapper?.invalidateCache();
+    const orphaned = await mappingRepo.removeOrphaned(ownerOf(req));
+    mapper?.invalidateCache(ownerOf(req));
     logger.info('Nomenclature spreadsheet import completed', {
       mode, upserted, deleted, skipped: parsed.skippedRows, generatedIds: parsed.generatedIds,
     });
@@ -100,15 +107,15 @@ router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
     }
   }
   try {
-    const upserted = await onecNomenclatureRepo.bulkUpsert(items);
+    const upserted = await onecNomenclatureRepo.bulkUpsert(items, ownerOf(req));
     // Clean up mappings that point to deleted 1C items
-    const orphaned = await mappingRepo.removeOrphaned();
+    const orphaned = await mappingRepo.removeOrphaned(ownerOf(req));
     if (orphaned > 0) {
       logger.info('Removed orphaned mappings after sync', { orphaned });
     }
     // CRITICAL: invalidate the Fuse index used by NomenclatureMapper so the
     // next map() call rebuilds from fresh onec_nomenclature rows.
-    if (mapper) mapper.invalidateCache();
+    if (mapper) mapper.invalidateCache(ownerOf(req));
     logger.info('Nomenclature sync completed', { upserted });
     void logIntegrationEvent({
       integration: 'nomenclature', event_type: 'catalog_synced',
@@ -124,12 +131,12 @@ router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
 // DELETE /api/nomenclature — clear catalog before a full re-sync from 1C.
 // Called by the BSL "Выгрузить номенклатуру" command to evict stale rows
 // (e.g. finished products after switching to a purchase-documents-only query).
-router.delete('/', requireAdmin, async (_req: Request, res: Response) => {
+router.delete('/', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const deleted = await onecNomenclatureRepo.clearAll();
+    const deleted = await onecNomenclatureRepo.clearAll(ownerOf(req));
     // Don't removeOrphaned here — catalog is temporarily empty,
     // POST /sync will refill it and clean orphans after.
-    if (mapper) mapper.invalidateCache();
+    if (mapper) mapper.invalidateCache(ownerOf(req));
     logger.info('Nomenclature catalog cleared', { deleted });
     res.json({ data: { deleted } });
   } catch (err) {
@@ -143,14 +150,14 @@ router.get('/', async (req: Request, res: Response) => {
   const excludeFolders = req.query.exclude_folders === 'true';
   const search = req.query.search as string | undefined;
   const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-  const items = await onecNomenclatureRepo.listItems({ excludeFolders, search, limit });
-  const stats = await onecNomenclatureRepo.stats();
+  const items = await onecNomenclatureRepo.listItems({ ownerUserId: ownerOf(req), excludeFolders, search, limit });
+  const stats = await onecNomenclatureRepo.stats(ownerOf(req));
   res.json({ data: items, count: items.length, last_synced_at: stats.last_synced_at });
 });
 
 // GET /api/nomenclature/stats
-router.get('/stats', async (_req: Request, res: Response) => {
-  res.json({ data: await onecNomenclatureRepo.stats() });
+router.get('/stats', async (req: Request, res: Response) => {
+  res.json({ data: await onecNomenclatureRepo.stats(ownerOf(req)) });
 });
 
 

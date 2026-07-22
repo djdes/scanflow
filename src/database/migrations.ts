@@ -1379,6 +1379,186 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 51,
+    name: 'onec_nomenclature_cards + nomenclature_price_stat_cards — каталог 1С на компанию (без DROP)',
+    // Строго аддитивно. У onec_nomenclature первичный ключ — guid, у
+    // nomenclature_price_stats — onec_guid, то есть обе физически допускают одну
+    // строку на ключ и два каталога 1С в них не помещаются. Снять это можно
+    // только через DROP, что запрещено, поэтому заводим двойники, а старые
+    // таблицы остаются нетронутыми (откат = вернуть код).
+    detect: async (exec) =>
+      (await hasTable(exec, 'onec_nomenclature_cards')) &&
+      (await hasTable(exec, 'nomenclature_price_stat_cards')),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS onec_nomenclature_cards (
+          id            INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id INT NOT NULL,
+          guid          VARCHAR(64) NOT NULL,
+          code          VARCHAR(64) NULL,
+          name          VARCHAR(512) NOT NULL,
+          full_name     VARCHAR(1024) NULL,
+          unit          VARCHAR(32) NULL,
+          parent_guid   VARCHAR(64) NULL,
+          is_folder     TINYINT(1) NOT NULL DEFAULT 0,
+          is_weighted   TINYINT(1) NOT NULL DEFAULT 0,
+          synced_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_onec_cards_owner_guid (owner_user_id, guid),
+          INDEX idx_onec_cards_name (name),
+          INDEX idx_onec_cards_parent (owner_user_id, parent_guid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS nomenclature_price_stat_cards (
+          id            INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id INT NOT NULL,
+          onec_guid     VARCHAR(64) NOT NULL,
+          median_price  DOUBLE NOT NULL,
+          price_unit    VARCHAR(32) NOT NULL,
+          samples       INT NOT NULL,
+          updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_price_stat_cards_owner_guid (owner_user_id, onec_guid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      if (await hasTable(exec, 'onec_nomenclature')) {
+        await exec.query(`
+          INSERT INTO onec_nomenclature_cards
+            (owner_user_id, guid, code, name, full_name, unit, parent_guid, is_folder, is_weighted, synced_at)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 n.guid, n.code, n.name, n.full_name, n.unit,
+                 n.parent_guid, n.is_folder, n.is_weighted, n.synced_at
+            FROM onec_nomenclature n
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE onec_nomenclature_cards.id = onec_nomenclature_cards.id
+        `);
+      }
+
+      if (await hasTable(exec, 'nomenclature_price_stats')) {
+        await exec.query(`
+          INSERT INTO nomenclature_price_stat_cards
+            (owner_user_id, onec_guid, median_price, price_unit, samples, updated_at)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 p.onec_guid, p.median_price, p.price_unit, p.samples, p.updated_at
+            FROM nomenclature_price_stats p
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE nomenclature_price_stat_cards.id = nomenclature_price_stat_cards.id
+        `);
+      }
+    },
+  },
+  {
+    version: 52,
+    name: 'nomenclature_mapping_cards и спутники — сопоставления на компанию (без DROP)',
+    // scanned_name в nomenclature_mappings уникален ГЛОБАЛЬНО, поэтому две
+    // компании не могут выучить разные сопоставления для одного и того же текста
+    // из скана. Снять уникальность можно только через DROP INDEX — запрещено.
+    detect: async (exec) =>
+      (await hasTable(exec, 'nomenclature_mapping_cards')) &&
+      (await hasTable(exec, 'mapping_supplier_usage_cards')) &&
+      (await hasTable(exec, 'supplier_nomenclature_mapping_cards')),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS nomenclature_mapping_cards (
+          id                 INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id      INT NOT NULL,
+          scanned_name       VARCHAR(512) NOT NULL,
+          mapped_name_1c     VARCHAR(512) NOT NULL,
+          category           VARCHAR(255) NULL,
+          default_unit       VARCHAR(64) NULL,
+          approved           TINYINT(1) NOT NULL DEFAULT 0,
+          onec_guid          VARCHAR(64) NULL,
+          times_seen         INT NOT NULL DEFAULT 0,
+          last_seen_supplier VARCHAR(512) NULL,
+          last_seen_at       DATETIME NULL,
+          pack_size          DOUBLE NULL,
+          pack_unit          VARCHAR(32) NULL,
+          created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_mapping_cards_owner_scanned (owner_user_id, scanned_name),
+          INDEX idx_mapping_cards_guid (onec_guid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS mapping_supplier_usage_cards (
+          mapping_card_id INT NOT NULL,
+          supplier        VARCHAR(512) NOT NULL,
+          first_seen_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          times_seen      INT NOT NULL DEFAULT 1,
+          PRIMARY KEY (mapping_card_id, supplier),
+          INDEX idx_usage_cards_supplier (supplier),
+          CONSTRAINT fk_usage_cards_mapping
+            FOREIGN KEY (mapping_card_id) REFERENCES nomenclature_mapping_cards(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS supplier_nomenclature_mapping_cards (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id  INT NOT NULL,
+          supplier_key   VARCHAR(64) NOT NULL,
+          scanned_hash   CHAR(64) NOT NULL,
+          scanned_name   VARCHAR(512) NOT NULL,
+          mapped_name_1c VARCHAR(512) NOT NULL,
+          onec_guid      VARCHAR(64) NOT NULL,
+          times_seen     INT NOT NULL DEFAULT 1,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_supplier_scan_cards (owner_user_id, supplier_key, scanned_hash),
+          INDEX idx_supplier_mapping_cards_guid (onec_guid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      if (await hasTable(exec, 'nomenclature_mappings')) {
+        await exec.query(`
+          INSERT INTO nomenclature_mapping_cards
+            (owner_user_id, scanned_name, mapped_name_1c, category, default_unit, approved,
+             onec_guid, times_seen, last_seen_supplier, last_seen_at, pack_size, pack_unit, created_at)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 m.scanned_name, m.mapped_name_1c, m.category, m.default_unit, m.approved,
+                 m.onec_guid, m.times_seen, m.last_seen_supplier, m.last_seen_at,
+                 m.pack_size, m.pack_unit, m.created_at
+            FROM nomenclature_mappings m
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE nomenclature_mapping_cards.id = nomenclature_mapping_cards.id
+        `);
+      }
+
+      // Связь переносим по естественному ключу (scanned_name): id в новой
+      // таблице свои, старые mapping_id к ней не применимы.
+      if (await hasTable(exec, 'mapping_supplier_usage')) {
+        await exec.query(`
+          INSERT INTO mapping_supplier_usage_cards
+            (mapping_card_id, supplier, first_seen_at, last_seen_at, times_seen)
+          SELECT c.id, u.supplier, u.first_seen_at, u.last_seen_at, u.times_seen
+            FROM mapping_supplier_usage u
+            JOIN nomenclature_mappings m ON m.id = u.mapping_id
+            JOIN nomenclature_mapping_cards c
+              ON c.scanned_name = m.scanned_name
+             AND c.owner_user_id = (SELECT MIN(id) FROM users WHERE role = 'admin')
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE mapping_supplier_usage_cards.times_seen = mapping_supplier_usage_cards.times_seen
+        `);
+      }
+
+      if (await hasTable(exec, 'supplier_nomenclature_mappings')) {
+        await exec.query(`
+          INSERT INTO supplier_nomenclature_mapping_cards
+            (owner_user_id, supplier_key, scanned_hash, scanned_name, mapped_name_1c,
+             onec_guid, times_seen, created_at, updated_at)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 s.supplier_key, s.scanned_hash, s.scanned_name, s.mapped_name_1c,
+                 s.onec_guid, s.times_seen, s.created_at, s.updated_at
+            FROM supplier_nomenclature_mappings s
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE supplier_nomenclature_mapping_cards.id = supplier_nomenclature_mapping_cards.id
+        `);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

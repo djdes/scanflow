@@ -25,8 +25,10 @@ async function setupUser(): Promise<string> {
 }
 
 async function createInvoice(date: string): Promise<number> {
+  // Владелец обязателен: статистика цен и справочник пер-тенантные, и без него
+  // накладная не найдёт ни медиану, ни карточку поставщика — как и на проде.
   const r = await getDb().prepare(
-    `INSERT INTO invoices (file_name, file_path, status, invoice_date) VALUES (?, ?, 'processed', ?)`
+    `INSERT INTO invoices (file_name, file_path, status, invoice_date, owner_user_id) VALUES (?, ?, 'processed', ?, 1)`
   ).run(`f-${date}`, `/test/${date}`, date);
   return Number(r.lastInsertRowid);
 }
