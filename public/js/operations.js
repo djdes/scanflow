@@ -7,6 +7,7 @@ const Operations = {
   loading: false,
   assistantMessages: [],
   onecSecret: null,
+  onecPairingCode: null,
   onecImportFile: null,
   onecImportResult: null,
   selectedExceptions: new Set(),
@@ -292,7 +293,17 @@ const Operations = {
   },
 
   renderOnec() {
-    if (!this.data.permissions?.manage) return `<div class="empty-state">Подключения 1С настраивает администратор.</div>`;
+    if (!this.data.permissions?.manage) {
+      const codeBlock = this.onecPairingCode
+        ? `<div class="onec-pairing-code"><span>Код подключения (действует ~15 мин):</span><code>${App.esc(this.onecPairingCode)}</code></div>`
+        : '';
+      return `<article class="card operations-panel operations-panel--wide">
+        <div class="operations-panel__head"><div><span class="operations-eyebrow">Подключение 1С</span><h3>Подключить свою базу</h3></div></div>
+        <p>Нажмите «Получить код», затем в обработке 1С:УНФ вставьте его в поле «Код подключения» и нажмите «Подключить».</p>
+        <button class="btn btn-primary btn-sm" onclick="Operations.generateOnecCode()">Получить код</button>
+        ${codeBlock}
+      </article>`;
+    }
     const state = this.onec || { connections: [], catalog: {}, sync_state: {} };
     const connections = state.connections || [];
     const secret = this.onecSecret ? `<div class="channel-secret onec-secret"><strong>Скопируйте токен сейчас — повторно он не показывается</strong><code>${App.esc(this.onecSecret.token)}</code><code>${App.esc(this.onecSecret.exchange_url)}</code><button class="btn btn-primary btn-sm" onclick="Operations.copyOnecSecret()">Скопировать настройки</button></div>` : '';
@@ -586,6 +597,17 @@ const Operations = {
     if (!this.onecSecret) return;
     navigator.clipboard.writeText(`Адрес: ${this.onecSecret.exchange_url}\nТокен: ${this.onecSecret.token}\nЗаголовок: X-1C-Token`);
     App.notify('Настройки подключения скопированы', 'success');
+  },
+
+  async generateOnecCode() {
+    try {
+      const { data } = await App.apiJson('/onec/pairing-code', { method: 'POST', body: { base_name: '' } });
+      this.onecPairingCode = data.code;
+      this.render();
+      App.notify('Код создан — введите его в обработке 1С', 'success');
+    } catch (e) {
+      App.notify('Не удалось создать код: ' + e.message, 'error');
+    }
   },
 
   async revokeOnecConnection(id) {
