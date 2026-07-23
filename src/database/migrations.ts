@@ -1711,6 +1711,27 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 56,
+    name: 'onec_pairing_codes — short one-time codes for self-service 1C onboarding',
+    detect: (exec) => hasTable(exec, 'onec_pairing_codes'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS onec_pairing_codes (
+          id            INT AUTO_INCREMENT PRIMARY KEY,
+          code          VARCHAR(20) NOT NULL,
+          owner_user_id INT NOT NULL,
+          base_name     VARCHAR(128) NOT NULL DEFAULT '',
+          created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expires_at    DATETIME NOT NULL,
+          used_at       DATETIME NULL,
+          UNIQUE KEY uq_onec_pairing_code (code),
+          INDEX idx_onec_pairing_owner (owner_user_id),
+          CONSTRAINT fk_onec_pairing_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
