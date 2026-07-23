@@ -324,6 +324,35 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/dispatch
     expect(await itemCount(b)).toBe(1);
   });
 
+  it('does NOT merge a row-contiguous continuation carrying a DIFFERENT number (287/288 incident)', async () => {
+    // Incident 2026-07-22: two SEPARATE ООО «ОМЕГА ПРИНТ» invoices (№287, №288)
+    // uploaded back-to-back. №288's single row (row_no 17) looked exactly like a
+    // continuation of №287's rows 1-16, so rowContiguous fired and combined
+    // re-analysis swallowed №288. The number guard must override rowContiguous:
+    // both pages carry a non-empty number and they DIFFER → never merge.
+    const head = await seedHeadPage({ n: 16, supplier: 'ООО "ОМЕГА ПРИНТ"', number: '287', date: '2026-05-26' });
+
+    const tail = await createPending();
+    const res = await request(app).post(`/api/dispatcher/result/${tail}`).send({
+      token: TOKEN,
+      success: true,
+      data: {
+        supplier: 'ООО "ОМЕГА ПРИНТ"',
+        invoice_number: '288', // its OWN different number — a separate invoice, not page-2 of 287
+        total_sum: 9000,
+        items: [{ name: 'Этикетка самоклеящаяся', quantity: 1, unit: 'шт', price: 9000, total: 9000, row_no: 17 }],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('processed'); // NOT merged despite the row-17 contiguity
+    expect(res.body.targetInvoiceId).toBe(tail);
+    expect((await getInvoice(head))?.status).toBe('processed');
+    expect(await itemCount(head)).toBe(16); // head untouched — №288 was NOT folded in
+    expect(await itemCount(tail)).toBe(1);  // tail kept its own row, nothing lost
+    expect((await getInvoice(tail))?.duplicate_of).toBeNull();
+  });
+
   it('does NOT merge two single-row invoices from different suppliers (row 1 is not a continuation)', async () => {
     // Now that the supplier gate is gone, the row-contiguity check must not treat
     // two complete single-row invoices (both starting at row 1) as adjacent pages.

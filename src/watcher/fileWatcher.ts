@@ -22,7 +22,7 @@ import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } fr
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 import { UploadSource } from '../utils/uploadSource';
 import { autoSendSberForInvoice } from '../services/autoSendSber';
-import { mergeBlockedByNumber } from '../services/mergeDecision';
+import { mergeBlockedByNumber, mergeLostData } from '../services/mergeDecision';
 import { ocrCorrectionRepo } from '../database/repositories/ocrCorrectionRepo';
 import { webhookConfigRepo } from '../database/repositories/webhookConfigRepo';
 
@@ -949,6 +949,16 @@ export class FileWatcher {
           // where the temp row is gone before re-analysis runs.
           const existingTextSnapshot = existingInvoice.raw_text || '';
 
+          // Snapshot the two pages' footprints BEFORE any mutation — inputs to the
+          // lost-data post-check after combined re-analysis. `parsed` holds THIS
+          // page's items in memory, so even though the temp row is deleted early,
+          // rollback (lossless append) needs nothing from the DB. See mergeDecision.ts.
+          const existingItemsBefore = await invoiceRepo.getItems(existingInvoice.id);
+          const mergePagesBefore = [
+            { itemCount: existingItemsBefore.length, totalSum: existingInvoice.total_sum },
+            { itemCount: parsed.items.length, totalSum: parsed.total_sum ?? null },
+          ];
+
           // Append file name and raw text to existing invoice.
           await invoiceRepo.appendFileName(existingInvoice.id, fileName);
           await invoiceRepo.appendRawText(existingInvoice.id, ocrResult.text);
@@ -992,6 +1002,25 @@ export class FileWatcher {
               const unifiedParsed = await ocrCorrectionRepo.apply(
                 multiResult.structured as unknown as Record<string, unknown>, mappingOwnerId,
               ) as unknown as ParsedInvoiceData;
+
+              // Пост-проверка (Секция 2 спеки). Если объединённый разбор вернул
+              // МЕНЬШЕ позиций или МЕНЬШУЮ сумму, чем было суммарно на страницах
+              // до склейки — Claude схлопнул документы и потерял содержимое (ровно
+              // симптом инцидента №288: unified 8900 при проглоченной 9000). Не
+              // коммитим такой результат: бросаем — и lossless append-fallback ниже
+              // детерминированно сложит ЭТУ страницу в родителя (у которого исходные
+              // позиции ещё целы, deleteItems ещё не выполнен), все позиции сохранны.
+              if (mergeLostData(mergePagesBefore, {
+                itemCount: unifiedParsed.items.length,
+                totalSum: unifiedParsed.total_sum ?? null,
+              })) {
+                logger.warn('Multi-page merge post-check: unified re-analysis lost data — folding via lossless append instead', {
+                  targetInvoiceId,
+                  before: mergePagesBefore,
+                  unified: { itemCount: unifiedParsed.items.length, totalSum: unifiedParsed.total_sum },
+                });
+                throw new Error('multi-page unified result lost data (post-check)');
+              }
 
               // Delete old items and re-save all from unified result
               await invoiceRepo.deleteItems(targetInvoiceId);
