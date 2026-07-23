@@ -1,32 +1,28 @@
-import { getDb } from '../database/db';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
+import { webhookConfigRepo, WebhookConfig } from '../database/repositories/webhookConfigRepo';
 import { logger } from '../utils/logger';
 import { emit as emitNotification } from '../notifications/events';
 import { logIntegrationEvent } from './integrationLog';
 
-interface WebhookConfig {
-  url: string;
-  enabled: number;
-  auth_token: string | null;
-}
-
-async function getWebhookConfig(): Promise<WebhookConfig | null> {
-  const db = getDb();
-  const config = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get<WebhookConfig>();
+async function getWebhookConfig(ownerUserId: number): Promise<WebhookConfig | null> {
+  const config = await webhookConfigRepo.get(ownerUserId);
   if (!config || !config.enabled || !config.url) return null;
   return config;
 }
 
 export async function sendToWebhook(invoiceId: number): Promise<boolean> {
-  const config = await getWebhookConfig();
-  if (!config) {
-    logger.debug('Webhook not configured or disabled');
-    return false;
-  }
-
+  // Накладную читаем ПЕРВОЙ: настройка вебхука пер-тенантная, и без владельца
+  // накладной непонятно, в чью 1С её вообще отправлять. -1 = «владельца нет»,
+  // такой компании не существует, поэтому вебхук просто не сработает.
   const invoice = await invoiceRepo.getWithItems(invoiceId);
   if (!invoice) {
     logger.warn('Invoice not found for webhook', { invoiceId });
+    return false;
+  }
+
+  const config = await getWebhookConfig(invoice.owner_user_id ?? -1);
+  if (!config) {
+    logger.debug('Webhook not configured or disabled');
     return false;
   }
 

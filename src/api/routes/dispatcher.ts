@@ -26,7 +26,7 @@ import { normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumbe
 import { resolveSupplierName } from '../../services/resolveSupplierName';
 import { autoSendSberForInvoice } from '../../services/autoSendSber';
 import { userRepo } from '../../database/repositories/userRepo';
-import { getDb } from '../../database/db';
+import { webhookConfigRepo } from '../../database/repositories/webhookConfigRepo';
 import { config } from '../../config';
 
 const router = Router();
@@ -48,8 +48,11 @@ async function resolveSupplier(
  * Post-processing parity with fileWatcher step 8: auto-approve for 1C and/or
  * auto-send to Sber if the user enabled those toggles. No-op unless the
  * invoice is 'processed' and not a duplicate. Never throws.
+ *
+ * `ownerUserId` — компания владельца накладной: легаси-флаг автоотправки в 1С
+ * лежит в пер-тенантной настройке вебхука, читать её можно только за своих.
  */
-async function runAutoSendHooks(targetInvoiceId: number): Promise<void> {
+async function runAutoSendHooks(targetInvoiceId: number, ownerUserId: number | null): Promise<void> {
   try {
     const finalInv = await invoiceRepo.getById(targetInvoiceId);
     const cfg = await invoiceRepo.getAnalyzerConfig();
@@ -64,10 +67,8 @@ async function runAutoSendHooks(targetInvoiceId: number): Promise<void> {
     }
     if (!canAutoSend) return;
 
-    const whCfg = await getDb()
-      .prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1')
-      .get<{ auto_send_1c: number }>();
-    const wantAuto1c = (whCfg?.auto_send_1c === 1) || cfg.auto_send_1c;
+    const legacyAuto1c = ownerUserId != null && await webhookConfigRepo.autoSend1cEnabled(ownerUserId);
+    const wantAuto1c = legacyAuto1c || cfg.auto_send_1c;
     if (wantAuto1c) {
       await invoiceRepo.approveForOneC(targetInvoiceId);
       logger.info('dispatcher: auto-approved for 1C', { id: targetInvoiceId });
@@ -569,7 +570,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     }
 
     // Auto-send hooks (1C approve + Sber), mirroring fileWatcher step 8.
-    await runAutoSendHooks(finalTargetId);
+    await runAutoSendHooks(finalTargetId, row.owner_user_id);
 
     await clearDispatcherState(id);
     logger.info('dispatcher result: invoice processed', {

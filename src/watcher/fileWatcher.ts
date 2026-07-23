@@ -23,6 +23,7 @@ import { emit as emitNotification, emitElevatedPricesIfAny } from '../notificati
 import { UploadSource } from '../utils/uploadSource';
 import { autoSendSberForInvoice } from '../services/autoSendSber';
 import { ocrCorrectionRepo } from '../database/repositories/ocrCorrectionRepo';
+import { webhookConfigRepo } from '../database/repositories/webhookConfigRepo';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -1431,9 +1432,11 @@ export class FileWatcher {
         }
 
         // Legacy webhook flag — оставляем для back-compat. ИЛИ с новым analyzer_config.
-        const db = (await import('../database/db')).getDb();
-        const whCfg = await db.prepare('SELECT auto_send_1c FROM webhook_config WHERE id = 1').get<{ auto_send_1c: number }>();
-        const wantAuto1c = (whCfg?.auto_send_1c === 1) || cfg.auto_send_1c;
+        // Настройка вебхука пер-тенантная: читаем её от имени владельца накладной,
+        // у «ничьей» строки легаси-флага просто нет (остаётся analyzer_config).
+        const legacyAuto1c = finalInv?.owner_user_id != null
+          && await webhookConfigRepo.autoSend1cEnabled(finalInv.owner_user_id);
+        const wantAuto1c = legacyAuto1c || cfg.auto_send_1c;
 
         if (canAutoSend && wantAuto1c) {
           await invoiceRepo.approveForOneC(targetInvoiceId);

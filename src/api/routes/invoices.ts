@@ -581,9 +581,13 @@ router.post('/:id/send', async (req: Request, res: Response) => {
 
   // If this invoice introduces new (unmatched) nomenclature, flag the catalog
   // for re-export. 1C's scheduled job pulls it back after creating the docs.
+  // Флаг пер-тенантный — поднимаем его в компании владельца накладной. У
+  // легаси-накладных без владельца берём компанию того, кто нажал «Отправить»:
+  // это единственная известная компания в этом запросе, и она же увидит флаг.
   try {
-    if (await invoiceRepo.hasUnmatchedItems(id)) {
-      await syncStateRepo.markNomenclatureSyncRequested();
+    const syncOwnerId = invoice.owner_user_id ?? req.user?.id ?? null;
+    if (syncOwnerId != null && await invoiceRepo.hasUnmatchedItems(id)) {
+      await syncStateRepo.markNomenclatureSyncRequested(syncOwnerId);
       void logIntegrationEvent({
         integration: 'nomenclature', event_type: 'sync_requested', invoice_id: id,
         summary: `Накладная №${invForNotif?.invoice_number ?? id} содержит новые позиции — каталог 1С помечен к выгрузке`,

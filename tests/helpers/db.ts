@@ -95,8 +95,10 @@ export async function resetDb(): Promise<mysql.Pool> {
     'notification_sends',
     'users',
     'webhook_config',
+    'webhook_config_cards',
     'analyzer_config',
     'integration_sync_state',
+    'integration_sync_state_cards',
     'api_requests_log',
   ];
   await pool.query('SET FOREIGN_KEY_CHECKS = 0');
@@ -105,12 +107,16 @@ export async function resetDb(): Promise<mysql.Pool> {
   }
   await pool.query('SET FOREIGN_KEY_CHECKS = 1');
 
-  // Re-seed singleton config rows the app expects.
+  // Re-seed singleton config rows the app expects. analyzer_config is still a
+  // real platform-wide singleton, so its row has to come back.
+  //
+  // integration_sync_state больше не пересевается: с миграции 54 приложение
+  // читает пер-тенантный integration_sync_state_cards, где строка появляется
+  // upsert-ом при первом markNomenclatureSyncRequested(owner). Синглтон-строка
+  // старой таблицы теперь не значит ничего, а её посев маскировал бы забытый
+  // переезд вызывающего на новую таблицу.
   await pool.query(
     `INSERT INTO analyzer_config (id, mode, anthropic_api_key) VALUES (1, 'hybrid', NULL)`
-  );
-  await pool.query(
-    `INSERT INTO integration_sync_state (id, nomenclature_sync_requested_at) VALUES (1, NULL)`
   );
 
   return pool;

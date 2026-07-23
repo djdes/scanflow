@@ -1616,6 +1616,78 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 54,
+    name: 'integration_sync_state_cards + webhook_config_cards — состояние обмена и вебхук на компанию (без DROP)',
+    // Строго аддитивно, как миграции 48/49/51/52: только CREATE TABLE и
+    // INSERT … SELECT … ON DUPLICATE KEY. Ни DROP, ни ALTER существующих таблиц,
+    // поэтому откат = вернуть код, а старые таблицы остаются целыми.
+    //
+    // Почему двойники, а не доработка существующих:
+    //   * integration_sync_state держит CONSTRAINT chk_sync_state_single CHECK (id = 1),
+    //     то есть физически одна строка на всю установку. Снять CHECK можно только
+    //     через ALTER … DROP CONSTRAINT — запрещено. А флаг «каталог 1С нужно
+    //     выгрузить заново» общим быть не может: новая позиция у одной компании
+    //     поднимала бы выгрузку в базе 1С другой.
+    //   * webhook_config формально AUTO_INCREMENT, но весь код работает через
+    //     WHERE id = 1, то есть это тоже синглтон. Две компании, настроившие
+    //     вебхук, перетирали бы друг другу URL и токен авторизации.
+    detect: async (exec) =>
+      (await hasTable(exec, 'integration_sync_state_cards')) &&
+      (await hasTable(exec, 'webhook_config_cards')),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS integration_sync_state_cards (
+          id                              INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id                   INT NOT NULL,
+          nomenclature_sync_requested_at  DATETIME NULL,
+          UNIQUE KEY uq_sync_state_cards_owner (owner_user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS webhook_config_cards (
+          id            INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id INT NOT NULL,
+          url           VARCHAR(1024) NOT NULL,
+          enabled       TINYINT(1) NOT NULL DEFAULT 0,
+          auth_token    VARCHAR(255) NULL,
+          auto_send_1c  TINYINT(1) NOT NULL DEFAULT 0,
+          UNIQUE KEY uq_webhook_config_cards_owner (owner_user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      // Единственную существующую строку каждой таблицы отдаём админской
+      // компании — ровно как миграции 48/49/51/52. ON DUPLICATE KEY делает
+      // повторный прогон (в т.ч. после обрыва деплоя) no-op: ничего не
+      // дублируется и ничего не перетирается уже настроенным.
+      if (await hasTable(exec, 'integration_sync_state')) {
+        await exec.query(`
+          INSERT INTO integration_sync_state_cards
+            (owner_user_id, nomenclature_sync_requested_at)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 s.nomenclature_sync_requested_at
+            FROM integration_sync_state s
+           WHERE s.id = 1
+             AND EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE integration_sync_state_cards.id = integration_sync_state_cards.id
+        `);
+      }
+
+      if (await hasTable(exec, 'webhook_config')) {
+        await exec.query(`
+          INSERT INTO webhook_config_cards
+            (owner_user_id, url, enabled, auth_token, auto_send_1c)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 w.url, w.enabled, w.auth_token, w.auto_send_1c
+            FROM webhook_config w
+           WHERE w.id = 1
+             AND EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE webhook_config_cards.id = webhook_config_cards.id
+        `);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

@@ -59,10 +59,14 @@ async function canAccess(req: Request, invoiceId: number): Promise<boolean> {
 }
 
 onecAdminRouter.get('/connections', async (req: Request, res: Response) => {
+  // Это АДМИНСКИЙ роутер (apiKeyAuth + requireAdmin), а не обмен по токену 1С:
+  // req.onecConnection здесь не заполняется, поэтому владелец берётся из
+  // req.user — тем же способом, что и в соседнем onecConnectionRepo.list.
+  const ownerUserId = req.user?.id ?? -1;
   const [connections, catalog, syncState, lastPoll] = await Promise.all([
-    onecConnectionRepo.list(req.user?.id ?? -1),
-    onecNomenclatureRepo.stats(catalogOwner(req)),
-    syncStateRepo.getNomenclatureSyncState(),
+    onecConnectionRepo.list(ownerUserId),
+    onecNomenclatureRepo.stats(ownerUserId),
+    syncStateRepo.getNomenclatureSyncState(ownerUserId),
     integrationEventRepo.last1cPollAt(),
   ]);
   res.json({ data: { connections, catalog, sync_state: syncState, last_poll_at: lastPoll } });
@@ -131,7 +135,7 @@ onecAdminRouter.get('/source/:part', (req: Request, res: Response) => {
 });
 
 onecExchangeRouter.get('/status', async (req: Request, res: Response) => {
-  const [catalog, syncState] = await Promise.all([onecNomenclatureRepo.stats(catalogOwner(req)), syncStateRepo.getNomenclatureSyncState()]);
+  const [catalog, syncState] = await Promise.all([onecNomenclatureRepo.stats(catalogOwner(req)), syncStateRepo.getNomenclatureSyncState(catalogOwner(req))]);
   res.json({ data: { ok: true, connection: req.onecConnection?.name, catalog, sync_state: syncState, server_time: new Date().toISOString() } });
 });
 
@@ -222,13 +226,13 @@ onecExchangeRouter.post('/nomenclature/sync', async (req: Request, res: Response
   }
 });
 
-onecExchangeRouter.get('/nomenclature/sync-flag', async (_req: Request, res: Response) => {
-  const state = await syncStateRepo.getNomenclatureSyncState();
+onecExchangeRouter.get('/nomenclature/sync-flag', async (req: Request, res: Response) => {
+  const state = await syncStateRepo.getNomenclatureSyncState(catalogOwner(req));
   res.json({ data: { ...state, nomenclature_sync_requested: state.requested } });
 });
 
 onecExchangeRouter.post('/nomenclature/sync-flag/clear', async (req: Request, res: Response) => {
   const since = String(req.body?.since || '');
   if (!since) return res.status(400).json({ error: 'since обязателен' });
-  res.json({ data: await syncStateRepo.clearNomenclatureSync(since) });
+  res.json({ data: await syncStateRepo.clearNomenclatureSync(since, catalogOwner(req)) });
 });

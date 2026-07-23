@@ -5,6 +5,15 @@ import { requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
+// Флаг выгрузки каталога пер-тенантный: смотрим и чистим только своё.
+// Роуты закрыты requireAdmin поверх apiKeyAuth, так что req.user всегда есть —
+// бросаем, если вдруг нет, чтобы не подставить чужую компанию по умолчанию.
+function ownerOf(req: Request): number {
+  const id = req.user?.id;
+  if (id == null) throw new Error('integrations route reached without an authenticated user');
+  return id;
+}
+
 // GET /api/integrations/log?integration=1c|sber|webhook|nomenclature&limit=&offset=
 // Returns the recent integration activity events plus the derived "1C last polled
 // at" signal (most recent /pending hit from api_requests_log).
@@ -29,9 +38,9 @@ router.get('/log', requireAdmin, async (req: Request, res: Response) => {
 
 // GET /api/integrations/sync-flag — cheap per-minute check for the 1C scheduled
 // job: is there new nomenclature waiting to be exported back to the site?
-router.get('/sync-flag', requireAdmin, async (_req: Request, res: Response) => {
+router.get('/sync-flag', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const st = await syncStateRepo.getNomenclatureSyncState();
+    const st = await syncStateRepo.getNomenclatureSyncState(ownerOf(req));
     res.json({ data: { nomenclature_sync_requested: st.requested, since: st.since } });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -48,7 +57,7 @@ router.post('/sync-flag/clear', requireAdmin, async (req: Request, res: Response
     return;
   }
   try {
-    const r = await syncStateRepo.clearNomenclatureSync(since);
+    const r = await syncStateRepo.clearNomenclatureSync(since, ownerOf(req));
     res.json({ data: { cleared: r.cleared } });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

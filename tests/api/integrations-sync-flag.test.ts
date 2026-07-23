@@ -50,7 +50,9 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('GET/POST /api/inte
 
   it('GET returns true + since after mark; clear with that since resets it', async () => {
     const key = await setupUser();
-    await syncStateRepo.markNomenclatureSyncRequested();
+    // Флаг пер-тенантный: поднимаем его в компании того же админа (users.id = 1),
+    // которым потом ходим в API.
+    await syncStateRepo.markNomenclatureSyncRequested(1);
 
     const got = await request(app).get('/api/integrations/sync-flag').set('X-API-Key', key);
     expect(got.body.data.nomenclature_sync_requested).toBe(true);

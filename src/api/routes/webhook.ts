@@ -1,39 +1,37 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../../database/db';
+import { webhookConfigRepo } from '../../database/repositories/webhookConfigRepo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
-
-interface WebhookConfig {
-  id: number;
-  url: string;
-  enabled: number;
-  auth_token: string | null;
-  auto_send_1c: number;
-}
 
 const router = Router();
 
+// Вебхук пер-тенантный: URL и Authorization-токен ведут в базу 1С конкретной
+// компании. Роутер смонтирован под apiKeyAuth + requireAdmin, так что req.user
+// всегда есть — бросаем, если вдруг нет, вместо молчаливого дефолта.
+function ownerOf(req: Request): number {
+  const id = req.user?.id;
+  if (id == null) throw new Error('webhook route reached without an authenticated user');
+  return id;
+}
+
 // GET /api/webhook/config
-router.get('/config', async (_req: Request, res: Response) => {
-  const db = getDb();
-  const config = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get<WebhookConfig>();
-  res.json({ data: config || { id: 1, url: '', enabled: 0, auth_token: null, auto_send_1c: 0 } });
+router.get('/config', async (req: Request, res: Response) => {
+  const config = await webhookConfigRepo.get(ownerOf(req));
+  res.json({ data: config || { id: 0, url: '', enabled: 0, auth_token: null, auto_send_1c: 0 } });
 });
 
 // PUT /api/webhook/config
 router.put('/config', async (req: Request, res: Response) => {
-  const db = getDb();
+  const ownerUserId = ownerOf(req);
   const { url, enabled, auth_token, auto_send_1c } = req.body;
 
-  const existing = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
-  if (existing) {
-    await db.prepare('UPDATE webhook_config SET url = ?, enabled = ?, auth_token = ?, auto_send_1c = ? WHERE id = 1')
-      .run(url || '', enabled ? 1 : 0, auth_token || null, auto_send_1c ? 1 : 0);
-  } else {
-    await db.prepare('INSERT INTO webhook_config (id, url, enabled, auth_token, auto_send_1c) VALUES (1, ?, ?, ?, ?)')
-      .run(url || '', enabled ? 1 : 0, auth_token || null, auto_send_1c ? 1 : 0);
-  }
+  await webhookConfigRepo.upsert({
+    url: url || '',
+    enabled: enabled ? 1 : 0,
+    auth_token: auth_token || null,
+    auto_send_1c: auto_send_1c ? 1 : 0,
+  }, ownerUserId);
 
-  const updated = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get();
+  const updated = await webhookConfigRepo.get(ownerUserId);
   void logIntegrationEvent({
     integration: 'webhook', event_type: 'config_changed',
     summary: `Изменены настройки вебхука 1С: ${enabled ? 'включён' : 'выключен'}`,
@@ -43,8 +41,7 @@ router.put('/config', async (req: Request, res: Response) => {
 
 // POST /api/webhook/test
 router.post('/test', async (req: Request, res: Response) => {
-  const db = getDb();
-  const config = await db.prepare('SELECT * FROM webhook_config WHERE id = 1').get<WebhookConfig>();
+  const config = await webhookConfigRepo.get(ownerOf(req));
 
   if (!config || !config.url) {
     res.status(400).json({ error: 'Webhook URL not configured' });
