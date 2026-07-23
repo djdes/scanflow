@@ -127,7 +127,7 @@
         <div class="section-tools">
           <div class="search-field">
             <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="search" id="invoices-search" placeholder="Поиск: номер, поставщик, ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" aria-keyshortcuts="/" title="Нажмите / для быстрого поиска">
+            <input type="search" id="invoices-search" placeholder="Поиск: номер, поставщик, ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" name="invoices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')" aria-keyshortcuts="/" title="Нажмите / для быстрого поиска">
             <kbd class="search-field__shortcut" aria-hidden="true">/</kbd>
           </div>
           <a href="#/upload" class="btn btn-primary btn-sm" id="btn-upload-from-list">
@@ -895,7 +895,7 @@
       <div class="suppliers-toolbar">
         <div class="search-field">
           <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="search" id="suppliers-search" placeholder="Поиск по ИНН или названию">
+          <input type="search" id="suppliers-search" placeholder="Поиск по ИНН или названию" autocomplete="off" name="suppliers-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
         </div>
         <button class="btn btn-soft" id="supplier-extract-btn">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><line x1="3" y1="12" x2="21" y2="12"></line></svg>
