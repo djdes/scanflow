@@ -8,6 +8,7 @@ import { integrationEventRepo } from '../../database/repositories/integrationEve
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { onecConnectionRepo, OnecConnectionRow } from '../../database/repositories/onecConnectionRepo';
 import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repositories/onecNomenclatureRepo';
+import { onecPairingRepo } from '../../database/repositories/onecPairingRepo';
 import { syncStateRepo } from '../../database/repositories/syncStateRepo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { logger } from '../../utils/logger';
@@ -21,6 +22,18 @@ declare module 'express-serve-static-core' {
 
 export const onecAdminRouter = Router();
 export const onecExchangeRouter = Router();
+export const onecUserRouter = Router();
+
+// Доступен ЛЮБОМУ авторизованному пользователю (в т.ч. роль user) — self-service.
+onecUserRouter.post('/pairing-code', async (req: Request, res: Response) => {
+  const ownerUserId = req.user?.id;
+  if (ownerUserId == null) return res.status(401).json({ error: 'Unauthorized' });
+  const baseName = String(req.body?.base_name || '').trim();
+  const { code, expiresAt } = await onecPairingRepo.create(ownerUserId, baseName);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(201).json({ data: { code, expires_at: expiresAt } });
+});
+
 let mapper: NomenclatureMapper | null = null;
 export function setOnecMapper(value: NomenclatureMapper): void { mapper = value; }
 

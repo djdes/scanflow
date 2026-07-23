@@ -29,7 +29,7 @@ import integrationsRouter from './routes/integrations';
 import usersRouter from './routes/users';
 import operationsRouter from './routes/operations';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
-import { onecAdminRouter, onecExchangeRouter, setOnecMapper } from './routes/onec';
+import { onecAdminRouter, onecExchangeRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -249,6 +249,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);
   app.use('/api/operations', apiKeyAuth, operationsRouter);
+  // Self-service: генерация кода подключения доступна любому пользователю.
+  app.use('/api/onec', apiKeyAuth, onecUserRouter);
   app.use('/api/onec', apiKeyAuth, requireAdmin, onecAdminRouter);
   app.use('/api/inbound', apiKeyAuth, inboundConfigRouter);
   // User management (list + role changes) — admin only.
