@@ -78,6 +78,11 @@ export async function resetDb(): Promise<mysql.Pool> {
     'ocr_corrections',
     'nomenclature_price_stats',
     'sber_payments',
+    // Дочерние к users (FK ON DELETE CASCADE). Не в общем списке до фичи
+    // self-service 1С — без очистки строки копятся между прогонами и ссылаются
+    // на переиспользованные (после TRUNCATE users) id, загрязняя изоляционные тесты.
+    'onec_pairing_codes',
+    'onec_connections',
     'invoice_items',
     'invoices',
     'mapping_supplier_usage',
