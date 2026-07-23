@@ -3,8 +3,10 @@ import request from 'supertest';
 import { resetDb, closeTestDb } from '../helpers/db';
 import { getDb } from '../../src/database/db';
 import { createServer } from '../../src/api/server';
+import { FileWatcher } from '../../src/watcher/fileWatcher';
+import { NomenclatureMapper } from '../../src/mapping/nomenclatureMapper';
 
-const app = createServer();
+const app = createServer(new FileWatcher() as never, new NomenclatureMapper() as never);
 
 async function mkUser(username: string, role: string, key: string): Promise<number> {
   const r = await getDb().prepare(
