@@ -94,17 +94,40 @@
       font-size: 14px;
       padding: 8px;
     }
+    .field {
+      width: 100%;
+      padding: 16px;
+      font-size: 17px;
+      border: 1px solid #d1d5db;
+      border-radius: 12px;
+      background: #fff;
+    }
+    .field:focus { outline: none; border-color: #2563eb; }
+    .hint { text-align: center; color: #6b7280; font-size: 14px; }
+    .logout { text-align: center; }
+    .logout a { color: #6b7280; font-size: 13px; text-decoration: none; }
   </style>
 </head>
 <body>
   <div class="header">Фото накладной</div>
 
   <div class="main">
-    <input type="file" id="file-input" accept="image/*" capture="environment">
+    <!-- Логин: показывается, пока в браузере нет ключа компании. Сама страница
+         /camera публична (LAN), но загрузка идёт под ключом конкретного
+         пользователя — так накладная привязывается к его компании. -->
+    <div id="login-box" style="display:none; flex-direction:column; gap:12px">
+      <div class="hint">Войдите в аккаунт компании, чтобы загружать фото</div>
+      <input id="login-user" class="field" placeholder="Логин" autocomplete="username" autocapitalize="none">
+      <input id="login-pass" class="field" type="password" placeholder="Пароль" autocomplete="current-password">
+      <button class="btn btn-camera" id="btn-login">Войти</button>
+    </div>
 
-    <button class="btn btn-camera" id="btn-camera">
-      Сфотографировать
-    </button>
+    <!-- Камера: показывается после входа -->
+    <div id="camera-box" style="display:none; flex-direction:column; gap:16px">
+      <input type="file" id="file-input" accept="image/*" capture="environment">
+      <button class="btn btn-camera" id="btn-camera">Сфотографировать</button>
+      <div class="logout"><a href="#" id="logout-link">Выйти</a></div>
+    </div>
 
     <div id="status"></div>
 
@@ -114,15 +137,76 @@
   </div>
 
   <script>
-    const API_KEY = 'your-secret-api-key';
+    // Ключ хранится в том же localStorage['apiKey'], что и основной кабинет —
+    // если пользователь уже вошёл в ЛК на этом устройстве, камера подхватит
+    // вход без повторной авторизации. Хардкод ключа убран: он бы утёк любому в
+    // LAN (страница публичная) и в мультиарендной модели привязал бы накладные
+    // к чужой компании.
+    let apiKey = localStorage.getItem('apiKey') || '';
     let totalUploaded = 0;
     const history = []; // { url, name, status }
 
+    const loginBox = document.getElementById('login-box');
+    const cameraBox = document.getElementById('camera-box');
+    const loginUser = document.getElementById('login-user');
+    const loginPass = document.getElementById('login-pass');
+    const btnLogin = document.getElementById('btn-login');
+    const logoutLink = document.getElementById('logout-link');
     const fileInput = document.getElementById('file-input');
     const btnCamera = document.getElementById('btn-camera');
     const statusEl = document.getElementById('status');
     const counterEl = document.getElementById('counter');
     const historyEl = document.getElementById('history');
+
+    function showLogin(message) {
+      apiKey = '';
+      localStorage.removeItem('apiKey');
+      loginBox.style.display = 'flex';
+      cameraBox.style.display = 'none';
+      statusEl.innerHTML = message ? `<div class="status status-error">${message}</div>` : '';
+    }
+    function showCamera() {
+      loginBox.style.display = 'none';
+      cameraBox.style.display = 'flex';
+    }
+
+    // Стартовый экран зависит от того, есть ли уже ключ.
+    if (apiKey) showCamera(); else showLogin();
+
+    async function doLogin() {
+      const username = loginUser.value.trim();
+      const password = loginPass.value;
+      if (!username || !password) {
+        statusEl.innerHTML = '<div class="status status-error">Введите логин и пароль</div>';
+        return;
+      }
+      btnLogin.disabled = true;
+      statusEl.innerHTML = '<div class="status status-loading">Вход...</div>';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.apiKey) {
+          throw new Error(data.error || 'Неверный логин или пароль');
+        }
+        apiKey = data.apiKey;
+        localStorage.setItem('apiKey', apiKey);
+        loginPass.value = '';
+        statusEl.innerHTML = '';
+        showCamera();
+      } catch (err) {
+        statusEl.innerHTML = `<div class="status status-error">${err.message}</div>`;
+      } finally {
+        btnLogin.disabled = false;
+      }
+    }
+
+    btnLogin.addEventListener('click', doLogin);
+    loginPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+    logoutLink.addEventListener('click', (e) => { e.preventDefault(); showLogin(); });
 
     btnCamera.addEventListener('click', () => fileInput.click());
 
@@ -150,10 +234,17 @@
 
         const response = await fetch(`/api/upload?filename=${encodeURIComponent(fileName)}`, {
           method: 'POST',
-          headers: { 'X-API-Key': API_KEY },
+          headers: { 'X-API-Key': apiKey },
           body: formData,
         });
 
+        if (response.status === 401) {
+          // Ключ протух или отозван — возвращаем на экран входа.
+          history[idx].status = 'error';
+          renderHistory();
+          showLogin('Сессия истекла — войдите заново');
+          return;
+        }
         if (!response.ok) {
           const err = await response.json().catch(() => ({}));
           throw new Error(err.error || `HTTP ${response.status}`);
