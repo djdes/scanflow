@@ -18,16 +18,17 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('Sber-overdue detec
     total?: number | null;
     status?: string;
     duplicateOf?: number | null;
+    paidExternally?: boolean;
   }): Promise<number> {
     const {
       ageDays, supplierInn = '7830002293', total = 1000,
-      status = 'processed', duplicateOf = null,
+      status = 'processed', duplicateOf = null, paidExternally = false,
     } = opts;
     const r = await getDb().prepare(
       `INSERT INTO invoices
-         (file_name, file_path, status, supplier_inn, total_sum, duplicate_of, created_at)
-       VALUES ('f','/f', ?, ?, ?, ?, (NOW() - INTERVAL ? DAY))`
-    ).run(status, supplierInn, total, duplicateOf, ageDays);
+         (file_name, file_path, status, supplier_inn, total_sum, duplicate_of, paid_externally, created_at)
+       VALUES ('f','/f', ?, ?, ?, ?, ?, (NOW() - INTERVAL ? DAY))`
+    ).run(status, supplierInn, total, duplicateOf, paidExternally ? 1 : 0, ageDays);
     return Number(r.lastInsertRowid);
   }
 
@@ -83,6 +84,42 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('Sber-overdue detec
     }
     const ids = (await invoiceRepo.listNewlyOverdueForSber()).map(o => o.id);
     for (const id of [noInn, zeroSum, dup, errored]) expect(ids).not.toContain(id);
+  });
+
+  it('does NOT flag a paid_externally invoice (paid outside the service)', async () => {
+    const id = await mkInvoice({ ageDays: 20, paidExternally: true });
+    expect((await invoiceRepo.getById(id))?.sber_overdue).toBe(0);
+    expect((await invoiceRepo.listNewlyOverdueForSber()).map(o => o.id)).not.toContain(id);
+  });
+
+  it('setPaidExternally toggles the flag and pulls the invoice out of overdue', async () => {
+    const id = await mkInvoice({ ageDays: 20 });
+    expect((await invoiceRepo.getById(id))?.sber_overdue).toBe(1); // overdue before
+
+    await invoiceRepo.setPaidExternally(id, true);
+    expect((await invoiceRepo.getById(id))?.paid_externally).toBe(1);
+    expect((await invoiceRepo.getById(id))?.sber_overdue).toBe(0); // excluded now
+    expect((await invoiceRepo.listNewlyOverdueForSber()).map(o => o.id)).not.toContain(id);
+
+    await invoiceRepo.setPaidExternally(id, false);
+    expect((await invoiceRepo.getById(id))?.paid_externally).toBe(0);
+    expect((await invoiceRepo.getById(id))?.sber_overdue).toBe(1); // back to overdue
+  });
+
+  it('setRead sets read_at (idempotently) and clears it back to NULL', async () => {
+    const id = await mkInvoice({ ageDays: 1 });
+    expect((await invoiceRepo.getById(id))?.read_at).toBeNull(); // new invoice = unread
+
+    await invoiceRepo.setRead(id, true);
+    const firstReadAt = (await invoiceRepo.getById(id))?.read_at;
+    expect(firstReadAt).not.toBeNull();
+
+    // Idempotent: a second setRead(true) must NOT overwrite the original moment.
+    await invoiceRepo.setRead(id, true);
+    expect((await invoiceRepo.getById(id))?.read_at).toBe(firstReadAt);
+
+    await invoiceRepo.setRead(id, false);
+    expect((await invoiceRepo.getById(id))?.read_at).toBeNull();
   });
 
   it('markSberOverdueNotified removes it from the newly-overdue list (alert once)', async () => {

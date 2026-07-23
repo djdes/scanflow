@@ -1688,6 +1688,29 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 55,
+    name: 'invoices.read_at + paid_externally — прочтение и «оплачено вне сервиса»',
+    // Аддитивно: две новые колонки в invoices через hasColumn-guard + ADD COLUMN
+    // (идиом миграций 2/4/28), без DROP и без ALTER существующих колонок. Повторный
+    // прогон — no-op. Бэкфилл read_at существующим строкам ставится РОВНО один раз
+    // (внутри guard добавления колонки), чтобы весь бэклог стартовал прочитанным, а
+    // новые непрочитанные накладные при случайном переигрывании не были затёрты.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'invoices', 'read_at')) &&
+      (await hasColumn(exec, 'invoices', 'paid_externally')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'read_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN read_at DATETIME NULL`);
+        await exec.query(
+          `UPDATE invoices SET read_at = COALESCE(recognized_at, created_at) WHERE read_at IS NULL`,
+        );
+      }
+      if (!(await hasColumn(exec, 'invoices', 'paid_externally'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN paid_externally TINYINT(1) NOT NULL DEFAULT 0`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

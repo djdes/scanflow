@@ -179,6 +179,7 @@ export const operationsRepo = {
              SUM(CASE WHEN sp.id IS NOT NULL OR bs.id IS NOT NULL THEN 1 ELSE 0 END) AS payments,
              SUM(CASE WHEN i.invoice_date REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
                             AND DATE_ADD(STR_TO_DATE(i.invoice_date, '%Y-%m-%d'), INTERVAL COALESCE(s.payment_terms_days, 7) DAY) < CURDATE()
+                            AND i.paid_externally = 0
                             AND bs.id IS NULL
                             AND (sp.id IS NULL OR LOWER(sp.status) NOT IN ('paid', 'executed', 'completed', 'success'))
                       THEN 1 ELSE 0 END) AS overdue,
@@ -232,6 +233,7 @@ export const operationsRepo = {
            AND i.status NOT IN ('failed', 'error', 'duplicate')
            AND i.duplicate_of IS NULL
            AND i.total_sum IS NOT NULL
+           AND i.paid_externally = 0
            AND NOT EXISTS (SELECT 1 FROM bank_statement_entries bs WHERE bs.matched_invoice_id = i.id)
            AND (sp.id IS NULL OR LOWER(sp.status) NOT IN ('paid', 'executed', 'completed', 'success'))
       ) obligations
@@ -265,6 +267,7 @@ export const operationsRepo = {
        WHERE ${owner.clause}
          AND i.status NOT IN ('failed', 'error', 'duplicate') AND i.duplicate_of IS NULL
          AND i.total_sum IS NOT NULL
+         AND i.paid_externally = 0
          AND NOT EXISTS (SELECT 1 FROM bank_statement_entries bs WHERE bs.matched_invoice_id = i.id)
          AND (sp.id IS NULL OR LOWER(sp.status) NOT IN ('paid', 'executed', 'completed', 'success'))
        ORDER BY due_date

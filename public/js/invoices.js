@@ -92,7 +92,7 @@ const Invoices = {
         }
         const overdueDays = Number(inv.sber_overdue_days) || 14;
         rowsHtml.push(`
-        <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}" data-day="${day}"
+        <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}${!inv.read_at ? ' unread' : ''}" data-day="${day}"
             ${inv.sber_overdue ? `style="box-shadow:inset 3px 0 0 #f59e0b" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней"` : ''}
             onclick="App.navigate('#/invoices/${inv.id}')">
           <td class="col-id" data-label="ID">${inv.id}</td>
@@ -108,9 +108,9 @@ const Invoices = {
               ? `<button class="btn btn-primary btn-sm" style="margin-right:4px" title="Отправить в 1С"
                     onclick="Invoices.sendTo1C(${inv.id}, event, true)">&rarr; 1С</button>`
               : `<button class="btn btn-primary btn-sm" style="margin-right:4px;visibility:hidden" tabindex="-1" aria-hidden="true" disabled>&rarr; 1С</button>`}
-            <button class="btn-icon-danger" title="Удалить накладную"
-                    aria-label="Удалить накладную ${inv.id}"
-                    onclick="Invoices.deleteInvoice(${inv.id}, event)">&#10005;</button>
+            <button class="btn-icon-gear" title="Действия"
+                    aria-label="Действия для накладной ${inv.id}"
+                    onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">&#9881;</button>
           </td>
         </tr>`);
       }
@@ -273,6 +273,11 @@ const Invoices = {
   // a glance which invoices have already been pushed to the bank.
   _sberCell(inv) {
     const status = inv.sber_payment_status;
+    // «Оплачено вне сервиса» — приоритетнее всего: такую накладную не платят через
+    // Сбер, она исключена из overdue/бэклога на бэкенде, показываем нейтральный бейдж.
+    if (inv.paid_externally) {
+      return '<span style="color:#64748b;white-space:nowrap" title="Оплачено вне сервиса — платёж в Сбер не нужен">💵 Сами</span>';
+    }
     // Overdue takes precedence: a payable invoice with no (non-failed) Sber
     // payment past the threshold. The server-side sber_overdue flag already
     // encodes "payable AND old AND no created/pending payment".
@@ -1230,6 +1235,68 @@ const Invoices = {
       onOk();
     });
     modal.addEventListener('click', (e) => { if (e.target === modal) close(); }, { once: true });
+  },
+
+  // Small per-row action menu opened by the ⚙ button. One floating element is
+  // (re)built and positioned under the gear. `read`/`paid` are the row's current
+  // 0/1 flags so the toggle captions reflect state without a refetch.
+  openRowMenu(id, read, paid, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    this._closeRowMenu();
+    const btn = event && event.currentTarget;
+    const menu = document.createElement('div');
+    menu.className = 'row-action-menu';
+    menu.id = 'row-action-menu';
+    menu.innerHTML = `
+      <button class="ram-item" data-act="read">${read ? '&#9711; Пометить непрочитанной' : '&#10003; Пометить прочитанной'}</button>
+      <button class="ram-item" data-act="paid">${paid ? '&#8617; Снять «оплачено сами»' : '&#128181; Оплатили сами'}</button>
+      <button class="ram-item ram-danger" data-act="delete">&#128465; Удалить</button>`;
+    document.body.appendChild(menu);
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      menu.style.top = `${window.scrollY + r.bottom + 4}px`;
+      menu.style.left = `${Math.max(8, window.scrollX + r.right - menu.offsetWidth)}px`;
+    }
+    menu.querySelector('[data-act="read"]').onclick = (e) => { e.stopPropagation(); this._closeRowMenu(); this._markRead(id, !read); };
+    menu.querySelector('[data-act="paid"]').onclick = (e) => { e.stopPropagation(); this._closeRowMenu(); this._markPaidExternally(id, !paid); };
+    menu.querySelector('[data-act="delete"]').onclick = (e) => { e.stopPropagation(); this._closeRowMenu(); this.deleteInvoice(id); };
+    // Defer listener attach so THIS click (which opened the menu) doesn't close it.
+    setTimeout(() => {
+      this._rowMenuOutside = (e) => { if (!menu.contains(e.target)) this._closeRowMenu(); };
+      this._rowMenuEsc = (e) => { if (e.key === 'Escape') this._closeRowMenu(); };
+      document.addEventListener('click', this._rowMenuOutside);
+      document.addEventListener('keydown', this._rowMenuEsc);
+    }, 0);
+  },
+
+  _closeRowMenu() {
+    const m = document.getElementById('row-action-menu');
+    if (m) m.remove();
+    if (this._rowMenuOutside) { document.removeEventListener('click', this._rowMenuOutside); this._rowMenuOutside = null; }
+    if (this._rowMenuEsc) { document.removeEventListener('keydown', this._rowMenuEsc); this._rowMenuEsc = null; }
+  },
+
+  async _markRead(id, read) {
+    return this._withGuard(`read:${id}`, async () => {
+      try {
+        await App.apiJson(`/invoices/${id}/read`, { method: 'POST', body: { read } });
+        this.showList();
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
+      }
+    });
+  },
+
+  async _markPaidExternally(id, value) {
+    return this._withGuard(`paid:${id}`, async () => {
+      try {
+        await App.apiJson(`/invoices/${id}/paid-externally`, { method: 'POST', body: { value } });
+        App.notify(value ? 'Отмечено «оплачено вне сервиса»' : 'Отметка «оплачено сами» снята', 'success');
+        this.showList();
+      } catch (e) {
+        App.notify('Ошибка: ' + e.message, 'error');
+      }
+    });
   },
 
   onNomInput(event) {

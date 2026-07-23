@@ -38,6 +38,7 @@ function sberOverduePredicate(days: number): string {
     AND invoices.total_sum > 0
     AND invoices.duplicate_of IS NULL
     AND invoices.status <> 'error'
+    AND invoices.paid_externally = 0
     AND invoices.created_at < (NOW() - INTERVAL ${d} DAY)
     AND NOT EXISTS (
       SELECT 1 FROM sber_payments sp
@@ -77,6 +78,8 @@ export interface Invoice {
   duplicate_score: number | null;
   duplicate_reasons: string | null;
   recognized_at: string | null;   // set by updateStatus('processed') on first recognition, never at create()
+  read_at: string | null;          // NULL = непрочитанная; ставится при открытии детали владельцем или кнопкой
+  paid_externally: number;         // 1 = оплачено вне сервиса (наличные/своя карта) → вне overdue/обязательств
   upload_source: string | null;
   upload_user_agent: string | null;
   // Owning tenant (multi-tenant isolation). NULL = system/owner-owned (watcher,
@@ -455,6 +458,23 @@ export const invoiceRepo = {
     } else {
       await db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(status, id);
     }
+  },
+
+  /**
+   * Пометить прочитанной/непрочитанной. read=true ставит read_at=NOW() ТОЛЬКО если
+   * он ещё NULL (COALESCE не перетирает исходный момент прочтения при повторных
+   * вызовах / авто-пометке из детали). read=false сбрасывает в NULL.
+   */
+  async setRead(id: number, read: boolean): Promise<void> {
+    const sql = read
+      ? 'UPDATE invoices SET read_at = COALESCE(read_at, NOW()) WHERE id = ?'
+      : 'UPDATE invoices SET read_at = NULL WHERE id = ?';
+    await getDb().prepare(sql).run(id);
+  },
+
+  /** Пометить/снять «оплачено вне сервиса» — вынимает накладную из overdue/обязательств. */
+  async setPaidExternally(id: number, value: boolean): Promise<void> {
+    await getDb().prepare('UPDATE invoices SET paid_externally = ? WHERE id = ?').run(value ? 1 : 0, id);
   },
 
   async updateInvoiceData(id: number, data: Partial<CreateInvoiceData>): Promise<void> {

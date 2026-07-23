@@ -210,6 +210,7 @@ router.get('/stats', async (req: Request, res: Response) => {
      LEFT JOIN sber_payments sp ON sp.invoice_id = i.id
      WHERE i.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
        AND sp.id IS NULL
+       AND i.paid_externally = 0
        AND i.status IN ('processed', 'sent_to_1c')${uid != null ? ` AND i.owner_user_id = ${Number(uid)}` : ''}`
   ).get<{ count: number; total_sum: number }>();
 
@@ -351,6 +352,14 @@ router.get('/:id', async (req: Request, res: Response) => {
   if (!raw) {
     res.status(404).json({ error: 'Invoice not found' });
     return;
+  }
+  // Открытие детали владельцем помечает накладную прочитанной (идемпотентно —
+  // setRead(true) не перетирает уже стоящий read_at). Внутренние вызовы без
+  // req.user и чужой доступ (его и так режет invoiceOwnershipGuard) read-статус
+  // компании не трогают.
+  if (req.user?.id != null && raw.owner_user_id === req.user.id && raw.read_at == null) {
+    await invoiceRepo.setRead(id, true);
+    raw.read_at = new Date().toISOString();
   }
   const enriched = { ...(await enrichInvoiceWithSupplier(raw)), items: raw.items };
   enriched.items = enriched.items.map((item: any) => {
@@ -672,6 +681,42 @@ router.post('/:id/reset', async (req: Request, res: Response) => {
     summary: `Статус накладной №${invoice.invoice_number ?? id} сброшен (можно отправить в 1С заново)`,
   });
   res.json({ data: { id, status: 'processed', approved_for_1c: false } });
+});
+
+// POST /api/invoices/:id/read — пометить прочитанной/непрочитанной. Body {read:boolean}.
+// Персональная UX-операция компании: owner-scoped через invoiceOwnershipGuard (не admin-only).
+router.post('/:id/read', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+  const read = (req.body as { read?: boolean })?.read !== false; // по умолчанию true
+  await invoiceRepo.setRead(id, read);
+  res.json({ data: { id, read } });
+});
+
+// POST /api/invoices/:id/paid-externally — пометить «оплачено вне сервиса». Body {value:boolean}.
+// Вынимает накладную из overdue-метки, карточки бэклога и обязательств «Операций».
+router.post('/:id/paid-externally', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+  const value = (req.body as { value?: boolean })?.value !== false; // по умолчанию true
+  await invoiceRepo.setPaidExternally(id, value);
+  void logIntegrationEvent({
+    integration: 'sber',
+    event_type: value ? 'paid_externally_set' : 'paid_externally_cleared',
+    invoice_id: id,
+    summary: value
+      ? `Накладная №${invoice.invoice_number ?? id} помечена «оплачено вне сервиса»`
+      : `С накладной №${invoice.invoice_number ?? id} снята отметка «оплачено вне сервиса»`,
+  });
+  res.json({ data: { id, paid_externally: value } });
 });
 
 // POST /api/invoices/:id/unapprove — withdraw the "Отправить в 1С" approval.

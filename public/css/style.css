@@ -648,6 +648,63 @@ tbody tr.clickable:hover { background: var(--primary-soft); }
 }
 .btn-icon:active { transform: scale(0.95); }
 
+/* Gear (row actions) icon button — neutral, opens the per-row action menu */
+.btn-icon-gear {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted, #9b9a97);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+.btn-icon-gear:hover {
+  background: var(--primary-soft, #e7f3f8);
+  color: var(--text, #37352f);
+  border-color: var(--border, #e9e9e7);
+  transform: scale(1.05);
+}
+.btn-icon-gear:active { transform: scale(0.95); }
+
+/* Floating per-row action menu (⚙) — positioned under the gear button via JS */
+.row-action-menu {
+  position: absolute;
+  z-index: 1000;
+  min-width: 220px;
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #e9e9e7);
+  border-radius: 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+}
+.ram-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text, #37352f);
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ram-item:hover { background: var(--primary-soft, #e7f3f8); }
+.ram-danger { color: var(--error, #d44c47); }
+.ram-danger:hover { background: var(--error-soft, #fdebec); }
+
+/* Unread invoice row — bold + subtle fill (email-style «непрочитанное») */
+tbody tr.clickable.unread { background: #eef4ff; font-weight: 600; }
+tbody tr.clickable.unread:hover { background: #e0ecfd; }
+
 /* Pack-size badge — tiny inline label next to a mapping variant name */
 .pack-badge {
   display: inline-block;
