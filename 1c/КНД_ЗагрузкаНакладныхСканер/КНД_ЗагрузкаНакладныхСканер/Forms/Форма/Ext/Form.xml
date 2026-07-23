@@ -10,6 +10,18 @@
 		<AutoFill>false</AutoFill>
 	</AutoCommandBar>
 	<ChildItems>
+		<InputField name="КодПодключения" id="10">
+			<DataPath>КодПодключения</DataPath>
+			<ContextMenu name="КодПодключенияКонтекстноеМеню" id="11">
+				<AutoFill>true</AutoFill>
+			</ContextMenu>
+			<ExtendedTooltip name="КодПодключенияРасширеннаяПодсказка" id="12"/>
+		</InputField>
+		<Button name="ПодключитьПоКоду" id="13">
+			<Type>UsualButton</Type>
+			<CommandName>Form.Command.ПодключитьПоКоду</CommandName>
+			<ExtendedTooltip name="ПодключитьПоКодуРасширеннаяПодсказка" id="14"/>
+		</Button>
 		<InputField name="ТокенПодключения" id="5">
 			<DataPath>ТокенПодключения</DataPath>
 			<PasswordMode>true</PasswordMode>
@@ -48,6 +60,15 @@
 			<Type>
 				<v8:Type>xs:string</v8:Type>
 				<v8:StringQualifiers><v8:Length>255</v8:Length><v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers>
+			</Type>
+		</Attribute>
+		<Attribute name="КодПодключения" id="3">
+			<Title>
+				<v8:item><v8:lang>ru</v8:lang><v8:content>Код подключения</v8:content></v8:item>
+			</Title>
+			<Type>
+				<v8:Type>xs:string</v8:Type>
+				<v8:StringQualifiers><v8:Length>20</v8:Length><v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers>
 			</Type>
 		</Attribute>
 	</Attributes>
@@ -90,6 +111,15 @@
 				<v8:item><v8:lang>ru</v8:lang><v8:content>Сохранить отдельный токен подключения 1С из мастера ScanFlow</v8:content></v8:item>
 			</ToolTip>
 			<Action>СохранитьПодключение</Action>
+		</Command>
+		<Command name="ПодключитьПоКоду" id="4">
+			<Title>
+				<v8:item><v8:lang>ru</v8:lang><v8:content>Подключить</v8:content></v8:item>
+			</Title>
+			<ToolTip>
+				<v8:item><v8:lang>ru</v8:lang><v8:content>Обменять код подключения из кабинета ScanFlow на постоянный токен</v8:content></v8:item>
+			</ToolTip>
+			<Action>ПодключитьПоКоду</Action>
 		</Command>
 	</Commands>
 </form:Form>
