@@ -74,6 +74,8 @@ export async function resetDb(): Promise<mysql.Pool> {
     'nomenclature_mapping_cards',
     'nomenclature_price_stat_cards',
     'onec_nomenclature_cards',
+    'ocr_correction_cards',
+    'ocr_corrections',
     'nomenclature_price_stats',
     'sber_payments',
     'invoice_items',

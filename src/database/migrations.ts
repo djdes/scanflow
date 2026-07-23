@@ -1559,6 +1559,63 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 53,
+    name: 'ocr_correction_cards — выученные исправления OCR на компанию (без DROP)',
+    // Строго аддитивно: только CREATE TABLE + копирование строк.
+    //
+    // В ocr_corrections уникальный ключ (supplier_key, field_name, original_hash)
+    // ГЛОБАЛЬНЫЙ, владельца в таблице нет вовсе. Поэтому исправление, выученное
+    // одной компанией, подставлялось в сканы всех остальных: и утечка (по
+    // corrected_value видны чужие контрагенты, их счета и адреса), и порча данных
+    // (чужой БИК/КПП молча переписывал распознанный). Плюс две компании физически
+    // не могли выучить разные исправления одного и того же значения.
+    //
+    // Расширить ключ владельцем можно только через DROP INDEX — запрещено.
+    // Поэтому двойник нужной формы, а старая ocr_corrections остаётся нетронутой:
+    // откат = вернуть код, данные при этом целы.
+    detect: async (exec) => hasTable(exec, 'ocr_correction_cards'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS ocr_correction_cards (
+          id               INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id    INT NOT NULL,
+          supplier_key     VARCHAR(128) NOT NULL,
+          field_name       VARCHAR(64) NOT NULL,
+          original_hash    CHAR(64) NOT NULL,
+          original_value   VARCHAR(1024) NOT NULL,
+          corrected_value  VARCHAR(1024) NOT NULL,
+          times_seen       INT NOT NULL DEFAULT 1,
+          created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          last_used_at     DATETIME NULL,
+          UNIQUE KEY uq_ocr_correction_cards (owner_user_id, supplier_key, field_name, original_hash)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      // Всё, что было выучено до разделения, достаётся админской компании —
+      // ровно как в миграциях 48/49/51/52. owner_user_id проставляем конкретным
+      // id, а не NULL: MySQL не схлопывает NULL в UNIQUE, и строки с NULL
+      // потеряли бы защиту от дублей.
+      //
+      // ON DUPLICATE KEY делает копирование идемпотентным: повторный прогон
+      // (в т.ч. после обрыва деплоя) не создаёт дублей и ничего не перетирает —
+      // times_seen/corrected_value, накопленные уже в новой таблице, целы.
+      if (await hasTable(exec, 'ocr_corrections')) {
+        await exec.query(`
+          INSERT INTO ocr_correction_cards
+            (owner_user_id, supplier_key, field_name, original_hash, original_value,
+             corrected_value, times_seen, created_at, updated_at, last_used_at)
+          SELECT (SELECT MIN(id) FROM users WHERE role = 'admin'),
+                 c.supplier_key, c.field_name, c.original_hash, c.original_value,
+                 c.corrected_value, c.times_seen, c.created_at, c.updated_at, c.last_used_at
+            FROM ocr_corrections c
+           WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+          ON DUPLICATE KEY UPDATE ocr_correction_cards.id = ocr_correction_cards.id
+        `);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

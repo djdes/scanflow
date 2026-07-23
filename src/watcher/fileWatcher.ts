@@ -317,7 +317,9 @@ export class FileWatcher {
     if (!parsed) {
       throw new Error('Failed to parse invoice — neither structured analyzer nor regex parser produced data');
     }
-    parsed = await ocrCorrectionRepo.apply(parsed as unknown as Record<string, unknown>) as unknown as ParsedInvoiceData;
+    parsed = await ocrCorrectionRepo.apply(
+      parsed as unknown as Record<string, unknown>, mappingOwnerId,
+    ) as unknown as ParsedInvoiceData;
 
     // Заменяем metadata + raw_text + items
     await invoiceRepo.deleteItems(invoiceId);
@@ -504,7 +506,7 @@ export class FileWatcher {
       ocrResult = await this.ocrManager.recognize(filePath);
     }
     const parsed = await ocrCorrectionRepo.apply(
-      (ocrResult.structured ?? parseInvoiceText(ocrResult)) as unknown as Record<string, unknown>,
+      (ocrResult.structured ?? parseInvoiceText(ocrResult)) as unknown as Record<string, unknown>, mappingOwnerId,
     ) as unknown as ParsedInvoiceData;
     if (!parsed) throw new Error('Failed to parse the added page');
 
@@ -744,7 +746,7 @@ export class FileWatcher {
       // 3. Parse: use Claude's structured data if available, else regex parser
       await invoiceRepo.updateStatus(invoice.id, 'parsing');
       const parsed = await ocrCorrectionRepo.apply(
-        (ocrResult.structured ?? parseInvoiceText(ocrResult)) as unknown as Record<string, unknown>,
+        (ocrResult.structured ?? parseInvoiceText(ocrResult)) as unknown as Record<string, unknown>, mappingOwnerId,
       ) as unknown as ParsedInvoiceData;
 
       if (ocrResult.structured) {
@@ -971,7 +973,7 @@ export class FileWatcher {
             const multiResult = await this.ocrManager.analyzeMultiPageText(combinedText, pageCount, mappingOwnerId);
             if (multiResult.structured) {
               const unifiedParsed = await ocrCorrectionRepo.apply(
-                multiResult.structured as unknown as Record<string, unknown>,
+                multiResult.structured as unknown as Record<string, unknown>, mappingOwnerId,
               ) as unknown as ParsedInvoiceData;
 
               // Delete old items and re-save all from unified result

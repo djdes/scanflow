@@ -499,10 +499,16 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 
   await invoiceRepo.updateInvoiceData(id, update);
-  const correctionSupplierKey = supplierCorrectionKey(invoice);
-  for (const [field, corrected] of Object.entries(update)) {
-    const original = (invoice as unknown as Record<string, unknown>)[field];
-    await ocrCorrectionRepo.remember(correctionSupplierKey, field, original, corrected);
+  // Выученные исправления OCR пер-тенантные: учимся только в области владельца
+  // накладной. У «ничьей» накладной учить некого — правка применяется, но в
+  // общую память распознавания не попадает (иначе досталась бы чужой компании).
+  const correctionOwnerId = invoice.owner_user_id;
+  if (correctionOwnerId != null) {
+    const correctionSupplierKey = supplierCorrectionKey(invoice);
+    for (const [field, corrected] of Object.entries(update)) {
+      const original = (invoice as unknown as Record<string, unknown>)[field];
+      await ocrCorrectionRepo.remember(correctionSupplierKey, field, original, corrected, correctionOwnerId);
+    }
   }
   const updated = await invoiceRepo.getById(id);
   return res.json({ data: updated ? await enrichInvoiceWithSupplier(updated) : null });
@@ -1514,8 +1520,12 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
     await invoiceRepo.recalculateTotal(invoiceId);
     void txn;
   });
-  if ('unit' in fields) {
-    await ocrCorrectionRepo.remember(supplierCorrectionKey(editedInvoice), 'item_unit', item.unit, fields.unit);
+  // Единицу измерения запоминаем только в области владельца накладной —
+  // см. комментарий в PATCH /:id. Без владельца правка просто не запоминается.
+  if ('unit' in fields && editedInvoice.owner_user_id != null) {
+    await ocrCorrectionRepo.remember(
+      supplierCorrectionKey(editedInvoice), 'item_unit', item.unit, fields.unit, editedInvoice.owner_user_id,
+    );
   }
 
   const updated = await invoiceRepo.getItemById(itemId);
