@@ -22,6 +22,7 @@ import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } fr
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 import { UploadSource } from '../utils/uploadSource';
 import { autoSendSberForInvoice } from '../services/autoSendSber';
+import { mergeBlockedByNumber } from '../services/mergeDecision';
 import { ocrCorrectionRepo } from '../database/repositories/ocrCorrectionRepo';
 import { webhookConfigRepo } from '../database/repositories/webhookConfigRepo';
 
@@ -913,6 +914,21 @@ export class FileWatcher {
             parsedItemsCount: parsed.items.length,
           });
         }
+      }
+
+      // Предохранитель: если у обеих накладных есть непустой номер и они РАЗНЫЕ —
+      // это заведомо разные документы. Мердж запрещён, какой бы эвристике (row_no,
+      // supplier, время) он ни показался продолжением. Номер сильнее row_no —
+      // инцидент 287/288, где две накладные ОМЕГА случайно подошли под B2 и №288
+      // была проглочена combined re-analysis. См. src/services/mergeDecision.ts.
+      if (existingInvoice && mergeBlockedByNumber(parsed, existingInvoice)) {
+        logger.info('Multi-page merge blocked: different invoice numbers', {
+          currentId: invoice.id,
+          currentNumber: parsed.invoice_number,
+          existingId: existingInvoice.id,
+          existingNumber: existingInvoice.invoice_number,
+        });
+        existingInvoice = undefined;
       }
 
       if (existingInvoice && existingInvoice.id !== invoice.id) {

@@ -25,6 +25,7 @@ import { emit as emitNotification, notifySupplierExtractError, emitElevatedPrice
 import { normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
 import { resolveSupplierName } from '../../services/resolveSupplierName';
 import { autoSendSberForInvoice } from '../../services/autoSendSber';
+import { mergeBlockedByNumber } from '../../services/mergeDecision';
 import { userRepo } from '../../database/repositories/userRepo';
 import { webhookConfigRepo } from '../../database/repositories/webhookConfigRepo';
 import { config } from '../../config';
@@ -240,6 +241,7 @@ async function findMultiPageTarget(
   currentInvoiceId: number,
   parsed: ParsedInvoiceData,
 ): Promise<{ id: number; invoice_number: string | null; supplier: string | null; total_sum: number | null; vat_sum: number | null } | null> {
+  let candidate: Awaited<ReturnType<typeof invoiceRepo.findRecentByNumber>> | null = null;
   // A) match by invoice_number (within last 10 min)
   if (parsed.invoice_number) {
     const e = await invoiceRepo.findRecentByNumber(
@@ -247,20 +249,28 @@ async function findMultiPageTarget(
       parsed.supplier ?? undefined,
       10,
     );
-    if (e && e.id !== currentInvoiceId) return e;
+    if (e && e.id !== currentInvoiceId) candidate = e;
   }
   // C) same supplier within 5 min AND current page has no invoice_number
   //    (page-2 of a multi-page where the number was only on page-1).
-  if (parsed.supplier && !parsed.invoice_number) {
+  if (!candidate && parsed.supplier && !parsed.invoice_number) {
     const e = await invoiceRepo.findRecentBySupplier(parsed.supplier, currentInvoiceId, 5);
-    if (e) return e;
+    if (e) candidate = e;
   }
   // D) no metadata at all → continuation of most recent in last 2 min.
-  if (!parsed.invoice_number && !parsed.supplier) {
+  if (!candidate && !parsed.invoice_number && !parsed.supplier) {
     const e = await invoiceRepo.findMostRecentProcessedForContinuation(currentInvoiceId, 2);
-    if (e) return e;
+    if (e) candidate = e;
   }
-  return null;
+  // Предохранитель: разные непустые номера → не мёржить (инцидент 287/288).
+  if (candidate && mergeBlockedByNumber(parsed, candidate)) {
+    logger.info('dispatcher: multi-page merge blocked, different invoice numbers', {
+      currentId: currentInvoiceId, currentNumber: parsed.invoice_number,
+      candidateId: candidate.id, candidateNumber: candidate.invoice_number,
+    });
+    return null;
+  }
+  return candidate;
 }
 
 /**
@@ -343,7 +353,19 @@ async function reconcileMultiPageSiblings(currentId: number): Promise<number | n
       // each page is only PART of the whole (else one is already complete)
       !(currentItemsSum >= grand - tol && y.items_sum >= grand - tol);
 
-    if (!numberMatch && !rowContiguous && !(cumulativeTotal && supplierMatch)) continue;
+    // Предохранитель по номеру. Разные непустые номера блокируют СТРУКТУРНУЮ
+    // смежность (numberMatch/rowContiguous): в инциденте 287/288 две ПОЛНЫЕ
+    // накладные ОМЕГА подошли по смежным row_no, и №288 была проглочена.
+    //
+    // НО cumulative-total он НЕ перебивает: там каждая страница — ЧАСТЬ целого
+    // (суммы складываются в grand при совпадении поставщика), и это сильный
+    // сигнал ОДНОЙ накладной, где OCR просто исказил номер на странице. Две
+    // разные полные накладные под cumulativeTotal не попадают — его условие
+    // «each page is only PART of the whole» их отсекает. См. mergeDecision.ts.
+    const numberBlocked = mergeBlockedByNumber(current, y);
+    const structuralOk = (numberMatch || rowContiguous) && !numberBlocked;
+    const totalOk = cumulativeTotal && supplierMatch;
+    if (!structuralOk && !totalOk) continue;
 
     // Pick canonical: prefer date, then number, then more items, then lower start row.
     const yHasDate = !!y.invoice_date, cHasDate = !!current.invoice_date;

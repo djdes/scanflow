@@ -19,8 +19,8 @@ import { normalizeInvoiceNumber } from '../utils/invoiceNumber';
  * продолжения (номер только на первом листе), его досматривает эвристика row_no.
  */
 export function mergeBlockedByNumber(
-  a: { invoice_number: string | null | undefined },
-  b: { invoice_number: string | null | undefined },
+  a: { invoice_number?: string | null },
+  b: { invoice_number?: string | null },
 ): boolean {
   const na = normalizeInvoiceNumber(a.invoice_number);
   const nb = normalizeInvoiceNumber(b.invoice_number);
