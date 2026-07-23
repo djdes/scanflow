@@ -29,7 +29,7 @@ import integrationsRouter from './routes/integrations';
 import usersRouter from './routes/users';
 import operationsRouter from './routes/operations';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
-import { onecAdminRouter, onecExchangeRouter, onecUserRouter, setOnecMapper } from './routes/onec';
+import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 
@@ -234,6 +234,12 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/inbound/public', inboundPublicRouter);
   // Dedicated 1C tokens are authenticated and scope-limited inside this router.
   app.use('/api/onec/exchange', onecExchangeRouter);
+  // Публичный обмен кода на токен — строгий rate-limit против перебора кодов.
+  // Должен быть примонтирован ДО `/api/onec` (apiKeyAuth, onecUserRouter) ниже:
+  // иначе префиксный apiKeyAuth-мидлвар перехватит /api/onec/pair и обработка
+  // 1С без токена получит 401 вместо обмена кода.
+  const onecPairLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+  app.use('/api/onec/pair', onecPairLimiter, onecPairRouter);
 
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);

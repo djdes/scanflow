@@ -23,6 +23,27 @@ declare module 'express-serve-static-core' {
 export const onecAdminRouter = Router();
 export const onecExchangeRouter = Router();
 export const onecUserRouter = Router();
+export const onecPairRouter = Router();
+
+// ПУБЛИЧНЫЙ: обменивает одноразовый код на scoped-токен подключения 1С.
+onecPairRouter.post('/', async (req: Request, res: Response) => {
+  const code = String(req.body?.code || '').trim();
+  if (!code) return res.status(400).json({ error: 'code_invalid_or_expired' });
+  const redeemed = await onecPairingRepo.redeem(code);
+  if (!redeemed) return res.status(400).json({ error: 'code_invalid_or_expired' });
+  const created = await onecConnectionRepo.create(
+    redeemed.ownerUserId, redeemed.baseName || 'Подключение 1С',
+  );
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(201).json({
+    data: {
+      token: created.token,
+      exchange_url: `${baseUrl}/api/onec/exchange`,
+      header: 'X-1C-Token',
+    },
+  });
+});
 
 // Доступен ЛЮБОМУ авторизованному пользователю (в т.ч. роль user) — self-service.
 onecUserRouter.post('/pairing-code', async (req: Request, res: Response) => {
