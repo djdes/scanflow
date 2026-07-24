@@ -55,6 +55,25 @@ onecUserRouter.post('/pairing-code', async (req: Request, res: Response) => {
   return res.status(201).json({ data: { code, expires_at: expiresAt } });
 });
 
+// Статус подключения 1С для текущего пользователя — доступен роли user,
+// чтобы кабинет показывал «подключено / не подключено» без админских прав.
+onecUserRouter.get('/pairing-status', async (req: Request, res: Response) => {
+  const ownerUserId = req.user?.id;
+  if (ownerUserId == null) return res.status(401).json({ error: 'Unauthorized' });
+  const connections = (await onecConnectionRepo.list(ownerUserId)).filter((c) => c.active);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({
+    data: {
+      connected: connections.length > 0,
+      connections: connections.map((c) => ({
+        name: c.name,
+        created_at: c.created_at,
+        last_used_at: c.last_used_at,
+      })),
+    },
+  });
+});
+
 let mapper: NomenclatureMapper | null = null;
 export function setOnecMapper(value: NomenclatureMapper): void { mapper = value; }
 

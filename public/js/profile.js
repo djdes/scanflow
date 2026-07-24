@@ -45,6 +45,7 @@
       });
 
       renderStatus(!!data.telegram_chat_id && tokenSetOnServer);
+      this.loadOnecStatus();
     },
 
     collect() {
@@ -92,6 +93,33 @@
         this.setStatus('Тестовое сообщение отправлено — проверьте Telegram', 'success');
       } catch (err) {
         this.setStatus('Не удалось: ' + (err.message || err), 'error');
+      }
+    },
+
+    async loadOnecStatus() {
+      const el = document.getElementById('profile-onec-status');
+      if (!el) return;
+      try {
+        const { data } = await App.apiJson('/onec/pairing-status');
+        el.innerHTML = '';
+        if (data.connected) {
+          el.className = 'onec-conn-status onec-conn-status--on';
+          const strong = document.createElement('strong');
+          strong.textContent = '✓ База 1С подключена';
+          el.appendChild(strong);
+          const last = (data.connections[0] || {}).last_used_at;
+          if (last) {
+            const small = document.createElement('small');
+            small.textContent = ' · последняя активность ' + last;
+            el.appendChild(small);
+          }
+        } else {
+          el.className = 'onec-conn-status onec-conn-status--off';
+          el.textContent = 'База 1С пока не подключена';
+        }
+      } catch (err) {
+        el.innerHTML = '';
+        el.className = 'onec-conn-status';
       }
     },
 

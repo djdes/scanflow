@@ -35,3 +35,41 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/onec/pai
     expect(res.status).toBe(401);
   });
 });
+
+describe.runIf((process.env.DB_NAME || '').includes('test'))('GET /api/onec/pairing-status', () => {
+  beforeEach(async () => { await resetDb(); });
+  afterAll(async () => { await closeTestDb(); });
+
+  it('reports not connected, then connected after redeeming a code', async () => {
+    await mkUser('client', 'user', 'client-key');
+
+    const before = await request(app).get('/api/onec/pairing-status').set('X-API-Key', 'client-key');
+    expect(before.status).toBe(200);
+    expect(before.body.data.connected).toBe(false);
+    expect(before.body.data.connections).toEqual([]);
+
+    // client generates a code and the 1C base redeems it → a connection is minted
+    const gen = await request(app).post('/api/onec/pairing-code').set('X-API-Key', 'client-key').send({ base_name: 'База' });
+    await request(app).post('/api/onec/pair').send({ code: gen.body.data.code });
+
+    const after = await request(app).get('/api/onec/pairing-status').set('X-API-Key', 'client-key');
+    expect(after.status).toBe(200);
+    expect(after.body.data.connected).toBe(true);
+    expect(after.body.data.connections.length).toBe(1);
+  });
+
+  it('does not leak another user\'s connection', async () => {
+    await mkUser('a', 'user', 'key-a');
+    await mkUser('b', 'user', 'key-b');
+    const gen = await request(app).post('/api/onec/pairing-code').set('X-API-Key', 'key-a').send({});
+    await request(app).post('/api/onec/pair').send({ code: gen.body.data.code });
+
+    const b = await request(app).get('/api/onec/pairing-status').set('X-API-Key', 'key-b');
+    expect(b.body.data.connected).toBe(false);
+  });
+
+  it('rejects an unauthenticated request', async () => {
+    const res = await request(app).get('/api/onec/pairing-status');
+    expect(res.status).toBe(401);
+  });
+});

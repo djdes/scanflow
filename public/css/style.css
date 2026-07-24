@@ -1867,6 +1867,11 @@ details[open] summary { margin-bottom: 12px; }
 .onec-secret { margin-top: 14px; }
 .onec-pairing-code { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .onec-pairing-code code { font-size: 22px; letter-spacing: 2px; font-weight: 700; background: var(--bg); padding: 8px 12px; border-radius: 8px; user-select: all; }
+.onec-conn-status { margin: 0 0 12px; font-size: 14px; }
+.onec-conn-status:empty { display: none; }
+.onec-conn-status--on { color: var(--success); }
+.onec-conn-status--on small { color: var(--text-secondary); font-weight: 400; }
+.onec-conn-status--off { color: var(--text-secondary); }
 .onec-quickstart { overflow: hidden; margin-bottom: 16px; }
 .onec-quickstart__lead { max-width: 820px; margin: -2px 0 16px; color: var(--text-secondary); line-height: 1.55; }
 .onec-fast-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-bottom: 16px; }
