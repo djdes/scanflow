@@ -95,6 +95,32 @@
       }
     },
 
+    async generateOnecCode() {
+      const btn = document.getElementById('profile-onec-btn');
+      const box = document.getElementById('profile-onec-code');
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Создаём…';
+      try {
+        const { data } = await App.apiJson('/onec/pairing-code', { method: 'POST', body: { base_name: '' } });
+        // Build via DOM so the server value is text content, not HTML.
+        box.innerHTML = '';
+        const label = document.createElement('span');
+        label.textContent = 'Код подключения (действует ~15 мин):';
+        const code = document.createElement('code');
+        code.textContent = data.code;
+        box.appendChild(label);
+        box.appendChild(code);
+        box.hidden = false;
+      } catch (err) {
+        this.setStatus('Не удалось создать код: ' + (err.message || err), 'error');
+        setTimeout(() => this.setStatus('', ''), 3000);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    },
+
     toggleTokenVisibility() {
       const tokenEl = document.getElementById('profile-tg-token');
       const btn = document.getElementById('profile-tg-token-toggle');
@@ -175,6 +201,8 @@
       document
         .getElementById('profile-tg-lookup')
         .addEventListener('click', () => this.lookupChatId());
+      const onecBtn = document.getElementById('profile-onec-btn');
+      if (onecBtn) onecBtn.addEventListener('click', () => this.generateOnecCode());
       this.load();
     },
   };

@@ -667,6 +667,21 @@
           <div class="card profile-card">
             <div class="card-header">
               <div>
+                <h2>Подключение 1С</h2>
+                <p class="card-subtitle">Свяжите свою базу 1С:УНФ со ScanFlow одним коротким кодом</p>
+              </div>
+              <svg class="card-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>
+              </svg>
+            </div>
+            <p class="field-hint">Нажмите «Получить код», затем в обработке 1С:УНФ вставьте его в поле «Код подключения» и нажмите «Подключить». Код действует ~15 минут.</p>
+            <button type="button" id="profile-onec-btn" class="btn btn-primary">Получить код</button>
+            <div id="profile-onec-code" class="onec-pairing-code" hidden></div>
+          </div>
+
+          <div class="card profile-card">
+            <div class="card-header">
+              <div>
                 <h2>Подключение</h2>
                 <p class="card-subtitle">Введите два значения, полученные у @BotFather и в /getUpdates</p>
               </div>
