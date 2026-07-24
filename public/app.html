@@ -409,7 +409,7 @@
       <!-- Grouped mappings -->
       <div id="mappings-mode-all-pane">
         <div class="filters" style="display:flex; gap:12px; align-items:center">
-          <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)" style="flex:1">
+          <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)" style="flex:1" autocomplete="off" name="mappings-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
           <button class="btn btn-primary btn-sm" onclick="Mappings.showAddForm()">+ Добавить</button>
         </div>
         <div class="table-wrap">
@@ -446,7 +446,7 @@
       <!-- 1C Catalog -->
       <div id="mappings-mode-catalog-pane" style="display:none">
         <div class="filters" style="display:flex; gap:12px; align-items:center">
-          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)" style="flex:1">
+          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)" style="flex:1" autocomplete="off" name="catalog-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
           <div class="field-hint" id="catalog-sync-info" style="white-space:nowrap"></div>
         </div>
         <div class="field-hint" style="margin-bottom:12px; color:var(--text-muted)">
