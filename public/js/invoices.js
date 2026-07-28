@@ -9,6 +9,13 @@ const Invoices = {
   period: 'all',
   _searchTimer: null,
 
+  // Открытие детали из строки списка. Запоминаем позицию прокрутки окна, чтобы
+  // вернуть её по «Назад к накладным» (восстанавливается один раз в loadTable).
+  openInvoice(id) {
+    this._listScrollY = window.scrollY;
+    App.navigate('#/invoices/' + id);
+  },
+
   async showList() {
     document.getElementById('invoices-list').style.display = 'block';
     document.getElementById('invoice-detail').style.display = 'none';
@@ -85,7 +92,7 @@ const Invoices = {
         rowsHtml.push(`
         <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}${!inv.read_at ? ' unread' : ''}" data-day="${day}"
             ${inv.sber_overdue ? `style="box-shadow:inset 3px 0 0 #f59e0b" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней"` : ''}
-            onclick="App.navigate('#/invoices/${inv.id}')">
+            onclick="Invoices.openInvoice(${inv.id})">
           <td class="col-id" data-label="ID">${inv.id}</td>
           <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}${inv.duplicate_score ? `, вероятность ${Math.round(inv.duplicate_score * 100)}%` : ''}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td data-label="Дата">${App.formatDate(inv.invoice_date)}</td>
@@ -118,6 +125,16 @@ const Invoices = {
         pagination.innerHTML = `<button class="btn btn-outline btn-sm" onclick="Invoices.prevPage()">&larr; Назад</button>`;
       } else {
         pagination.innerHTML = '';
+      }
+
+      // Вернуть позицию прокрутки, сохранённую при переходе в накладную (открытие
+      // через openInvoice → «Назад к накладным»). Потребляем один раз, чтобы
+      // обычная загрузка списка / пагинация / фильтр начинались сверху. rAF —
+      // чтобы страница успела получить полную высоту после рендера строк.
+      if (this._listScrollY != null) {
+        const y = this._listScrollY;
+        this._listScrollY = null;
+        requestAnimationFrame(() => window.scrollTo(0, y));
       }
     } catch (e) {
       console.error('Failed to load invoices', e);
