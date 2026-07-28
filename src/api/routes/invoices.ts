@@ -203,6 +203,11 @@ router.get('/stats', async (req: Request, res: Response) => {
   const byStatus = await db.prepare(`SELECT status, COUNT(*) as count FROM invoices${ownerWhere} GROUP BY status`).all();
   const totalRow = await db.prepare(`SELECT COUNT(*) as count FROM invoices${ownerWhere}`).get<{ count: number }>();
 
+  const unreadWhere = uid != null
+    ? ` WHERE owner_user_id = ${Number(uid)} AND read_at IS NULL`
+    : ' WHERE read_at IS NULL';
+  const unreadRow = await db.prepare(`SELECT COUNT(*) as count FROM invoices${unreadWhere}`).get<{ count: number }>();
+
   // Sum of invoices NOT sent to Sber in the last 30 days (payable backlog)
   const sberUnsent = await db.prepare(
     `SELECT COUNT(*) as count, COALESCE(SUM(i.total_sum), 0) as total_sum
@@ -218,6 +223,7 @@ router.get('/stats', async (req: Request, res: Response) => {
     data: {
       byStatus,
       total: totalRow?.count ?? 0,
+      unreadCount: unreadRow?.count ?? 0,
       sberUnsent: {
         count: sberUnsent?.count ?? 0,
         totalSum: sberUnsent?.total_sum ?? 0,

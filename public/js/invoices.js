@@ -21,27 +21,18 @@ const Invoices = {
       const container = document.getElementById('invoices-stats');
       const counts = {};
       (data.byStatus || []).forEach(s => { counts[s.status] = s.count; });
-      const cur = this.currentStatus || 'all';
-      const cardHtml = (filter, value, label) => `
-        <button type="button" class="stat-card stat-card--${filter}${cur === filter ? ' active' : ''}" data-filter="${filter}" aria-pressed="${cur === filter ? 'true' : 'false'}" onclick="Invoices.setFilter('${filter}')">
-          <span class="stat-value">${value || 0}</span>
-          <span class="stat-label">${label}</span>
-        </button>`;
       const sber = data.sberUnsent || { count: 0, totalSum: 0 };
-      const fmtSum = Number(sber.totalSum).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      // The stat cards ARE the status filter now (the old duplicate pill row is
-      // gone). "Новые" added so every status is reachable from one surface.
-      container.innerHTML = [
-        cardHtml('all',        data.total || 0,            'Всего'),
-        cardHtml('new',        counts.new || 0,            'Новые'),
-        cardHtml('processed',  counts.processed || 0,      'Обработано'),
-        cardHtml('sent_to_1c', counts.sent_to_1c || 0,     'Отправлено в 1С'),
-        cardHtml('error',      counts.error || 0,          'Ошибки'),
-        `<div class="stat-card stat-card--sber sber-unpaid-card" title="Накладные за 30 дней без платежа в Сбербанк">
-          <span class="stat-value">${fmtSum} ₽</span>
-          <span class="stat-label">Не оплачено (${sber.count} шт.)</span>
-        </div>`,
-      ].join('');
+
+      const parts = [];
+      const unread = data.unreadCount || 0;
+      if (unread > 0) parts.push(`Не прочитанных ${unread}`);
+      const errors = counts.error || 0;
+      if (errors > 0) parts.push(`Ошибки ${errors}`);
+      const unpaidSum = Math.round(Number(sber.totalSum));
+      if (unpaidSum > 0) parts.push(`Не оплачено ${unpaidSum.toLocaleString('ru-RU')} руб`);
+
+      container.textContent = parts.join(' / ');
+      container.style.display = parts.length > 0 ? '' : 'none';
     } catch (e) {
       console.error('Failed to load stats', e);
     }
@@ -135,16 +126,8 @@ const Invoices = {
   },
 
   setFilter(status) {
-    // The "Всего" card passes 'all' — normalise to null (no status param) so it
-    // shows everything instead of querying a non-existent status='all'.
     this.currentStatus = (status && status !== 'all') ? status : null;
     this.offset = 0;
-    const activeFilter = this.currentStatus || 'all';
-    document.querySelectorAll('#invoices-stats button[data-filter]').forEach((button) => {
-      const active = button.dataset.filter === activeFilter;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
     this.loadTable();
   },
 
