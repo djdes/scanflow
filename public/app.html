@@ -167,10 +167,13 @@
       <div id="invoice-detail" style="display:none">
         <!-- Mobile-only at-a-glance overprice counters (top-right). Filled by JS. -->
         <div id="invoice-price-badges" class="price-badges"></div>
-        <a href="#/invoices" class="back-link">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Назад к списку
-        </a>
+        <div class="invoice-nav-row">
+          <a href="#/invoices" class="back-link">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Назад к списку
+          </a>
+          <div id="invoice-nav" class="invoice-nav"></div>
+        </div>
         <div class="card">
           <div class="invoice-header" id="invoice-header-fields"></div>
           <div class="invoice-actions" id="invoice-actions"></div>

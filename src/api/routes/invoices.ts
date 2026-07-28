@@ -281,6 +281,15 @@ router.get('/pending', async (req: Request, res: Response) => {
   res.json({ data: enriched, count: enriched.length, total, limit: limit ?? 100, offset: offset ?? 0 });
 });
 
+// GET /api/invoices/:id/neighbours — prev/next invoice for in-detail navigation.
+// Returns {prev, next} each with {id, invoice_number, supplier, invoice_date} or null.
+router.get('/:id/neighbours', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const neighbours = await invoiceRepo.getNeighbours(id, ownerScopeFor(req));
+  res.json({ data: neighbours });
+});
+
 // GET /api/invoices/:id/photos — list photo files for an invoice
 router.get('/:id/photos', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);

@@ -9,6 +9,59 @@ const Invoices = {
   period: 'all',
   _searchTimer: null,
 
+  // ── Visited-invoice tracking ──────────────────────────────────────────────
+  // Persist a Set of viewed invoice IDs in localStorage (current session only).
+  // Used to visually dim already-seen invoices in the nav buttons and the list.
+  _VISITED_KEY: 'sf_visited_invoices',
+
+  _getVisited() {
+    try {
+      const raw = localStorage.getItem(this._VISITED_KEY);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  },
+
+  _markVisited(id) {
+    try {
+      const s = this._getVisited();
+      s.add(id);
+      // Cap at 500 most-recent to avoid unbounded growth
+      const arr = [...s];
+      if (arr.length > 500) arr.splice(0, arr.length - 500);
+      localStorage.setItem(this._VISITED_KEY, JSON.stringify(arr));
+    } catch { /* localStorage unavailable */ }
+  },
+
+  isVisited(id) { return this._getVisited().has(id); },
+
+  // ── Prev/next navigation ──────────────────────────────────────────────────
+  async _loadNeighbours(id) {
+    const nav = document.getElementById('invoice-nav');
+    if (!nav) return;
+    nav.innerHTML = '';
+    try {
+      const { data } = await App.apiJson(`/invoices/${id}/neighbours`);
+      if (this._currentInvoiceId !== id) return; // switched mid-flight
+      const { prev, next } = data || {};
+      const visited = this._getVisited();
+
+      const mkBtn = (inv, dir) => {
+        if (!inv) return '';
+        const arrow = dir === 'prev' ? '←' : '→';
+        const label = inv.supplier
+          ? App.esc(inv.supplier)
+          : (inv.invoice_number ? `№ ${App.esc(inv.invoice_number)}` : `#${inv.id}`);
+        const visitedCls = visited.has(inv.id) ? ' visited' : '';
+        const ttip = [inv.supplier || '', inv.invoice_number ? `№${inv.invoice_number}` : ''].filter(Boolean).join(' ');
+        return `<a class="inv-nav-btn${visitedCls}" href="#" title="${App.esc(ttip)}"
+                   onclick="event.preventDefault();Invoices.openInvoice(${inv.id})"
+                >${dir === 'prev' ? arrow + ' ' : ''}${label}${dir === 'next' ? ' ' + arrow : ''}</a>`;
+      };
+
+      nav.innerHTML = mkBtn(prev, 'prev') + mkBtn(next, 'next');
+    } catch { /* nav is optional */ }
+  },
+
   // Открытие детали из строки списка. Запоминаем позицию прокрутки окна, чтобы
   // вернуть её по «Назад к накладным» (восстанавливается один раз в loadTable).
   openInvoice(id) {
@@ -89,8 +142,9 @@ const Invoices = {
         </tr>`);
         }
         const overdueDays = Number(inv.sber_overdue_days) || 14;
+        const _visited = this.isVisited(inv.id);
         rowsHtml.push(`
-        <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}${!inv.read_at ? ' unread' : ''}" data-day="${day}"
+        <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}${!inv.read_at ? ' unread' : ''}${_visited ? ' inv-visited' : ''}" data-day="${day}"
             ${inv.sber_overdue ? `style="box-shadow:inset 3px 0 0 #f59e0b" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней"` : ''}
             onclick="Invoices.openInvoice(${inv.id})">
           <td class="col-id" data-label="ID">${inv.id}</td>
@@ -305,6 +359,8 @@ const Invoices = {
 
     this._currentInvoiceId = id;
     this._photosLoaded = false;
+    this._markVisited(id);
+    this._loadNeighbours(id);
 
     // Reset to items tab
     document.getElementById('invoice-tab-items').style.display = 'block';

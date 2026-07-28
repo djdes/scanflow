@@ -1235,6 +1235,46 @@ export const invoiceRepo = {
     await getDb().prepare(`UPDATE analyzer_config SET ${sets.join(', ')} WHERE id = 1`).run(...vals);
   },
 
+  // Returns the adjacent invoices (prev = older, next = newer) for navigation
+  // in the detail view. Both are ordered by created_at DESC (same as the list).
+  async getNeighbours(
+    id: number,
+    ownerUserId?: number,
+  ): Promise<{
+    prev: { id: number; invoice_number: string | null; supplier: string | null; invoice_date: string | null } | null;
+    next: { id: number; invoice_number: string | null; supplier: string | null; invoice_date: string | null } | null;
+  }> {
+    const db = getDb();
+    const self = await db
+      .prepare('SELECT id, created_at FROM invoices WHERE id = ?')
+      .get<{ id: number; created_at: string }>(id);
+    if (!self) return { prev: null, next: null };
+
+    const ownerCond = ownerUserId != null ? ' AND owner_user_id = :ownerUserId' : '';
+    // "next" in list order = newer (created_at > self OR same ts with smaller id)
+    // "prev" in list order = older (created_at < self OR same ts with larger id)
+    const nextRow = await db
+      .prepare(
+        `SELECT id, invoice_number, supplier, invoice_date FROM invoices
+         WHERE (created_at > :ts OR (created_at = :ts AND id < :id))${ownerCond}
+         ORDER BY created_at ASC, id DESC LIMIT 1`,
+      )
+      .get<{ id: number; invoice_number: string | null; supplier: string | null; invoice_date: string | null }>(
+        { ts: self.created_at, id: self.id, ownerUserId },
+      );
+    const prevRow = await db
+      .prepare(
+        `SELECT id, invoice_number, supplier, invoice_date FROM invoices
+         WHERE (created_at < :ts OR (created_at = :ts AND id > :id))${ownerCond}
+         ORDER BY created_at DESC, id ASC LIMIT 1`,
+      )
+      .get<{ id: number; invoice_number: string | null; supplier: string | null; invoice_date: string | null }>(
+        { ts: self.created_at, id: self.id, ownerUserId },
+      );
+
+    return { prev: prevRow ?? null, next: nextRow ?? null };
+  },
+
   async getTelegramMessageId(id: number): Promise<number | null> {
     const row = await getDb()
       .prepare('SELECT telegram_message_id FROM invoices WHERE id = ?')
