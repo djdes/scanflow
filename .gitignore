@@ -61,3 +61,6 @@ src/scripts/fill-mappings.py
 src/scripts/generate-mappings.ts
 src/scripts/ingest-photo.ts
 src/scripts/test-claude-direct.ts
+
+# 1С external processings — бинарь, пересобирается из 1c/.../Ext/*.bsl + формы
+*.epf
