@@ -1319,6 +1319,8 @@ details[open] summary { margin-bottom: 12px; }
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .inv-nav-btn {
@@ -1334,10 +1336,18 @@ details[open] summary { margin-bottom: 12px; }
   text-decoration: none;
   cursor: pointer;
   transition: border-color var(--transition), color var(--transition), background var(--transition);
-  max-width: 220px;
-  white-space: nowrap;
+  /* cap so a long supplier name can't blow up the row; shrinks on narrow screens */
+  max-width: min(240px, 44vw);
+  min-width: 0;
+}
+/* Arrow stays fully visible; only the label truncates (flex ellipsis pattern:
+   the shrinking flex item needs min-width:0 + overflow:hidden). */
+.inv-nav-arrow { flex: 0 0 auto; }
+.inv-nav-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .inv-nav-btn:hover { border-color: var(--primary); color: var(--primary); }
 .inv-nav-btn.visited { color: var(--text-muted, #94a3b8); background: var(--bg, #f8fafc); }

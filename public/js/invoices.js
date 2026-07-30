@@ -53,9 +53,13 @@ const Invoices = {
           : (inv.invoice_number ? `№ ${App.esc(inv.invoice_number)}` : `#${inv.id}`);
         const visitedCls = visited.has(inv.id) ? ' visited' : '';
         const ttip = [inv.supplier || '', inv.invoice_number ? `№${inv.invoice_number}` : ''].filter(Boolean).join(' ');
+        // Стрелка и имя — отдельные спаны: имя обрезается многоточием, стрелка
+        // всегда видна (см. .inv-nav-arrow / .inv-nav-label). Полное имя — в title.
+        const a = `<span class="inv-nav-arrow">${arrow}</span>`;
+        const l = `<span class="inv-nav-label">${label}</span>`;
         return `<a class="inv-nav-btn${visitedCls}" href="#" title="${App.esc(ttip)}"
                    onclick="event.preventDefault();Invoices.openInvoice(${inv.id})"
-                >${dir === 'prev' ? arrow + ' ' : ''}${label}${dir === 'next' ? ' ' + arrow : ''}</a>`;
+                >${dir === 'prev' ? a + l : l + a}</a>`;
       };
 
       nav.innerHTML = mkBtn(prev, 'prev') + mkBtn(next, 'next');
