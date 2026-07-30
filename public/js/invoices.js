@@ -62,10 +62,13 @@ const Invoices = {
     } catch { /* nav is optional */ }
   },
 
-  // Открытие детали из строки списка. Запоминаем позицию прокрутки окна, чтобы
-  // вернуть её по «Назад к накладным» (восстанавливается один раз в loadTable).
+  // Открытие детали. Позицию прокрутки СПИСКА сохраняем только когда список виден
+  // (клик по строке) — при прыжках деталь→деталь стрелками ←/→ список скрыт, и
+  // перезаписывать сохранённую позицию скроллом страницы детали нельзя, иначе
+  // «Назад к накладным» вернёт не туда. Восстанавливается один раз в loadTable.
   openInvoice(id) {
-    this._listScrollY = window.scrollY;
+    const listVisible = document.getElementById('invoices-list')?.style.display !== 'none';
+    if (listVisible) this._listScrollY = window.scrollY;
     App.navigate('#/invoices/' + id);
   },
 
