@@ -8,6 +8,7 @@ const Invoices = {
   dateTo: null,
   period: 'all',
   _searchTimer: null,
+  _selected: new Set(),   // выбранные id для массовой отправки (сбрасывается в loadTable)
 
   // ── Visited-invoice tracking ──────────────────────────────────────────────
   // Persist a Set of viewed invoice IDs in localStorage (current session only).
@@ -107,6 +108,9 @@ const Invoices = {
 
   async loadTable() {
     this._renderPeriod();
+    // Набор строк меняется — прежнее выделение больше не относится к этим строкам.
+    this._selected.clear();
+    this._renderBulkBar();
 
     let url = `/invoices?limit=${this.limit}&offset=${this.offset}`;
     if (this.currentStatus) url += `&status=${this.currentStatus}`;
@@ -115,7 +119,7 @@ const Invoices = {
     if (this.dateTo) url += `&to=${this.dateTo}`;
 
     // Show skeleton rows while real data is loading — feels instant
-    App.skeletonRows('invoices-tbody', ['w-24', 'w-40', 'w-40', 'w-60', 'w-40', 'w-24', 'w-40', 'w-24', 'w-24'], 6);
+    App.skeletonRows('invoices-tbody', ['w-24', 'w-24', 'w-40', 'w-40', 'w-60', 'w-40', 'w-24', 'w-40', 'w-24', 'w-24'], 6);
 
     try {
       const { data } = await App.apiJson(url);
@@ -123,7 +127,7 @@ const Invoices = {
 
       if (!data || data.length === 0) {
         const filtered = this.search || this.currentStatus || this.dateFrom;
-        tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">
+        tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
           <div class="empty-icon">&#128196;</div>
           <div>${filtered
             ? 'Ничего не найдено — измените поиск, период или фильтр.'
@@ -145,7 +149,7 @@ const Invoices = {
           _lastDay = day;
           rowsHtml.push(`
         <tr class="date-group-row" data-day="${day}">
-          <td colspan="9">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
+          <td colspan="10">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
         </tr>`);
         }
         const overdueDays = Number(inv.sber_overdue_days) || 14;
@@ -154,6 +158,7 @@ const Invoices = {
         <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}${!inv.read_at ? ' unread' : ''}${_visited ? ' inv-visited' : ''}" data-day="${day}"
             ${inv.sber_overdue ? `style="box-shadow:inset 3px 0 0 #f59e0b" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней"` : ''}
             onclick="Invoices.openInvoice(${inv.id})">
+          <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" ${this._selected.has(inv.id) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${inv.id}"></td>
           <td class="col-id" data-label="ID">${inv.id}</td>
           <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}${inv.duplicate_score ? `, вероятность ${Math.round(inv.duplicate_score * 100)}%` : ''}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td data-label="Дата">${App.formatDate(inv.invoice_date)}</td>
@@ -174,6 +179,7 @@ const Invoices = {
         </tr>`);
       }
       tbody.innerHTML = rowsHtml.join('');
+      this._syncSelectAll(); // выбор сброшен в начале loadTable — привести шапку в тон
 
       // Pagination
       const pagination = document.getElementById('invoices-pagination');
@@ -201,6 +207,121 @@ const Invoices = {
       console.error('Failed to load invoices', e);
       App.notify('Ошибка загрузки накладных', 'error');
     }
+  },
+
+  // ── Массовый выбор + отправка в 1С/Сбер ───────────────────────────────────
+  toggleSelect(id, checked) {
+    if (checked) this._selected.add(id); else this._selected.delete(id);
+    this._syncSelectAll();
+    this._renderBulkBar();
+  },
+
+  toggleSelectAll(checked) {
+    for (const cb of document.querySelectorAll('#invoices-tbody .row-check')) {
+      cb.checked = checked;
+      const id = Number(cb.dataset.id);
+      if (checked) this._selected.add(id); else this._selected.delete(id);
+    }
+    this._renderBulkBar();
+  },
+
+  _syncSelectAll() {
+    const all = document.getElementById('invoices-select-all');
+    if (!all) return;
+    const boxes = document.querySelectorAll('#invoices-tbody .row-check');
+    const checked = [...boxes].filter(b => b.checked).length;
+    all.checked = boxes.length > 0 && checked === boxes.length;
+    all.indeterminate = checked > 0 && checked < boxes.length;
+  },
+
+  clearSelection() {
+    this._selected.clear();
+    for (const cb of document.querySelectorAll('#invoices-tbody .row-check')) cb.checked = false;
+    this._syncSelectAll();
+    this._renderBulkBar();
+  },
+
+  _renderBulkBar() {
+    const bar = document.getElementById('invoices-bulk-bar');
+    if (!bar) return;
+    const n = this._selected.size;
+    if (n === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    bar.style.display = '';
+    bar.innerHTML = `
+      <span class="bulk-count">Выбрано ${n}</span>
+      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('onec')">&rarr; 1С</button>
+      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('sber')">&rarr; Сбер</button>
+      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('both')">&rarr; 1С и Сбер</button>
+      <button class="btn btn-outline btn-sm" onclick="Invoices.clearSelection()">Снять выделение</button>`;
+  },
+
+  async bulkSend(target) {
+    const ids = [...this._selected];
+    if (ids.length === 0) return;
+    return this._withGuard('bulkSend', async () => {
+      try {
+        const reports = [];
+        if (target === 'onec' || target === 'both') {
+          const { data } = await App.apiJson('/invoices/send-1c-batch', { method: 'POST', body: { ids } });
+          reports.push(['1С', data]);
+        }
+        if (target === 'sber' || target === 'both') {
+          const { data } = await App.apiJson('/invoices/send-sber-batch', { method: 'POST', body: { ids } });
+          reports.push(['Сбер', data]);
+        }
+        this._showBulkReport(reports);
+        this.loadTable(); // обновить статусы + сбросить выбор
+      } catch (e) {
+        App.notify('Ошибка массовой отправки: ' + e.message, 'error');
+      }
+    });
+  },
+
+  _showBulkReport(reports) {
+    const LABELS = {
+      not_processed: 'не в статусе «Обработан»',
+      already_approved: 'уже отправлена в 1С',
+      over_threshold: 'выше лимита — отправьте по одной',
+      supplier_unverified: 'поставщик не подтверждён — отправьте по одной',
+      already_paid: 'платёж уже создан',
+      no_inn: 'нет ИНН поставщика',
+      no_total: 'нет суммы',
+      sber_not_connected: 'Сбер не подключён',
+      payer_incomplete: 'реквизиты плательщика не заполнены',
+      no_owner: 'нет владельца',
+      api_error: 'ошибка Сбербанка',
+      invalid: 'нельзя отправить',
+      error: 'ошибка',
+    };
+    const lines = reports.map(([name, d]) => `${name}: ${d.sent} отправлено, ${d.skipped.length} пропущено`);
+    const allClean = reports.every(([, d]) => d.skipped.length === 0);
+    App.notify(lines.join('. '), allClean ? 'success' : 'info');
+    if (allClean) return;
+
+    const skippedBlocks = reports.filter(([, d]) => d.skipped.length > 0).map(([name, d]) => {
+      const byReason = {};
+      for (const s of d.skipped) { (byReason[s.reason] = byReason[s.reason] || []).push(s.id); }
+      const items = Object.entries(byReason).map(([reason, ids]) =>
+        `<li><b>${App.esc(LABELS[reason] || reason)}</b>: №${ids.join(', №')}</li>`).join('');
+      return `<div style="margin-top:12px"><div style="font-weight:600">${App.esc(name)} — пропущено ${d.skipped.length}:</div><ul style="margin:6px 0 0;padding-left:20px;line-height:1.6">${items}</ul></div>`;
+    }).join('');
+
+    let modal = document.getElementById('bulk-report-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'bulk-report-modal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px';
+      document.body.appendChild(modal);
+    }
+    modal.innerHTML = `<div style="background:var(--card,#fff);border-radius:12px;max-width:520px;width:100%;padding:22px;max-height:80vh;overflow:auto">
+      <div style="font-size:16px;font-weight:600;margin-bottom:8px">Результат массовой отправки</div>
+      <div style="color:var(--text-secondary,#64748b)">${lines.map(l => App.esc(l)).join('<br>')}</div>
+      ${skippedBlocks}
+      <div style="margin-top:18px;text-align:right"><button class="btn btn-primary" id="bulk-report-ok">Понятно</button></div>
+    </div>`;
+    modal.style.display = 'flex';
+    modal.querySelector('#bulk-report-ok').onclick = () => { modal.style.display = 'none'; };
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
   },
 
   setFilter(status) {

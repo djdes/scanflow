@@ -142,10 +142,12 @@
         <div class="invoices-toolbar">
           <div class="period-filter" id="invoices-period"></div>
         </div>
+        <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
         <div class="table-wrap">
           <table class="invoices-table">
             <thead>
               <tr>
+                <th class="col-check"><input type="checkbox" id="invoices-select-all" onchange="Invoices.toggleSelectAll(this.checked)" title="Выбрать все на странице" aria-label="Выбрать все"></th>
                 <th class="col-id">ID</th>
                 <th>Номер</th>
                 <th>Дата</th>

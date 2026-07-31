@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { invoiceRepo } from '../../database/repositories/invoiceRepo';
+import { invoiceRepo, type Invoice } from '../../database/repositories/invoiceRepo';
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { getDb } from '../../database/db';
@@ -28,6 +28,7 @@ import { createPaymentOrder, SberApiError } from '../../sber/payments';
 import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
 import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
+import { bulkSend1c, bulkSendSber } from '../../services/bulkSend';
 import { requireAdmin } from '../middleware/auth';
 import { automationRepo } from '../../database/repositories/automationRepo';
 import { approvalRepo } from '../../database/repositories/approvalRepo';
@@ -1180,6 +1181,49 @@ router.delete('/:id', async (req: Request, res: Response) => {
     logger.error('Failed to delete invoice', { id, error: (err as Error).message });
     res.status(500).json({ error: 'Ошибка удаления накладной' });
   }
+});
+
+// Validate a batch `{ids}` body and load the invoices, enforcing that EVERY id
+// belongs to the caller (same preflight as delete-batch — a mixed-owner batch
+// must not partially act, and 404 avoids leaking another tenant's ids). Returns
+// the loaded invoices, or null after already sending the error response.
+async function loadOwnedBatch(req: Request, res: Response): Promise<Invoice[] | null> {
+  const rawIds = req.body?.ids;
+  if (!Array.isArray(rawIds) || rawIds.length === 0 || rawIds.length > 500) {
+    res.status(400).json({ error: 'ids must be a non-empty array with at most 500 entries' });
+    return null;
+  }
+  if (rawIds.some(id => !Number.isInteger(id) || id <= 0)) {
+    res.status(400).json({ error: 'every invoice id must be a positive integer' });
+    return null;
+  }
+  const ids = [...new Set(rawIds as number[])];
+  const invoices = await Promise.all(ids.map(id => invoiceRepo.getById(id)));
+  const loaded: Invoice[] = [];
+  for (const invoice of invoices) {
+    if (!invoice || invoice.owner_user_id !== req.user?.id) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return null;
+    }
+    loaded.push(invoice);
+  }
+  return loaded;
+}
+
+// POST /api/invoices/send-1c-batch — mass "→ 1С" (approve) for selected invoices.
+router.post('/send-1c-batch', async (req: Request, res: Response) => {
+  const invoices = await loadOwnedBatch(req, res);
+  if (!invoices) return;
+  const result = await bulkSend1c(invoices, req.header('X-API-Key') ?? '');
+  res.json({ data: result });
+});
+
+// POST /api/invoices/send-sber-batch — mass "→ Сбер" (create payment drafts).
+router.post('/send-sber-batch', async (req: Request, res: Response) => {
+  const invoices = await loadOwnedBatch(req, res);
+  if (!invoices) return;
+  const result = await bulkSendSber(invoices, req.header('X-API-Key') ?? '');
+  res.json({ data: result });
 });
 
 // POST /api/invoices/delete-batch — delete multiple invoices

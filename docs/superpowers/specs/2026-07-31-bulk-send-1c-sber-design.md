@@ -20,48 +20,35 @@
 - Когда выбрано ≥1 — над таблицей появляется панель **«Выбрано N»** с кнопками «→ 1С», «→ Сбер», «→ 1С и Сбер», «Снять выделение». При 0 — панель скрыта.
 - Колонка чекбоксов не ломает существующий `colspan` заголовков дат — он увеличивается на 1 (сейчас 9 → 10).
 
-## 3. Backend — извлечение ядра отправки (DRY)
+## 3. Backend — стратегия: loopback вместо рефактора (пересмотр)
 
-Логика одиночной отправки сейчас целиком внутри роутов (`/:id/send` ~75 строк, `/:id/send-sber` ~210 строк). Выношу ядро в сервис-функции с **типизированным результатом**, чтобы batch и одиночный роут шли одним путём и не разъезжались.
+Изначально план был извлечь ядро роутов в сервис-функции. **Отклонено:** роут `/:id/send-sber` — критический денежный путь на ~210 строк, а его E2E-тест (`tests/api/invoices.send-sber.test.ts`) — пустой placeholder. Рефактор без страховки тестами слишком рискован.
 
-`src/services/sendActions.ts`:
+Вместо этого — **loopback-паттерн, уже узаконенный в кодбазе** (`src/services/autoSendSber.ts`): batch-эндпоинт делает внутренний HTTP-POST на одиночный роут в контексте владельца, переиспользуя ВСЮ его валидацию, ничего в нём не меняя. Одиночные роуты `/:id/send` и `/:id/send-sber` не трогаем вообще → нулевой риск для отправки.
 
+Общий хелпер `src/services/bulkSend.ts`:
 ```
-type Send1cOutcome =
-  | { kind: 'sent' }
-  | { kind: 'needs_approval'; approvalId: number }        // сумма выше лимита (interactive)
-  | { kind: 'skipped'; reason: 'not_processed' | 'already_approved' | 'over_threshold' };
-
-type SberOutcome =
-  | { kind: 'sent'; paymentNumber: string | null; externalId: string }
-  | { kind: 'needs_confirmation'; prefilled: {...} }       // поставщик не верифицирован (interactive)
-  | { kind: 'needs_approval'; approvalId: number }         // выше лимита (interactive)
-  | { kind: 'conflict'; existingStatus: string; existingPaymentNumber: string | null }
-  | { kind: 'invalid'; reason: 'no_total'|'no_inn'|'no_owner'|'not_connected'|'payer_incomplete' }
-  | { kind: 'api_error'; message: string }
-  | { kind: 'skipped'; reason: 'supplier_unverified' | 'over_threshold' };  // batch-режим
-
-trySend1c(invoiceId, userId, mode): Promise<Send1cOutcome>
-trySendSber(invoiceId, mode, overrides?): Promise<SberOutcome>
+loopbackPost(path, apiKey, body): Promise<{ status: number; json: any }>   // http://127.0.0.1:<apiPort>...
 ```
-
-`mode: 'interactive' | 'batch'` управляет побочными эффектами:
-- **interactive** (одиночный роут): выше лимита → создать approval-запрос, вернуть `needs_approval`; неверифицированный поставщик → вернуть `needs_confirmation` с prefill.
-- **batch**: выше лимита → `skipped: over_threshold` (approval НЕ создаём); неверифицированный → `skipped: supplier_unverified` (без prefill, модалки в bulk нет).
-
-Одиночные роуты `/:id/send` и `/:id/send-sber` переписываются как тонкие мапперы результата в текущие HTTP-ответы (200 / 409 needs_approval / 409 needs_supplier_confirmation / 409 conflict / 400 / 502). **Поведение одиночной отправки не меняется** — закреплено существующими тестами `tests/sber/*` + новыми.
+Ответ одиночного роута мапится в исход batch: `sent` | `skipped(reason)`.
 
 ## 4. Backend — batch-эндпоинты (шаблон `delete-batch`)
 
 `POST /api/invoices/send-1c-batch` и `POST /api/invoices/send-sber-batch`, тело `{ ids: number[] }`:
 1. Валидация: `ids` непустой массив ≤500, все — положительные целые; дедуп.
-2. **Preflight owner-проверка** всей пачки (как `delete-batch:1200`): каждый id существует и `owner_user_id === req.user.id`, иначе `404` без частичного эффекта (не течём чужими id).
-3. Поштучно `trySend1c(id, userId, 'batch')` / `trySendSber(id, 'batch')`, собираем результат.
-4. Ответ: `{ data: { sent: number, skipped: Array<{ id, reason }>, total: number } }`.
+2. **Preflight owner-проверка** всей пачки (как `delete-batch:1200`): каждый id существует и `owner_user_id === req.user.id`, иначе `404` без частичного эффекта (не течём чужими id). Заодно получаем объекты накладных.
+3. Порог согласования читаем **один раз** (`automationRepo.get()`).
+4. Поштучно (по уже загруженным накладным):
+   - **Pre-check** — чтобы не плодить approval-запросы и дёшево отсечь заведомо-скип:
+     - 1С: `status != 'processed'` → skip(`not_processed`); `approved_for_1c` → skip(`already_approved`); `total_sum > threshold && !hasApproved(id,'1c')` → skip(`over_threshold`) БЕЗ loopback.
+     - Сбер: `total_sum > threshold && !hasApproved(id,'sber')` → skip(`over_threshold`) БЕЗ loopback.
+   - Иначе — **loopback** POST на `/:id/send` или `/:id/send-sber` (тело `{}`) с тем же `X-API-Key`, что пришёл в batch (владелец подтверждён на preflight).
+   - **Маппинг ответа:**
+     - 1С: 200 → `sent`; 400 → skip(`not_processed`); прочее → skip(`error`).
+     - Сбер: `success:true` → `sent`; 409 `needs_supplier_confirmation` → skip(`supplier_unverified`); 409 conflict/`already created` → skip(`already_paid`); 400 → skip(причина из тела: `no_inn`/`no_total`/`not_connected`/`payer_incomplete`/`no_owner`); 502 → skip(`api_error`).
+5. Ответ: `{ data: { sent: number, skipped: Array<{ id, reason }>, total: number } }`.
 
-Причины (`reason`) для отчёта:
-- **1С:** `not_processed`, `already_approved`, `over_threshold`.
-- **Сбер:** `no_inn`, `no_total`, `supplier_unverified`, `already_paid` (conflict), `over_threshold`, `sber_not_connected`, `payer_incomplete`, `api_error`.
+Порог/`hasApproved` в pre-check — единственное, что дублируется из роутов; это read-only и стабильно. Approval-запросы в bulk не создаются (pre-check отсекает over_threshold до loopback).
 
 Кнопка «→ 1С и Сбер» на фронте зовёт **оба** эндпоинта (последовательно) и объединяет отчёт.
 
@@ -76,9 +63,13 @@ trySendSber(invoiceId, mode, overrides?): Promise<SberOutcome>
 
 Правило 17 CLAUDE.md: тесты только на `127.0.0.1`, `DB_NAME` c `test`.
 
-- `send-1c-batch`: микс — одна `processed` → sent; одна уже `approved_for_1c` → skipped(already_approved); одна `error` → skipped(not_processed); выше лимита → skipped(over_threshold), approval-запрос НЕ создан. Owner-изоляция: чужой id → 404.
-- `send-sber-batch`: верифицированный поставщик под лимитом → sent (мок `createPaymentOrder`); неверифицированный → skipped(supplier_unverified); уже есть платёж → skipped(already_paid); нет ИНН → skipped(no_inn); Сбер не подключён → все skipped(sber_not_connected).
-- Характеризация: одиночные `/:id/send` и `/:id/send-sber` после рефактора отдают те же ответы (существующие `tests/sber/*` зелёные + точечная проверка needs_confirmation / needs_approval / conflict).
+Loopback (`fetch`) в тестах мокается — как в `tests/services/autoSendSber.test.ts`. Preflight/pre-check идут по реальной тестовой БД, `fetch` возвращает канонические ответы одиночного роута по URL.
+
+- **Валидация:** пустой/огромный `ids` → 400; нечисловой id → 400.
+- **Owner-изоляция:** чужой id в пачке → 404, ничего не отправлено (`fetch` не вызван).
+- **Pre-check (без `fetch`):** `send-1c-batch` — `error`-накладная → skipped(`not_processed`); `approved_for_1c` → skipped(`already_approved`); выше лимита → skipped(`over_threshold`), approval-запрос НЕ создан (проверить `approvalRepo`). `send-sber-batch` — выше лимита → skipped(`over_threshold`).
+- **Маппинг loopback:** mock `fetch` по id → success → `sent`; 409 `needs_supplier_confirmation` → skipped(`supplier_unverified`); 409 conflict → skipped(`already_paid`); 400 `no supplier_inn` → skipped(`no_inn`). Проверить агрегат `{sent, skipped, total}`.
+- Одиночные роуты `/:id/send` и `/:id/send-sber` НЕ меняются → существующие тесты остаются валидны.
 
 ## 7. Вне области
 
