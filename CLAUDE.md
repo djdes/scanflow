@@ -15,7 +15,9 @@ JPG photo → OCR (Google Vision → Claude API → Tesseract) → parser → no
 ## Tech stack
 
 - **Runtime:** Node.js 25 + TypeScript (strict). Server is plain Express 5; frontend is vanilla HTML/CSS/JS with hash routing — no build step for client.
-- **DB:** MySQL 9.6 (`SELECT VERSION()` → `9.6.0`; uses `caching_sha2_password`, so the MariaDB CLI client can't auth — dump/restore via a MySQL 9 client or `mysql2`). mysql2/promise driver, async pool. Single instance on `192.168.33.3:3306` (reached as `127.0.0.1` locally), schema `scanflow`, used by both production and local dev. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration 44.
+- **DB:** MySQL 9.6 (`SELECT VERSION()` → `9.6.0`; uses `caching_sha2_password`, so the MariaDB CLI client can't auth — dump/restore via a MySQL 9 client or `mysql2`). mysql2/promise driver, async pool. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration **56**.
+  **Прод и локалка — РАЗНЫЕ базы** (проверено 2026-08-03). Локально `.env` даёт `DB_HOST=127.0.0.1` → MySQL-служба на самой машине разработчика (`@@hostname=BSQL`, `@@datadir=C:\ProgramData\MySQL\data\`), схема `scanflow`, отдельный набор данных. Прод держит свою базу на сервере, её `.env` в rsync исключён. Более ранняя редакция этого файла утверждала «одна общая инстанция на `192.168.33.3`, используется и продом и локальной разработкой» — это неверно, из-за чего легко переоценить риск локальных прогонов.
+  ⚠️ Дефолт в `src/config.ts` — `DB_HOST=192.168.33.3` (не localhost). Без `.env` приложение полезет на сетевой хост. Не полагайтесь на дефолт.
 - **OCR mode (`analyzer_config.mode`):** `claude_api` in production — Claude SDK reads the image directly, one call. The legacy `hybrid` mode (Google Vision OCR → Claude text structuring) is still in code.
 - **Auth:** every API call needs `X-API-Key` header that maps to `users.api_key`. UI logs in via `POST /api/auth/login` (username + scrypt-hashed password) and stores the returned key in `localStorage`. There is no JWT and no session cookie.
 - **Notifications:** `events.emit()` fans every event out to **Telegram AND email** — both are live (a user with `users.email` set + SMTP configured really does get mail). Only the *digest* path (`digestWorker.ts`, `notification_events` table) is dead code. Every send passes a DB-backed hourly rate limit first (`src/notifications/rateLimit.ts`).
@@ -85,9 +87,14 @@ pm2 restart scanflow                     # after config change
 gh run list --repo djdes/scanflow        # GHA status
 ```
 
-App lives at `~/www/scanflow.ru/app/`. `.env` and `google-credentials.json` are server-only (excluded from rsync). DB lives in MariaDB (`scanflow` schema on the same host). Backups: schedule a `mysqldump scanflow > data/backups/scanflow-$(date +%F).sql` via cron — the in-app SQLite file backup is gone.
+App lives at `~/www/scanflow.ru/app/`. `.env` and `google-credentials.json` are server-only (excluded from rsync). DB — своя, на сервере (`scanflow` schema); с локальной она НЕ общая. Backups: schedule a `mysqldump scanflow > data/backups/scanflow-$(date +%F).sql` via cron — the in-app SQLite file backup is gone. `backupDatabase()` в коде — no-op после переезда на MySQL (пишет warning в лог), реальные бэкапы только внешним cron.
 
 GitHub secrets needed: `SSH_PRIVATE_KEY`, `SSH_HOST=magday.ru`, `SSH_USER=magday`, `SSH_PORT=50222`.
+
+⚠️ SSH-доступа «из коробки» на машине разработчика может не быть: 2026-08-03 ни один из ключей в `~/.ssh` (`id_ed25519`, `id_ed25519_laptop`, `ml_deploy`) не принят (`Permission denied (publickey,password)`), а порт 50222 снаружи закрыт (`Connection refused` — он, судя по всему, открыт только для GHA-раннеров). То есть строка `ssh magday@magday.ru` выше предполагает парольный вход. Быстрая проверка живости прода без SSH: `curl -s https://scanflow.ru/health`.
+
+Миграции на проде применяются **на старте процесса** (`pm2 restart` в конце деплоя), отдельного шага миграций в пайплайне нет.
+Шаг деплоя дописывает в серверный `.env` `DATA_SCOPING_ENABLED=true` — мёртвая настройка, код её больше не читает (см. правило 19). Удалять из workflow безопасно.
 
 Anthropic API on prod uses an HTTP proxy. The Anthropic SDK ignores `fetchOptions.dispatcher` on Node 20 — pass a custom `fetch` function backed by undici `ProxyAgent` (see `src/ocr/claudeApiAnalyzer.ts`).
 
@@ -102,6 +109,9 @@ npm run reset-admin-password [новыйПароль]
 ```
 
 First start with empty `users` table prints a one-time random admin password to logs (look for `FIRST-RUN ADMIN ACCOUNT CREATED`). The admin's `api_key` is seeded from `.env` `API_KEY` so existing 1C/mobile-camera integrations keep working.
+
+⚠️ `npm run dev` — это не «read-only просмотр». На старте он: (а) **накатывает миграции текущей ветки** на базу из вашего `.env`; (б) поднимает file watcher над `data/inbox/`; (в) заводит кроны (в т.ч. бэкап сразу на старте); (г) сидит admin-пользователя. Локальная база от прода отделена (см. секцию Tech stack), так что это безопасно — но помните, что ветка с новой миграцией меняет схему локальной БД, и откатa нет.
+Существующий `.env` `API_KEY` может **не совпадать** с `users.api_key` в вашей локальной базе (сид отрабатывает только на пустой таблице). Если нужен рабочий ключ для curl/скриптов — берите его из БД: `SELECT api_key FROM users WHERE role='admin'`.
 
 ## Things future-Claude must not break
 
@@ -121,9 +131,13 @@ First start with empty `users` table prints a one-time random admin password to 
 14. **`sber_payments.invoice_id` UNIQUE = one payment per invoice.** This is intentional double-click protection. If частичные оплаты понадобятся — это отдельная фича с миграцией, не «ослабить constraint».
 15. **Все DB-обращения теперь async.** Каждый метод репозиториев (`invoiceRepo.*`, `mappingRepo.*`, `userRepo.*`, …) возвращает Promise; забыл `await` — TypeScript ругнётся, но в runtime это будет «невидимый» баг. Транзакции: `await getDb().transaction(async (txn) => { … })`. Никаких `db.transaction(() => {…})()` синхронных — сразу TypeError.
 16. **Schema changes — только через миграции** в `src/database/migrations.ts`. Каждая миграция должна быть idempotent (`CREATE TABLE IF NOT EXISTS`, `hasColumn` guards) — MySQL DDL не транзакционна, поэтому частичный фейл должен переигрываться без ошибок.
-17. **🔥 ТЕСТЫ НИКОГДА НЕ КОННЕКТЯТСЯ К ЧЕМУ-ТО, КРОМЕ `127.0.0.1`/`localhost`.** `tests/helpers/db.ts` имеет sanity-guard в начале `resetDb()`, который throw'нет при `DB_HOST != localhost` или при `DB_NAME` без подстроки `"test"`. **Не отключать.** Контекст: 2026-05-26 прогон тестов стёр прод-MariaDB через каскад «`src/config.ts` грузит `dotenv` как side-effect → `process.env.DB_NAME` становится `scanflow` (прод) → `resetDb()` делает `TRUNCATE` каждой таблицы». Если делаете новый test helper или integration-скрипт с DDL — обязан вызвать тот же guard или не работать совсем без явного `.env.test`. (Локально `.env` указывает `127.0.0.1`→прод и нет `.env.test`, поэтому `npm test` тут запускать НЕЛЬЗЯ — проверяйте через `tsc --noEmit`.)
+    **Никогда не меняйте номер уже прогнанной миграции.** `runMigrations()` решает пропускать или нет ТОЛЬКО по номеру (`if (applied.has(mig.version)) continue`), и `detect()` смотрится лишь для версий, которых в `migration_history` ещё нет. Поэтому если прогнать миграцию локально под номером N, а закоммитить под N+2 (номер занял чужой хотфикс), локальная база навсегда считает N применённым и настоящую миграцию N уже не выполнит — схема тихо расходится с кодом. Реальный след: в локальной БД `42 = Sber-overdue` (прогнали 2026-07-09 из незакоммиченного кода), в коммитах `42 = invoices.recovery_attempts` → колонки нет, и crash recovery падает на старте с `Unknown column 'i.recovery_attempts'`. Прода это не касается — он исполняет только закоммиченный код. Лечится точечно: `DELETE FROM migration_history WHERE version = <N>` на своей локалке + рестарт.
+    Следствие: **миграции применяются при СТАРТЕ приложения**, а не отдельным шагом пайплайна (`initDb()` в `src/index.ts`). Любой `npm run dev` накатывает миграции текущей ветки на ту базу, на которую смотрит ваш `.env`.
+17. **🔥 ТЕСТЫ НИКОГДА НЕ КОННЕКТЯТСЯ К ЧЕМУ-ТО, КРОМЕ `127.0.0.1`/`localhost`.** `tests/helpers/db.ts` имеет sanity-guard в начале `resetDb()`, который throw'нет при `DB_HOST != localhost` или при `DB_NAME` без подстроки `"test"`. **Не отключать.** Контекст: 2026-05-26 прогон тестов стёр прод-MariaDB через каскад «`src/config.ts` грузит `dotenv` как side-effect → `process.env.DB_NAME` становится `scanflow` (прод) → `resetDb()` делает `TRUNCATE` каждой таблицы». Если делаете новый test helper или integration-скрипт с DDL — обязан вызвать тот же guard или не работать совсем без явного `.env.test`.
+    Актуальное состояние (проверено 2026-08-03): локальный `.env` указывает на **локальную** MySQL-службу (`127.0.0.1`), а не на прод — старая формулировка «`127.0.0.1`→прод» устарела. Но `npm test` тут всё равно НЕ запускается: `DB_NAME=scanflow` не содержит `"test"`, guard бросает исключение. Это правильное поведение — без `.env.test` прогон стёр бы вашу локальную рабочую базу. Проверяйте через `npx tsc --noEmit`, либо заведите `.env.test` со схемой `scanflow_test`.
 18. **Динамические SQL-колонки в `SET`/идентификаторах — только из фиксированного allow-list, НЕ из сырого тела запроса.** `supplierRepo.update` / `sberTokenRepo.updatePayerDetails` интерполируют имена колонок — у них белый список ключей. Вернуть `Object.entries(req.body)` сюда = аутентифицированная SQL-инъекция (инцидент: `PATCH /api/suppliers/:inn`, починено 2026-06-24).
-19. **Мультитенантная изоляция накладных под флагом.** `invoices.owner_user_id` + `config.dataScopingEnabled` (`DATA_SCOPING_ENABLED`, по умолчанию OFF). `router.param`-guard + scoping списка/статистики в `invoices.ts` срабатывают только при флаге; роль `admin` обходит фильтр. Не читайте `owner_user_id` вне флаг-пути, интеграционные роуты (1С `/pending`, диспетчер) держите в admin/owner-контексте. См. `docs/superpowers/specs/2026-06-24-multitenant-data-isolation-design.md`.
+19. **Мультитенантная изоляция накладных — безусловная, флага БОЛЬШЕ НЕТ.** `invoices.owner_user_id`; проверки `invoice.owner_user_id !== req.user?.id` расставлены прямо по хендлерам `src/api/routes/invoices.ts`, плюс scoping списка и статистики. Справочники разведены по тенантам отдельными таблицами-«картами» (`supplier_cards`, `onec_nomenclature_cards`, `nomenclature_mapping_cards`, `ocr_correction_cards`, `webhook_config_cards`, миграции 48–54). Интеграционные роуты (1С `/pending`, диспетчер) держите в admin/owner-контексте.
+    ⚠️ Устарело: `config.dataScopingEnabled` / env `DATA_SCOPING_ENABLED` **удалены из кода** (в `src/config.ts` от них остался только висячий комментарий). Шаг деплоя в `.github/workflows/deploy.yml` всё ещё дописывает `DATA_SCOPING_ENABLED=true` в серверный `.env` — это мёртвая строка, её никто не читает. См. `docs/superpowers/specs/2026-07-22-multitenant-isolation-design.md` (более ранний design от 2026-06-24 описывает уже неактуальную флаг-схему).
 20. **Платформенно-глобальный конфиг — только admin.** `requireAdmin` (в `auth.ts`) закрывает `/api/webhook`, `/api/debug`, `PUT /api/settings/analyzer` и connect/write-роуты Сбера; `GET /api/settings/analyzer` прячет секреты от не-админов; `GET /api/sber/status` прячет банковские реквизиты плательщика. Не расширять на `role='user'`.
 21. **🔥 Crash recovery НИКОГДА не удаляет застрявшую накладную и не возвращает фото в `inbox/`.** Инцидент 2026-07-14: `max_memory_restart: '256M'` при пиках OCR ~470 МБ → PM2 убивал процесс каждые 90 сек. Recovery на старте удаляла строку (`invoiceRepo.delete`) и клала фото обратно в `inbox/` — но удаление строки стирало и `file_hash`, поэтому **оба** дедупа в `processFile` (по SHA-256 и по имени файла) слепли, watcher создавал накладную заново и снова слал `photo_uploaded`. ~20 кругов по 3 накладные за 40 минут, в Telegram и на почту. Теперь: строка живёт, `recovery_attempts` инкрементится **до** ретрая, перепрогон идёт на месте через `reprocessInvoice()` (он не шлёт `photo_uploaded`), после 2 неудач — `error` + фото в `failed/`. См. `src/watcher/crashRecovery.ts`. Правила: (а) не удалять строку в recovery — это единственное, что держит дедуп по хешу честным; (б) счётчик инкрементить до работы, а не после, иначе падение в середине OCR не сожжёт попытку; (в) перепрогонять последовательно — именно параллельные Claude-вызовы и пробили лимит памяти.
 
@@ -140,11 +154,28 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET/PATCH /api/profile` | `X-API-Key` | user notification config |
 | `POST /api/profile/test-telegram` | `X-API-Key` | sends a test message |
 | `POST /api/profile/lookup-telegram-chat-id` | `X-API-Key` | finds chat_id via Bot API (after user wrote /start), DMs it back |
-| `GET/PATCH /api/settings/analyzer` | `X-API-Key` | OCR mode + Claude key + LLM mapper toggle |
-| `GET/PUT /api/webhook/config` | `X-API-Key` | legacy webhook config |
+| `GET /api/settings/analyzer` | `X-API-Key` | OCR mode; секреты видны только `admin` |
+| `PUT /api/settings/analyzer` | `X-API-Key` + **admin** | OCR mode + Claude key + LLM mapper + auto-send flags |
+| `GET/PUT /api/webhook/config` | `X-API-Key` + **admin** | legacy webhook config |
 | `GET/POST /api/nomenclature/*` | `X-API-Key` | 1C catalog sync from UNF |
-| `GET /api/debug/*` | `X-API-Key` | error inspection, stuck-row recovery |
+| `GET /api/debug/*` | `X-API-Key` + **admin** | error inspection, stuck-row recovery |
+| `GET/POST /api/sber/*` | `X-API-Key` | OAuth, seed-token, payer, status, disconnect (connect/write — admin) |
+| `GET/POST/PATCH /api/suppliers/*` | `X-API-Key` | справочник поставщиков + `lookup-dadata` |
+| `GET/POST /api/operations/*` | `X-API-Key` | банковские выписки, согласования, автопилот |
+| `GET /api/integrations/*` | `X-API-Key` | лог интеграционных событий |
+| `GET/PATCH /api/users/*` | `X-API-Key` + **admin** | список пользователей, смена роли |
+| `GET/POST /api/onec/*` | `X-API-Key` | self-service подключение 1С (генерация кода) |
+| `POST /api/onec/pair` | none, rate-limited (20/min) | обмен одноразового кода на токен 1С |
+| `/api/onec/exchange/*` | 1C-токен (внутри роутера) | обмен данными с 1С |
+| `/api/dispatcher/*` | токен задачи (внутри роутера) | callback'и режима «диспетчер» + отдача промптов |
+| `/api/inbound/public/*` | секрет канала (внутри роутера) | публичный приём документов (почта/вебхуки) |
+| `GET/POST /api/inbound/*` | `X-API-Key` | настройка каналов приёма |
+| `GET /health` | none | реальные пробы: БД, ключ Anthropic, глубина `inbox/` |
+| `GET /magic/:token` + `POST /magic/:token/consume` | one-time token | вход по magic-ссылке из письма |
+| `GET /blog`, `/blog/:slug`, `/sitemap.xml` | none | SEO-блог и карта сайта |
 | `GET /camera` | none (LAN) | mobile camera page |
+
+Порядок монтирования в `server.ts` load-bearing: роутеры с собственной аутентификацией (`/api/dispatcher`, `/api/inbound/public`, `/api/onec/exchange`, `/api/onec/pair`) обязаны стоять ВЫШЕ `apiKeyAuth`-роутеров, иначе префиксный мидлвар вернёт им 401.
 
 ## Workflow conventions
 
