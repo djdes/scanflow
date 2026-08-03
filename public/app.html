@@ -100,25 +100,37 @@
   <main id="app-main" tabindex="-1">
     <!-- Onboarding banner — sticky at the top of every dashboard view while
          wizard not finished; кнопка ведёт обратно на #/onboarding. JS прячет
-         его на самой странице wizard'а и когда все шаги пройдены. -->
-    <a href="#/onboarding" class="onboarding-banner" id="onboarding-banner" hidden>
-      <span class="onboarding-banner__icon" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.39 5.45L20 8.7l-4.18 3.83L17 18.5 12 15.77 7 18.5l1.18-5.97L4 8.7l5.61-1.25L12 2z" fill="currentColor"/></svg>
-      </span>
-      <span class="onboarding-banner__text">
-        <strong>Настройка ScanFlow</strong>
-        <span class="onboarding-banner__progress-row">
-          <span class="onboarding-banner__progress" id="onboarding-banner-progress">0 из 3 шагов</span>
-          <span class="onboarding-banner__dots" id="onboarding-banner-dots" aria-hidden="true">
-            <span data-step="1"></span><span data-step="2"></span><span data-step="3"></span>
+         его на самой странице wizard'а и когда все шаги пройдены.
+         Крестик «скрыть» — СЕСТРА ссылки, а не потомок: <button> внутри <a>
+         это невалидная вложенность интерактивных элементов. Поэтому обёртка
+         несёт id (весь существующий JS дёргает `#onboarding-banner`.hidden и
+         продолжает работать), а сама ссылка — только класс. -->
+    <div class="onboarding-banner-wrap" id="onboarding-banner" hidden>
+      <a href="#/onboarding" class="onboarding-banner">
+        <span class="onboarding-banner__icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.39 5.45L20 8.7l-4.18 3.83L17 18.5 12 15.77 7 18.5l1.18-5.97L4 8.7l5.61-1.25L12 2z" fill="currentColor"/></svg>
+        </span>
+        <span class="onboarding-banner__text">
+          <strong>Настройка ScanFlow</strong>
+          <span class="onboarding-banner__progress-row">
+            <span class="onboarding-banner__progress" id="onboarding-banner-progress">0 из 3 шагов</span>
+            <span class="onboarding-banner__dots" id="onboarding-banner-dots" aria-hidden="true">
+              <span data-step="1"></span><span data-step="2"></span><span data-step="3"></span>
+            </span>
           </span>
         </span>
-      </span>
-      <span class="onboarding-banner__cta">
-        Продолжить
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </span>
-    </a>
+        <span class="onboarding-banner__cta">
+          Продолжить
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </a>
+      <button type="button" class="onboarding-banner__close" id="onboarding-banner-close"
+              onclick="Onboarding.hideBanner(event)"
+              aria-label="Скрыть подсказку о настройке"
+              title="Скрыть — больше не показывать">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
 
     <!-- Invoices Section -->
     <section id="view-invoices">

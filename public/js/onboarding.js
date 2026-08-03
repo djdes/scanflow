@@ -7,14 +7,16 @@
 // empty (e.g. cleared cache or new browser).
 //
 // localStorage keys:
-//   sf-onboarding-done       — '1' if wizard finished or explicitly dismissed
-//   sf-onboarding-sber-skip  — '1' if user clicked «Пропустить пока» on step 2
-//   sf-onboarding-1c-ok      — '1' if user confirmed обработка установлена
+//   sf-onboarding-done          — '1' if wizard finished or explicitly dismissed
+//   sf-onboarding-sber-skip     — '1' if user clicked «Пропустить пока» on step 2
+//   sf-onboarding-1c-ok         — '1' if user confirmed обработка установлена
+//   sf-onboarding-banner-hidden — '1' if user closed the dashboard banner via ×
 const Onboarding = {
   LS_DONE: 'sf-onboarding-done',
   LS_SBER_SKIP: 'sf-onboarding-sber-skip',
   LS_1C_OK: 'sf-onboarding-1c-ok',
   LS_STATE_CACHE: 'sf-onboarding-state-cache',
+  LS_BANNER_HIDDEN: 'sf-onboarding-banner-hidden',
 
   _state: { step1: false, step2: false, step3: false },
   _bound: false,
@@ -27,6 +29,26 @@ const Onboarding = {
     localStorage.setItem(this.LS_DONE, '1');
   },
 
+  // Пользователь закрыл плашку крестиком. Отдельный ключ, а НЕ LS_DONE:
+  // «скрыл напоминание» и «прошёл/пропустил мастер» — разные вещи, и шаги
+  // продолжают засчитываться (мастер остаётся доступен по #/onboarding).
+  isBannerHidden() {
+    return localStorage.getItem(this.LS_BANNER_HIDDEN) === '1';
+  },
+
+  // Клик по × внутри баннера. Сама плашка — ссылка на #/onboarding, крестик
+  // лежит рядом, но клик всё равно гасим: без preventDefault браузер может
+  // увести на wizard по всплытию, и «скрытие» превратится в переход.
+  hideBanner(ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    localStorage.setItem(this.LS_BANNER_HIDDEN, '1');
+    const banner = document.getElementById('onboarding-banner');
+    if (banner) banner.hidden = true;
+  },
+
   // Решение «делать ли AUTO-redirect на wizard» при заходе в кабинет.
   // Только для свежих аккаунтов (0 накладных). У всех у кого есть данные —
   // нет авто-редиректа (но banner будет показан с прогрессом, пока юзер
@@ -37,6 +59,9 @@ const Onboarding = {
   // «Пропустить wizard».
   async shouldShow() {
     if (this.isDone()) return false;
+    // Закрыл плашку — значит просил не напоминать. Авто-редирект в мастер был
+    // бы навязчивее самой плашки, поэтому глушим и его.
+    if (this.isBannerHidden()) return false;
     try {
       const stats = await App.apiJson('/invoices/stats').catch(() => null);
       const hasInvoices = stats && stats.data && (stats.data.total || 0) > 0;
@@ -198,7 +223,7 @@ const Onboarding = {
       banner.hidden = true;
       return;
     }
-    if (this.isDone()) {
+    if (this.isDone() || this.isBannerHidden()) {
       banner.hidden = true;
       return;
     }
@@ -220,6 +245,12 @@ const Onboarding = {
   _paintBanner() {
     const banner = document.getElementById('onboarding-banner');
     if (!banner) return;
+    // Гонка: второй paint в renderBanner идёт ПОСЛЕ await refreshState(), и
+    // если пользователь успел нажать × за это время — мы бы вернули плашку.
+    if (this.isBannerHidden()) {
+      banner.hidden = true;
+      return;
+    }
     const { step1, step2, step3 } = this._state;
     const completed = [step1, step2, step3].filter(Boolean).length;
     if (completed === 3) {

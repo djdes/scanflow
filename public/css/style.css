@@ -3071,12 +3071,22 @@ tr.inv-visited:hover td { opacity: 1; }
    is incomplete — gives users a permanent way back to the wizard)
    ============================================================ */
 
+/* Обёртка нужна, чтобы крестик «скрыть» лежал СНАРУЖИ ссылки-баннера
+   (<button> внутри <a> — невалидная вложенность). Она же несёт [hidden],
+   которым управляет onboarding.js, и внешний отступ. */
+.onboarding-banner-wrap {
+  position: relative;
+  margin: 0 0 22px;
+}
+.onboarding-banner-wrap[hidden] { display: none; }
+
 .onboarding-banner {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 15px 20px;
-  margin: 0 0 22px;
+  /* padding-right с запасом под крестик — иначе он ложится на «Продолжить». */
+  padding: 15px 52px 15px 20px;
+  margin: 0;
   background:
     radial-gradient(130% 200% at 100% -20%, rgba(91,91,214,0.10), transparent 55%),
     linear-gradient(135deg, #edf4fd 0%, #f2eefc 48%, #ebf7f2 100%);
@@ -3091,7 +3101,34 @@ tr.inv-visited:hover td { opacity: 1; }
   overflow: hidden;
 }
 
-.onboarding-banner[hidden] { display: none; }
+.onboarding-banner__close {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;              /* выше ::before-подсветки баннера */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary, #787774);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.onboarding-banner__close:hover {
+  background: rgba(255,255,255,0.85);
+  border-color: rgba(35,131,226,0.28);
+  color: var(--text, #37352f);
+}
+.onboarding-banner__close:focus-visible {
+  outline: 2px solid var(--primary, #2383e2);
+  outline-offset: 2px;
+}
 
 .onboarding-banner:hover {
   transform: translateY(-1px);
@@ -3205,13 +3242,15 @@ tr.inv-visited:hover td { opacity: 1; }
 }
 
 @media (max-width: 720px) {
+  .onboarding-banner-wrap { margin: 0 0 16px; }
   .onboarding-banner {
-    margin: 0 0 16px;
-    padding: 12px 14px;
+    margin: 0;
+    padding: 12px 42px 12px 14px;
     gap: 12px;
   }
   .onboarding-banner__dots { display: none; }
   .onboarding-banner__cta { padding: 6px 10px; font-size: 12px; }
+  .onboarding-banner__close { right: 8px; width: 26px; height: 26px; }
 }
 
 /* ============================================================
