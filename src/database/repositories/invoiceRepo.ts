@@ -404,6 +404,27 @@ export const invoiceRepo = {
     await getDb().prepare(`UPDATE invoices SET ${sets} WHERE id = ?`).run(id);
   },
 
+  /**
+   * Пузыри накладной по чатам: chat_id → message_id. Telegram адресует
+   * сообщение парой (chat_id, message_id), поэтому на каждый чат своя запись —
+   * одной колонкой invoices.telegram_message_id несколько чатов не покрыть.
+   */
+  async getTelegramMessageIds(invoiceId: number): Promise<Map<string, number>> {
+    const rows = await getDb()
+      .prepare('SELECT chat_id, message_id FROM invoice_telegram_messages WHERE invoice_id = ?')
+      .all<{ chat_id: string; message_id: number }>(invoiceId);
+    return new Map(rows.map(r => [String(r.chat_id), Number(r.message_id)]));
+  },
+
+  /** Запомнить/перезаписать пузырь для конкретного чата (message_id меняется, если старое сообщение удалили). */
+  async setTelegramMessageIdForChat(invoiceId: number, chatId: string, messageId: number): Promise<void> {
+    await getDb().prepare(
+      `INSERT INTO invoice_telegram_messages (invoice_id, chat_id, message_id)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)`
+    ).run(invoiceId, chatId, messageId);
+  },
+
   async markSberOverdueNotified(id: number): Promise<void> {
     await getDb()
       .prepare('UPDATE invoices SET sber_overdue_notified_at = NOW() WHERE id = ?')

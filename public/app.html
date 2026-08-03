@@ -748,13 +748,18 @@
             <div class="form-group">
               <label for="profile-tg-chat">Chat ID</label>
               <div class="input-with-action">
-                <input type="text" id="profile-tg-chat" inputmode="numeric" placeholder="123456789" autocomplete="off">
+                <textarea id="profile-tg-chat" rows="2" autocomplete="off"
+                          placeholder="123456789, -1001234567890"
+                          oninput="Profile.onChatIdsInput()"></textarea>
                 <button type="button" id="profile-tg-lookup" class="btn btn-outline btn-sm">Найти</button>
               </div>
               <div class="field-hint">
-                Числовой идентификатор вашего личного чата с ботом.
+                Можно несколько — по одному в строке или через запятую. Уведомления уйдут во все.
+                У групп идентификатор отрицательный (<code>-100…</code>).
+                <span id="profile-tg-chat-count"></span>
                 <span id="profile-tg-lookup-hint"></span>
               </div>
+              <div id="profile-tg-test-results" class="tg-test-results" hidden></div>
             </div>
 
             <div class="form-group">

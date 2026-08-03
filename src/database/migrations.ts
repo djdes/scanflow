@@ -1772,6 +1772,48 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 59,
+    name: 'несколько Telegram-чатов: users.telegram_chat_id → список + invoice_telegram_messages',
+    // См. docs/superpowers/specs/2026-08-03-multiple-telegram-chats-design.md
+    //
+    // Прогресс по накладной — ОДНО редактируемое сообщение, но Telegram
+    // адресует его парой (chat_id, message_id), и в каждом чате id свой.
+    // Поэтому пары переезжают в отдельную таблицу, а колонка
+    // invoices.telegram_message_id остаётся как есть (её удаление необратимо
+    // и ничего не даёт).
+    detect: (exec) => hasTable(exec, 'invoice_telegram_messages'),
+    run: async (exec) => {
+      // VARCHAR(64) вмещал один id; список нескольких — уже нет.
+      await exec.query(`ALTER TABLE users MODIFY COLUMN telegram_chat_id TEXT NULL`);
+
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS invoice_telegram_messages (
+          invoice_id  INT NOT NULL,
+          chat_id     VARCHAR(64) NOT NULL,
+          message_id  INT NOT NULL,
+          created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (invoice_id, chat_id),
+          CONSTRAINT fk_itm_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      // Бэкфилл обязателен: без него у накладных с уже отправленным
+      // уведомлением пузырь «потеряется» и на следующем событии придёт дубль
+      // вместо редактирования. Привязываем к текущему чату владельца.
+      // INSERT IGNORE — повторный прогон миграции безопасен.
+      await exec.query(`
+        INSERT IGNORE INTO invoice_telegram_messages (invoice_id, chat_id, message_id)
+        SELECT i.id, u.telegram_chat_id, i.telegram_message_id
+        FROM invoices i
+        JOIN users u ON u.id = i.owner_user_id
+        WHERE i.telegram_message_id IS NOT NULL
+          AND u.telegram_chat_id IS NOT NULL
+          AND u.telegram_chat_id <> ''
+          AND u.telegram_chat_id NOT LIKE '%,%'
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

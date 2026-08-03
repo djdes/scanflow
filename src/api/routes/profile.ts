@@ -2,15 +2,17 @@ import { Router, Request, Response } from 'express';
 import { userRepo } from '../../database/repositories/userRepo';
 import { sendNotification, smtpConfigured } from '../../utils/mailer';
 import { sendMessage, getMe, getUpdates } from '../../notifications/telegram/telegramClient';
+import {
+  parseChatIds, parseValidChatIds, serializeChatIds, isValidChatId, MAX_CHAT_IDS,
+} from '../../notifications/telegram/chatIds';
 import { ALL_NOTIFY_MODES, ALL_EVENT_TYPES, type NotifyMode, type EventType } from '../../notifications/types';
 import { logger } from '../../utils/logger';
 
 const router = Router();
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Telegram chat_id: digits, possibly negative (group chats); for our private
-// chat usage it's a positive integer string. Accept either form to be lenient.
-const CHAT_ID_RX = /^-?\d+$/;
+// Валидация chat_id живёт в notifications/telegram/chatIds.ts — там же, где
+// разбор списка, чтобы правило было одно на весь проект.
 // Telegram bot token shape: <bot_id>:<35-char-secret>. Examples differ in
 // length, so we just check the basic shape <digits>:<at-least-30-chars>.
 const BOT_TOKEN_RX = /^\d+:[A-Za-z0-9_-]{30,}$/;
@@ -66,10 +68,24 @@ router.patch('/', async (req: Request, res: Response) => {
     userUpdate.notify_events = notify_events;
   }
   if (telegram_chat_id !== undefined) {
-    if (telegram_chat_id !== null && (typeof telegram_chat_id !== 'string' || !CHAT_ID_RX.test(telegram_chat_id))) {
-      res.status(400).json({ error: 'telegram_chat_id must be a numeric string or null' }); return;
+    // Принимаем список: пользователь копирует id откуда угодно, поэтому
+    // разделителем может быть запятая, точка с запятой, пробел или перевод
+    // строки. Храним в каноническом виде «id,id,id».
+    if (telegram_chat_id === null) {
+      tgUpdate.chat_id = null;
+    } else if (typeof telegram_chat_id !== 'string') {
+      res.status(400).json({ error: 'telegram_chat_id must be a string or null' }); return;
+    } else {
+      const ids = parseChatIds(telegram_chat_id);
+      const bad = ids.filter(v => !isValidChatId(v));
+      if (bad.length) {
+        res.status(400).json({ error: `Не похоже на chat_id: ${bad.slice(0, 3).join(', ')}` }); return;
+      }
+      if (ids.length > MAX_CHAT_IDS) {
+        res.status(400).json({ error: `Слишком много чатов: ${ids.length}, максимум ${MAX_CHAT_IDS}` }); return;
+      }
+      tgUpdate.chat_id = serializeChatIds(ids);   // пустая строка → null, уведомления выключены
     }
-    tgUpdate.chat_id = telegram_chat_id;
   }
   if (telegram_bot_token !== undefined) {
     if (telegram_bot_token !== null && (typeof telegram_bot_token !== 'string' || !BOT_TOKEN_RX.test(telegram_bot_token))) {
@@ -135,17 +151,32 @@ router.post('/test-telegram', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Telegram not configured (chat_id and bot_token required)' });
     return;
   }
-  try {
-    await sendMessage(
-      tg.bot_token,
-      tg.chat_id,
-      '🧪 Тестовое сообщение от ScanFlow.\n\nЕсли вы это видите — настройка Telegram-уведомлений работает.',
-    );
-    res.json({ data: { ok: true } });
-  } catch (err) {
-    logger.warn('test-telegram failed', { error: (err as Error).message });
-    res.status(500).json({ error: (err as Error).message });
+  const chatIds = parseValidChatIds(tg.chat_id);
+  if (chatIds.length === 0) {
+    res.status(400).json({ error: 'Telegram not configured (chat_id and bot_token required)' });
+    return;
   }
+  // Шлём в КАЖДЫЙ чат и отвечаем поштучно: при нескольких получателях общий
+  // «ошибка» бесполезен — непонятно, какой именно чат настроен неверно.
+  const text = '🧪 Тестовое сообщение от ScanFlow.\n\nЕсли вы это видите — настройка Telegram-уведомлений работает.';
+  const results: Array<{ chat_id: string; ok: boolean; error?: string }> = [];
+  for (const chatId of chatIds) {
+    try {
+      await sendMessage(tg.bot_token, chatId, text);
+      results.push({ chat_id: chatId, ok: true });
+    } catch (err) {
+      const message = (err as Error).message;
+      logger.warn('test-telegram failed', { chatId, error: message });
+      results.push({ chat_id: chatId, ok: false, error: message });
+    }
+  }
+  const okCount = results.filter(r => r.ok).length;
+  // 200 даже при частичном успехе: доставка в часть чатов — валидный результат,
+  // фронт покажет построчно, где прошло, а где нет. 500 только если не ушло никуда.
+  res.status(okCount > 0 ? 200 : 500).json({
+    data: { ok: okCount === results.length, sent: okCount, total: results.length, results },
+    ...(okCount === 0 ? { error: results[0]?.error || 'Не удалось отправить' } : {}),
+  });
 });
 
 // Confirmation message sent to the chat after we successfully find chat_id.

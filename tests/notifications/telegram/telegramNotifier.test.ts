@@ -10,7 +10,11 @@ vi.mock('../../../src/notifications/telegram/telegramClient', () => ({
 
 vi.mock('../../../src/database/repositories/invoiceRepo', () => ({
   invoiceRepo: {
-    setTelegramMessageId: vi.fn(),
+    // Пузыри накладной по чатам: chat_id → message_id. Раньше был один
+    // setTelegramMessageId на накладную — с несколькими чатами так нельзя,
+    // Telegram адресует сообщение парой (chat_id, message_id).
+    getTelegramMessageIds: vi.fn(async () => new Map<string, number>()),
+    setTelegramMessageIdForChat: vi.fn(),
   },
 }));
 
@@ -47,82 +51,151 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
     items_total_mismatch: 0,
     telegram_message_id: null,
     ...overrides,
-  };
+  } as Invoice;
 }
 
-const cfg = { token: 't', chat_id: 'c' };
+const CHAT = '111';
+const CHAT2 = '-100222';
+const cfg = { token: 't', chat_id: CHAT };
+const cfgMulti = { token: 't', chat_id: `${CHAT},${CHAT2}` };
 const payload = { invoice_id: 85 };
+
+/** Подсунуть уже существующие пузыри (chat_id → message_id). */
+function withExistingBubbles(pairs: Array<[string, number]>): void {
+  (invoiceRepo.getTelegramMessageIds as any).mockResolvedValueOnce(new Map(pairs));
+}
 
 describe('sendInvoiceNotification', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // resetAllMocks, а не clearAllMocks: последний чистит только записи о
+    // вызовах, но НЕ очередь mockRejectedValueOnce — недоиспользованное
+    // «одноразовое» падение протекало в следующий тест и роняло его.
+    vi.resetAllMocks();
+    (invoiceRepo.getTelegramMessageIds as any).mockResolvedValue(new Map());
+    (sendMessage as any).mockResolvedValue(999);
+    (editMessageText as any).mockResolvedValue(undefined);
   });
 
-  it('sends new message for first event on invoice (no telegram_message_id)', async () => {
-    await sendInvoiceNotification(cfg, makeInvoice(), 'invoice_recognized', payload);
-    expect(sendMessage).toHaveBeenCalledOnce();
-    expect(editMessageText).not.toHaveBeenCalled();
-    expect(invoiceRepo.setTelegramMessageId).toHaveBeenCalledWith(85, 999);
+  describe('один чат — прежнее поведение', () => {
+    it('шлёт новое сообщение на первом событии по накладной', async () => {
+      await sendInvoiceNotification(cfg, makeInvoice(), 'invoice_recognized', payload);
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(editMessageText).not.toHaveBeenCalled();
+      expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledWith(85, CHAT, 999);
+    });
+
+    it('правит существующий пузырь, а не плодит новые', async () => {
+      withExistingBubbles([[CHAT, 42]]);
+      await sendInvoiceNotification(cfg, makeInvoice(), 'approved_for_1c', payload);
+      expect(editMessageText).toHaveBeenCalledOnce();
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(invoiceRepo.setTelegramMessageIdForChat).not.toHaveBeenCalled();
+    });
+
+    it('шлёт новое, если старое сообщение удалили (MessageGoneError)', async () => {
+      withExistingBubbles([[CHAT, 42]]);
+      (editMessageText as any).mockRejectedValueOnce(new MessageGoneError('gone'));
+      await sendInvoiceNotification(cfg, makeInvoice(), 'approved_for_1c', payload);
+      expect(editMessageText).toHaveBeenCalledOnce();
+      expect(sendMessage).toHaveBeenCalledOnce();
+      // Пара перезаписывается: message_id сменился.
+      expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledWith(85, CHAT, 999);
+    });
+
+    it('НЕ дублирует сообщение при прочих ошибках правки', async () => {
+      withExistingBubbles([[CHAT, 42]]);
+      (editMessageText as any).mockRejectedValueOnce(new Error('Network timeout'));
+      await sendInvoiceNotification(cfg, makeInvoice(), 'approved_for_1c', payload);
+      expect(editMessageText).toHaveBeenCalledOnce();
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('срочное событие — отдельное сообщение, пузырь не трогает', async () => {
+      withExistingBubbles([[CHAT, 42]]);
+      await sendInvoiceNotification(cfg, makeInvoice(), 'recognition_error', { ...payload, error_message: 'oops' });
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(editMessageText).not.toHaveBeenCalled();
+      expect(invoiceRepo.setTelegramMessageIdForChat).not.toHaveBeenCalled();
+    });
+
+    it('срочное suspicious_total — тоже отдельным сообщением', async () => {
+      withExistingBubbles([[CHAT, 42]]);
+      await sendInvoiceNotification(cfg, makeInvoice(), 'suspicious_total', { ...payload, items_total: 980 });
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(editMessageText).not.toHaveBeenCalled();
+      expect(invoiceRepo.setTelegramMessageIdForChat).not.toHaveBeenCalled();
+    });
+
+    it('не бросает, когда отправка падает', async () => {
+      (sendMessage as any).mockRejectedValueOnce(new Error('Telegram down'));
+      await expect(
+        sendInvoiceNotification(cfg, makeInvoice(), 'invoice_recognized', payload),
+      ).resolves.toBeUndefined();
+    });
+
+    it('не бросает, когда падает срочная отправка', async () => {
+      (sendMessage as any).mockRejectedValueOnce(new Error('Telegram down'));
+      await expect(
+        sendInvoiceNotification(cfg, makeInvoice(), 'recognition_error', { ...payload, error_message: 'x' }),
+      ).resolves.toBeUndefined();
+    });
   });
 
-  it('edits existing message when telegram_message_id is set', async () => {
-    await sendInvoiceNotification(cfg, makeInvoice({ telegram_message_id: 42 }), 'approved_for_1c', payload);
-    expect(editMessageText).toHaveBeenCalledOnce();
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(invoiceRepo.setTelegramMessageId).not.toHaveBeenCalled();
-  });
+  describe('несколько чатов', () => {
+    it('прогресс уходит в каждый чат своим пузырём', async () => {
+      await sendInvoiceNotification(cfgMulti, makeInvoice(), 'invoice_recognized', payload);
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledWith(85, CHAT, 999);
+      expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledWith(85, CHAT2, 999);
+    });
 
-  it('falls back to sendMessage when edit hits MessageGoneError', async () => {
-    (editMessageText as any).mockRejectedValueOnce(new MessageGoneError('gone'));
-    await sendInvoiceNotification(cfg, makeInvoice({ telegram_message_id: 42 }), 'approved_for_1c', payload);
-    expect(editMessageText).toHaveBeenCalledOnce();
-    expect(sendMessage).toHaveBeenCalledOnce();
-    expect(invoiceRepo.setTelegramMessageId).toHaveBeenCalledWith(85, 999);
-  });
+    it('срочное событие уходит в каждый чат', async () => {
+      await sendInvoiceNotification(cfgMulti, makeInvoice(), 'recognition_error', { ...payload, error_message: 'x' });
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      const chats = (sendMessage as any).mock.calls.map((c: unknown[]) => c[1]);
+      expect(chats).toEqual([CHAT, CHAT2]);
+    });
 
-  it('does NOT fallback for non-MessageGoneError edit failures', async () => {
-    (editMessageText as any).mockRejectedValueOnce(new Error('Network timeout'));
-    await sendInvoiceNotification(cfg, makeInvoice({ telegram_message_id: 42 }), 'approved_for_1c', payload);
-    expect(editMessageText).toHaveBeenCalledOnce();
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
+    it('где пузырь есть — правит, где нет — создаёт', async () => {
+      // Чат добавили уже после того, как накладная обзавелась пузырём в первом.
+      withExistingBubbles([[CHAT, 42]]);
+      await sendInvoiceNotification(cfgMulti, makeInvoice(), 'approved_for_1c', payload);
+      expect(editMessageText).toHaveBeenCalledOnce();
+      expect((editMessageText as any).mock.calls[0][1]).toBe(CHAT);
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect((sendMessage as any).mock.calls[0][1]).toBe(CHAT2);
+      expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledWith(85, CHAT2, 999);
+    });
 
-  it('sends standalone message for urgent recognition_error', async () => {
-    await sendInvoiceNotification(
-      cfg,
-      makeInvoice({ telegram_message_id: 42 }),
-      'recognition_error',
-      { ...payload, error_message: 'oops' },
-    );
-    expect(sendMessage).toHaveBeenCalledOnce();
-    expect(editMessageText).not.toHaveBeenCalled();
-    // Crucially: telegram_message_id NOT updated (urgent message is standalone)
-    expect(invoiceRepo.setTelegramMessageId).not.toHaveBeenCalled();
-  });
+    it('недоступный чат не лишает уведомления остальные', async () => {
+      // Бота выкинули из первой группы — второй чат обязан получить сообщение.
+      (sendMessage as any).mockRejectedValueOnce(new Error('bot was kicked'));
+      await sendInvoiceNotification(cfgMulti, makeInvoice(), 'invoice_recognized', payload);
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledOnce();
+      expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledWith(85, CHAT2, 999);
+    });
 
-  it('sends standalone message for urgent suspicious_total', async () => {
-    await sendInvoiceNotification(
-      cfg,
-      makeInvoice({ telegram_message_id: 42 }),
-      'suspicious_total',
-      { ...payload, items_total: 980 },
-    );
-    expect(sendMessage).toHaveBeenCalledOnce();
-    expect(editMessageText).not.toHaveBeenCalled();
-    expect(invoiceRepo.setTelegramMessageId).not.toHaveBeenCalled();
-  });
+    it('сбой правки в одном чате не мешает остальным', async () => {
+      withExistingBubbles([[CHAT, 42], [CHAT2, 43]]);
+      (editMessageText as any).mockRejectedValueOnce(new Error('Network timeout'));
+      await sendInvoiceNotification(cfgMulti, makeInvoice(), 'approved_for_1c', payload);
+      expect(editMessageText).toHaveBeenCalledTimes(2);
+    });
 
-  it('does not throw when sendMessage rejects', async () => {
-    (sendMessage as any).mockRejectedValueOnce(new Error('Telegram down'));
-    await expect(
-      sendInvoiceNotification(cfg, makeInvoice(), 'invoice_recognized', payload),
-    ).resolves.toBeUndefined();
-  });
+    it('дубликаты в списке не приводят к двойной отправке', async () => {
+      await sendInvoiceNotification({ token: 't', chat_id: `${CHAT}, ${CHAT}` }, makeInvoice(), 'invoice_recognized', payload);
+      expect(sendMessage).toHaveBeenCalledOnce();
+    });
 
-  it('does not throw when urgent send fails', async () => {
-    (sendMessage as any).mockRejectedValueOnce(new Error('Telegram down'));
-    await expect(
-      sendInvoiceNotification(cfg, makeInvoice(), 'recognition_error', { ...payload, error_message: 'x' }),
-    ).resolves.toBeUndefined();
+    it('пустой и мусорный список — молча ничего не шлём', async () => {
+      for (const chat_id of ['', '   ', '@channel, abc']) {
+        vi.clearAllMocks();
+        (invoiceRepo.getTelegramMessageIds as any).mockResolvedValue(new Map());
+        await sendInvoiceNotification({ token: 't', chat_id }, makeInvoice(), 'invoice_recognized', payload);
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(editMessageText).not.toHaveBeenCalled();
+      }
+    });
   });
 });

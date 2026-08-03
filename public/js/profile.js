@@ -86,14 +86,56 @@
       setTimeout(() => this.setStatus('', ''), 3000);
     },
 
+    // Считаем распознанные id прямо при вводе — человек сразу видит, что его
+    // «123, 456» разобралось как два чата, а не как один кривой идентификатор.
+    onChatIdsInput() {
+      const el = document.getElementById('profile-tg-chat');
+      const out = document.getElementById('profile-tg-chat-count');
+      if (!el || !out) return;
+      const ids = (el.value || '').split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+      const uniq = [...new Set(ids)];
+      const bad = uniq.filter(v => !/^-?\d{1,32}$/.test(v));
+      if (uniq.length === 0) { out.textContent = ''; out.className = ''; return; }
+      if (bad.length) {
+        out.textContent = ` Не похоже на chat_id: ${bad.slice(0, 3).join(', ')}`;
+        out.className = 'tg-count-bad';
+        return;
+      }
+      out.textContent = ` Распознано чатов: ${uniq.length}`;
+      out.className = 'tg-count-ok';
+    },
+
     async test() {
       this.setStatus('Отправляем тестовое сообщение…', 'muted');
+      const box = document.getElementById('profile-tg-test-results');
+      if (box) { box.hidden = true; box.innerHTML = ''; }
       try {
-        await App.apiJson('/profile/test-telegram', { method: 'POST' });
-        this.setStatus('Тестовое сообщение отправлено — проверьте Telegram', 'success');
+        const { data } = await App.apiJson('/profile/test-telegram', { method: 'POST' });
+        this._renderTestResults(data);
+        this.setStatus(
+          data && data.sent === data.total
+            ? 'Тестовое сообщение отправлено — проверьте Telegram'
+            : `Отправлено в ${data.sent} из ${data.total} — смотрите список ниже`,
+          data && data.sent === data.total ? 'success' : 'error',
+        );
       } catch (err) {
+        // При полном провале сервер отвечает 500, но тело с разбивкой по чатам
+        // всё равно приходит — показываем его, иначе непонятно, какой чат виноват.
+        this._renderTestResults(err?.data);
         this.setStatus('Не удалось: ' + (err.message || err), 'error');
       }
+    },
+
+    // Построчный итог: при нескольких получателях общий «ошибка» бесполезен —
+    // надо видеть, какой именно чат не принял сообщение и почему.
+    _renderTestResults(data) {
+      const box = document.getElementById('profile-tg-test-results');
+      if (!box || !data || !Array.isArray(data.results)) return;
+      box.hidden = false;
+      box.innerHTML = data.results.map(r => r.ok
+        ? `<div class="tg-test-ok">✓ ${App.esc(r.chat_id)}</div>`
+        : `<div class="tg-test-fail">✗ ${App.esc(r.chat_id)} — ${App.esc(r.error || 'ошибка')}</div>`
+      ).join('');
     },
 
     async loadOnecStatus() {

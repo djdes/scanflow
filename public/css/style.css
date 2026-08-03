@@ -4053,6 +4053,26 @@ tr.inv-visited:hover td { opacity: 1; }
 }
 .date-nav__all { border-bottom: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; padding-bottom: 9px; }
 
+/* Настройка нескольких Telegram-чатов на странице «Профиль» */
+#profile-tg-chat {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  resize: vertical;
+  min-height: 46px;
+}
+.tg-count-ok { color: var(--accent-green, #16a34a); font-weight: 600; }
+.tg-count-bad { color: #b45309; font-weight: 600; }
+.tg-test-results {
+  margin-top: 8px;
+  display: grid;
+  gap: 3px;
+  font-size: 12.5px;
+  font-family: var(--font-mono, monospace);
+}
+.tg-test-results[hidden] { display: none; }
+.tg-test-ok { color: var(--accent-green, #16a34a); }
+.tg-test-fail { color: #dc2626; }
+
 /* Предупреждение в панели массовых действий: сколько выделенных накладных
    не пройдут гейт сверки реквизитов. */
 .bulk-warn {
