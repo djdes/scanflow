@@ -27,7 +27,10 @@
       const emailEl = document.getElementById('profile-email');
       if (emailEl) emailEl.value = data.email || '';
 
-      document.getElementById('profile-tg-chat').value = data.telegram_chat_id || '';
+      // Чаты живут отдельным списком, а инпут — только поле ввода нового.
+      this._chatIds = this.parseIds(data.telegram_chat_id);
+      document.getElementById('profile-tg-chat').value = '';
+      this.renderChatChips();
 
       const tokenSetOnServer = !!data.telegram_bot_token_set;
       const tokenEl = document.getElementById('profile-tg-token');
@@ -49,7 +52,9 @@
     },
 
     collect() {
-      const chat = document.getElementById('profile-tg-chat').value.trim() || null;
+      // Источник правды — список чипсов, а НЕ содержимое инпута: там лежит
+      // недобавленный черновик, и молча сохранять его нельзя.
+      const chat = (this._chatIds || []).join(',') || null;
       const tokenInputValue = document.getElementById('profile-tg-token').value;
       // Don't overwrite the token on server if user didn't change the placeholder
       const sendToken = tokenInputValue !== TOKEN_PLACEHOLDER;
@@ -86,23 +91,101 @@
       setTimeout(() => this.setStatus('', ''), 3000);
     },
 
-    // Считаем распознанные id прямо при вводе — человек сразу видит, что его
-    // «123, 456» разобралось как два чата, а не как один кривой идентификатор.
-    onChatIdsInput() {
-      const el = document.getElementById('profile-tg-chat');
-      const out = document.getElementById('profile-tg-chat-count');
-      if (!el || !out) return;
-      const ids = (el.value || '').split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
-      const uniq = [...new Set(ids)];
-      const bad = uniq.filter(v => !/^-?\d{1,32}$/.test(v));
-      if (uniq.length === 0) { out.textContent = ''; out.className = ''; return; }
-      if (bad.length) {
-        out.textContent = ` Не похоже на chat_id: ${bad.slice(0, 3).join(', ')}`;
-        out.className = 'tg-count-bad';
+    // ── Чаты как пузыри ───────────────────────────────────────────────────
+    // Список добавленных chat_id. Инпут держит только новый, ещё не добавленный
+    // идентификатор — поэтому сохраняем всегда отсюда, а не из поля ввода.
+    _chatIds: [],
+
+    // Правило то же, что на сервере (notifications/telegram/chatIds.ts):
+    // у групп id отрицательный, всё остальное — целое число.
+    isValidId(v) { return /^-?\d{1,32}$/.test(v); },
+
+    parseIds(raw) {
+      if (!raw) return [];
+      const parts = String(raw).split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+      return [...new Set(parts)];
+    },
+
+    renderChatChips() {
+      const box = document.getElementById('profile-tg-chips');
+      if (!box) return;
+      const ids = this._chatIds || [];
+      if (ids.length === 0) {
+        box.innerHTML = '<span class="chip-empty">Чаты не добавлены — уведомления никуда не уйдут</span>';
         return;
       }
-      out.textContent = ` Распознано чатов: ${uniq.length}`;
-      out.className = 'tg-count-ok';
+      box.innerHTML = ids.map(id => `
+        <span class="chip" data-id="${App.esc(id)}">
+          <button type="button" class="chip-label" title="Изменить"
+                  onclick="Profile.editChatId('${App.esc(id)}')">${App.esc(id)}</button>
+          <button type="button" class="chip-remove" title="Удалить"
+                  aria-label="Удалить чат ${App.esc(id)}"
+                  onclick="Profile.removeChatId('${App.esc(id)}')">✕</button>
+        </span>`).join('');
+    },
+
+    // Enter в поле — добавить. Вставку списка тоже поддерживаем: человек может
+    // скопировать «111, 222» разом, и дробить это на два ввода незачем.
+    onChatIdKey(ev) {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      this.addChatIdFromInput();
+    },
+
+    addChatIdFromInput() {
+      const el = document.getElementById('profile-tg-chat');
+      if (!el) return;
+      const parsed = this.parseIds(el.value);
+      if (parsed.length === 0) return;
+
+      const bad = parsed.filter(v => !this.isValidId(v));
+      if (bad.length) {
+        App.notify(`Не похоже на chat_id: ${bad.slice(0, 3).join(', ')}`, 'error');
+        return;
+      }
+      const dupes = parsed.filter(v => this._chatIds.includes(v));
+      const fresh = parsed.filter(v => !this._chatIds.includes(v));
+      if (fresh.length === 0) {
+        App.notify(`Этот чат уже добавлен: ${dupes[0]}`, 'info');
+        return;
+      }
+      this._chatIds = [...this._chatIds, ...fresh];
+      el.value = '';
+      this.renderChatChips();
+      App.notify(fresh.length === 1 ? `Чат ${fresh[0]} добавлен` : `Добавлено чатов: ${fresh.length}`, 'success');
+      this.saveChatIds();
+    },
+
+    // Редактирование = вернуть значение в поле ввода. Отдельный inline-редактор
+    // здесь избыточен: id короткий, проще перенабрать и нажать Enter.
+    editChatId(id) {
+      const el = document.getElementById('profile-tg-chat');
+      this._chatIds = this._chatIds.filter(x => x !== id);
+      this.renderChatChips();
+      if (el) { el.value = id; el.focus(); el.select(); }
+      this.saveChatIds();
+    },
+
+    removeChatId(id) {
+      this._chatIds = this._chatIds.filter(x => x !== id);
+      this.renderChatChips();
+      App.notify(`Чат ${id} удалён`, 'info');
+      this.saveChatIds();
+    },
+
+    // Пишем сразу, не дожидаясь общей кнопки «Сохранить»: пузырь на экране
+    // должен означать «уже настроено», иначе человек уйдёт со страницы,
+    // будучи уверенным, что чат добавлен. PATCH частичный — трогаем только
+    // список чатов, токен и события не задеваются.
+    async saveChatIds() {
+      try {
+        await App.apiJson('/profile', {
+          method: 'PATCH',
+          body: { telegram_chat_id: this._chatIds.join(',') || null },
+        });
+      } catch (err) {
+        App.notify('Не удалось сохранить список чатов: ' + (err.message || err), 'error');
+      }
     },
 
     async test() {
@@ -220,13 +303,20 @@
       try {
         const body = tokenChanged ? { telegram_bot_token: tokenInput } : {};
         const r = await App.apiJson('/profile/lookup-telegram-chat-id', { method: 'POST', body });
+        // Найденный chat_id кладём прямо в поле ввода: дальше пользователю
+        // остаётся нажать Enter, а не искать его в переписке с ботом.
+        const found = r.data.chat_id;
+        if (found && this.isValidId(String(found))) {
+          const el = document.getElementById('profile-tg-chat');
+          if (el) { el.value = String(found); el.focus(); }
+        }
         if (r.data.confirmation_sent) {
-          hint.textContent = ` Бот написал вам в Telegram — скопируйте Chat ID оттуда и вставьте в поле выше, затем «Сохранить».`;
+          hint.textContent = ` Бот написал вам в Telegram. ID подставлен в поле — нажмите Enter, чтобы добавить.`;
           hint.style.color = 'var(--success)';
         } else {
           // Fallback: server found the chat_id but couldn't DM it. Show it in the hint
           // since otherwise the user has no way to learn it.
-          hint.textContent = ` Найдено: ${r.data.chat_id}. Не удалось отправить в Telegram — скопируйте отсюда вручную.`;
+          hint.textContent = ` Найдено: ${found}. Нажмите Enter в поле, чтобы добавить.`;
           hint.style.color = 'var(--warning)';
         }
       } catch (err) {

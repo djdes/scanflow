@@ -4054,14 +4054,52 @@ tr.inv-visited:hover td { opacity: 1; }
 .date-nav__all { border-bottom: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; padding-bottom: 9px; }
 
 /* Настройка нескольких Telegram-чатов на странице «Профиль» */
-#profile-tg-chat {
-  font-family: var(--font-mono, monospace);
-  font-size: 13px;
-  resize: vertical;
-  min-height: 46px;
+#profile-tg-chat { font-family: var(--font-mono, monospace); }
+
+/* Пузыри добавленных чатов */
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
-.tg-count-ok { color: var(--accent-green, #16a34a); font-weight: 600; }
-.tg-count-bad { color: #b45309; font-weight: 600; }
+.chip {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border, #e9e9e7);
+  border-radius: 999px;
+  background: var(--bg, #f7f6f3);
+  overflow: hidden;
+  transition: var(--transition);
+}
+.chip:hover { border-color: var(--primary, #2383e2); }
+.chip-label {
+  padding: 4px 4px 4px 12px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  color: var(--text, #37352f);
+  cursor: text;   /* клик = редактировать, поэтому курсор как у поля ввода */
+}
+.chip-remove {
+  padding: 4px 10px 4px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary, #9b9a97);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.chip-remove:hover { color: #dc2626; }
+.chip-label:focus-visible, .chip-remove:focus-visible {
+  outline: 2px solid var(--primary, #2383e2);
+  outline-offset: -2px;
+}
+.chip-empty {
+  font-size: 12.5px;
+  color: var(--text-tertiary, #9b9a97);
+}
 .tg-test-results {
   margin-top: 8px;
   display: grid;

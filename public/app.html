@@ -748,15 +748,16 @@
             <div class="form-group">
               <label for="profile-tg-chat">Chat ID</label>
               <div class="input-with-action">
-                <textarea id="profile-tg-chat" rows="2" autocomplete="off"
-                          placeholder="123456789, -1001234567890"
-                          oninput="Profile.onChatIdsInput()"></textarea>
+                <input type="text" id="profile-tg-chat" inputmode="numeric" autocomplete="off"
+                       placeholder="Введите ID и нажмите Enter"
+                       onkeydown="Profile.onChatIdKey(event)">
                 <button type="button" id="profile-tg-lookup" class="btn btn-outline btn-sm">Найти</button>
               </div>
+              <!-- Добавленные чаты. Заполняется Profile.renderChatChips(). -->
+              <div id="profile-tg-chips" class="chip-list"></div>
               <div class="field-hint">
-                Можно несколько — по одному в строке или через запятую. Уведомления уйдут во все.
-                У групп идентификатор отрицательный (<code>-100…</code>).
-                <span id="profile-tg-chat-count"></span>
+                Уведомления уйдут во все добавленные чаты. У групп идентификатор
+                отрицательный (<code>-100…</code>). Клик по ID — редактировать, ✕ — удалить.
                 <span id="profile-tg-lookup-hint"></span>
               </div>
               <div id="profile-tg-test-results" class="tg-test-results" hidden></div>
