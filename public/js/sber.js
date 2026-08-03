@@ -223,17 +223,38 @@ const Sber = {
       wrap.innerHTML = `
         <h3 style="margin-bottom:8px">Сбербанк</h3>
         <p style="color:#dc2626">Ошибка предыдущей отправки: ${App.esc(payment.error_message || 'unknown')}</p>
-        <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Попробовать снова</button>
-        <button class="btn btn-outline" onclick="Sber.editTemplate()" style="margin-left:8px">⚙ Шаблон назначения</button>
+        ${this._attrGateRow(invoice)}
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Попробовать снова</button>
+          <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
+        </div>
       `;
+      Invoices._syncSberGate();
       return;
     }
     wrap.innerHTML = `
       <h3 style="margin-bottom:8px">Сбербанк</h3>
+      ${this._attrGateRow(invoice)}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Отправить в Сбербанк →</button>
         <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
       </div>
+    `;
+    // Начальное состояние кнопки считаем от галочек в шапке — одна точка
+    // истины на весь экран (Invoices._syncSberGate).
+    Invoices._syncSberGate();
+  },
+
+  // Общая галочка «Все реквизиты сверены» + подсказка о недостающих полях.
+  // Своего флага в БД у неё нет: она отражает и переключает те же пять отметок.
+  _attrGateRow(invoice) {
+    return `
+      <label class="sber-attrs-all">
+        <input type="checkbox" id="sber-attrs-all"
+               onchange="Invoices.toggleAllAttrChecks(${invoice.id}, this.checked)">
+        <span>Все реквизиты сверены с фото</span>
+      </label>
+      <div class="sber-attrs-hint" id="sber-attrs-hint" hidden></div>
     `;
   },
 

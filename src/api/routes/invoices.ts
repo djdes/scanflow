@@ -2,7 +2,17 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { invoiceRepo, type Invoice } from '../../database/repositories/invoiceRepo';
+import {
+  invoiceRepo,
+  type Invoice,
+  type AttrKey,
+  ATTR_KEYS,
+  ATTR_LABELS,
+  ATTR_COLUMNS,
+  ATTR_FIELD_TO_KEY,
+  isAttrKey,
+  uncheckedAttrs,
+} from '../../database/repositories/invoiceRepo';
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { getDb } from '../../database/db';
@@ -541,6 +551,18 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 
   await invoiceRepo.updateInvoiceData(id, update);
+
+  // Правка реквизита обнуляет его отметку «сверено с фото»: галочка означает,
+  // что человек сверил КОНКРЕТНОЕ значение, а оно только что изменилось. Другие
+  // отметки не трогаем — их значения не менялись. Сбрасываем только реально
+  // затронутые поля из пятёрки; правка ИНН/счёта чек-лист не касается.
+  const touchedAttrs = Object.keys(update)
+    .map(f => ATTR_FIELD_TO_KEY[f])
+    .filter((k): k is AttrKey => !!k);
+  if (touchedAttrs.length) {
+    await invoiceRepo.resetAttrChecks(id, touchedAttrs);
+  }
+
   // Выученные исправления OCR пер-тенантные: учимся только в области владельца
   // накладной. У «ничьей» накладной учить некого — правка применяется, но в
   // общую память распознавания не попадает (иначе досталась бы чужой компании).
@@ -1731,12 +1753,75 @@ router.delete('/:id/sber-payment', async (req: Request, res: Response) => {
   return res.json({ success: true });
 });
 
+/**
+ * Текущее состояние чек-листа для ответа фронту. `all_checked` считается ОТ
+ * пяти флагов, отдельного поля в БД нет — иначе появился бы второй источник
+ * правды, который однажды разойдётся с флагами.
+ */
+function attrCheckState(inv: Invoice) {
+  const state: Record<string, boolean> = {};
+  for (const k of ATTR_KEYS) state[k] = !!inv[ATTR_COLUMNS[k]];
+  const unchecked = uncheckedAttrs(inv);
+  return { ...state, all_checked: unchecked.length === 0, unchecked };
+}
+
+// POST /api/invoices/:id/attr-check — отметить реквизит как сверенный с фото.
+// { attr: 'number'|'date'|'supplier'|'total'|'vat'|'all', value: boolean }
+// Доступно любому пользователю аккаунта: это рабочая операция, не админская.
+router.post('/:id/attr-check', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  // 404, а не 403 — чтобы не подтверждать существование чужой накладной.
+  if (invoice.owner_user_id !== req.user?.id) {
+    return res.status(404).json({ error: 'Invoice not found' });
+  }
+
+  const { attr, value } = req.body ?? {};
+  if (typeof value !== 'boolean') {
+    return res.status(400).json({ error: 'value must be boolean' });
+  }
+  if (attr === 'all') {
+    await invoiceRepo.setAllAttrsChecked(id, value);
+  } else if (isAttrKey(attr)) {
+    await invoiceRepo.setAttrChecked(id, attr, value);
+  } else {
+    return res.status(400).json({ error: `attr must be one of: ${ATTR_KEYS.join(', ')}, all` });
+  }
+
+  const updated = await invoiceRepo.getById(id);
+  return res.json({ data: updated ? attrCheckState(updated) : null });
+});
+
+/**
+ * Гейт перед созданием платежа: пока человек не отметил все пять реквизитов
+ * как сверенные с фотографией, платить нельзя. Живёт на сервере, потому что
+ * disabled-кнопка обходится прямым запросом, а здесь речь про деньги.
+ * Возвращает подписи несверённых полей (пусто = можно платить).
+ */
+function unverifiedAttrLabels(invoice: Invoice): string[] {
+  return uncheckedAttrs(invoice).map(k => ATTR_LABELS[k]);
+}
+
 // POST /api/invoices/:id/send-sber — создать черновик платежа в СберБизнес
 router.post('/:id/send-sber', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  // Чек-лист сверенных реквизитов. Стоит ПЕРЕД созданием платежа и до любого
+  // обращения к Сберу — непроверенная накладная не должна оставлять следов.
+  // 409 (а не 400): запрос корректен, не позволяет состояние объекта — тем же
+  // кодом отвечают лимит согласования и «платёж уже создан» ниже.
+  const unverified = unverifiedAttrLabels(invoice);
+  if (unverified.length) {
+    return res.status(409).json({
+      error: `Реквизиты не сверены с фото: ${unverified.join(', ')}. Отметьте их в карточке накладной.`,
+      attrs_unchecked: uncheckedAttrs(invoice),
+    });
+  }
 
   // Amount-based approval gate. The existing payment route remains the single
   // execution path; a large payment first creates an auditable request and can

@@ -1732,6 +1732,46 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 57,
+    name: 'invoices.attr_checked_* — чек-лист сверенных реквизитов перед оплатой',
+    // Пять булевых отметок «сверено с фотографией» на полях шапки. Пока не
+    // отмечены все пять, сервер не даёт создать платёж в Сбере (см.
+    // docs/superpowers/specs/2026-08-03-attribute-verification-before-sber-design.md).
+    //
+    // Бэкфилла НЕТ намеренно: все существующие накладные стартуют
+    // непроверенными. Проставить им «сверено» значило бы объявить проверенным
+    // то, чего никто не сверял, — а вся ценность отметки в её честности.
+    // Уже оплаченные накладные это не затрагивает: гейт стоит только на
+    // создании НОВОГО платежа.
+    detect: (exec) => hasColumn(exec, 'invoices', 'attr_checked_vat'),
+    run: async (exec) => {
+      for (const col of ['number', 'date', 'supplier', 'total', 'vat']) {
+        const name = `attr_checked_${col}`;
+        if (!(await hasColumn(exec, 'invoices', name))) {
+          await exec.query(`ALTER TABLE invoices ADD COLUMN ${name} TINYINT(1) NOT NULL DEFAULT 0`);
+        }
+      }
+    },
+  },
+  {
+    version: 58,
+    name: 'invoices.attr_checked_vat_rate — сверка ставки НДС отдельно от суммы',
+    // Шестой пункт чек-листа. Отдельная миграция, а не правка 57: 57 к этому
+    // моменту уже применилась на dev-базе, и дописывание колонки в неё оставило
+    // бы dev без колонки навсегда (runMigrations сверяется только с номером —
+    // см. правило 16 в CLAUDE.md).
+    //
+    // Зачем отдельно от attr_checked_vat: сумма НДС может сойтись с документом
+    // при неверной ставке (22% вместо 20% на другой базе), поэтому «сумма
+    // сверена» не означает «ставка сверена».
+    detect: (exec) => hasColumn(exec, 'invoices', 'attr_checked_vat_rate'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'attr_checked_vat_rate'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN attr_checked_vat_rate TINYINT(1) NOT NULL DEFAULT 0`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

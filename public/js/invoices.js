@@ -295,6 +295,7 @@ const Invoices = {
       over_threshold: 'выше лимита — отправьте по одной',
       supplier_unverified: 'поставщик не подтверждён — отправьте по одной',
       already_paid: 'платёж уже создан',
+      attrs_unchecked: 'реквизиты не сверены с фото — откройте накладную и отметьте',
       no_inn: 'нет ИНН поставщика',
       no_total: 'нет суммы',
       sber_not_connected: 'Сбер не подключён',
@@ -544,6 +545,111 @@ const Invoices = {
     return App.statusBadge(inv.status);
   },
 
+  // ── Чек-лист «сверено с фото» ─────────────────────────────────────────────
+  // Пять реквизитов шапки, которые бухгалтер сверяет глазами перед оплатой.
+  // Пока не отмечены все пять, сервер не даёт создать платёж в Сбере (запрет
+  // живёт на бэкенде — disabled-кнопка это лишь удобство).
+  ATTR_FIELDS: {
+    number: 'invoice_number',
+    date: 'invoice_date',
+    supplier: 'supplier',
+    total: 'total_sum',
+    vat: 'vat_sum',
+    vat_rate: null,   // ставка живёт в позициях, отдельного поля шапки нет
+  },
+
+  // Ставка НДС хранится по позициям, поэтому в шапке показываем набор
+  // уникальных ставок: «10%», «10%, 20%» на смешанной накладной или «—», если
+  // ставку не распознали. Сверять есть что именно здесь — в таблице позиций
+  // ставка тонет среди строк.
+  _vatRatesText(items) {
+    const rates = [...new Set((items || [])
+      .map(i => i.vat_rate)
+      .filter(r => r != null && r !== ''))]
+      .map(Number)
+      .filter(r => Number.isFinite(r))
+      .sort((a, b) => a - b);
+    if (!rates.length) return '<span class="muted">—</span>';
+    return rates.map(r => `${r}%`).join(', ');
+  },
+
+  _attrCheckbox(data, attr) {
+    const checked = data[`attr_checked_${attr}`] ? ' checked' : '';
+    return `<label class="attr-check" title="Отметить, что реквизит сверён с фотографией">
+      <input type="checkbox"${checked} data-attr="${attr}"
+             onchange="Invoices.toggleAttrCheck(${data.id}, '${attr}', this.checked)"
+             aria-label="Сверено с фото">
+    </label>`;
+  },
+
+  // Отметить/снять один реквизит. Состояние берём ИЗ ОТВЕТА сервера, а не из
+  // предположения: так интерфейс не разойдётся с базой, если запрос не прошёл.
+  async toggleAttrCheck(id, attr, value) {
+    try {
+      const { data } = await App.apiJson(`/invoices/${id}/attr-check`, {
+        method: 'POST', body: { attr, value },
+      });
+      this._applyAttrState(data);
+    } catch (e) {
+      App.notify('Не удалось сохранить отметку', 'error');
+      // Откатываем визуально: сервер состояние не принял.
+      const box = document.querySelector(`.attr-check input[data-attr="${attr}"]`);
+      if (box) box.checked = !value;
+      this._syncSberGate();
+    }
+  },
+
+  // Общая галочка у кнопки отправки — ставит/снимает все пять разом.
+  async toggleAllAttrChecks(id, value) {
+    try {
+      const { data } = await App.apiJson(`/invoices/${id}/attr-check`, {
+        method: 'POST', body: { attr: 'all', value },
+      });
+      this._applyAttrState(data);
+    } catch (e) {
+      App.notify('Не удалось сохранить отметку', 'error');
+    }
+  },
+
+  // Разложить состояние с сервера по чекбоксам полей и пересчитать гейт.
+  _applyAttrState(state) {
+    if (!state) return;
+    Object.keys(this.ATTR_FIELDS).forEach(attr => {
+      const box = document.querySelector(`.attr-check input[data-attr="${attr}"]`);
+      if (box) box.checked = !!state[attr];
+    });
+    this._syncSberGate();
+  },
+
+  // Единственное место, где решается, можно ли жать «Отправить в Сбербанк».
+  // Зовётся и после переключения галочки, и после отрисовки блока Сбера.
+  _syncSberGate() {
+    const boxes = [...document.querySelectorAll('.attr-check input[data-attr]')];
+    if (!boxes.length) return;
+    const missing = boxes.filter(b => !b.checked)
+      .map(b => ({
+        number: 'Номер', date: 'Дата', supplier: 'Поставщик',
+        total: 'Сумма', vat: 'НДС', vat_rate: 'Ставка НДС',
+      })[b.dataset.attr]);
+    const all = missing.length === 0;
+
+    const master = document.getElementById('sber-attrs-all');
+    if (master) master.checked = all;
+
+    const btn = document.getElementById('sber-send-btn');
+    if (btn) {
+      btn.disabled = !all;
+      btn.title = all
+        ? 'Создать черновик платёжного поручения в СберБизнес'
+        : `Сначала сверьте с фото: ${missing.join(', ')}`;
+    }
+    const hint = document.getElementById('sber-attrs-hint');
+    if (hint) {
+      hint.textContent = all ? '' : `Не сверено: ${missing.join(', ')}`;
+      hint.hidden = all;
+    }
+  },
+
   // Renders one cell in the invoices list that shows whether a Sber payment
   // exists for this invoice (created/failed/pending), so the user can spot at
   // a glance which invoices have already been pushed to the bank.
@@ -607,27 +713,31 @@ const Invoices = {
       const header = document.getElementById('invoice-header-fields');
       header.innerHTML = `
         <div class="invoice-field">
-          <div class="field-label">Номер</div>
+          <div class="field-label">${this._attrCheckbox(data, 'number')}Номер</div>
           <div class="field-value">${App.esc(data.invoice_number || '—')}</div>
         </div>
         <div class="invoice-field">
-          <div class="field-label">Дата</div>
+          <div class="field-label">${this._attrCheckbox(data, 'date')}Дата</div>
           <div class="field-value">${App.formatDate(data.invoice_date)}</div>
         </div>
         <div class="invoice-field">
-          <div class="field-label">Поставщик</div>
+          <div class="field-label">${this._attrCheckbox(data, 'supplier')}Поставщик</div>
           <div class="field-value">${App.esc(data.supplier || '—')}</div>
         </div>
         <div class="invoice-field">
-          <div class="field-label">Сумма</div>
+          <div class="field-label">${this._attrCheckbox(data, 'total')}Сумма</div>
           <div class="field-value">
             ${App.formatMoney(data.total_sum)}
             ${data.items_total_mismatch ? '<span class="badge badge-error" title="Сумма в документе расходилась с суммой позиций более чем на 1%. Значение пересчитано из товаров — проверьте глазами." style="margin-left:8px">⚠ требует проверки</span>' : ''}
           </div>
         </div>
         <div class="invoice-field">
-          <div class="field-label">В т.ч. НДС</div>
+          <div class="field-label">${this._attrCheckbox(data, 'vat')}В т.ч. НДС</div>
           <div class="field-value">${data.vat_sum != null ? App.formatMoney(data.vat_sum) : '—'}</div>
+        </div>
+        <div class="invoice-field">
+          <div class="field-label">${this._attrCheckbox(data, 'vat_rate')}Ставка НДС</div>
+          <div class="field-value">${this._vatRatesText(data.items)}</div>
         </div>
         <div class="invoice-field">
           <div class="field-label">Статус</div>

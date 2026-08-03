@@ -67,6 +67,11 @@ export async function bulkSendSber(invoices: Invoice[], apiKey: string): Promise
     if (status === 200 && json.success) { sent++; continue; }
     if (status === 409 && json.needs_supplier_confirmation) { skipped.push({ id: inv.id, reason: 'supplier_unverified' }); continue; }
     if (status === 409 && json.needs_approval) { skipped.push({ id: inv.id, reason: 'over_threshold' }); continue; }
+    // Чек-лист сверенных реквизитов не закрыт. Проверяем ДО общего 409, иначе
+    // причина попала бы в отчёт как «уже оплачено» и сбивала бы с толку.
+    if (status === 409 && Array.isArray(json.attrs_unchecked)) {
+      skipped.push({ id: inv.id, reason: 'attrs_unchecked' }); continue;
+    }
     if (status === 409) { skipped.push({ id: inv.id, reason: 'already_paid' }); continue; }
     if (status === 400) {
       const err = String(json.error ?? '');

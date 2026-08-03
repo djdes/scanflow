@@ -48,6 +48,54 @@ function sberOverduePredicate(days: number): string {
 }
 
 /**
+ * Чек-лист «сверено с фотографией» на реквизитах шапки. Ключ приходит с фронта,
+ * поэтому имя колонки берётся ТОЛЬКО отсюда — интерполировать в SQL что-либо из
+ * тела запроса нельзя (правило 18 в CLAUDE.md, инцидент с PATCH /api/suppliers).
+ */
+export const ATTR_COLUMNS = {
+  number: 'attr_checked_number',
+  date: 'attr_checked_date',
+  supplier: 'attr_checked_supplier',
+  total: 'attr_checked_total',
+  vat: 'attr_checked_vat',
+  // Ставка отдельно от суммы: сумма НДС может сойтись с документом и при
+  // неверной ставке, поэтому «сумму сверил» ≠ «ставку сверил».
+  vat_rate: 'attr_checked_vat_rate',
+} as const;
+
+export type AttrKey = keyof typeof ATTR_COLUMNS;
+
+export const ATTR_KEYS = Object.keys(ATTR_COLUMNS) as AttrKey[];
+
+/** Человеческие подписи — для текста ошибки «не сверены: Сумма, НДС». */
+export const ATTR_LABELS: Record<AttrKey, string> = {
+  number: 'Номер',
+  date: 'Дата',
+  supplier: 'Поставщик',
+  total: 'Сумма',
+  vat: 'НДС',
+  vat_rate: 'Ставка НДС',
+};
+
+/** Поля шапки, правка которых обнуляет соответствующую отметку. */
+export const ATTR_FIELD_TO_KEY: Record<string, AttrKey> = {
+  invoice_number: 'number',
+  invoice_date: 'date',
+  supplier: 'supplier',
+  total_sum: 'total',
+  vat_sum: 'vat',
+};
+
+export function isAttrKey(v: unknown): v is AttrKey {
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(ATTR_COLUMNS, v);
+}
+
+/** Ключи атрибутов, которые ещё не сверены. Пусто = чек-лист закрыт. */
+export function uncheckedAttrs(inv: Invoice): AttrKey[] {
+  return ATTR_KEYS.filter(k => !inv[ATTR_COLUMNS[k]]);
+}
+
+/**
  * Фильтры списка накладных. `q` — общий поиск (номер ИЛИ поставщик ИЛИ ИНН),
  * остальное — пер-колоночные фильтры из строки под шапкой таблицы; все условия
  * складываются через AND.
@@ -97,6 +145,14 @@ export interface Invoice {
   recognized_at: string | null;   // set by updateStatus('processed') on first recognition, never at create()
   read_at: string | null;          // NULL = непрочитанная; ставится при открытии детали владельцем или кнопкой
   paid_externally: number;         // 1 = оплачено вне сервиса (наличные/своя карта) → вне overdue/обязательств
+  // Чек-лист «сверено с фото». Все пять = 1 — только тогда сервер разрешает
+  // создать платёж в Сбере. Правка поля обнуляет свою отметку.
+  attr_checked_number: number;
+  attr_checked_date: number;
+  attr_checked_supplier: number;
+  attr_checked_total: number;
+  attr_checked_vat: number;
+  attr_checked_vat_rate: number;
   upload_source: string | null;
   upload_user_agent: string | null;
   // Owning tenant (multi-tenant isolation). NULL = system/owner-owned (watcher,
@@ -320,6 +376,32 @@ export const invoiceRepo = {
          ORDER BY created_at ASC`
       )
       .all<Invoice>();
+  },
+
+  /**
+   * Поставить/снять одну отметку чек-листа. Имя колонки берётся из ATTR_COLUMNS
+   * по валидированному ключу — в SQL ничего из запроса не интерполируется.
+   */
+  async setAttrChecked(id: number, attr: AttrKey, value: boolean): Promise<void> {
+    const col = ATTR_COLUMNS[attr];
+    await getDb().prepare(`UPDATE invoices SET ${col} = ? WHERE id = ?`).run(value ? 1 : 0, id);
+  },
+
+  /** Общая галочка «все реквизиты сверены» — ставит/снимает все пять разом. */
+  async setAllAttrsChecked(id: number, value: boolean): Promise<void> {
+    const sets = ATTR_KEYS.map(k => `${ATTR_COLUMNS[k]} = ?`).join(', ');
+    await getDb().prepare(`UPDATE invoices SET ${sets} WHERE id = ?`)
+      .run(...ATTR_KEYS.map(() => (value ? 1 : 0)), id);
+  },
+
+  /**
+   * Сброс отметок: перечисленных или всех. Зовётся при правке шапки (сбрасываем
+   * только затронутые поля) и при полном перераспознавании (все). Идемпотентен.
+   */
+  async resetAttrChecks(id: number, attrs?: AttrKey[]): Promise<void> {
+    const keys = attrs && attrs.length ? attrs : ATTR_KEYS;
+    const sets = keys.map(k => `${ATTR_COLUMNS[k]} = 0`).join(', ');
+    await getDb().prepare(`UPDATE invoices SET ${sets} WHERE id = ?`).run(id);
   },
 
   async markSberOverdueNotified(id: number): Promise<void> {
