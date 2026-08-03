@@ -115,6 +115,15 @@ const App = {
     document.getElementById('nav-toggle')?.setAttribute('aria-expanded', 'false');
     // Hide all sections
     document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
+
+    // Страницы накладных (список и карточка) — «широкие»: там таблицы на 10
+    // колонок, и в общие 1200px они не влезали, хотя справа пустовало место.
+    // Остальные страницы (настройки, профиль, формы) остаются узкими, иначе
+    // строки формы растягиваются на весь экран и хуже читаются.
+    // Ширину даёт CSS-класс, а не расчёт от 100vw: 100vw включает полосу
+    // прокрутки, и блок вылезал бы за экран, добавляя горизонтальный скролл.
+    const wideRoute = !hash || hash === '#/' || hash.startsWith('#/invoices');
+    document.getElementById('app-main')?.classList.toggle('main--wide', wideRoute);
     // Remove active tab
     document.querySelectorAll('nav a').forEach((a) => {
       a.classList.remove('active');
