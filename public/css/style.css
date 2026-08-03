@@ -2140,9 +2140,18 @@ tr.inv-visited:hover td { opacity: 1; }
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* Страховка от схлопывания: width:100% не задаёт минимальную ширину колонки,
+   поэтому без min-width поле в колонке без явной ширины обрезает значение.
+   ВАЖНО: таблица шире контейнера (есть горизонтальный скролл), а в таком случае
+   заданный на td `width` — лишь подсказка, браузер ужимает колонки. Поэтому
+   реальную гарантию читаемости даёт именно min-width здесь, а не width ниже.
+   В ch, чтобы не пересчитывать при смене шрифта. */
+.item-edit-qty { min-width: calc(7ch + 14px); }    /* «20,98», «1080,000» */
+.item-edit-total { min-width: calc(9ch + 14px); }  /* «17556,81» */
 .item-edit-unit {
   text-align: left;
-  min-width: 40px;
+  /* Самая длинная единица в данных — «упак»; 40px обрезали даже «шт». */
+  min-width: calc(5ch + 16px);
 }
 
 /* Invoice items table: let the scanned-name column breathe and keep the
@@ -2155,12 +2164,28 @@ tr.inv-visited:hover td { opacity: 1; }
   word-break: normal;
   overflow-wrap: break-word;
 }
+/* ВНИМАНИЕ: индексы должны совпадать с thead в public/app.html. Колонка
+   «Обычная» (медианная цена) стоит между «Цена» и «Сумма» — раньше её здесь
+   пропустили, из-за чего 110px уезжали на медиану, а «Сумма» оставалась без
+   правила. Её input'у задан width:100%, а процентная ширина не участвует в
+   расчёте минимальной ширины колонки при table-layout:auto — столбец схлопывался
+   до паддингов и значение обрезалось («50» вместо «50 000,00»). */
 #invoice-items-tbody td:nth-child(4),   /* Кол-во */
 #invoice-items-tbody td:nth-child(5),   /* Ед. */
 #invoice-items-tbody td:nth-child(6),   /* Цена */
-#invoice-items-tbody td:nth-child(7) {  /* Сумма */
-  width: 110px;
+#invoice-items-tbody td:nth-child(7),   /* Обычная */
+#invoice-items-tbody td:nth-child(8) {  /* Сумма */
+  /* Общий паддинг ячейки — 16px с каждой стороны, то есть треть ширины узкой
+     колонки уходит в пустоту. Поджимаем боковые поля только здесь — ширина
+     достаётся значению, а таблица не становится шире. */
+  padding-left: 8px;
+  padding-right: 8px;
 }
+#invoice-items-tbody td:nth-child(4) { width: 104px; }  /* Кол-во */
+#invoice-items-tbody td:nth-child(5) { width: 72px; }   /* Ед. — «шт», «кг», «упак» */
+/* «Цена» и «Обычная» — read-only текст, ширину задаёт содержимое.
+   «Сумма» — поле ввода: ширину задаём явно, иначе колонка схлопнется (см. выше). */
+#invoice-items-tbody td:nth-child(8) { width: 120px; }  /* Сумма */
 .nom-picker-dropdown {
   display: none;
   position: absolute;
