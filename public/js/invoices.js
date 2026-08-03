@@ -1931,18 +1931,118 @@ const Invoices = {
       container.innerHTML = data.map((photo, i) => {
         const safeUrl = encodeURI(String(photo.url || ''));
         const safeName = App.esc(photo.filename);
+        const deg = this._getPhotoRotation(id, i);
         return `
-        <div style="margin-bottom:16px">
-          <div style="margin-bottom:4px;color:#888;font-size:13px">Лист ${i + 1}: ${safeName}</div>
-          <img src="${safeUrl}?key=${encodeURIComponent(App.apiKey)}" alt="${safeName}"
-               style="max-width:100%;border:1px solid #e0e0e0;border-radius:6px"
-               onerror="this.outerHTML='<div class=\\'empty-state\\'>Файл не найден на диске</div>'">
+        <div class="photo-block" data-page="${i}">
+          <div class="photo-toolbar">
+            <span class="photo-caption">Лист ${i + 1}: ${safeName}</span>
+            <span class="photo-rotate-controls">
+              <button type="button" class="btn btn-outline btn-sm" title="Повернуть влево (90°)"
+                      aria-label="Повернуть лист ${i + 1} влево"
+                      onclick="Invoices.rotatePhoto(${id}, ${i}, -90)">↺</button>
+              <button type="button" class="btn btn-outline btn-sm" title="Повернуть вправо (90°)"
+                      aria-label="Повернуть лист ${i + 1} вправо"
+                      onclick="Invoices.rotatePhoto(${id}, ${i}, 90)">↻</button>
+            </span>
+          </div>
+          <div class="photo-frame" data-rot="${deg}">
+            <img src="${safeUrl}?key=${encodeURIComponent(App.apiKey)}" alt="${safeName}"
+                 onerror="this.closest('.photo-frame').outerHTML='<div class=\\'empty-state\\'>Файл не найден на диске</div>'">
+          </div>
         </div>`;
       }).join('');
+
+      // Габариты считаем только после загрузки: до неё naturalWidth = 0.
+      container.querySelectorAll('.photo-frame img').forEach(img => {
+        if (img.complete && img.naturalWidth) this._layoutPhoto(img.closest('.photo-frame'));
+        else img.addEventListener('load', () => this._layoutPhoto(img.closest('.photo-frame')), { once: true });
+      });
+      // Ширина карточки меняется при ресайзе и при сворачивании меню — пересчёт
+      // нужен, иначе повёрнутое фото перестанет попадать в контейнер.
+      if (!this._photoResizeBound) {
+        window.addEventListener('resize', () => {
+          document.querySelectorAll('#invoice-photos-container .photo-frame')
+            .forEach(f => this._layoutPhoto(f));
+        });
+        this._photoResizeBound = true;
+      }
       this._photosLoaded = true;
     } catch (e) {
       container.innerHTML = '<div class="empty-state">Ошибка загрузки фото</div>';
     }
+  },
+
+  // ── Поворот фото во вкладке «Фото» ────────────────────────────────────────
+  // Накладные обычно фотографируют вертикально, а читать их так неудобно.
+  // Поворот чисто клиентский: сам файл не трогаем (его читал OCR, и переписывать
+  // исходник ради просмотра неправильно). Выбор запоминаем по накладной и листу,
+  // чтобы при следующем открытии не крутить заново.
+  _PHOTO_ROT_KEY: 'sf_photo_rotation',
+
+  _readPhotoRotations() {
+    try { return JSON.parse(localStorage.getItem(this._PHOTO_ROT_KEY) || '{}'); }
+    catch { return {}; }
+  },
+
+  _getPhotoRotation(invoiceId, page) {
+    const v = this._readPhotoRotations()[`${invoiceId}:${page}`];
+    return Number.isFinite(v) ? ((v % 360) + 360) % 360 : 0;
+  },
+
+  _savePhotoRotation(invoiceId, page, deg) {
+    try {
+      const all = this._readPhotoRotations();
+      const key = `${invoiceId}:${page}`;
+      if (deg === 0) delete all[key];       // 0° — состояние по умолчанию, не храним
+      else all[key] = deg;
+      // Ограничиваем рост: храним 300 последних записей (как в _markVisited).
+      const keys = Object.keys(all);
+      if (keys.length > 300) keys.slice(0, keys.length - 300).forEach(k => delete all[k]);
+      localStorage.setItem(this._PHOTO_ROT_KEY, JSON.stringify(all));
+    } catch { /* приватный режим / переполнение — поворот просто не запомнится */ }
+  },
+
+  rotatePhoto(invoiceId, page, delta) {
+    const frame = document.querySelector(`#invoice-photos-container .photo-block[data-page="${page}"] .photo-frame`);
+    if (!frame) return;
+    const deg = ((Number(frame.dataset.rot || 0) + delta) % 360 + 360) % 360;
+    frame.dataset.rot = String(deg);
+    this._savePhotoRotation(invoiceId, page, deg);
+    this._layoutPhoto(frame);
+  },
+
+  /**
+   * Раскладка повёрнутого фото. transform: rotate() НЕ меняет layout-бокс:
+   * повёрнутая на 90° вертикальная фотография вылезла бы за карточку и наехала
+   * на соседний лист. Поэтому считаем габариты руками:
+   *   0°/180° — вписываем по ширине контейнера, высота по пропорции;
+   *   90°/270° — на экране ширина и высота меняются местами, значит по ширине
+   *   контейнера надо вписать ВЫСОТУ исходника, а рамке задать высоту, равную
+   *   ширине картинки.
+   * Само изображение позиционируем абсолютно от центра рамки — тогда поворот
+   * вокруг центра не сдвигает его вбок при любом угле.
+   */
+  _layoutPhoto(frame) {
+    if (!frame) return;
+    const img = frame.querySelector('img');
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const deg = ((Number(frame.dataset.rot || 0) % 360) + 360) % 360;
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+    const avail = frame.parentElement ? frame.parentElement.clientWidth : nw;
+    const quarter = deg === 90 || deg === 270;
+
+    // Ширина, которую займёт САМА картинка (до поворота).
+    const width = quarter
+      ? Math.min(nw, avail * (nw / nh))   // на экране это станет высотой
+      : Math.min(nw, avail);
+    const height = width * (nh / nw);
+
+    img.style.width = `${width}px`;
+    img.style.height = 'auto';
+    img.style.transform = `translate(-50%, -50%) rotate(${deg}deg)`;
+    // Высота рамки = вертикальный габарит ПОСЛЕ поворота.
+    frame.style.height = `${Math.round(quarter ? width : height)}px`;
   },
 
   // Detects "(50кг)" / "(1.5 кг)" style pack-size hints in a scanned name.

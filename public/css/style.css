@@ -4054,6 +4054,60 @@ tr.inv-visited:hover td { opacity: 1; }
 .date-nav__all { border-bottom: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; padding-bottom: 9px; }
 
 /* ============================================================
+   Вкладка «Фото»: просмотр с поворотом на 90°
+   ============================================================ */
+.photo-block { margin-bottom: 20px; }
+.photo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.photo-caption {
+  color: var(--text-tertiary, #888);
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.photo-rotate-controls {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.photo-rotate-controls .btn {
+  padding: 4px 10px;
+  font-size: 15px;
+  line-height: 1.2;
+}
+/* Рамка задаёт место под повёрнутое изображение: высоту ей считает JS
+   (_layoutPhoto), потому что transform не меняет layout-бокс. */
+.photo-frame {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 6px;
+  background: var(--bg, #f7f6f3);
+}
+/* Позиционируем от центра рамки: поворот вокруг центра тогда не уводит
+   изображение вбок ни при каком угле. */
+.photo-frame img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
+  display: block;
+  transition: transform 0.2s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .photo-frame img { transition: none; }
+}
+
+/* ============================================================
    Спиннер на кнопке во время долгого запроса (App.withBusyButton)
    ============================================================ */
 .btn.is-busy, button.is-busy {
