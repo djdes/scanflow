@@ -260,16 +260,17 @@ const Invoices = {
     bar.style.display = '';
     bar.innerHTML = `
       <span class="bulk-count">Выбрано ${n}</span>
-      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('onec')">&rarr; 1С</button>
-      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('sber')">&rarr; Сбер</button>
-      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('both')">&rarr; 1С и Сбер</button>
+      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('onec', event)">&rarr; 1С</button>
+      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('sber', event)">&rarr; Сбер</button>
+      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('both', event)">&rarr; 1С и Сбер</button>
       <button class="btn btn-outline btn-sm" onclick="Invoices.clearSelection()">Снять выделение</button>`;
   },
 
-  async bulkSend(target) {
+  async bulkSend(target, ev) {
+    const btn = ev?.currentTarget || ev?.target || null;
     const ids = [...this._selected];
     if (ids.length === 0) return;
-    return this._withGuard('bulkSend', async () => {
+    return this._withGuard('bulkSend', () => App.withBusyButton(btn, async () => {
       try {
         const reports = [];
         if (target === 'onec' || target === 'both') {
@@ -285,7 +286,7 @@ const Invoices = {
       } catch (e) {
         App.notify('Ошибка массовой отправки: ' + e.message, 'error');
       }
-    });
+    }));
   },
 
   _showBulkReport(reports) {
@@ -882,12 +883,12 @@ const Invoices = {
       }
       // Remap buttons — two separate buttons, planshet-friendly
       if (unmappedCount > 0) {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false, event)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
       }
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.editHeader(${data.id})" title="Редактировать реквизиты накладной">✎ Реквизиты</button>`;
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id})" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id})" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true, event)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event)" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id}, event)" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
       // LLM button is always visible. When everything is already mapped it
       // passes all=true so Claude can reconsider existing picks (catalog may
       // have grown, or an old fuzzy match may be improvable).
@@ -896,7 +897,7 @@ const Invoices = {
       const llmTitle = llmAll
         ? 'Пересобрать все маппинги через Claude LLM (Anthropic API)'
         : 'Сопоставить несопоставленные товары через Claude LLM (Anthropic API)';
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id}, ${llmAll})" title="${llmTitle}">${llmLabel}</button>`;
+      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id}, ${llmAll}, event)" title="${llmTitle}">${llmLabel}</button>`;
       // Delete button (destructive, always visible, pushed to the right)
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
@@ -1391,11 +1392,14 @@ const Invoices = {
     });
   },
 
-  rescan(id) {
+  rescan(id, ev) {
+    // Кнопку запоминаем ДО показа модалки: к моменту подтверждения событие уже
+    // отработало и currentTarget будет null, а сам узел кнопки останется живым.
+    const btn = ev?.currentTarget || ev?.target || null;
     this.showConfirm(
       'Вы уверены?',
       'Фото будет заново распознано через Claude API, текущие позиции заменятся новыми.',
-      () => this._withGuard(`rescan:${id}`, async () => {
+      () => this._withGuard(`rescan:${id}`, () => App.withBusyButton(btn, async () => {
         try {
           App.notify('Пересканирование запущено, ожидайте 10–30 сек…', 'info');
           const res = await App.api(`/invoices/${id}/rescan`, { method: 'POST' });
@@ -1409,7 +1413,7 @@ const Invoices = {
         } catch (e) {
           App.notify('Ошибка: ' + e.message, 'error');
         }
-      }),
+      })),
       { okLabel: 'Да', cancelLabel: 'Нет', okClass: 'btn-primary' }
     );
   },
@@ -1417,7 +1421,10 @@ const Invoices = {
   // "Дофоткать страницы" — pick/take photo(s), upload to the invoice; their
   // recognized items append to it. OCR is async on the server, so we poll the
   // invoice until its item count grows, then reload the detail.
-  addPages(id) {
+  addPages(id, ev) {
+    // Как и в rescan: между кликом и реальной работой стоит выбор файлов,
+    // поэтому узел кнопки берём синхронно, пока событие ещё диспатчится.
+    const btn = ev?.currentTarget || ev?.target || null;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
@@ -1428,7 +1435,7 @@ const Invoices = {
       const files = Array.from(input.files || []);
       input.remove();
       if (files.length === 0) return;
-      await this._withGuard(`addPages:${id}`, async () => {
+      await this._withGuard(`addPages:${id}`, () => App.withBusyButton(btn, async () => {
         let before = 0;
         try { before = (await App.apiJson(`/invoices/${id}`)).data?.items?.length ?? 0; } catch { /* ignore */ }
         const fd = new FormData();
@@ -1444,20 +1451,31 @@ const Invoices = {
         }
         App.notify(`Загружено страниц: ${files.length}. Распознавание идёт (~${Math.max(1, files.length)} мин)…`, 'info');
         const deadline = Date.now() + 60000 * Math.max(2, files.length * 2);
-        const poll = async () => {
-          try {
-            const now = (await App.apiJson(`/invoices/${id}`)).data?.items?.length ?? 0;
-            if (now > before) {
-              App.notify(`Страницы добавлены (+${now - before} позиц.)`, 'success');
+        // Опрос завёрнут в Promise, чтобы спиннер крутился до РЕАЛЬНОГО
+        // результата (позиции появились или вышло время), а не до конца
+        // загрузки файлов: распознавание на сервере идёт асинхронно и занимает
+        // основную часть ожидания.
+        await new Promise((resolve) => {
+          const poll = async () => {
+            try {
+              const now = (await App.apiJson(`/invoices/${id}`)).data?.items?.length ?? 0;
+              if (now > before) {
+                App.notify(`Страницы добавлены (+${now - before} позиц.)`, 'success');
+                this.showDetail(id);
+                resolve();
+                return;
+              }
+            } catch { /* ignore, keep polling */ }
+            if (Date.now() < deadline) setTimeout(poll, 5000);
+            else {
+              App.notify('Обработка затянулась — обновите страницу позже', 'info');
               this.showDetail(id);
-              return;
+              resolve();
             }
-          } catch { /* ignore, keep polling */ }
-          if (Date.now() < deadline) setTimeout(poll, 5000);
-          else { App.notify('Обработка затянулась — обновите страницу позже', 'info'); this.showDetail(id); }
-        };
-        setTimeout(poll, 5000);
-      });
+          };
+          setTimeout(poll, 5000);
+        });
+      }));
     }, { once: true });
     input.click();
   },
@@ -1491,8 +1509,11 @@ const Invoices = {
     });
   },
 
-  async remap(id, forceAll) {
-    return this._withGuard(`remap:${id}`, async () => {
+  async remap(id, forceAll, ev) {
+    // currentTarget живёт только на время диспатча события — запоминаем СРАЗУ,
+    // до первого await, иначе получим null.
+    const btn = ev?.currentTarget || ev?.target || null;
+    return this._withGuard(`remap:${id}`, () => App.withBusyButton(btn, async () => {
       const url = forceAll ? `/invoices/${id}/remap?all=true` : `/invoices/${id}/remap`;
       try {
         const data = await App.apiJson(url, { method: 'POST' });
@@ -1509,11 +1530,12 @@ const Invoices = {
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
       }
-    });
+    }));
   },
 
-  async llmRemap(id, all = false) {
-    return this._withGuard(`llmRemap:${id}`, async () => {
+  async llmRemap(id, all = false, ev) {
+    const btn = ev?.currentTarget || ev?.target || null;
+    return this._withGuard(`llmRemap:${id}`, () => App.withBusyButton(btn, async () => {
       App.notify(all ? 'Пересобираем все маппинги через Claude…' : 'Отправляем несопоставленные товары в Claude…', 'info');
       try {
         const url = all ? `/invoices/${id}/llm-remap?all=true` : `/invoices/${id}/llm-remap`;
@@ -1535,7 +1557,7 @@ const Invoices = {
       } catch (e) {
         App.notify('Ошибка LLM-маппинга: ' + e.message, 'error');
       }
-    });
+    }));
   },
 
   async resetStatus(id) {

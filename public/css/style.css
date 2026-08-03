@@ -4054,6 +4054,35 @@ tr.inv-visited:hover td { opacity: 1; }
 .date-nav__all { border-bottom: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; padding-bottom: 9px; }
 
 /* ============================================================
+   Спиннер на кнопке во время долгого запроса (App.withBusyButton)
+   ============================================================ */
+.btn.is-busy, button.is-busy {
+  cursor: progress;
+  /* Кнопка уже disabled — но не даём ей выглядеть «выключенной насовсем»:
+     работа идёт, и это должно читаться. */
+  opacity: 0.85;
+}
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: btn-spin 0.6s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+/* Уважаем системную настройку «меньше движения»: вместо вращения — пульсация. */
+@media (prefers-reduced-motion: reduce) {
+  .btn-spinner {
+    animation: btn-pulse 1.2s ease-in-out infinite;
+    border-right-color: currentColor;
+  }
+  @keyframes btn-pulse { 50% { opacity: 0.35; } }
+}
+
+/* ============================================================
    Чек-лист «сверено с фото» на реквизитах накладной
    ============================================================ */
 /* Чекбокс живёт внутри .field-label, поэтому подпись остаётся в потоке рядом. */

@@ -203,6 +203,41 @@ const App = {
     }
   },
 
+  // Крутит спиннер на кнопке, пока не вернётся ОТВЕТ СЕРВЕРА, а не просто до
+  // конца обработчика клика. Долгие действия («Пересканировать фото» на плотной
+  // накладной — 2-3 минуты) раньше никак не отзывались: _withGuard глушил
+  // повторные клики, но человек не понимал, нажалось ли вообще.
+  //
+  // `el` — сама кнопка или что-то внутри неё (передаём `event.currentTarget`
+  // из inline-обработчика). Если кнопки нет — просто выполняем работу.
+  async withBusyButton(el, fn) {
+    const btn = el && el.closest ? el.closest('button') : null;
+    if (!btn) return fn();
+    const prevHtml = btn.innerHTML;
+    const prevDisabled = btn.disabled;
+    const prevWidth = btn.style.minWidth;
+    // Фиксируем ширину: иначе кнопка схлопнется под размер спиннера и соседние
+    // кнопки в ряду прыгнут.
+    btn.style.minWidth = `${Math.round(btn.getBoundingClientRect().width)}px`;
+    btn.disabled = true;
+    btn.classList.add('is-busy');
+    btn.setAttribute('aria-busy', 'true');
+    btn.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span><span class="sr-only">Выполняется…</span>';
+    try {
+      return await fn();
+    } finally {
+      // Многие действия в конце перерисовывают карточку, и эта кнопка к моменту
+      // восстановления уже вне DOM — тогда операции просто уходят в никуда,
+      // ошибки не будет. Восстанавливаем в любом случае: если узел жив (действие
+      // упало с ошибкой), пользователь должен получить рабочую кнопку обратно.
+      btn.classList.remove('is-busy');
+      btn.removeAttribute('aria-busy');
+      btn.innerHTML = prevHtml;
+      btn.disabled = prevDisabled;
+      btn.style.minWidth = prevWidth;
+    }
+  },
+
   notify(message, type = 'info') {
     const container = document.getElementById('notifications');
     const toast = document.createElement('div');

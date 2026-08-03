@@ -340,34 +340,41 @@ const Sber = {
       }
     }
 
+    // Спиннер и восстановление состояния кнопки — через общий хелпер: он сам
+    // вернёт исходный текст и disabled в finally. Ручное восстановление здесь
+    // было опасно тем, что затирало состояние гейта чек-листа (кнопка могла
+    // «разблокироваться», хотя реквизиты не сверены).
     const btn = document.getElementById('sber-send-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Создание платежа...'; }
-    const body = supplierOverrides ? { supplier_overrides: supplierOverrides } : {};
-    const res = await App.api(`/invoices/${invoiceId}/send-sber`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (res.status === 409) {
-      const data = await res.json();
-      if (data.needs_supplier_confirmation) {
-        SberModal.open(data.prefilled, async (overrides) => {
-          await Sber.sendToSber(invoiceId, overrides);
-          return true;
-        });
-        if (btn) { btn.disabled = false; btn.textContent = 'Отправить в Сбербанк →'; }
+    await App.withBusyButton(btn, async () => {
+      const body = supplierOverrides ? { supplier_overrides: supplierOverrides } : {};
+      const res = await App.api(`/invoices/${invoiceId}/send-sber`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.status === 409) {
+        const data = await res.json();
+        if (data.needs_supplier_confirmation) {
+          SberModal.open(data.prefilled, async (overrides) => {
+            await Sber.sendToSber(invoiceId, overrides);
+            return true;
+          });
+          return;
+        }
+        // Прочие 409 (чек-лист не закрыт, лимит согласования, платёж уже есть)
+        // — показываем текст сервера, он объясняет причину.
+        App.notify(data.error || 'Отправка отклонена', 'error');
         return;
       }
-    }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      App.notify(err.error || `Ошибка ${res.status}`, 'error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Отправить в Сбербанк →'; }
-      return;
-    }
-    const ok = await res.json();
-    App.notify(`Черновик создан в Сбере (№ ${ok.payment_number || '?'}). Подпишите в Сбер.Бизнес.`, 'success');
-    Invoices.showDetail(invoiceId);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        App.notify(err.error || `Ошибка ${res.status}`, 'error');
+        return;
+      }
+      const ok = await res.json();
+      App.notify(`Черновик создан в Сбере (№ ${ok.payment_number || '?'}). Подпишите в Сбер.Бизнес.`, 'success');
+      Invoices.showDetail(invoiceId);
+    });
   },
 };
 
