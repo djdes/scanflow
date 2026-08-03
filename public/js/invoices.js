@@ -7,7 +7,12 @@ const Invoices = {
   dateFrom: null,
   dateTo: null,
   period: 'all',
+  // Пер-колоночные фильтры из строки под шапкой. Статус и даты живут в
+  // currentStatus/dateFrom/dateTo (их же используют чипсы периода), здесь —
+  // только то, чего раньше не было.
+  colFilters: { number: '', supplier: '', sumFrom: '', sumTo: '', sber: '' },
   _searchTimer: null,
+  _filterTimer: null,
   _selected: new Set(),   // выбранные id для массовой отправки (сбрасывается в loadTable)
 
   // ── Visited-invoice tracking ──────────────────────────────────────────────
@@ -117,6 +122,12 @@ const Invoices = {
     if (this.search) url += `&q=${encodeURIComponent(this.search)}`;
     if (this.dateFrom) url += `&from=${this.dateFrom}`;
     if (this.dateTo) url += `&to=${this.dateTo}`;
+    const f = this.colFilters;
+    if (f.number) url += `&number=${encodeURIComponent(f.number)}`;
+    if (f.supplier) url += `&supplier=${encodeURIComponent(f.supplier)}`;
+    if (f.sumFrom) url += `&sum_from=${encodeURIComponent(f.sumFrom)}`;
+    if (f.sumTo) url += `&sum_to=${encodeURIComponent(f.sumTo)}`;
+    if (f.sber) url += `&sber=${encodeURIComponent(f.sber)}`;
 
     // Show skeleton rows while real data is loading — feels instant
     App.skeletonRows('invoices-tbody', ['w-24', 'w-24', 'w-40', 'w-40', 'w-60', 'w-40', 'w-24', 'w-40', 'w-24', 'w-24'], 6);
@@ -126,7 +137,7 @@ const Invoices = {
       const tbody = document.getElementById('invoices-tbody');
 
       if (!data || data.length === 0) {
-        const filtered = this.search || this.currentStatus || this.dateFrom;
+        const filtered = this.search || this._anyColumnFilter();
         tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
           <div class="empty-icon">&#128196;</div>
           <div>${filtered
@@ -418,6 +429,89 @@ const Invoices = {
     this.dateFrom = from;
     this.dateTo = to;
     this.offset = 0;
+    // Держим поля дат в строке фильтров в тон выбранному пресету, иначе чипс и
+    // календарь показывали бы разное. В поле «по» кладём ВКЛЮЧИТЕЛЬНУЮ дату
+    // (to минус день), потому что на сервер уходит эксклюзивная граница.
+    const fromEl = document.getElementById('filter-date-from');
+    const toEl = document.getElementById('filter-date-to');
+    if (fromEl) fromEl.value = from || '';
+    if (toEl) toEl.value = to ? this._prevDayIso(to) : '';
+    this._syncFilterReset();
+    this.loadTable();
+  },
+
+  _prevDayIso(iso) {
+    const d = new Date(`${iso}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return '';
+    d.setDate(d.getDate() - 1);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  },
+
+  // ── Пер-колоночные фильтры ────────────────────────────────────────────────
+  // Один вход на все поля строки фильтров. Текст дебаунсим (пользователь печатает),
+  // select'ы и даты применяем сразу — там значение меняется разом.
+  setColumnFilter(field, value) {
+    const v = (value || '').trim();
+    let immediate = true;
+    if (field === 'status') {
+      this.currentStatus = v || null;
+    } else if (field === 'dateFrom' || field === 'dateTo') {
+      // Явная дата отменяет пресет периода: иначе следующий loadTable
+      // перерисовал бы чипсы с подсвеченным «Все», хотя диапазон уже свой.
+      // dateTo делаем ЭКСКЛЮЗИВНОЙ верхней границей (+1 день), чтобы выбранный
+      // в календаре день попадал в выборку целиком — так же, как в setPeriod.
+      this.period = 'custom';
+      if (field === 'dateFrom') {
+        this.dateFrom = v || null;
+      } else {
+        this.dateTo = v ? this._nextDayIso(v) : null;
+      }
+    } else {
+      this.colFilters[field] = v;
+      immediate = (field === 'sber');
+    }
+    this.offset = 0;
+    this._syncFilterReset();
+    clearTimeout(this._filterTimer);
+    if (immediate) this.loadTable();
+    else this._filterTimer = setTimeout(() => this.loadTable(), 300);
+  },
+
+  // Верхняя граница диапазона дат на сервере эксклюзивна (created_at < :to),
+  // поэтому выбранный пользователем день сдвигаем на сутки вперёд.
+  _nextDayIso(iso) {
+    const d = new Date(`${iso}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setDate(d.getDate() + 1);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  },
+
+  _anyColumnFilter() {
+    const f = this.colFilters;
+    return !!(f.number || f.supplier || f.sumFrom || f.sumTo || f.sber
+      || this.currentStatus || this.dateFrom || this.dateTo);
+  },
+
+  // Кнопка «Сбросить» появляется, только когда что-то реально выбрано.
+  _syncFilterReset() {
+    const btn = document.getElementById('filter-reset');
+    if (btn) btn.hidden = !this._anyColumnFilter();
+  },
+
+  resetColumnFilters() {
+    this.colFilters = { number: '', supplier: '', sumFrom: '', sumTo: '', sber: '' };
+    this.currentStatus = null;
+    this.dateFrom = null;
+    this.dateTo = null;
+    this.period = 'all';
+    this.offset = 0;
+    ['filter-number', 'filter-supplier', 'filter-sum-from', 'filter-sum-to',
+     'filter-date-from', 'filter-date-to', 'filter-status', 'filter-sber']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    this._syncFilterReset();
+    clearTimeout(this._filterTimer);
     this.loadTable();
   },
 

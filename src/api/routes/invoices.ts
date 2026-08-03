@@ -256,7 +256,24 @@ router.get('/', async (req: Request, res: Response) => {
   const from = typeof req.query.from === 'string' && dateRe.test(req.query.from) ? req.query.from : undefined;
   const to = typeof req.query.to === 'string' && dateRe.test(req.query.to) ? req.query.to : undefined;
 
-  const rawInvoices = await invoiceRepo.getAll(status, limit, offset, ownerScopeFor(req), { q, from, to });
+  // Пер-колоночные фильтры. Строки режем по длине (в SQL уходят как LIKE-параметры),
+  // числа пропускаем только конечные, sber — строго из белого списка значений.
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' && v.trim() ? v.trim().slice(0, 128) : undefined;
+  const num = (v: unknown): number | undefined => {
+    if (typeof v !== 'string' || !v.trim()) return undefined;
+    const n = Number(v.replace(',', '.'));
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const number = str(req.query.number);
+  const supplier = str(req.query.supplier);
+  const sumFrom = num(req.query.sum_from);
+  const sumTo = num(req.query.sum_to);
+  const sber = req.query.sber === 'paid' || req.query.sber === 'unpaid' ? req.query.sber : undefined;
+
+  const rawInvoices = await invoiceRepo.getAll(status, limit, offset, ownerScopeFor(req), {
+    q, from, to, number, supplier, sumFrom, sumTo, sber,
+  });
   const enriched = await Promise.all(rawInvoices.map(enrichInvoiceWithSupplier));
   const withSber = await attachSberStatus(enriched);
   const invoices = await attachElevatedPriceCount(withSber);

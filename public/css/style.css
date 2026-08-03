@@ -4044,6 +4044,82 @@ tr.inv-visited:hover td { opacity: 1; }
 }
 .date-nav__all { border-bottom: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; padding-bottom: 9px; }
 
+/* ============================================================
+   Строка пер-колоночных фильтров под шапкой списка накладных
+   ============================================================ */
+.invoices-table .filter-row td {
+  padding: 6px 8px;
+  background: var(--card, #fff);
+  border-bottom: 1px solid var(--border, #e9e9e7);
+  vertical-align: middle;
+}
+.filter-input {
+  width: 100%;
+  min-width: 0;               /* не даём инпутам распирать колонку */
+  box-sizing: border-box;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  color: inherit;
+  background: var(--bg, #f7f6f3);
+  border: 1px solid var(--border, #e9e9e7);
+  border-radius: 6px;
+  transition: var(--transition);
+}
+.filter-input::placeholder { color: var(--text-tertiary, #9b9a97); }
+/* Колонки «Статус» и «Сбер» узкие по содержимому, и select с width:100%
+   обрезал подписи («Не оп…» вместо «Не оплачено»). Задаём минимум под самый
+   длинный вариант — колонка раздвинется ровно настолько, насколько нужно. */
+select.filter-input { min-width: 104px; }
+.filter-input:focus {
+  outline: none;
+  background: #fff;
+  border-color: var(--primary, #2383e2);
+  box-shadow: 0 0 0 3px rgba(35,131,226,0.12);
+}
+/* Две даты и «сумма от-до» делят ширину ячейки пополам. */
+.filter-cell-date, .filter-cell-sum { white-space: nowrap; }
+.filter-cell-date, .filter-cell-sum { display: table-cell; }
+.filter-cell-date .filter-input, .filter-cell-sum .filter-input {
+  width: calc(50% - 3px);
+  display: inline-block;
+}
+/* Половина узкой колонки «Сумма» вмещала ~4 знака и резала «5000» до «5ОС».
+   Минимум рассчитан на 6-значную сумму («100000») — этого хватает на реальные
+   значения. Текстовые фильтры (номер/поставщик) намеренно оставлены узкими:
+   там вводят подстроку из нескольких символов, а длинный ввод инпут прокручивает
+   сам, ничего не теряя. */
+.filter-cell-sum .filter-input { min-width: 88px; }
+.filter-cell-date .filter-input + .filter-input,
+.filter-cell-sum .filter-input + .filter-input { margin-left: 4px; }
+/* input[type=date] в узкой колонке: убираем нативный отступ под иконку. */
+.filter-cell-date .filter-input { padding-left: 5px; padding-right: 2px; }
+
+.filter-reset {
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: 1px solid var(--border, #e9e9e7);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+.filter-reset:hover {
+  color: var(--text, #37352f);
+  border-color: var(--primary, #2383e2);
+  background: #fff;
+}
+.filter-reset[hidden] { display: none; }
+
+/* На узких экранах таблица превращается в карточки (thead скрыт) — строку
+   фильтров прячем вместе с ней, иначе она распадётся на столбик из полей. */
+@media (max-width: 640px) {
+  .invoices-table .filter-row { display: none; }
+}
+
 /* Date-group header rows inside the invoices table */
 .invoices-table .date-group-row td {
   background: #f4f2ee;

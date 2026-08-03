@@ -47,6 +47,23 @@ function sberOverduePredicate(days: number): string {
   )`;
 }
 
+/**
+ * Фильтры списка накладных. `q` — общий поиск (номер ИЛИ поставщик ИЛИ ИНН),
+ * остальное — пер-колоночные фильтры из строки под шапкой таблицы; все условия
+ * складываются через AND.
+ */
+export interface ListFilters {
+  q?: string;
+  from?: string;
+  to?: string;
+  number?: string;
+  supplier?: string;
+  sumFrom?: number;
+  sumTo?: number;
+  /** 'paid' — есть платёж в Сбере или отметка «оплачено вне сервиса»; 'unpaid' — ни того, ни другого. */
+  sber?: 'paid' | 'unpaid';
+}
+
 export interface Invoice {
   id: number;
   file_name: string;
@@ -241,7 +258,7 @@ export const invoiceRepo = {
     limit: number = 100,
     offset: number = 0,
     ownerUserId?: number,
-    opts?: { q?: string; from?: string; to?: string },
+    opts?: ListFilters,
   ): Promise<Invoice[]> {
     // mysql2's named-placeholder mode (our pool default) can't bind LIMIT/OFFSET
     // as params — server rejects with "Incorrect arguments to mysqld_stmt_execute".
@@ -261,6 +278,26 @@ export const invoiceRepo = {
     // YYYY-MM-DD bound works. `to` is the EXCLUSIVE upper bound (next day).
     if (opts?.from) { conds.push('created_at >= :from'); params.from = opts.from; }
     if (opts?.to) { conds.push('created_at < :to'); params.to = opts.to; }
+
+    // ── Пер-колоночные фильтры списка накладных ──────────────────────────────
+    // Отдельно от общего `q`: тот ищет сразу по номеру/поставщику/ИНН, а эти
+    // сужают конкретный столбец и комбинируются через AND.
+    const number = opts?.number?.trim();
+    if (number) { conds.push('invoice_number LIKE :number'); params.number = `%${number}%`; }
+    const supplier = opts?.supplier?.trim();
+    if (supplier) { conds.push('supplier LIKE :supplier'); params.supplier = `%${supplier}%`; }
+    if (opts?.sumFrom != null) { conds.push('total_sum >= :sumFrom'); params.sumFrom = opts.sumFrom; }
+    if (opts?.sumTo != null) { conds.push('total_sum <= :sumTo'); params.sumTo = opts.sumTo; }
+    // «Оплачено» = есть неотменённый платёж в Сбере ЛИБО отмечено «оплачено вне
+    // сервиса». Предикат про sber_payments намеренно повторяет тот, что внутри
+    // sberOverduePredicate (status <> 'failed'): неудавшийся платёж оплатой не
+    // считается, иначе накладная выпадала бы и из фильтра, и из overdue-выборки.
+    if (opts?.sber === 'paid' || opts?.sber === 'unpaid') {
+      const hasPayment = `(invoices.paid_externally = 1 OR EXISTS (
+        SELECT 1 FROM sber_payments sp WHERE sp.invoice_id = invoices.id AND sp.status <> 'failed'
+      ))`;
+      conds.push(opts.sber === 'paid' ? hasPayment : `NOT ${hasPayment}`);
+    }
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     return getDb()
       .prepare(

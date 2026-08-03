@@ -160,6 +160,53 @@
                 <th title="Платёжное поручение в Сбер.Бизнес" style="text-align:center">Сбер</th>
                 <th></th>
               </tr>
+              <!-- Строка пер-колоночных фильтров. Порядок ячеек обязан совпадать
+                   с шапкой выше. Текстовые поля дебаунсятся, select'ы и даты
+                   применяются сразу; всё уходит на сервер и фильтрует по ВСЕЙ
+                   базе, а не по загруженной странице. -->
+              <tr class="filter-row" id="invoices-filter-row">
+                <td></td>
+                <td></td>
+                <td><input type="text" class="filter-input" id="filter-number" placeholder="номер"
+                           oninput="Invoices.setColumnFilter('number', this.value)" aria-label="Фильтр по номеру"></td>
+                <td class="filter-cell-date">
+                  <input type="date" class="filter-input" id="filter-date-from" title="Дата с"
+                         onchange="Invoices.setColumnFilter('dateFrom', this.value)" aria-label="Дата с">
+                  <input type="date" class="filter-input" id="filter-date-to" title="Дата по"
+                         onchange="Invoices.setColumnFilter('dateTo', this.value)" aria-label="Дата по">
+                </td>
+                <td><input type="text" class="filter-input" id="filter-supplier" placeholder="поставщик"
+                           oninput="Invoices.setColumnFilter('supplier', this.value)" aria-label="Фильтр по поставщику"></td>
+                <td class="filter-cell-sum">
+                  <input type="text" inputmode="decimal" class="filter-input" id="filter-sum-from" placeholder="от"
+                         oninput="Invoices.setColumnFilter('sumFrom', this.value)" aria-label="Сумма от">
+                  <input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" placeholder="до"
+                         oninput="Invoices.setColumnFilter('sumTo', this.value)" aria-label="Сумма до">
+                </td>
+                <td></td>
+                <td>
+                  <select class="filter-input" id="filter-status"
+                          onchange="Invoices.setColumnFilter('status', this.value)" aria-label="Фильтр по статусу">
+                    <option value="">Все</option>
+                    <option value="new">Новая</option>
+                    <option value="processed">Обработан</option>
+                    <option value="sent_to_1c">Отправлен</option>
+                    <option value="error">Ошибка</option>
+                  </select>
+                </td>
+                <td>
+                  <select class="filter-input" id="filter-sber"
+                          onchange="Invoices.setColumnFilter('sber', this.value)" aria-label="Фильтр по оплате">
+                    <option value="">Все</option>
+                    <option value="paid">Оплачено</option>
+                    <option value="unpaid">Не оплачено</option>
+                  </select>
+                </td>
+                <td style="text-align:right">
+                  <button type="button" class="filter-reset" id="filter-reset" hidden
+                          onclick="Invoices.resetColumnFilters()" title="Сбросить фильтры">Сбросить</button>
+                </td>
+              </tr>
             </thead>
             <tbody id="invoices-tbody"></tbody>
           </table>
