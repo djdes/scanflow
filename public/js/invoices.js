@@ -134,6 +134,9 @@ const Invoices = {
 
     try {
       const { data } = await App.apiJson(url);
+      // Запоминаем строки: панель массовых действий должна знать, у каких из
+      // выделенных накладных закрыт чек-лист сверки (флаги приходят в списке).
+      this._rowsById = new Map((data || []).map(r => [r.id, r]));
       const tbody = document.getElementById('invoices-tbody');
 
       if (!data || data.length === 0) {
@@ -258,12 +261,42 @@ const Invoices = {
     const n = this._selected.size;
     if (n === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
     bar.style.display = '';
+
+    // Сбер требует закрытого чек-листа сверки — сервер отклонит непроверенные
+    // (см. гейт в POST /:id/send-sber). Показываем это ДО нажатия: раньше
+    // кнопка выглядела рабочей, а накладные молча уезжали в «пропущено».
+    const unverified = this._unverifiedSelected();
+    const noneReady = unverified === n;
+    const sberAttrs = noneReady
+      ? ' disabled title="Ни у одной выделенной накладной не сверены реквизиты — откройте накладную и отметьте"'
+      : (unverified > 0
+        ? ` title="У ${unverified} из ${n} не сверены реквизиты — они будут пропущены"`
+        : '');
+    const hint = unverified > 0
+      ? `<span class="bulk-warn" title="Сбер не примет накладную, пока реквизиты не сверены с фото">⚠ не сверено: ${unverified} из ${n}</span>`
+      : '';
+
     bar.innerHTML = `
       <span class="bulk-count">Выбрано ${n}</span>
       <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('onec', event)">&rarr; 1С</button>
-      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('sber', event)">&rarr; Сбер</button>
-      <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('both', event)">&rarr; 1С и Сбер</button>
-      <button class="btn btn-outline btn-sm" onclick="Invoices.clearSelection()">Снять выделение</button>`;
+      <button class="btn btn-primary btn-sm"${sberAttrs} onclick="Invoices.bulkSend('sber', event)">&rarr; Сбер</button>
+      <button class="btn btn-primary btn-sm"${sberAttrs} onclick="Invoices.bulkSend('both', event)">&rarr; 1С и Сбер</button>
+      <button class="btn btn-outline btn-sm" onclick="Invoices.clearSelection()">Снять выделение</button>
+      ${hint}`;
+  },
+
+  // Сколько выделенных накладных ещё не прошли сверку реквизитов.
+  // Если строки почему-то нет в кеше (например, список перерисовали) — считаем
+  // накладную непроверенной: осторожная сторона, сервер всё равно перепроверит.
+  _unverifiedSelected() {
+    const keys = ['attr_checked_number', 'attr_checked_date', 'attr_checked_supplier',
+                  'attr_checked_total', 'attr_checked_vat', 'attr_checked_vat_rate'];
+    let n = 0;
+    for (const id of this._selected) {
+      const row = this._rowsById?.get(id);
+      if (!row || !keys.every(k => row[k])) n++;
+    }
+    return n;
   },
 
   async bulkSend(target, ev) {
