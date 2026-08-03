@@ -69,14 +69,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     redirect: false,
     index: false,
     setHeaders: (res, filePath) => {
-      if (/\.(html|js|mjs|css)$/i.test(filePath)) {
+      if (/\.(html|js|css)$/i.test(filePath)) {
         res.setHeader('Cache-Control', 'no-cache');
-      }
-      // onnxruntime-web (TableCV orientation model) loads its wasm glue via a
-      // dynamic import(); the browser rejects the module unless the .mjs is
-      // served as JavaScript. Force it regardless of the platform's mime table.
-      if (/\.mjs$/i.test(filePath)) {
-        res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       }
     },
   }));
