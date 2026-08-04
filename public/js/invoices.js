@@ -1017,6 +1017,16 @@ const Invoices = {
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
 
     } catch (e) {
+      // Страница могла войти в другую накладную: уведомление «фото загружено»
+      // уходит до распознавания, поэтому ссылка на неё успевает разойтись по
+      // чатам, а сама строка при склейке удаляется. Сервер подсказывает
+      // приёмника — переключаемся на него вместо «не найдено».
+      const mergedInto = e?.body?.merged_into;
+      if (mergedInto) {
+        App.notify(`Эта страница вошла в накладную #${mergedInto} — открываем её`, 'info');
+        App.navigate(`#/invoices/${mergedInto}`);
+        return;
+      }
       console.error('Failed to load invoice detail', e);
       App.notify('Ошибка загрузки накладной', 'error');
     }

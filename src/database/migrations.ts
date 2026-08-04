@@ -1814,6 +1814,30 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 60,
+    name: 'invoice_merges — куда делась склеенная страница (починка битых ссылок из бота)',
+    // Инцидент 16.07: в бот ушло уведомление о накладной №654 со ссылкой, а
+    // страница оказалась продолжением №653 — временная строка удалилась при
+    // склейке, ссылка умерла, в логах связи не осталось.
+    // См. docs/superpowers/specs/2026-08-04-merged-page-dead-link-design.md
+    detect: (exec) => hasTable(exec, 'invoice_merges'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS invoice_merges (
+          source_id  INT NOT NULL PRIMARY KEY,
+          target_id  INT NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_invoice_merges_target (target_id),
+          CONSTRAINT fk_merges_target FOREIGN KEY (target_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      // FK только на target_id: source_id — идентификатор уже удалённой строки,
+      // ссылаться не на что. Задним числом связи не восстановить (данные о том,
+      // какая страница куда вошла, нигде не сохранялись) — таблица наполняется
+      // только новыми склейками.
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

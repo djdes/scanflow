@@ -393,6 +393,15 @@ router.get('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const raw = await invoiceRepo.getWithItems(id);
   if (!raw) {
+    // Строки нет — возможно, это была страница, вошедшая в другую накладную.
+    // Уведомление «фото загружено» уходит ДО распознавания, поэтому ссылка на
+    // такую страницу успевает разойтись по чатам (инцидент 16.07, накладная
+    // №654). Подсказываем фронту, куда переключиться, вместо «не найдено».
+    const mergedInto = await invoiceRepo.resolveMergeTarget(id);
+    if (mergedInto) {
+      res.status(404).json({ error: 'Invoice merged into another one', merged_into: mergedInto });
+      return;
+    }
     res.status(404).json({ error: 'Invoice not found' });
     return;
   }
@@ -821,6 +830,9 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
     await invoiceRepo.moveItemsToInvoice(sourceId, targetId);
     const files = (source.file_name ?? '').split(',').map(s => s.trim()).filter(Boolean);
     for (const f of files) await invoiceRepo.appendFileName(targetId, f);
+    // Связь пишем ДО удаления: ссылки на исходную накладную (из бота, из
+    // закладок) должны продолжать работать и вести на приёмник.
+    await invoiceRepo.recordMerge(sourceId, targetId);
     await invoiceRepo.delete(sourceId);
     if (grand > 0) await invoiceRepo.updateInvoiceData(targetId, { total_sum: grand });
     // forceDerive: the target's stored vat_sum covered only its own pages; after

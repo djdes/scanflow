@@ -425,6 +425,49 @@ export const invoiceRepo = {
     ).run(invoiceId, chatId, messageId);
   },
 
+  /**
+   * Запомнить, что страница `sourceId` вошла в накладную `targetId`. Пишется
+   * ДО удаления временной строки — иначе связь теряется навсегда, и ссылка из
+   * бота остаётся мёртвой (инцидент 16.07 с накладной №654).
+   */
+  async recordMerge(sourceId: number, targetId: number): Promise<void> {
+    // Сначала переводим на нового приёмника связи, которые указывали на
+    // склеиваемую накладную. Без этого шага они погибли бы вместе с ней по
+    // ON DELETE CASCADE: страница A вошла в B, потом B склеили с C — и ссылка
+    // на A переставала резолвиться. Заодно цепочки схлопываются в один шаг.
+    await getDb()
+      .prepare('UPDATE invoice_merges SET target_id = ? WHERE target_id = ?')
+      .run(targetId, sourceId);
+
+    await getDb().prepare(
+      `INSERT INTO invoice_merges (source_id, target_id) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE target_id = VALUES(target_id)`
+    ).run(sourceId, targetId);
+  },
+
+  /**
+   * Куда в итоге делась удалённая страница. Идём по цепочке: страница могла
+   * войти в накладную, которую потом склеили с третьей. Лимит шагов — защита
+   * от петли, если данные окажутся кривыми: лучше вернуть null, чем повесить
+   * запрос в бесконечном цикле.
+   */
+  async resolveMergeTarget(sourceId: number, maxHops = 5): Promise<number | null> {
+    let current = sourceId;
+    for (let hop = 0; hop < maxHops; hop++) {
+      const row = await getDb()
+        .prepare('SELECT target_id FROM invoice_merges WHERE source_id = ?')
+        .get<{ target_id: number }>(current);
+      if (!row) return hop === 0 ? null : current;
+      current = row.target_id;
+      // Приёмник существует — дальше идти незачем.
+      const exists = await getDb()
+        .prepare('SELECT id FROM invoices WHERE id = ?')
+        .get<{ id: number }>(current);
+      if (exists) return current;
+    }
+    return null;
+  },
+
   async markSberOverdueNotified(id: number): Promise<void> {
     await getDb()
       .prepare('UPDATE invoices SET sber_overdue_notified_at = NOW() WHERE id = ?')

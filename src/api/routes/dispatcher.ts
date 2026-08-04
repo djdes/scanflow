@@ -286,6 +286,10 @@ async function foldPageInto(canonicalId: number, otherId: number): Promise<void>
   const other = await invoiceRepo.getById(otherId);
   const files = (other?.file_name ?? '').split(',').map(s => s.trim()).filter(Boolean);
   for (const f of files) await invoiceRepo.appendFileName(canonicalId, f);
+  // Связь пишем ДО удаления — по ней резолвится ссылка из бота на страницу,
+  // которой больше нет (см. spec 2026-08-04-merged-page-dead-link).
+  await invoiceRepo.recordMerge(otherId, canonicalId);
+  logger.info('Page folded into canonical invoice', { sourceId: otherId, targetId: canonicalId });
   await invoiceRepo.delete(otherId);
 }
 

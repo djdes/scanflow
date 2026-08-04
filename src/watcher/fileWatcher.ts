@@ -20,11 +20,53 @@ import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
+import { editMessageText } from '../notifications/telegram/telegramClient';
 import { UploadSource } from '../utils/uploadSource';
 import { autoSendSberForInvoice } from '../services/autoSendSber';
 import { mergeBlockedByNumber, mergeLostData } from '../services/mergeDecision';
 import { ocrCorrectionRepo } from '../database/repositories/ocrCorrectionRepo';
 import { webhookConfigRepo } from '../database/repositories/webhookConfigRepo';
+
+/**
+ * Переписать телеграм-пузырь склеенной страницы.
+ *
+ * Уведомление «фото загружено» уходит ДО распознавания, поэтому к моменту
+ * склейки в чате уже висит «Накладная №654 · Загружена» со ссылкой на строку,
+ * которой сейчас не станет. Оставлять её мёртвой нельзя — именно на это
+ * жаловались 16.07. Правим текст на «страница вошла в накладную #N».
+ *
+ * Никогда не бросает: уведомления не имеют права ломать конвейер (правило 9).
+ * Пары (chat_id, message_id) должны быть прочитаны ДО удаления строки —
+ * invoice_telegram_messages висит на ON DELETE CASCADE.
+ */
+async function notifyPageMerged(
+  ownerUserId: number | null,
+  sourceId: number,
+  targetId: number,
+  bubbles: Map<string, number>,
+): Promise<void> {
+  try {
+    if (!bubbles.size || ownerUserId == null) return;
+    const tg = await userRepo.getTelegramConfig(ownerUserId);
+    if (!tg?.bot_token) return;
+    const text = `📎 Страница загружена и вошла в накладную #${targetId}\n\n`
+      + `Отдельной накладной №${sourceId} не существует — это был лист того же документа.\n`
+      + `${config.publicBaseUrl}/#/invoices/${targetId}`;
+    for (const [chatId, messageId] of bubbles) {
+      try {
+        await editMessageText(tg.bot_token, chatId, messageId, text);
+      } catch (err) {
+        logger.warn('notifyPageMerged: edit failed', {
+          sourceId, targetId, chatId, error: (err as Error).message,
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('notifyPageMerged: unexpected error', {
+      sourceId, targetId, error: (err as Error).message,
+    });
+  }
+}
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
 
@@ -981,6 +1023,20 @@ export class FileWatcher {
             } catch { /* watcher race / already moved */ }
           }
 
+          // Связь «страница → накладная» пишем ДО удаления: по ней потом
+          // резолвится ссылка из бота. Уведомление photo_uploaded со ссылкой
+          // /#/invoices/<id> ушло ещё до OCR, и без этой записи оно навсегда
+          // указывало бы в никуда (инцидент 16.07 с накладной №654).
+          await invoiceRepo.recordMerge(invoice.id, targetInvoiceId);
+          // Пузыри читаем тоже до удаления: invoice_telegram_messages висит на
+          // ON DELETE CASCADE и исчезнет вместе со строкой.
+          const mergedBubbles = await invoiceRepo.getTelegramMessageIds(invoice.id);
+          logger.info('Page merged into parent invoice', {
+            sourceId: invoice.id,
+            targetId: targetInvoiceId,
+            ownerUserId: invoice.owner_user_id ?? null,
+          });
+
           // CRITICAL: delete the temp invoice row NOW, before any failable
           // async work. Previously this delete happened at the end of the
           // merge path — if the process crashed / was restarted during the
@@ -990,6 +1046,11 @@ export class FileWatcher {
           // from the moment append succeeds: either the page is folded into
           // the parent, or nothing happens (the parent is unchanged).
           await invoiceRepo.delete(invoice.id);
+
+          // Переписываем осиротевший пузырь: иначе в чате навсегда остаётся
+          // «Накладная №654 · Загружена» с мёртвой ссылкой. Ошибки глотаем —
+          // уведомления не имеют права ломать конвейер (правило 9).
+          void notifyPageMerged(invoice.owner_user_id ?? null, invoice.id, targetInvoiceId, mergedBubbles);
 
           // Re-process ALL pages together: combine OCR texts and send to Claude
           try {
