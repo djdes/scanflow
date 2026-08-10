@@ -1,21 +1,21 @@
 /**
  * ProjectsFlow dispatcher integration.
  *
- * When analyzer_config.mode === 'dispatcher', ScanFlow creates a task in
- * ProjectsFlow with a YAML-block description containing photo_url +
- * callback_url + per-task token. A separately-running Claude Code session
- * (the "dispatcher") claims the task via MCP, downloads the photo,
- * recognises it locally, and POSTs the parsed JSON back to ScanFlow.
+ * When analyzer_config.mode === 'dispatcher', ScanFlow enqueues an invisible AI-job in
+ * ProjectsFlow with a YAML-block instruction containing photo_url + callback_url +
+ * per-task token. A separately-running Claude Code session (the "dispatcher") claims
+ * the job via MCP, downloads the photo, recognises it locally, and POSTs the parsed
+ * JSON back to ScanFlow. No kanban card is created — the queue is invisible.
  *
  * Single function entry: `dispatchInvoice(invoiceId, photoFileName)`.
  *
  * Flow:
  *   1. Generate per-task token (32 bytes hex).
  *   2. UPDATE invoices SET dispatcher_token, dispatcher_started_at.
- *   3. POST {projectsflowApiUrl}/agent/projects/{projectId}/tasks
- *      with Bearer agent token. Description body is a YAML frontmatter +
- *      free-text instruction that the dispatcher Claude session parses.
- *   4. Store returned task.id in invoices.dispatcher_task_id.
+ *   3. POST {projectsflowApiUrl}/agent/ai-prompt-jobs with Bearer agent token and
+ *      mode='assistant'. The `text` body is a YAML frontmatter + free-text instruction
+ *      that the dispatcher Claude session parses.
+ *   4. Store returned jobId in invoices.dispatcher_task_id (historical column name).
  *   5. Return — caller continues, awaiting the callback.
  */
 import crypto from 'crypto';
@@ -81,7 +81,7 @@ ScanFlow OCR job for invoice #${args.invoiceId}.
      -H 'Content-Type: application/json; charset=utf-8' \\
      --data-binary @data/result_${args.invoiceId}.json
    \`\`\`
-6. **Закрой PF-задачу** через \`mcp__projectsflow__pf_move_task\` со \`targetStatus: 'done'\`.
+6. **Заверши PF-job** через \`mcp__projectsflow__pf_complete_ai_prompt_job\` с \`{jobId, ok: true, improvedText: "recognized"}\` (jobId ты знаешь из claim'а). На неудачу — \`{jobId, ok: false, error: "<короткая причина>"}\`.
 
 **На 400 «encoding-broken»** — пересохрани JSON через Write tool, повтори. Токен валиден 15 мин с момента создания задачи.`;
 }
@@ -104,18 +104,23 @@ async function resolvePfConfig(): Promise<{ token: string; projectId: string }> 
 }
 
 /**
- * POST a task to ProjectsFlow and return its id. status='todo' lands it in the
- * ВОРКЕР column where the dispatcher Claude Code session picks it up ('backlog'
- * would hide it in ЧЕРНОВИКИ). Shared by invoice + supplier-extract dispatch.
+ * Enqueue an invisible AI-job in ProjectsFlow and return its id. Shared by
+ * invoice + supplier-extract dispatch.
+ *
+ * Used to POST a regular kanban task (`/agent/projects/:id/tasks`, status='todo'),
+ * which cluttered the ScanFlow board with service cards nobody needs to see. Now the
+ * very same self-sufficient instruction text goes into the `ai_prompt_jobs` queue with
+ * mode='assistant': enqueue → pending → claim → complete, no cards, terminal rows are
+ * purged by the server after 7 days.
  */
 async function postPfTask(token: string, projectId: string, description: string): Promise<string> {
-  const apiUrl = `${config.projectsflowApiUrl}/agent/projects/${encodeURIComponent(projectId)}/tasks`;
+  const apiUrl = `${config.projectsflowApiUrl}/agent/ai-prompt-jobs`;
   let resp: Response;
   try {
     resp = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ description, status: 'todo' }),
+      body: JSON.stringify({ text: description, projectId, mode: 'assistant' }),
       signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
@@ -127,13 +132,13 @@ async function postPfTask(token: string, projectId: string, description: string)
     logger.error('dispatcher: PF API non-2xx', { status: resp.status, body });
     throw new DispatcherApiError(`ProjectsFlow returned ${resp.status}: ${body.slice(0, 200)}`, resp.status);
   }
-  const json = (await resp.json()) as { task?: { id?: string } };
-  const taskId = json.task?.id;
-  if (!taskId) {
-    logger.error('dispatcher: PF response missing task.id', { json });
-    throw new DispatcherApiError('ProjectsFlow returned no task id');
+  const json = (await resp.json()) as { jobId?: string };
+  const jobId = json.jobId;
+  if (!jobId) {
+    logger.error('dispatcher: PF response missing jobId', { json });
+    throw new DispatcherApiError('ProjectsFlow returned no job id');
   }
-  return taskId;
+  return jobId;
 }
 
 export async function dispatchInvoice(invoiceId: number, photoFileName: string): Promise<void> {
@@ -202,7 +207,7 @@ ScanFlow: распознавание реквизитов поставщика (
      -H 'Content-Type: application/json; charset=utf-8' \\
      --data-binary @data/supplier_result_${args.jobId}.json
    \`\`\`
-6. **Закрой PF-задачу** через \`mcp__projectsflow__pf_move_task\` со \`targetStatus: 'done'\`.
+6. **Заверши PF-job** через \`mcp__projectsflow__pf_complete_ai_prompt_job\` с \`{jobId, ok: true, improvedText: "recognized"}\` (jobId ты знаешь из claim'а). На неудачу — \`{jobId, ok: false, error: "<короткая причина>"}\`.
 
 Токен валиден 15 мин с момента создания задачи.`;
 }

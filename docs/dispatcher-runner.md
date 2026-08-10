@@ -4,7 +4,9 @@
 
 ## Зачем
 
-`analyzer_config.mode = 'dispatcher'` направляет каждое распознавание фото-накладной в ProjectsFlow как задачу с YAML-описанием. Запущенная Claude Code сессия с активной Max-подпиской подбирает задачи и обрабатывает их — Anthropic-токены не тратятся (Max — flat-rate).
+`analyzer_config.mode = 'dispatcher'` направляет каждое распознавание фото-накладной в ProjectsFlow как **невидимый AI-job** (`mode: assistant`) с YAML-инструкцией. Запущенная Claude Code сессия с активной Max-подпиской подбирает job'ы и обрабатывает их — Anthropic-токены не тратятся (Max — flat-rate).
+
+Карточек на доске Scanflow эта очередь не создаёт (раньше создавала — доска забивалась служебными задачами). Цикл: `pending → claim → complete`, терминальные записи сервер чистит через 7 дней.
 
 ## Что нужно один раз настроить
 
@@ -33,15 +35,21 @@ PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85          #
 
 > Ты — dispatcher для ScanFlow. Каждую минуту:
 >
-> 1. Через MCP `mcp__projectsflow__pf_list_tasks` получи задачи проекта `Scanflow` (project_id `55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85`) в статусе `backlog` или `todo`.
+> 1. Через MCP `mcp__projectsflow__pf_list_pending_ai_prompt_jobs` получи очередь. Бери
+>    ТОЛЬКО job'ы с `mode: assistant` и `projectId` проекта ScanFlow
+>    (`82a0e598-fce2-4948-b653-ceb64d132fe2` — сверь со значением в `/#/settings → Диспетчер`)
+>    — остальные (`improve`, `compose`, чужие проекты) не трогай.
+>    Свой job забирай через `mcp__projectsflow__pf_claim_ai_prompt_job {jobId}`; в ответе
+>    `inputText` — готовая самодостаточная инструкция. Ответ 409
+>    `ai_prompt_job_already_claimed` = job забрал кто-то другой, иди дальше.
 >
-> 2. Обрабатывай задачи ДВУХ типов (смотри YAML-поле `type` в начале `description`):
+> 2. Обрабатывай job'ы ДВУХ типов (смотри YAML-поле `type` в начале `inputText`):
 >    **`type: scanflow_ocr`** — распознавание товарной накладной, и
 >    **`type: scanflow_supplier_requisites`** — распознавание реквизитов поставщика
 >    (со счёта/платёжки/накладной, для страницы «Поставщики»).
->    Для любой из них следуй шагам, описанным В САМОЙ ЗАДАЧЕ (`description`), они
+>    Для любого из них следуй шагам, описанным В САМОМ JOB'Е (`inputText`), они
 >    самодостаточны. Общий алгоритм:
->    - Распарси YAML — там `photo_url`, `callback_url`, `prompt_url`, `token`
+>    - Распарси YAML из `inputText` — там `photo_url`, `callback_url`, `prompt_url`, `token`
 >      (+ `invoice_id` или `job_id`).
 >    - **Скачай документ** из `photo_url` (HTTPS со встроенным токеном, без X-API-Key).
 >      Это может быть фото ИЛИ PDF — `scanflow_supplier_requisites` принимает оба.
@@ -55,11 +63,13 @@ PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85          #
 >      ```json
 >      {"token":"<token>","success":false,"error":"описание проблемы"}
 >      ```
->    - Помечай PF-задачу как `done` через `mcp__projectsflow__pf_update_task` с `status: 'done'`.
+>    - Завершай job через `mcp__projectsflow__pf_complete_ai_prompt_job` с
+>      `{jobId, ok: true, improvedText: "recognized"}`. На неудачу —
+>      `{jobId, ok: false, error: "<короткая причина>"}`.
 >
 > 3. После прохода спи 60 секунд и повторяй.
 >
-> Если задач нет — лог «no pending scanflow tasks» и продолжай цикл.
+> Если job'ов нет — лог «no pending scanflow jobs» и продолжай цикл.
 >
 > **Формат JSON-ответа** (схема `ParsedInvoiceData` из ScanFlow):
 > ```json
@@ -90,23 +100,23 @@ PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85          #
 ### Что Claude будет делать
 
 После вставки промпта Claude:
-- запросит MCP-инструменты `pf_list_tasks` / `pf_update_task`
+- запросит MCP-инструменты `pf_list_pending_ai_prompt_jobs` / `pf_claim_ai_prompt_job` / `pf_complete_ai_prompt_job`
 - начнёт цикл
-- для каждой задачи `type: scanflow_ocr` (накладные) или `type: scanflow_supplier_requisites` (реквизиты поставщика) — скачает документ, распознает по промпту из `prompt_url`, отправит callback, закроет задачу
+- для каждого job'а `type: scanflow_ocr` (накладные) или `type: scanflow_supplier_requisites` (реквизиты поставщика) — скачает документ, распознает по промпту из `prompt_url`, отправит callback, завершит job
 
 Latency: ~30-60 сек на накладную (queue check + OCR + callback). Для 50/день этого достаточно.
 
 ## Что происходит если диспетчер выключен
 
-ScanFlow продолжит ставить задачи в ProjectsFlow. Каждая накладная висит со status='ocr_processing'. Через **15 минут** cron-sweep (`markStaleDispatchersAsFailed`) пометит её как error со словом «Dispatcher timeout». Когда вы вернёте диспетчер — новые накладные снова пойдут в очередь.
+ScanFlow продолжит ставить job'ы в ProjectsFlow. Каждая накладная висит со status='ocr_processing'. Через **15 минут** cron-sweep (`markStaleDispatchersAsFailed`) пометит её как error со словом «Dispatcher timeout»; сам job на стороне ProjectsFlow тоже отменяется через 15 минут. Когда вы вернёте диспетчер — новые накладные снова пойдут в очередь.
 
 ## Что происходит если ScanFlow перезапустился пока диспетчер работал
 
-PF-задачи никуда не делись — диспетчер подберёт их на следующем цикле. Token хранится в `invoices.dispatcher_token`, поэтому callback после рестарта всё равно валидируется правильно.
+PF-job'ы никуда не делись — диспетчер подберёт их на следующем цикле (если они ещё не старше 15 минут). Token хранится в `invoices.dispatcher_token`, поэтому callback после рестарта всё равно валидируется правильно.
 
 ## Отладка
 
-- **Все ли задачи создаются:** `SELECT id, dispatcher_task_id, dispatcher_started_at, status FROM invoices ORDER BY id DESC LIMIT 10;`
+- **Все ли job'ы создаются:** `SELECT id, dispatcher_task_id, dispatcher_started_at, status FROM invoices ORDER BY id DESC LIMIT 10;` (колонка историческая — в ней теперь id AI-job'а)
 - **Callback validation lost:** в ScanFlow логах ищите `dispatcher photo: token invalid` или `dispatcher result: token invalid`.
 - **Timeout sweep сработал:** `grep "Dispatcher timeout" logs/...` или `error_message` в `invoices` начинается с «Dispatcher timeout».
 - **Тест с одной накладной**: на локалке загрузите фото через UI, проверьте что `invoices.dispatcher_task_id` появилось, потом откройте Claude Code и вставьте промпт — должно пройти в течение минуты.
