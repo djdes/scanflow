@@ -133,6 +133,35 @@ jobs:
           pm2 startOrRestart ecosystem.config.js 2>&1
           pm2 save 2>&1
 
+          # Автозапуск после перезагрузки сервера. systemd-юнита у PM2 тут нет:
+          # `pm2 startup` требует root, которого у деплой-пользователя нет.
+          # 08.08.2026 сервер перезагрузился, и scanflow.ru лёг вместе с
+          # остальными проектами — поднимали руками. Держим автозапуск на
+          # пользовательском crontab: @reboot поднимает сразу, проверка раз в
+          # 5 минут страхует. Шаг идемпотентный, crontab от деплоя не растёт.
+          SF_NODEBIN="$(dirname "$(command -v pm2)")"
+          cat > "$HOME/pm2-watchdog.sh" <<'WD'
+          #!/bin/sh
+          # Поднимает PM2 обратно, если демон умер. Падение самого процесса
+          # чинит PM2 (autorestart) — здесь только случай "список пуст".
+          NODEBIN=__NODEBIN__
+          PATH="$NODEBIN:$PATH"; export PATH
+          ONLINE=$("$NODEBIN/pm2" jlist 2>/dev/null | grep -o '"status":"online"' | wc -l)
+          if [ "$ONLINE" -eq 0 ]; then
+            echo "$(date -Is) watchdog: pm2 пуст -> resurrect" >> "$HOME/pm2-watchdog.log"
+            "$NODEBIN/pm2" resurrect >> "$HOME/pm2-watchdog.log" 2>&1
+          fi
+          WD
+          sed -i "s|__NODEBIN__|$SF_NODEBIN|" "$HOME/pm2-watchdog.sh"
+          chmod +x "$HOME/pm2-watchdog.sh"
+          {
+            crontab -l 2>/dev/null | grep -v 'pm2-watchdog.sh'
+            echo "@reboot sleep 20 && /bin/sh $HOME/pm2-watchdog.sh"
+            echo "*/5 * * * * /bin/sh $HOME/pm2-watchdog.sh"
+          } | crontab -
+          echo "autostart cron:"
+          crontab -l | grep 'pm2-watchdog.sh'
+
           # Give the app a moment to bind to the port, then hit /health.
           # A 200 body with {"ok":true,...} means migrations ran, DB is good,
           # and the static dashboard is reachable. Exit non-zero on failure so
