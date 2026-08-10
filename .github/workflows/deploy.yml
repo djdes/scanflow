@@ -168,7 +168,7 @@ jobs:
           # the workflow goes red and someone notices.
           sleep 5
           for i in 1 2 3 4 5; do
-            if curl -fsS --max-time 5 http://localhost:8899/health | grep -q '"status":"ok"'; then
+            if curl -fsS --max-time 5 http://localhost:8900/health | grep -q '"status":"ok"'; then
               echo "Health check passed (attempt $i)"
               HEALTH_OK=1
               break
