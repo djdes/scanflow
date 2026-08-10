@@ -25,7 +25,9 @@ PROJECTSFLOW_SCANFLOW_PROJECT_ID=55d1d6c5-0f0f-4ece-9d5a-cdf419e52c85          #
 
 ## Как запустить диспетчер
 
-1. Откройте Claude Code (Max-подписка) в любой папке (рекомендую `C:\www\ProjectsFlow`, чтобы был доступ к MCP `projectsflow` без лишних настроек).
+1. Запустите `Запустить-сессию-диспетчера.cmd` (двойной клик) в корне ScanFlow.
+
+   ⚠️ **Не открывайте сессию обычным способом.** Очередь AI-job'ов сервер отдаёт ТОЛЬКО диспетчеру проекта — это `admin@projectsflow.ru`. Обычная сессия ходит личным токеном Ярослава, и `pf_list_pending_ai_prompt_jobs` вернёт ей пустой список: накладные будут отваливаться по 15-минутному таймауту. `.cmd` подсовывает правильный токен через `claude --mcp-config c:\www\ralph\mcp-projectsflow.json`.
 
 2. Отправьте `/scanflow-dispatch` — слэш-команда с этим же промптом лежит в
    `C:\Users\Yaroslav\.claude\commands\scanflow-dispatch.md` и доступна из любой папки.
