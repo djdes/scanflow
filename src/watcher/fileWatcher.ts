@@ -21,6 +21,7 @@ import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 import { editMessageText } from '../notifications/telegram/telegramClient';
+import { invoiceUrl } from '../utils/invoiceUrl';
 import { UploadSource } from '../utils/uploadSource';
 import { autoSendSberForInvoice } from '../services/autoSendSber';
 import { mergeBlockedByNumber, mergeLostData } from '../services/mergeDecision';
@@ -51,7 +52,7 @@ async function notifyPageMerged(
     if (!tg?.bot_token) return;
     const text = `📎 Страница загружена и вошла в накладную #${targetId}\n\n`
       + `Отдельной накладной №${sourceId} не существует — это был лист того же документа.\n`
-      + `${config.publicBaseUrl}/#/invoices/${targetId}`;
+      + invoiceUrl(targetId);
     for (const [chatId, messageId] of bubbles) {
       try {
         await editMessageText(tg.bot_token, chatId, messageId, text);

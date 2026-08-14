@@ -597,7 +597,10 @@ export class NomenclatureMapper {
           try {
             // If the scanned name carries pack info ("Мука 50кг"), persist it on
             // the new mapping so future runs skip the regex fallback.
-            const detected = detectPackFromName(scannedName);
+            // Единицу учёта берём у найденной позиции каталога: в названии может
+            // быть сразу несколько чисел («10л/9.6кг»), и запомнить надо то,
+            // которое соответствует учёту в 1С.
+            const detected = detectPackFromName(scannedName, best.item.unit ?? null);
             const packFields = detected
               ? { pack_size: detected.pack_size, pack_unit: detected.pack_unit }
               : {};

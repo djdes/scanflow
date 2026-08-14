@@ -33,6 +33,9 @@ const UNIT_ALIASES: Record<string, string> = {
  */
 const PACK_PATTERN = /(?:\(|\b|\s|^)(\d+(?:[.,]\d+)?)\s*(кг|гр|г|мл|л)(?=\s|\)|$|[^а-яА-Яa-zA-Z0-9])/i;
 
+/** Тот же шаблон, но для перебора ВСЕХ совпадений в названии (см. detectPackFromName). */
+const PACK_PATTERN_GLOBAL = new RegExp(PACK_PATTERN.source, 'gi');
+
 /**
  * Container-like words. When these appear in the item name, any "350 мл" /
  * "500 мл" / "1л" inside is the SIZE OF THE VESSEL, not the pack size of
@@ -124,16 +127,33 @@ function looksLikeContainer(name: string): boolean {
  * Also returns null if the name describes a CONTAINER (stakan, konteyner,
  * bottle, etc.) — the volume there describes the vessel, not a pack.
  */
-export function detectPackFromName(name: string): { pack_size: number; pack_unit: string } | null {
+export function detectPackFromName(
+  name: string,
+  preferredUnit?: string | null,
+): { pack_size: number; pack_unit: string } | null {
   if (!name) return null;
   if (looksLikeContainer(name)) return null;
-  const match = name.match(PACK_PATTERN);
-  if (!match) return null;
-  const n = parseFloat(match[1].replace(',', '.'));
-  if (!isFinite(n) || n <= 0) return null;
-  const unit = UNIT_ALIASES[match[2].toLowerCase()];
-  if (!unit) return null;
-  return { pack_size: n, pack_unit: unit };
+
+  // Собираем ВСЕ пары «число + единица», а не только первую. Названия вида
+  // «Майонез ... 67% 10л/9.6кг» несут сразу объём тары и массу содержимого:
+  // 10 литров — это ведро, а 9,6 кг — сам майонез. Раньше бралось первое
+  // совпадение, то есть 10 л, и на склад уходило 40 кг вместо 38,4 — ошибка
+  // тихая, потому что сумма строки при этом сходится с документом.
+  const candidates: Array<{ size: number; unit: string }> = [];
+  for (const m of name.matchAll(PACK_PATTERN_GLOBAL)) {
+    const n = parseFloat(m[1].replace(',', '.'));
+    if (!isFinite(n) || n <= 0) continue;
+    const unit = UNIT_ALIASES[m[2].toLowerCase()];
+    if (!unit) continue;
+    candidates.push({ size: n, unit });
+  }
+  if (candidates.length === 0) return null;
+
+  // Если известно, в чём 1С ведёт учёт, берём число именно в этой единице.
+  // Без подсказки поведение прежнее — первое совпадение.
+  const want = preferredUnit ? UNIT_ALIASES[preferredUnit.trim().toLowerCase()] : null;
+  const chosen = (want && candidates.find(c => c.unit === want)) || candidates[0];
+  return { pack_size: chosen.size, pack_unit: chosen.unit };
 }
 
 /**
@@ -450,7 +470,9 @@ export function resolveAndApplyPackTransform<T extends PackTransformable>(
   let usedFallback = false;
 
   if (!packSize || !packUnit) {
-    const detected = detectPackFromName(scannedName);
+    // Передаём единицу учёта 1С: при «10л/9.6кг» и учёте в килограммах нужно
+    // взять 9,6, а не первое попавшееся число.
+    const detected = detectPackFromName(scannedName, onec1cUnit);
     if (detected) {
       packSize = detected.pack_size;
       packUnit = detected.pack_unit;

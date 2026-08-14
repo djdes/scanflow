@@ -1,10 +1,6 @@
 import type { Invoice } from '../../database/repositories/invoiceRepo';
 import type { EventPayload } from '../types';
-import { config } from '../../config';
-
-function invoiceUrl(id: number): string {
-  return `${config.publicBaseUrl}/#/invoices/${id}`;
-}
+import { invoiceUrl } from '../../utils/invoiceUrl';
 
 // Per-event timestamp. Built from invoice fields directly (no separate event log
 // is maintained; the invoice itself is the source of truth for state).

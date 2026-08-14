@@ -40,7 +40,7 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
 function invoiceHeaderHtml(p: EventPayload, baseUrl: string): string {
   const num = p.invoice_number ? escapeHtml(String(p.invoice_number)) : `#${p.invoice_id}`;
   const supplier = p.supplier ? escapeHtml(String(p.supplier)) : '—';
-  const link = `${baseUrl}/#/invoices/${p.invoice_id}`;
+  const link = `${baseUrl}/app.html#/invoices/${p.invoice_id}`;
   return `
     <p style="margin:0 0 8px"><b>Накладная:</b> <a href="${link}" style="color:#2563eb">№ ${num}</a></p>
     <p style="margin:0 0 8px"><b>Поставщик:</b> ${supplier}</p>
@@ -123,7 +123,7 @@ export function renderDigest(groups: DigestGroup[], baseUrl = 'https://scanflow.
     const rows = g.events.map(ev => {
       const num = ev.payload.invoice_number ? escapeHtml(String(ev.payload.invoice_number)) : `#${ev.payload.invoice_id}`;
       const supplier = ev.payload.supplier ? escapeHtml(String(ev.payload.supplier)) : '—';
-      const link = `${baseUrl}/#/invoices/${ev.payload.invoice_id}`;
+      const link = `${baseUrl}/app.html#/invoices/${ev.payload.invoice_id}`;
       return `
         <tr>
           <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><a href="${link}" style="color:#2563eb">${num}</a></td>
