@@ -891,7 +891,10 @@ export async function detectOrientationWithClaude(
     try {
       const signal = AbortSignal.timeout(ORIENT_TIMEOUT_MS);
       const response = await client.messages.create({
-        model: 'claude-sonnet-4-6',
+        // Модель зашита, а не берётся из настроек: это служебный вызов на
+        // 10 токенов вывода, и он должен работать одинаково независимо от того,
+        // какую модель выбрали для распознавания.
+        model: 'claude-sonnet-5',
         max_tokens: 10,
         messages: [{ role: 'user', content }],
       }, { signal });

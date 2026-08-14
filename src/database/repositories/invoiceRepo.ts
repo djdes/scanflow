@@ -1384,7 +1384,7 @@ export const invoiceRepo = {
     return {
       mode: row?.mode ?? 'hybrid',
       anthropic_api_key: row?.anthropic_api_key ?? null,
-      claude_model: row?.claude_model ?? 'claude-sonnet-4-6',
+      claude_model: row?.claude_model ?? 'claude-sonnet-5',
       llm_mapper_enabled: (row?.llm_mapper_enabled ?? 1) === 1,
       auto_send_1c: (row?.auto_send_1c ?? 0) === 1,
       auto_send_sber: (row?.auto_send_sber ?? 0) === 1,

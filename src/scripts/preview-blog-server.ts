@@ -192,7 +192,7 @@ const mockTable: Array<{ test: RegExp; handler: (req: express.Request, res: expr
   // Settings
   { test: /^\/api\/settings\/analyzer$/, handler: (_req, res) => res.json({
     mode: 'claude_api',
-    claude_model: 'claude-sonnet-4-6',
+    claude_model: 'claude-sonnet-5',
     anthropic_api_key: '',
     llm_mapper_enabled: true,
     auto_send_to_1c: false,

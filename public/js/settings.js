@@ -233,7 +233,7 @@ const Settings = {
       const { data: current } = await App.apiJson('/settings/analyzer');
       const body = {
         mode: current?.mode || 'claude_api',
-        claude_model: current?.claude_model || 'claude-sonnet-4-6',
+        claude_model: current?.claude_model || 'claude-sonnet-5',
         llm_mapper_enabled: !!current?.llm_mapper_enabled,
         auto_send_1c: !!(cb1c && cb1c.checked),
         auto_send_sber: !!(cbSber && cbSber.checked),
