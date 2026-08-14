@@ -17,6 +17,12 @@ export interface PackTransformable {
   total: number | null | undefined;
 }
 
+/**
+ * Единицы МЕРЫ (в отличие от единиц СЧЁТА: шт, упак, ведро, коробка).
+ * Если количество в накладной уже в мере — фасовку разворачивать нечего.
+ */
+const MEASURE_UNITS = new Set(['кг', 'г', 'гр', 'л', 'мл', 'килограмм', 'литр']);
+
 // Canonical base units we convert to.
 const UNIT_ALIASES: Record<string, string> = {
   'кг': 'кг',
@@ -180,11 +186,19 @@ export function applyPackTransform<T extends PackTransformable>(
   const oldQty = item.quantity;
   if (oldQty == null || oldQty <= 0) return item;
 
-  // Idempotence guard: if the item is already in the target unit (or in its
-  // normalised parent unit — "кг" when pack_unit is "г", "л" when "мл"),
-  // assume the transform was already applied and skip.
+  // Количество УЖЕ выражено мерой (кг/г/л/мл) — умножать нечего: поставщик
+  // сам пересчитал фасовку в вес. Умножение осмысленно только когда в
+  // накладной СЧЁТ (шт, упак, ведро, коробка…), который надо развернуть в вес.
+  //
+  // Раньше проверялось лишь совпадение единицы товара с pack_unit, поэтому
+  // строка «20 кг» при подсказке «10 л» из названия умножалась ещё раз и
+  // превращалась в 200 кг. Ошибка тихая: сумма строки не меняется, цена за
+  // килограмм падает во столько же раз, поэтому сверка с документом и платёжка
+  // расхождения не показывают — врут только остатки и себестоимость.
   const packU = pack_unit.toLowerCase();
-  const itemU = (item.unit || '').toLowerCase();
+  const itemU = (item.unit || '').toLowerCase().replace(/[.\s]/g, '');
+  if (itemU && MEASURE_UNITS.has(itemU)) return item;
+  // Тот же случай для нераспознанных написаний меры: единица совпала с pack_unit.
   if (itemU && (
     itemU === packU
     || (packU === 'г' && itemU === 'кг')
