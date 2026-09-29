@@ -15,7 +15,7 @@ JPG photo → OCR (Google Vision → Claude API → Tesseract) → parser → no
 ## Tech stack
 
 - **Runtime:** Node.js 25 + TypeScript (strict). Server is plain Express 5; frontend is vanilla HTML/CSS/JS with hash routing — no build step for client.
-- **DB:** MySQL 9.6 (`SELECT VERSION()` → `9.6.0`; uses `caching_sha2_password`, so the MariaDB CLI client can't auth — dump/restore via a MySQL 9 client or `mysql2`). mysql2/promise driver, async pool. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration **61**.
+- **DB:** прод — **MariaDB 10.11** (`10.11.14-MariaDB`, проверено 2026-09-29 по заголовку дампа), локально — MySQL 9.6 (`caching_sha2_password`, MariaDB CLI к нему не подключится — дамп/восстановление через `mysql2`). SQL миграций обязан работать на обеих: без `ADD COLUMN IF NOT EXISTS`, JSON — в `TEXT/MEDIUMTEXT`, без `DEFAULT` у `TEXT`, без именованных `CHECK`, индекс ≤ 3072 байт. mysql2/promise driver, async pool. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration **73**.
   **Прод и локалка — РАЗНЫЕ базы** (проверено 2026-08-03). Локально `.env` даёт `DB_HOST=127.0.0.1` → MySQL-служба на самой машине разработчика (`@@hostname=BSQL`, `@@datadir=C:\ProgramData\MySQL\data\`), схема `scanflow`, отдельный набор данных. Прод держит свою базу на сервере, её `.env` в rsync исключён. Более ранняя редакция этого файла утверждала «одна общая инстанция на `192.168.33.3`, используется и продом и локальной разработкой» — это неверно, из-за чего легко переоценить риск локальных прогонов.
   ⚠️ Дефолт в `src/config.ts` — `DB_HOST=192.168.33.3` (не localhost). Без `.env` приложение полезет на сетевой хост. Не полагайтесь на дефолт.
 - **OCR mode (`analyzer_config.mode`):** `claude_api` in production — Claude SDK reads the image directly, one call. The legacy `hybrid` mode (Google Vision OCR → Claude text structuring) is still in code.
@@ -35,7 +35,11 @@ src/
   notifications/    events.emit() entry point, telegram/{client,formatter,notifier}
   watcher/          fileWatcher.ts (chokidar over data/inbox/), recovery for stuck rows
   integration/      webhook.ts (legacy webhook, 1C now uses /pending pull)
-  utils/            logger, mailer, backup, diskMonitor, photoRetention, invoiceNumber
+  utils/            logger, mailer, backup + dbDump (ежедневный дамп), diskMonitor, photoRetention, invoiceNumber
+  services/         v2: lineConversion (единая точка пересчёта единиц), itemReconvert, supplierMatch, remapUnsent,
+                    catalogSyncWatcher, mappingRestore, newItems, engineFlags (флаги движков)
+  learning/         v2: ruleMiner + llmAdvisor + learningService (ночной разбор → rule_proposals), supplierMemory (памятка в промпт)
+  golden/           v2: эталоны — перераспознать фото эталонных накладных и сравнить
 
 public/             vanilla SPA — app.html is the shell, sections toggled by JS in app.js
 1c/КНД_ЗагрузкаНакладныхСканер/  EDT export of the 1C external processing (.epf source)
@@ -53,6 +57,7 @@ Main tables: `invoices`, `invoice_items`, `nomenclature_mappings`, `onec_nomencl
 - `invoices.telegram_message_id` — message_id of the Telegram thread bubble for this invoice.
 - `users.{email, notify_mode, notify_events}` — notifications config; `email`+`notify_mode` are deprecated, `notify_events` still active.
 - `users.{telegram_chat_id, telegram_bot_token}` — current notification channel.
+- Пакет v2 (миграции 62–73, 29.09.2026): `analyzer_config.engine_flags` (JSON флагов движков), `invoice_snapshots` (снимки шапки: `baseline`/`recognized`), `edit_log` (кто/когда/было → стало), `invoice_items.raw_*` (как напечатано) + `conv_*`/`qty_flag` (результат пересчёта), `item_unit_rules` (пересчёт «товар + поставщик»), `mapping_rejections` («не это»), `rule_proposals` (предложения ночного разбора), `golden_runs` + `invoices.golden`, `new_item_requests` («Создать в 1С»). У сопоставлений — `source`, `confirmed_at`, `name_key`, `orphaned_at`.
 - `invoices.supplier_match` (`inn`|`name`|`manual`) + `supplier_inn_ocr`/`supplier_name_ocr` — откуда взят `supplier_inn`. В конце распознавания `linkApprovedSupplier()` (`src/services/supplierMatch.ts`) привязывает накладную к подтверждённой карточке справочника: по ИНН, а если ИНН с фото там нет — по названию без ОПФ (`name`, с предупреждением в UI/Telegram, автопилот такие держит, Сбер требует подтверждения). Выбор поставщика в окне отправки в Сбер ставит `manual`. Любая запись нового `supplier_inn` через `updateInvoiceData` сбрасывает привязку.
 
 ## 1C integration
@@ -60,6 +65,7 @@ Main tables: `invoices`, `invoice_items`, `nomenclature_mappings`, `onec_nomencl
 - 1C external processing source: `1c/КНД_ЗагрузкаНакладныхСканер/` (EDT format → compile to `.epf` in Конфигуратор).
 - Flow: 1C polls `GET /api/invoices/pending` for `approved_for_1c=1` rows, creates `Документы.ПриходнаяНакладная`, calls `POST /api/invoices/:id/confirm` to mark sent.
 - VAT: prices in payload are **VAT-included** (Claude's parsing convention). The 1C module sets `СуммаВключаетНДС = Истина` and uses `Справочники.СтавкиНДС.СтавкаНДС(ВидСтавки, Period)` to resolve the VAT rate by date (handles 18%/20%/22% history).
+- Строка без позиции 1С, по товару которой на странице «Новые товары» попросили «Создать в 1С», уходит в `/pending` с `new_item {name, unit, parent_guid}` и `mapped_name` = название заявки; модуль создаёт позицию с этой единицей (поиск по наименованию, затем по коду ОКЕИ) и в этой группе. После правки `ObjectModule.bsl` `.epf` надо пересобрать в Конфигураторе.
 - Photo attachment: use `РаботаСФайлами.ДобавитьФайл(параметры, адресВовременном)` — writing directly to the deprecated `ФайлХранилище` field gives a "binary data was deleted" error when the user tries to view it.
 
 Russian-language UNF source dump (when you need to look up metadata or canonical helper functions): `C:\www\1CУНФ1.6 от 02.04\`.
@@ -88,7 +94,7 @@ pm2 restart scanflow                     # after config change
 gh run list --repo djdes/scanflow        # GHA status
 ```
 
-App lives at `~/www/scanflow.ru/app/`. `.env` and `google-credentials.json` are server-only (excluded from rsync). DB — своя, на сервере (`scanflow` schema); с локальной она НЕ общая. Backups: schedule a `mysqldump scanflow > data/backups/scanflow-$(date +%F).sql` via cron — the in-app SQLite file backup is gone. `backupDatabase()` в коде — no-op после переезда на MySQL (пишет warning в лог), реальные бэкапы только внешним cron.
+App lives at `~/www/scanflow.ru/app/`. `.env` and `google-credentials.json` are server-only (excluded from rsync). DB — своя, на сервере (`scanflow` schema); с локальной она НЕ общая. Backups: приложение само раз в сутки (и на старте) пишет логический дамп `data/backups/scanflow-ГГГГ-ММ-ДД.sql.gz` (`src/utils/dbDump.ts`, хранит 14, каталог — env `BACKUP_DIR`). Дамп и правила до v2 — `data/backups/*-pre-v2*`, тег `backup/pre-v2-2026-09-29`. Откат v2 по шагам — `docs/runbooks/rollback-v2.md`.
 
 GitHub secrets needed: `SSH_PRIVATE_KEY`, `SSH_HOST=magday.ru`, `SSH_USER=magday`, `SSH_PORT=50222`.
 
@@ -141,6 +147,13 @@ First start with empty `users` table prints a one-time random admin password to 
     ⚠️ Устарело: `config.dataScopingEnabled` / env `DATA_SCOPING_ENABLED` **удалены из кода** (в `src/config.ts` от них остался только висячий комментарий). Шаг деплоя в `.github/workflows/deploy.yml` всё ещё дописывает `DATA_SCOPING_ENABLED=true` в серверный `.env` — это мёртвая строка, её никто не читает. См. `docs/superpowers/specs/2026-07-22-multitenant-isolation-design.md` (более ранний design от 2026-06-24 описывает уже неактуальную флаг-схему).
 20. **Платформенно-глобальный конфиг — только admin.** `requireAdmin` (в `auth.ts`) закрывает `/api/webhook`, `/api/debug`, `PUT /api/settings/analyzer` и connect/write-роуты Сбера; `GET /api/settings/analyzer` прячет секреты от не-админов; `GET /api/sber/status` прячет банковские реквизиты плательщика. Не расширять на `role='user'`.
 21. **🔥 Crash recovery НИКОГДА не удаляет застрявшую накладную и не возвращает фото в `inbox/`.** Инцидент 2026-07-14: `max_memory_restart: '256M'` при пиках OCR ~470 МБ → PM2 убивал процесс каждые 90 сек. Recovery на старте удаляла строку (`invoiceRepo.delete`) и клала фото обратно в `inbox/` — но удаление строки стирало и `file_hash`, поэтому **оба** дедупа в `processFile` (по SHA-256 и по имени файла) слепли, watcher создавал накладную заново и снова слал `photo_uploaded`. ~20 кругов по 3 накладные за 40 минут, в Telegram и на почту. Теперь: строка живёт, `recovery_attempts` инкрементится **до** ретрая, перепрогон идёт на месте через `reprocessInvoice()` (он не шлёт `photo_uploaded`), после 2 неудач — `error` + фото в `failed/`. См. `src/watcher/crashRecovery.ts`. Правила: (а) не удалять строку в recovery — это единственное, что держит дедуп по хешу честным; (б) счётчик инкрементить до работы, а не после, иначе падение в середине OCR не сожжёт попытку; (в) перепрогонять последовательно — именно параллельные Claude-вызовы и пробили лимит памяти.
+22. **Пересчёт единиц — только через `convertInvoiceLine()` (`src/services/lineConversion.ts`) и `reconvertStoredItem()`, и только от `raw_*`.** Сумма строки при пересчёте не меняется никогда (меняются количество/единица/цена). Строки `conv_source='legacy_stored'` (до v2) и с пустым `conv_source` (записаны не конвейером v2, например старым кодом после отката) автоматически НЕ пересчитываются — их `raw_*` могут быть уже пересчитанными, повторное умножение и было главной бедой (60 шт батона → «1440 кг»). Ручную правку количества (`conv_source='manual'`) автоматика не трогает.
+23. **Выгрузка каталога 1С не удаляет сопоставления.** `removeOrphaned` больше не вызывается: исчезнувшая позиция → `orphaned_at` (правило пропускается при подборе), очистка — только руками. Частичная выгрузка каталога стирала правила.
+24. **Правило единицы из правки строки хранится как `field_name='item_unit_item'` с `item_key` (товар), не `'item_unit'`.** Код до v2 применял любую строку `'item_unit'` ко ВСЕМ строкам поставщика (инцидент: яйца «С1 360шт» → «1080 кг»). Смена единицы внутри класса (уп → упак) — исправление чтения и запоминается; смена класса (кг ↔ шт) — пересчёт, строка становится ручной и НЕ запоминается как исправление OCR.
+25. **Каждая ручная правка — в `edit_log` через `logEdit()`** (никогда не бросает). Снимки шапки `invoice_snapshots` — рычаг отката номера/даты/суммы/НДС: `POST /api/invoices/:id/restore-snapshot`, массово `POST /api/debug/restore-headers` (по умолчанию `dry_run`).
+26. **Флаги движков** (`analyzer_config.engine_flags`, `src/services/engineFlags.ts`: `units_v2`, `price_guard`, `mapping_v2`, `ocr_memory`, `batch_notify`, `learning`): выключенный флаг = прежний путь кода. Прежние пути не удалять — это откат без выкладки.
+27. **Самообучение ничего не применяет само.** Ночной разбор (03:30) и ИИ только создают `rule_proposals`; правило появляется после «Принять». Памятка поставщиков в промпте — без коэффициентов пересчёта (модель возвращает напечатанное). В публичный `GET /api/dispatcher/prompt` данные компании не добавлять.
+28. **`claude-sonnet-5` размышляет по умолчанию, и размышления тратят тот же `max_tokens`.** При малом лимите ответ приходит без текстового блока (так молча не работал советчик с лимитом 2500). Для новых вызовов — structured outputs + `thinking: {type: 'adaptive'}` с `effort` и запасом токенов, или явно `disabled`.
 
 ## API surface (mounted in `src/api/server.ts`)
 
@@ -175,6 +188,14 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET /magic/:token` + `POST /magic/:token/consume` | one-time token | вход по magic-ссылке из письма |
 | `GET /blog`, `/blog/:slug`, `/sitemap.xml` | none | SEO-блог и карта сайта |
 | `GET /camera` | none (LAN) | mobile camera page |
+| `GET/PUT /api/settings/engine-flags` | `X-API-Key` (запись — admin) | флаги движков v2 |
+| `GET /api/invoices/:id/edits`, `POST /:id/restore-snapshot` | `X-API-Key` | журнал правок, откат шапки из снимка |
+| `POST /api/invoices/:id/items/:itemId/{reconvert,revert-raw,unit-rule}`, `GET …/candidates` | `X-API-Key` | пересчёт строки, «как в накладной», «запомнить», кандидаты 1С |
+| `POST /api/debug/restore-headers` | `X-API-Key` + **admin** | массовый откат номера/даты/суммы/НДС (`dry_run` по умолчанию) |
+| `POST /api/mappings/restore` | `X-API-Key` + **admin** | вернуть недостающие сопоставления из резервной копии (`dry_run` по умолчанию) |
+| `GET/POST /api/learning/*` | `X-API-Key` | предложения правил (принять/отклонить/разобрать), правила пересчёта |
+| `GET/POST/DELETE /api/new-items/*` | `X-API-Key` | «Новые товары»: сопоставить группу или «Создать в 1С» |
+| `PATCH /api/golden/invoices/:id`, `/api/golden/runs*` | `X-API-Key` (прогон — admin) | эталоны |
 
 Порядок монтирования в `server.ts` load-bearing: роутеры с собственной аутентификацией (`/api/dispatcher`, `/api/inbound/public`, `/api/onec/exchange`, `/api/onec/pair`) обязаны стоять ВЫШЕ `apiKeyAuth`-роутеров, иначе префиксный мидлвар вернёт им 401.
 
