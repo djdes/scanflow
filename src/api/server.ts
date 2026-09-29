@@ -34,6 +34,7 @@ import usersRouter from './routes/users';
 import operationsRouter from './routes/operations';
 import goldenRouter from './routes/golden';
 import learningRouter from './routes/learning';
+import analyticsRouter from './routes/analytics';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
@@ -274,6 +275,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // «Новые товары» (п.12 v2): строки без позиции 1С — сопоставить группой или
   // «Создать в 1С». Данные строго компании вызывающего.
   app.use('/api/new-items', apiKeyAuth, newItemsRouter);
+  // «Аналитика» (п.7, п.11): качество по поставщикам и закупочные цены — только
+  // чтение, строго данные компании вызывающего.
+  app.use('/api/analytics', apiKeyAuth, analyticsRouter);
   // Self-service: генерация кода подключения доступна любому пользователю.
   app.use('/api/onec', apiKeyAuth, onecUserRouter);
   app.use('/api/onec', apiKeyAuth, requireAdmin, onecAdminRouter);

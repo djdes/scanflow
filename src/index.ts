@@ -22,6 +22,7 @@ import { startDigestWorker } from './notifications/digestWorker';
 import { runNightlyLearning } from './learning/learningService';
 import { keepSberTokensAlive, warnSberSecretExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
 import { checkOnecStall } from './services/companyHealth';
+import { sendWeeklyPriceDigests } from './notifications/priceDigest';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -142,6 +143,15 @@ async function main(): Promise<void> {
   // неделю есть новые накладные, но ни одной отправки (не чаще раза в неделю).
   cron.schedule('5 10 * * *', () => {
     checkOnecStall().catch(err => logger.error('onec stall check failed', { error: (err as Error).message }));
+  });
+
+  // «Подорожания за неделю» (аналитика, п.11): по понедельникам в 09:30 —
+  // сводка владельцу в Telegram, если за неделю цены выросли. Одна на компанию
+  // за неделю (owner_digest_sends), по переключателю «Повышенные цены».
+  cron.schedule('30 9 * * 1', () => {
+    sendWeeklyPriceDigests()
+      .then(r => { if (r.sent > 0) logger.info('Weekly price digests sent', r); })
+      .catch(err => logger.error('weekly price digest failed', { error: (err as Error).message }));
   });
 
   // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files
