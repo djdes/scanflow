@@ -73,6 +73,13 @@ describe('convertLine — реальные строки прода', () => {
     expect(r.source).toBe('name');
   });
 
+  it('история цен не перебивает правдоподобный вариант: «Масло фритюрное 5л 1/2» 3 упак → 30 кг, даже если в истории 314,8 ₽', () => {
+    const r = convertLine(line('Масло фритюрное 5л 1/2', 3, 'упак', 4722, 'кг', { medianPrice: 314.8 }));
+    expect(r.quantity).toBe(30);
+    expect(r.source).toBe('name_count');
+    expect(r.flag).toBeNull();
+  });
+
   it('«Перчатки 100шт/упак» 2 упак, 1С в шт → 200 шт', () => {
     const r = convertLine(line('Перчатки нитриловые (Черные) М 100шт/упак', 2, 'упак', 588, 'шт'));
     expect(r.quantity).toBe(200);

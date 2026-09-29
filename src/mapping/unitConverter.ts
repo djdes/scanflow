@@ -325,14 +325,23 @@ export function convertLine(input: ConvertInput): ConvertResult {
   let fitNote = '';
   const median = input.medianPrice && input.medianPrice > 0 ? input.medianPrice : null;
   if (median && total != null) {
-    const score = (c: Cand) => Math.abs(Math.log((priceOf(c) as number) / median));
-    const best = cands.reduce((a, b) => (score(b) < score(a) ? b : a));
-    const ratio = (priceOf(best) as number) / median;
-    if (ratio >= 1 / 3 && ratio <= 3) {
-      if (best !== cands[0]) { chosen = best; fitNote = ' — подобрано по истории цен'; }
-    } else {
-      flag = 'price_outlier';
-      flagNote = `цена ${fmt(priceOf(cands[0]) as number)} ₽ за ${toLabel} отличается от обычной (${fmt(median)} ₽) в ${fmt(Math.max(ratio, 1 / ratio))} раза — проверьте количество`;
+    // История цен может ОТВЕРГНУТЬ неправдоподобный вариант по умолчанию, но не
+    // перебить правдоподобный: в истории есть строки, пересчитанные до v2 с
+    // ошибкой («Масло фритюрное 5л 1/2» — 15 кг вместо 30), и подгонка под них
+    // закрепляла бы старую ошибку.
+    const ratioOf = (c: Cand) => (priceOf(c) as number) / median;
+    const within = (r: number) => r >= 1 / 3 && r <= 3;
+    if (!within(ratioOf(cands[0]))) {
+      const score = (c: Cand) => Math.abs(Math.log(ratioOf(c)));
+      const best = cands.reduce((a, b) => (score(b) < score(a) ? b : a));
+      if (best !== cands[0] && within(ratioOf(best))) {
+        chosen = best;
+        fitNote = ' — подобрано по истории цен';
+      } else {
+        const ratio = ratioOf(cands[0]);
+        flag = 'price_outlier';
+        flagNote = `цена ${fmt(priceOf(cands[0]) as number)} ₽ за ${toLabel} отличается от обычной (${fmt(median)} ₽) в ${fmt(Math.max(ratio, 1 / ratio))} раза — проверьте количество`;
+      }
     }
   } else if (total != null && target.cls !== 'count' && cands.length > 1) {
     const plausible = (c: Cand) => { const p = priceOf(c) as number; return p >= PLAUSIBLE_PER_BASE.min && p <= PLAUSIBLE_PER_BASE.max; };

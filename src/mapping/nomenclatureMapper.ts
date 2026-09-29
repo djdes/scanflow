@@ -720,6 +720,8 @@ export class NomenclatureMapper {
     const out: Array<{ guid: string; name: string; unit: string | null; confidence: number; conflict: string | null }> = [];
     for (const r of results) {
       if (rejected.has(r.item.guid)) continue;
+      // Совсем далёкие варианты («Вкладыш» → «Крышка», 0,22) — не подсказка, а шум.
+      if (1 - (r.score ?? 1) < 0.35) continue;
       out.push({
         guid: r.item.guid, name: r.item.name, unit: r.item.unit ?? null,
         confidence: Math.round((1 - (r.score ?? 1)) * 100) / 100,

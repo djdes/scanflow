@@ -287,7 +287,8 @@ export class FileWatcher {
     } catch (e) {
       logger.warn('LLM-mapper: failed to persist learned mapping', { name, error: (e as Error).message });
     }
-    this.mapper.invalidateCache();
+    // Только кэш своей компании (раньше — всех, на каждой строке накладной).
+    this.mapper.invalidateCache(ownerUserId);
     return mapping;
   }
 
