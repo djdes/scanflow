@@ -1882,7 +1882,14 @@ const MIGRATIONS: Migration[] = [
     // хотя бы к правильным суммам, НДС и номерам счетов». baseline — состояние
     // всех накладных на момент выкладки v2 (бэкфилл ниже), recognized — пишется
     // при каждом распознавании до пересчёта единиц. Строки — JSON для аудита.
-    detect: (exec) => hasTable(exec, 'invoice_snapshots'),
+    // «Применено» = таблица есть И у каждой накладной есть baseline (иначе
+    // оборванный бэкфилл навсегда остался бы недоделанным).
+    detect: async (exec) => {
+      if (!(await hasTable(exec, 'invoice_snapshots'))) return false;
+      const [r] = await exec.query<RowDataPacket[]>(`SELECT COUNT(*) AS n FROM invoices i
+        WHERE NOT EXISTS (SELECT 1 FROM invoice_snapshots s WHERE s.invoice_id = i.id AND s.kind = 'baseline')`);
+      return Number(r[0].n) === 0;
+    },
     run: async (exec) => {
       await exec.query(`
         CREATE TABLE IF NOT EXISTS invoice_snapshots (
@@ -1953,10 +1960,17 @@ const MIGRATIONS: Migration[] = [
     // Теперь такие строки только помечаются orphaned_at. source/confirmed_at:
     // подтверждённые правила важнее выбора ИИ; name_key — один ключ на все
     // написания товара (src/mapping/nameKey.ts).
-    detect: async (exec) =>
-      (await hasColumn(exec, 'nomenclature_mapping_cards', 'name_key'))
-      && (await hasColumn(exec, 'nomenclature_mapping_cards', 'orphaned_at'))
-      && (await hasColumn(exec, 'supplier_nomenclature_mapping_cards', 'name_key')),
+    // «Применено» = колонки есть И ключи заполнены (оборванный бэкфилл доделается).
+    detect: async (exec) => {
+      if (!(await hasColumn(exec, 'nomenclature_mapping_cards', 'name_key'))
+        || !(await hasColumn(exec, 'nomenclature_mapping_cards', 'orphaned_at'))
+        || !(await hasColumn(exec, 'nomenclature_mapping_cards', 'source'))
+        || !(await hasColumn(exec, 'supplier_nomenclature_mapping_cards', 'name_key'))) return false;
+      const [r] = await exec.query<RowDataPacket[]>(`SELECT
+        (SELECT COUNT(*) FROM nomenclature_mapping_cards WHERE name_key IS NULL OR source IS NULL)
+        + (SELECT COUNT(*) FROM supplier_nomenclature_mapping_cards WHERE name_key IS NULL) AS n`);
+      return Number(r[0].n) === 0;
+    },
     run: async (exec) => {
       const t = 'nomenclature_mapping_cards';
       if (!(await hasColumn(exec, t, 'source'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN source VARCHAR(16) NULL`);
@@ -1974,10 +1988,20 @@ const MIGRATIONS: Migration[] = [
       if (!(await hasColumn(exec, s, 'name_key'))) await exec.query(`ALTER TABLE ${s} ADD COLUMN name_key VARCHAR(255) NULL`);
       if (!(await hasIndex(exec, s, 'idx_snmc_owner_supplier_key'))) await exec.query(`CREATE INDEX idx_snmc_owner_supplier_key ON ${s} (owner_user_id, supplier_key, name_key)`);
 
+      // Пачками по 400 (UPDATE … CASE id): поштучно 3860 строк шли минуту, а
+      // миграции выполняются на старте процесса — это минута простоя прода.
       for (const table of [t, s]) {
         const [rows] = await exec.query<RowDataPacket[]>(`SELECT id, scanned_name FROM ${table} WHERE name_key IS NULL`);
-        for (const r of rows) {
-          await exec.query(`UPDATE ${table} SET name_key = ? WHERE id = ?`, [itemNameKey(String(r.scanned_name ?? '')).slice(0, 255), r.id]);
+        for (let i = 0; i < rows.length; i += 400) {
+          const chunk = rows.slice(i, i + 400);
+          const params: unknown[] = [];
+          for (const r of chunk) params.push(r.id, itemNameKey(String(r.scanned_name ?? '')).slice(0, 255));
+          for (const r of chunk) params.push(r.id);
+          await exec.query(
+            `UPDATE ${table} SET name_key = CASE id ${chunk.map(() => 'WHEN ? THEN ?').join(' ')} END
+              WHERE id IN (${chunk.map(() => '?').join(',')})`,
+            params,
+          );
         }
       }
     },

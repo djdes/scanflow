@@ -1186,6 +1186,9 @@ const Invoices = {
       total: 'Сумма строки', mapped_name: 'Название (1С)', onec_guid: 'Позиция 1С',
     };
     const fmt = (v) => (v == null || v === '') ? '—' : App.esc(String(v).replace(/^"|"$/g, ''));
+    const MONEY_FIELDS = new Set(['total_sum', 'vat_sum', 'price', 'total']);
+    const fmtVal = (field, v) => (MONEY_FIELDS.has(field) && v != null && v !== '' && isFinite(Number(v)))
+      ? App.formatMoney(Number(v)) : fmt(v);
     const edits = payload.edits || [];
     const editsHtml = edits.length
       ? `<div class="table-container"><table class="data-table"><thead><tr><th>Когда</th><th>Что</th><th>Было</th><th>Стало</th></tr></thead><tbody>${
@@ -1193,8 +1196,8 @@ const Invoices = {
           let ctx = {};
           try { ctx = e.context ? JSON.parse(e.context) : {}; } catch { ctx = {}; }
           const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:12px">${App.esc(ctx.original_name)}</div>` : '');
-          const oldV = e.field === 'onec_guid' ? fmt(ctx.old_name) : fmt(e.old_value);
-          const newV = e.field === 'onec_guid' ? fmt(ctx.new_name) : fmt(e.new_value);
+          const oldV = e.field === 'onec_guid' ? fmt(ctx.old_name) : fmtVal(e.field, e.old_value);
+          const newV = e.field === 'onec_guid' ? fmt(ctx.new_name) : fmtVal(e.field, e.new_value);
           const src = ctx.restored_from ? ` <span class="muted">(откат из снимка)</span>` : '';
           return `<tr><td>${App.formatDateTime(e.created_at)}</td><td>${what}${src}</td><td>${oldV}</td><td>${newV}</td></tr>`;
         }).join('')}</tbody></table></div>`
