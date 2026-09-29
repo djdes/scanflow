@@ -33,8 +33,7 @@ export function buildAdvicePrompt(lines: FlaggedLine[]): string {
 Строки:
 ${rows}
 
-Ответ — строго JSON без markdown:
-{"answers":[{"id":число,"factor":число_или_null,"confidence":число_от_0_до_1,"reason":"кратко по-русски"}]}`;
+Ответ — JSON: {"answers":[{"id":число,"factor":число_или_null,"confidence":число_от_0_до_1,"reason":"кратко по-русски"}]}`;
 }
 
 export function parseAdvice(text: string): LlmAdvice[] {
@@ -56,17 +55,47 @@ export function parseAdvice(text: string): LlmAdvice[] {
   return out;
 }
 
+/** Схема ответа для structured outputs: JSON гарантирован, одна union (factor). */
+export const ADVICE_SCHEMA = {
+  type: 'object',
+  properties: {
+    answers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          factor: { type: ['number', 'null'] },
+          confidence: { type: 'number' },
+          reason: { type: 'string' },
+        },
+        required: ['id', 'factor', 'confidence', 'reason'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['answers'],
+  additionalProperties: false,
+} as const;
+
 export async function adviseWithLlm(lines: FlaggedLine[], apiKey: string, model: string): Promise<LlmAdvice[]> {
   if (!lines.length || !apiKey) return [];
   const batch = lines.slice(0, 30);
   try {
     const client = createClient(apiKey);
+    // Модель размышляет по умолчанию, и размышления тратят тот же max_tokens:
+    // при 2500 весь бюджет уходил на них, и текста ответа не оставалось.
+    // Поэтому — adaptive thinking с низким усилием, запас по токенам и
+    // structured outputs (ответ — всегда валидный JSON по схеме).
     const resp = await client.messages.create({
       model,
-      max_tokens: 2500,
+      max_tokens: 12000,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: ADVICE_SCHEMA as unknown as Record<string, unknown> } },
       messages: [{ role: 'user', content: buildAdvicePrompt(batch) }],
-    });
+    }, { signal: AbortSignal.timeout(180_000) });
     const text = resp.content.map(c => (c.type === 'text' ? c.text : '')).join('');
+    if (!text) logger.warn('learning: LLM advice without text', { stop: resp.stop_reason });
     return parseAdvice(text).filter(a => batch.some(l => l.id === a.id));
   } catch (err) {
     logger.warn('learning: LLM advice failed', { error: (err as Error).message });

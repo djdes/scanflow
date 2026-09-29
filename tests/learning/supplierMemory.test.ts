@@ -35,6 +35,12 @@ describe('formatSupplierMemory', () => {
     expect(text).not.toMatch(/=\s*\d/);
   });
 
+  it('omits KPP for individual entrepreneurs (12-digit INN)', () => {
+    const text = formatSupplierMemory([sup(1, { inn: '940504779259', name: 'ИП Кнутова А.С.', kpp: '771801001' })]);
+    expect(text).toContain('ИНН 940504779259');
+    expect(text).not.toMatch(/940504779259, КПП/);
+  });
+
   it('respects the length cap: trims units first, then drops suppliers', () => {
     const many = Array.from({ length: 40 }, (_, i) => sup(i, {
       units: Array.from({ length: 12 }, (_, k) => ({ name: `Товар номер ${k} с длинным названием для проверки лимита`, unit: 'кг' })),

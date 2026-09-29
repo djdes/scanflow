@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mineFromEdits, mineFromPriceOutliers, type QtyEdit, type FlaggedLine } from '../../src/learning/ruleMiner';
+import { mineFromEdits, mineFromPriceOutliers, isPlainFactor, type QtyEdit, type FlaggedLine } from '../../src/learning/ruleMiner';
 
 const edit = (over: Partial<QtyEdit>): QtyEdit => ({
   name: 'Батон "Нарезной" в/с 0,4 кг', supplier_key: 'inn:7722316694', raw_quantity: 60, raw_unit: 'шт',
@@ -19,12 +19,27 @@ describe('mineFromEdits — ручные правки количества → �
     expect(mineFromEdits([edit({}), edit({ raw_quantity: 30, new_quantity: 20, item_id: 2 })])).toHaveLength(0);
   });
 
-  it('одна правка — тоже предложение (человек сам исправил)', () => {
-    expect(mineFromEdits([edit({})])).toHaveLength(1);
+  it('одна правка — ещё не закономерность (для неё есть «запомнить» в строке)', () => {
+    expect(mineFromEdits([edit({})])).toHaveLength(0);
+  });
+
+  it('две правки в ОДНОЙ накладной — не повторение; у строки считается последняя правка', () => {
+    expect(mineFromEdits([edit({}), edit({ item_id: 2 })])).toHaveLength(0);
+    // Строка 1 сначала исправлена неверно (25), потом верно (24): берётся 24.
+    const p = mineFromEdits([
+      edit({ new_quantity: 25 }), edit({ new_quantity: 24 }),
+      edit({ raw_quantity: 30, new_quantity: 12, invoice_id: 2, item_id: 2 }),
+    ]);
+    expect(p).toHaveLength(1);
+    expect(p[0].payload.factor).toBe(0.4);
+    expect(p[0].evidence.count).toBe(2);
   });
 
   it('правка в той же единице (кг → кг) — не про пересчёт', () => {
-    expect(mineFromEdits([edit({ raw_unit: 'кг', onec_unit: 'кг', raw_quantity: 10, new_quantity: 9 })])).toHaveLength(0);
+    expect(mineFromEdits([
+      edit({ raw_unit: 'кг', onec_unit: 'кг', raw_quantity: 10, new_quantity: 9 }),
+      edit({ raw_unit: 'кг', onec_unit: 'кг', raw_quantity: 10, new_quantity: 9, invoice_id: 2, item_id: 2 }),
+    ])).toHaveLength(0);
   });
 });
 
@@ -48,5 +63,12 @@ describe('mineFromPriceOutliers — выброс цены → вероятный
 
   it('без медианы — нечем проверить', () => {
     expect(mineFromPriceOutliers([line({ median: null })])).toHaveLength(0);
+  });
+});
+
+describe('isPlainFactor — «круглый» коэффициент упаковки', () => {
+  it('целые и до трёх знаков после запятой — да; подгонка под цену — нет', () => {
+    for (const f of [1, 5, 50, 0.4, 2.5, 0.125, 11.52]) expect(isPlainFactor(f)).toBe(true);
+    for (const f of [1.8333, 0.33333, 0, -2, NaN, Infinity]) expect(isPlainFactor(f)).toBe(false);
   });
 });

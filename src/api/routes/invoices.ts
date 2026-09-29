@@ -1936,10 +1936,32 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
 
   if ((await getEngineFlags()).units_v2 && !('price' in fields) && !('total' in fields)
       && ('quantity' in fields || 'unit' in fields)) {
-    // Пакет v2: деньги строки не трогаем. Правка единицы = исправление
-    // распознанной единицы → пересчёт от raw; правка количества = ручной итог
-    // в единице 1С (цена = сумма / количество).
-    if ('unit' in fields) {
+    // Пакет v2: деньги строки не трогаем. Правка количества = ручной итог в
+    // единице 1С (цена = сумма / количество). Правка единицы:
+    //  • внутри одного класса (уп → упак, г → кг) — исправление прочитанной
+    //    единицы: raw_* переписываются, строка пересчитывается от raw, а
+    //    исправление запоминается для этого товара;
+    //  • смена класса (кг ↔ шт, л ↔ шт) — это пересчёт, а не ошибка чтения:
+    //    «как в накладной» не трогаем, строка становится ручной и НЕ
+    //    запоминается как исправление OCR — иначе в следующий раз «4,4 кг»
+    //    перца превратилось бы в «4,4 шт». Интерфейс сохраняет поля по одному,
+    //    поэтому и уже введённое вручную количество здесь не сбрасывается.
+    const unitFrom = canonUnit(item.raw_unit ?? item.unit);
+    const unitTo = 'unit' in fields ? canonUnit(fields.unit) : null;
+    const unitOcrFix = 'unit' in fields && !!unitFrom && !!unitTo && unitFrom.cls === unitTo.cls;
+    if ('unit' in fields && !unitOcrFix) {
+      const q = 'quantity' in fields ? fields.quantity ?? null : item.quantity;
+      const total = item.total;
+      const price = q != null && q > 0 && total != null ? Math.round((total / q) * 10000) / 10000 : item.price;
+      const rawQ = item.raw_quantity ?? null;
+      await invoiceRepo.updateItemConversion(itemId, {
+        quantity: q, unit: fields.unit ?? null, price,
+        conv_factor: q != null && rawQ ? q / rawQ : null,
+        conv_source: 'manual',
+        conv_note: `исправлено вручную: ${item.quantity ?? '—'} ${item.unit ?? ''} → ${q ?? '—'} ${fields.unit ?? ''}`.slice(0, 255),
+        qty_flag: null, qty_flag_note: null,
+      });
+    } else if ('unit' in fields) {
       await invoiceRepo.updateItemConversion(itemId, {
         quantity: item.quantity, unit: item.unit, price: item.price,
         raw_unit: fields.unit ?? null,
@@ -1973,7 +1995,7 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
         },
       });
     }
-    if ('unit' in fields && editedInvoice.owner_user_id != null) {
+    if (unitOcrFix && editedInvoice.owner_user_id != null) {
       await ocrCorrectionRepo.remember(
         supplierCorrectionKey(editedInvoice), 'item_unit', item.raw_unit ?? item.unit, fields.unit, editedInvoice.owner_user_id,
         item.original_name,

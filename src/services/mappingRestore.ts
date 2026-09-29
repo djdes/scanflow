@@ -71,6 +71,7 @@ export async function restoreMappings(
 ): Promise<RestoreResult> {
   const counts = { restore: 0, exists: 0, name_key_taken: 0, guid_missing: 0, identity: 0, fragment: 0, attrs_conflict: 0, rejected: 0, invalid: 0 } as Record<RestoreVerdict, number>;
   const items: RestoreResult['items'] = [];
+  const existing: RestoreResult['items'] = [];
   const seen = new Set<string>();
   const keysTakenNow = new Set<string>();
   const db = getDb();
@@ -113,7 +114,8 @@ export async function restoreMappings(
     }
     if (final === 'restore') keysTakenNow.add(nameKey);
     counts[final]++;
-    if (items.length < 1000) items.push({ scanned_name: row.scanned_name, onec_guid: row.onec_guid, onec_name: cat?.name ?? null, verdict: final, reason });
+    // «Уже есть» — большинство строк старого дампа; в ответ они идут последними.
+    (final === 'exists' ? existing : items).push({ scanned_name: row.scanned_name, onec_guid: row.onec_guid, onec_name: cat?.name ?? null, verdict: final, reason });
   }
 
   if (!opts.dryRun && counts.restore > 0) {
@@ -122,5 +124,5 @@ export async function restoreMappings(
       newValue: { restored: counts.restore }, context: { label: opts.label ?? null, counts },
     });
   }
-  return { dry_run: opts.dryRun, counts, items };
+  return { dry_run: opts.dryRun, counts, items: [...items, ...existing].slice(0, 1000) };
 }

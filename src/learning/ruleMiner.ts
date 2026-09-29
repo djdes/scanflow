@@ -47,10 +47,20 @@ export interface UnitRuleProposal {
 const fmt = (x: number) => String(Math.round(x * 1000) / 1000).replace('.', ',');
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
-/** Ручные правки количества с устойчивым коэффициентом (±3%) → правило. */
+/** Минимум разных накладных с одинаковой правкой — «повторяющаяся» правка. */
+export const MIN_EDIT_INVOICES = 2;
+
+/**
+ * Повторяющиеся ручные правки количества с устойчивым коэффициентом (±3%) →
+ * правило. edits — в хронологическом порядке; у строки учитывается только
+ * последняя правка (промежуточные — исправления исправлений). Одна правка —
+ * ещё не закономерность: для неё есть «📌 запомнить» в строке накладной.
+ */
 export function mineFromEdits(edits: QtyEdit[]): UnitRuleProposal[] {
+  const lastPerItem = new Map<number, QtyEdit>();
+  for (const e of edits) lastPerItem.set(e.item_id, e);
   const groups = new Map<string, QtyEdit[]>();
-  for (const e of edits) {
+  for (const e of lastPerItem.values()) {
     const from = canonUnit(e.raw_unit);
     const to = canonUnit(e.onec_unit);
     if (!from || !to || !(e.raw_quantity > 0) || !(e.new_quantity > 0)) continue;
@@ -61,6 +71,7 @@ export function mineFromEdits(edits: QtyEdit[]): UnitRuleProposal[] {
   }
   const out: UnitRuleProposal[] = [];
   for (const [key, list] of groups) {
+    if (new Set(list.map(e => e.invoice_id)).size < MIN_EDIT_INVOICES) continue;
     const factors = list.map(e => e.new_quantity / e.raw_quantity);
     const m = median(factors);
     if (!factors.every(f => Math.abs(f - m) <= 0.03 * m)) continue;
@@ -68,7 +79,7 @@ export function mineFromEdits(edits: QtyEdit[]): UnitRuleProposal[] {
     const factor = Math.round(m * 10000) / 10000;
     out.push({
       kind: 'unit_rule', supplier_key: supplierKey, name_key: nameKey,
-      title: `«${list[0].name}»: 1 ${fromU} = ${fmt(factor)} ${toU}${list.length > 1 ? ` (исправлено вручную ${list.length} раз)` : ' (исправлено вручную)'}`,
+      title: `«${list[0].name}»: 1 ${fromU} = ${fmt(factor)} ${toU} (исправлено вручную в ${list.length} строках)`,
       payload: { raw_unit: fromU, target_unit: toU, factor, name: list[0].name },
       evidence: {
         count: list.length,
@@ -79,6 +90,15 @@ export function mineFromEdits(edits: QtyEdit[]): UnitRuleProposal[] {
     });
   }
   return out;
+}
+
+/**
+ * Коэффициент упаковки — «круглое» число: целое или не больше трёх знаков
+ * после запятой (0,4 кг; 2,5 кг; 0,125 кг). 1,8333 — это подгонка суммы под
+ * цену, а не упаковка: такие ответы ИИ не предлагаем.
+ */
+export function isPlainFactor(f: number): boolean {
+  return Number.isFinite(f) && f > 0 && Math.abs(f * 1000 - Math.round(f * 1000)) < 1e-6;
 }
 
 /** «Круглые» коэффициенты из названия: вес единицы, упаковка × вес, штук в упаковке. */

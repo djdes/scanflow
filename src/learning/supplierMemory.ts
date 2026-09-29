@@ -38,7 +38,9 @@ const HEADER = `ПАМЯТКА ПО ПОСТАВЩИКАМ ЭТОЙ КОМПАН
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 function supplierBlock(s: MemorySupplier, units: MemorySupplier['units']): string {
-  const lines = [`— ${clean(s.name)}: ИНН ${s.inn}${s.kpp ? `, КПП ${s.kpp}` : ''}`];
+  // У ИП (ИНН из 12 цифр) КПП нет — даже если в карточке он записан по ошибке.
+  const kpp = s.inn.length === 10 && s.kpp ? `, КПП ${s.kpp}` : '';
+  const lines = [`— ${clean(s.name)}: ИНН ${s.inn}${kpp}`];
   if (s.nameVariants.length) lines.push(`  на фото название встречалось как: ${s.nameVariants.map(v => `«${clean(v)}»`).join(', ')}`);
   if (s.innVariants.length) lines.push(`  на фото вместо этого ИНН читалось: ${s.innVariants.join(', ')} — перечитай цифры внимательно`);
   if (units.length) lines.push(`  единицы в накладных этого поставщика: ${units.map(u => `«${clean(u.name)}» — ${u.unit}`).join('; ')}`);

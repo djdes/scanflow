@@ -11,7 +11,7 @@ import { reconvertStoredItem } from '../services/itemReconvert';
 import { getEngineFlags } from '../services/engineFlags';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { mineFromEdits, mineFromPriceOutliers, type QtyEdit, type FlaggedLine, type UnitRuleProposal } from './ruleMiner';
+import { mineFromEdits, mineFromPriceOutliers, isPlainFactor, type QtyEdit, type FlaggedLine, type UnitRuleProposal } from './ruleMiner';
 import { adviseWithLlm } from './llmAdvisor';
 
 /**
@@ -95,7 +95,7 @@ export async function runLearning(ownerUserId: number, opts: { useLlm?: boolean 
         const apiKey = cfg.anthropic_api_key || config.anthropicApiKey;
         if (apiKey) {
           const advice = await adviseWithLlm(todo, apiKey, cfg.claude_model || 'claude-sonnet-5');
-          for (const a of advice.filter(x => x.confidence >= 0.7)) {
+          for (const a of advice.filter(x => x.confidence >= 0.7 && isPlainFactor(x.factor))) {
             const l = todo.find(x => x.id === a.id);
             if (!l || !l.onec_unit) continue;
             const from = canonUnit(l.raw_unit)?.unit ?? l.raw_unit;
