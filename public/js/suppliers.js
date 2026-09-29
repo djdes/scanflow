@@ -1,6 +1,8 @@
 /* global App, SberModal */
 const Suppliers = {
   state: { items: [], q: '', _searchTimer: null },
+  // Карточка, для которой открыто окно «Объединить с…».
+  _mergeSource: null,
 
   async load() {
     await this.refresh();
@@ -225,9 +227,11 @@ const Suppliers = {
       wrap.innerHTML = '<p class="muted">Поставщики пока не добавлены. Нажмите «+ Добавить поставщика».</p>';
       return;
     }
+    // «Объединить с…» имеет смысл, только когда в списке есть вторая карточка.
+    const canMerge = this.state.items.length > 1;
     const rows = this.state.items.map(s => `
       <tr>
-        <td data-label="ИНН">${App.esc(s.inn)}</td>
+        <td data-label="ИНН"><span>${App.esc(s.inn)}${s.inn_valid === false ? ` ${this._badInnBadge()}` : ''}</span></td>
         <td data-label="Название">${App.esc(s.name)}</td>
         <td data-label="КПП">${App.esc(s.kpp || '')}</td>
         <td data-label="БИК">${App.esc(s.bank_bic)}</td>
@@ -235,6 +239,7 @@ const Suppliers = {
         <td data-label="Проверен">${s.verified ? '<span class="badge badge-ok" style="padding:2px 8px">✓</span>' : '<span class="badge badge-warn" style="padding:2px 8px">!</span>'}</td>
         <td data-label="Использован">${App.esc(s.last_used_at || '')}</td>
         <td class="cell-action">
+          ${canMerge ? `<button class="btn btn-outline btn-sm" onclick="Suppliers.openMerge('${App.esc(s.inn)}')" title="Перенести накладные и правила этой карточки в другую и удалить эту">Объединить с…</button>` : ''}
           <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')">✎</button>
           <button class="btn btn-danger btn-sm" onclick="Suppliers.remove('${App.esc(s.inn)}')">🗑</button>
         </td>
@@ -290,6 +295,128 @@ const Suppliers = {
     if (!confirm(`Удалить поставщика ${inn}?`)) return;
     await App.api('/suppliers/' + encodeURIComponent(inn), { method: 'DELETE' });
     this.refresh();
+  },
+
+  // Контрольная сумма ИНН не сходится — почти всегда опечатка распознавания
+  // (7724357632 → 7724357832). Такую карточку сливают с верной.
+  _badInnBadge() {
+    return '<span class="badge badge-error" style="padding:2px 8px" title="Контрольная сумма ИНН не сходится — вероятно, опечатка при распознавании. Объедините карточку с верной.">ИНН не проходит проверку</span>';
+  },
+
+  // Название без ОПФ, кавычек, регистра и пробелов — чтобы двойники
+  // «ООО "Вкусный мир ТК"» и «Вкусный Мир ТК» встали в списке первыми. Грубее
+  // серверного supplierCoreName, но для подсказки хватает.
+  _nameKey(name) {
+    return String(name || '').toLowerCase().replace(/ё/g, 'е')
+      .replace(/(^|[^a-zа-я0-9])(ооо|ао|пао|зао|оао|ип)(?=[^a-zа-я0-9]|$)/g, '$1')
+      .replace(/[^a-zа-я0-9]+/g, '');
+  },
+
+  _ensureMergeModal() {
+    let modal = document.getElementById('supplier-merge-modal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'supplier-merge-modal';
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'supplier-merge-title');
+    modal.innerHTML = `
+      <div class="modal-card card" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0">
+        <h3 id="supplier-merge-title" style="margin-bottom:10px">Объединить карточку</h3>
+        <div id="supplier-merge-source" style="font-size:14px;margin-bottom:12px"></div>
+        <label style="display:flex;flex-direction:column;gap:4px;margin:0 0 12px">
+          <span style="font-size:12px;color:var(--text-secondary)">С какой карточкой объединить (она останется)</span>
+          <select id="supplier-merge-target"></select>
+        </label>
+        <ul style="margin:0 0 14px 18px;padding:0;font-size:13px;color:var(--text-secondary);line-height:1.5">
+          <li>накладные этой карточки перейдут к выбранной — с её ИНН и названием; что было на фото, в накладной сохранится;</li>
+          <li>выученные правила поставщика (сопоставления позиций, исправления распознавания) перенесутся;</li>
+          <li>эта карточка будет удалена.</li>
+        </ul>
+        <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost" id="supplier-merge-cancel">Отмена</button>
+          <button type="button" class="btn btn-primary" id="supplier-merge-submit">Объединить…</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#supplier-merge-cancel').onclick = () => this.closeMerge();
+    modal.querySelector('#supplier-merge-submit').onclick = (e) => this._submitMerge(e.currentTarget);
+    modal.addEventListener('click', (e) => { if (e.target === modal) this.closeMerge(); });
+    modal.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.closeMerge(); });
+    return modal;
+  },
+
+  // «Объединить с…»: выбор второй карточки из текущего списка. Цель должна
+  // иметь верный ИНН (сервер это проверяет) — карточки с битым ИНН в списке
+  // видны, но выбрать их нельзя.
+  openMerge(inn) {
+    const source = this.state.items.find(s => s.inn === inn);
+    if (!source) return;
+    const others = this.state.items.filter(s => s.inn !== inn);
+    if (!others.length) {
+      App.notify('В списке нет других карточек — очистите поиск', 'info');
+      return;
+    }
+    this._mergeSource = source;
+    const modal = this._ensureMergeModal();
+    modal.querySelector('#supplier-merge-source').innerHTML =
+      `Карточка <b>${App.esc(source.name)}</b>, ИНН ${App.esc(source.inn)}${source.inn_valid === false ? ` ${this._badInnBadge()}` : ''}`;
+
+    const key = this._nameKey(source.name);
+    const isTwin = (s) => this._nameKey(s.name) === key;
+    const sorted = others.slice().sort((a, b) =>
+      (Number(isTwin(b)) - Number(isTwin(a))) || String(a.name).localeCompare(String(b.name), 'ru'));
+    // Двойник с тем же названием и верным ИНН — самый частый случай, выбираем его сразу.
+    const twin = sorted.find(s => s.inn_valid !== false && isTwin(s));
+    const sel = modal.querySelector('#supplier-merge-target');
+    sel.innerHTML = '<option value="">— выберите карточку —</option>' + sorted.map(s => {
+      const bad = s.inn_valid === false;
+      return `<option value="${App.esc(s.inn)}"${bad ? ' disabled' : ''}${twin && s.inn === twin.inn ? ' selected' : ''}>`
+        + `${App.esc(s.name)} — ИНН ${App.esc(s.inn)}${bad ? ' (ИНН не проходит проверку)' : ''}</option>`;
+    }).join('');
+    modal.style.display = 'flex';
+    sel.focus();
+  },
+
+  closeMerge() {
+    const m = document.getElementById('supplier-merge-modal');
+    if (m) m.style.display = 'none';
+    this._mergeSource = null;
+  },
+
+  async _submitMerge(btn) {
+    const source = this._mergeSource;
+    if (!source) return;
+    const targetInn = document.getElementById('supplier-merge-target').value;
+    if (!targetInn) {
+      App.notify('Выберите карточку, которая останется', 'error');
+      return;
+    }
+    const target = this.state.items.find(s => s.inn === targetInn);
+    const targetName = target ? target.name : targetInn;
+    const ok = confirm(
+      `Объединить «${source.name}» (ИНН ${source.inn}) с «${targetName}» (ИНН ${targetInn})?\n\n`
+      + `• Все накладные с ИНН ${source.inn} перейдут к «${targetName}», ИНН ${targetInn}. ИНН и название с фото сохранятся в накладной.\n`
+      + `• Правила поставщика (сопоставления позиций, исправления распознавания) перенесутся; те, что у «${targetName}» уже есть, останутся как были.\n`
+      + `• Карточка ИНН ${source.inn} будет удалена.\n\n`
+      + 'Отменить объединение кнопкой нельзя.',
+    );
+    if (!ok) return;
+    await App.withBusyButton(btn, async () => {
+      try {
+        const r = await App.apiJson(
+          `/suppliers/${encodeURIComponent(source.inn)}/merge-into/${encodeURIComponent(targetInn)}`,
+          { method: 'POST' },
+        );
+        App.notify(`Карточки объединены: накладных перенесено ${r.moved_invoices}, правил — ${r.moved_rules}`, 'success');
+        this.closeMerge();
+        await this.refresh();
+      } catch (err) {
+        App.notify(err.message || 'Не удалось объединить карточки', 'error');
+      }
+    });
   },
 };
 
