@@ -22,6 +22,8 @@ import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes
 import dispatcherRouter, { setMapper as setDispatcherMapper } from './routes/dispatcher';
 import { registerAfterCatalogSync } from '../services/catalogSyncWatcher';
 import { remapUnsentInvoices } from '../services/remapUnsent';
+import { linkCreatedNewItems } from '../services/newItemActions';
+import newItemsRouter, { setMapper as setNewItemsMapper } from './routes/newItems';
 import authRouter from './routes/auth';
 import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
@@ -140,7 +142,12 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setNomenclatureMapper(mapper);
   setInvoicesMapper(mapper);
   setDispatcherMapper(mapper);
-  // После обновления каталога 1С — пересопоставить неотправленные накладные (пакет v2, п.13).
+  setNewItemsMapper(mapper);
+  // После обновления каталога 1С (хуки идут по порядку регистрации):
+  // 1) «Новые товары» (п.12) — заявки «Создать в 1С», чья позиция появилась в
+  //    справочнике, связываются с ней, строки групп получают именно её;
+  // 2) пересопоставить остальные неотправленные строки (п.13).
+  registerAfterCatalogSync(owner => linkCreatedNewItems(owner, mapper).then(() => undefined));
   registerAfterCatalogSync(owner => remapUnsentInvoices(owner, mapper).then(() => undefined));
   setFileWatcher(fileWatcher);
   setInvoicesFileWatcher(fileWatcher);
@@ -260,6 +267,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/golden', apiKeyAuth, goldenRouter);
   // Самообучение: предложения правил и правила пересчёта — в области владельца.
   app.use('/api/learning', apiKeyAuth, learningRouter);
+  // «Новые товары» (п.12 v2): строки без позиции 1С — сопоставить группой или
+  // «Создать в 1С». Данные строго компании вызывающего.
+  app.use('/api/new-items', apiKeyAuth, newItemsRouter);
   // Self-service: генерация кода подключения доступна любому пользователю.
   app.use('/api/onec', apiKeyAuth, onecUserRouter);
   app.use('/api/onec', apiKeyAuth, requireAdmin, onecAdminRouter);

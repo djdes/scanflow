@@ -172,6 +172,10 @@ const App = {
       document.getElementById('view-mappings').style.display = 'block';
       this.activateNavTab('mappings');
       Mappings.load();
+    } else if (hash === '#/new-items') {
+      document.getElementById('view-new-items').style.display = 'block';
+      this.activateNavTab('new-items');
+      NewItems.load();
     } else if (hash === '#/suppliers') {
       document.getElementById('view-suppliers').style.display = 'block';
       this.activateNavTab('suppliers');
