@@ -172,7 +172,36 @@ describe('pollSberPaymentStatuses', () => {
 });
 
 describe('keepSberTokensAlive', () => {
-  it('refreshes a stale connection and alerts the owner when it fails', async () => {
+  it('without a perpetual key keeps the long cabinet token and does not refresh early', async () => {
+    vi.mocked(sberAppRepo.get).mockResolvedValue(null);
+    vi.mocked(sberTokenRepo.listOwners).mockResolvedValue([1]);
+    vi.mocked(sberTokenRepo.get).mockResolvedValue({
+      owner_user_id: 1, access_token: 'T', refresh_token: 'R', expires_at: sqlUtc(new Date(Date.now() + 20 * 86_400_000)),
+      last_refresh_at: sqlUtc(new Date(Date.now() - 2 * 86_400_000)),
+    } as never);
+    const r = await keepSberTokensAlive();
+    expect(r).toEqual({ refreshed: 0, failed: 0 });
+    expect(sberFetch).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a cabinet token 3 days before it ends and alerts the owner when that fails', async () => {
+    vi.mocked(sberAppRepo.get).mockResolvedValue(null);
+    vi.mocked(sberTokenRepo.listOwners).mockResolvedValue([1]);
+    vi.mocked(sberTokenRepo.get).mockResolvedValue({
+      owner_user_id: 1, access_token: 'T', refresh_token: 'R', expires_at: sqlUtc(new Date(Date.now() + 2 * 86_400_000)),
+    } as never);
+    vi.mocked(sberFetch).mockResolvedValue(fail(401, { error: 'invalid_client' }));
+    vi.mocked(sendOwnerAlert).mockClear();
+    const r = await keepSberTokensAlive();
+    expect(r).toEqual({ refreshed: 0, failed: 1 });
+    expect(vi.mocked(sendOwnerAlert).mock.calls[0][1]).toBe('sber_auth');
+  });
+
+  it('with a perpetual key refreshes daily and alerts the owner when it fails', async () => {
+    vi.mocked(sberAppRepo.get).mockResolvedValue({
+      id: 1, client_id: '40285', client_secret_enc: sealSecret('perpetual-secret'), secret_set_at: null,
+      secret_expires_at: null, secret_perpetual: 1, last_error: null, updated_at: '',
+    });
     vi.mocked(sberTokenRepo.listOwners).mockResolvedValue([1]);
     vi.mocked(sberTokenRepo.get).mockResolvedValue({
       owner_user_id: 1, access_token: 'T', refresh_token: 'R', expires_at: sqlUtc(new Date(Date.now() + 20 * 86_400_000)),

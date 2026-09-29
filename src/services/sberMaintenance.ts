@@ -22,11 +22,22 @@ const SBER_PAGE = 'https://scanflow.ru/#/sber';
 export async function keepSberTokensAlive(): Promise<{ refreshed: number; failed: number }> {
   let refreshed = 0;
   let failed = 0;
-  for (const owner of await sberTokenRepo.listOwners()) {
+  const owners = await sberTokenRepo.listOwners();
+  if (!owners.length) return { refreshed, failed };
+  // Обновление превращает 30-дневный токен из кабинета в часовой, и дальше всё
+  // держится на client_secret. Пока ключ не бессрочный — бережём длинный токен
+  // и обновляем только за 3 дня до его конца (ошибка всплывёт с запасом).
+  const perpetual = (await secretStatus()).perpetual;
+  for (const owner of owners) {
     const row = await sberTokenRepo.get(owner);
     if (!row) continue;
-    const last = parseDbUtc(row.last_refresh_at ?? null) ?? parseDbUtc(row.refresh_obtained_at ?? null);
-    if (last && Date.now() - last.getTime() < 20 * 3_600_000) continue;
+    const accessLeftMs = (parseDbUtc(row.expires_at)?.getTime() ?? 0) - Date.now();
+    if (perpetual) {
+      const last = parseDbUtc(row.last_refresh_at ?? null) ?? parseDbUtc(row.refresh_obtained_at ?? null);
+      if (last && Date.now() - last.getTime() < 20 * 3_600_000) continue;
+    } else if (accessLeftMs > 3 * 86_400_000) {
+      continue;
+    }
     try {
       await getValidAccessToken(owner, { force: true });
       refreshed++;

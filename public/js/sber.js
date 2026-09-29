@@ -74,6 +74,8 @@ const Sber = {
   },
 
   async refreshNow(btn) {
+    const sec = this.state.status?.auth?.secret;
+    if (sec && !sec.perpetual && !window.confirm('Обновить доступ сейчас?\n\nТокен из личного кабинета (30 дней) заменится на часовой, который ScanFlow продлевает сам — для этого нужен действующий ключ приложения. Надёжнее сначала сделать ключ бессрочным.')) return;
     if (btn) btn.disabled = true;
     try {
       await App.apiJson('/sber/refresh-now', { method: 'POST' });
@@ -280,6 +282,8 @@ const Sber = {
     const ok = await res.json().catch(() => ({}));
     if (ok.auto_refresh === 'failed') {
       App.notify(`Токены сохранены (работают 30 дней), но автообновление не работает: ${ok.warning || 'причина неизвестна'}`, 'error');
+    } else if (ok.auto_refresh === 'skipped') {
+      App.notify('Токены сохранены на 30 дней. Чтобы доступ продлевался сам, сделайте ключ приложения бессрочным (блок «Ключ приложения»).', 'info');
     } else {
       App.notify('Токены сохранены — дальше доступ обновляется автоматически', 'success');
     }

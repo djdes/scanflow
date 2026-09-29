@@ -145,9 +145,13 @@ router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => 
   }, ownerOf(req));
   await sberTokenRepo.setRefreshMeta(ownerOf(req), { ok: true, source: 'manual' });
   void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк подключён (токен вручную)' });
-  // Сразу проверяем, что пару можно обновлять автоматически: иначе ошибка
-  // (например, просроченный client_secret) всплыла бы только через месяц.
-  // Неудача не отменяет вставку — токен из кабинета работает 30 дней.
+  // Ключ приложения бессрочный — сразу проверяем, что пару можно обновлять
+  // автоматически (ошибка иначе всплыла бы только через месяц). Не бессрочный —
+  // не трогаем: обновление превратило бы 30-дневный токен в часовой, зависящий
+  // от ключа, который может скоро истечь. Неудача не отменяет вставку.
+  if (!(await secretStatus()).perpetual) {
+    return res.json({ success: true, auto_refresh: 'skipped' });
+  }
   try {
     await getValidAccessToken(ownerOf(req), { force: true });
     return res.json({ success: true, auto_refresh: 'ok' });
