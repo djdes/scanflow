@@ -153,6 +153,7 @@ router.post('/:inn/merge-into/:targetInn', async (req: Request, res: Response) =
       ownerOf(req),
       String(req.params.inn),
       String(req.params.targetInn),
+      req.user?.id ?? null,
     );
     return res.json(result);
   } catch (err) {

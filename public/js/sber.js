@@ -363,6 +363,7 @@ const Sber = {
           }, {
             picker: true,
             supplier_match: data.supplier_match ?? null,
+            inn_invalid: !!data.inn_invalid,
             ocr: data.ocr || {},
             candidates: data.candidates || [],
           });

@@ -4,6 +4,7 @@ import { makeSupplierKey } from '../database/repositories/supplierMappingRepo';
 import { supplierCorrectionKey } from '../database/repositories/ocrCorrectionRepo';
 import { isValidInn } from '../utils/inn';
 import { logger } from '../utils/logger';
+import { logEdit } from '../database/repositories/editLogRepo';
 
 /**
  * «Объединить карточки» справочника поставщиков (п.18 пакета v2).
@@ -108,6 +109,7 @@ export async function mergeSupplierCards(
   ownerUserId: number,
   sourceInn: string,
   targetInn: string,
+  actorUserId: number | null = null,
 ): Promise<SupplierMergeResult> {
   if (sourceInn === targetInn) {
     throw new SupplierMergeError(400, 'Нельзя объединить карточку саму с собой');
@@ -169,8 +171,12 @@ export async function mergeSupplierCards(
     };
   });
 
-  // До появления журнала правок (edit_log) лог — единственное место, где
-  // остаётся удалённая карточка с реквизитами. warn, чтобы не потерялась.
+  // Удалённая карточка целиком — в журнал правок: по нему её можно восстановить.
+  await logEdit({
+    ownerUserId, userId: actorUserId, entity: 'supplier', field: 'merge',
+    oldValue: result.deleted_card, newValue: { inn: targetInn },
+    context: { from_inn: sourceInn, to_inn: targetInn, moved_invoices: result.moved_invoices, moved_rules: result.moved_rules, skipped_rules: result.skipped_rules },
+  });
   logger.warn('Supplier cards merged', {
     ownerUserId,
     from_inn: sourceInn,

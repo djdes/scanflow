@@ -46,6 +46,7 @@ import { approvalRepo } from '../../database/repositories/approvalRepo';
 import { makeSupplierKey, supplierMappingRepo } from '../../database/repositories/supplierMappingRepo';
 import { ocrCorrectionRepo, supplierCorrectionKey } from '../../database/repositories/ocrCorrectionRepo';
 import { logEdit, editLogRepo } from '../../database/repositories/editLogRepo';
+import { isValidInn } from '../../utils/inn';
 import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
 
 /**
@@ -554,6 +555,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (supplier_inn !== undefined) {
     if (supplier_inn !== null && !INN_RE.test(supplier_inn)) {
       return res.status(400).json({ error: 'supplier_inn must be 10 or 12 digits' });
+    }
+    if (supplier_inn !== null && !isValidInn(supplier_inn)) {
+      return res.status(400).json({ error: 'ИНН не проходит проверку контрольной суммы — проверьте цифры' });
     }
     update.supplier_inn = supplier_inn;
   }
@@ -1982,6 +1986,9 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     if (!/^([0-9]{10}|[0-9]{12})$/.test(o.inn)) {
       return res.status(400).json({ error: 'supplier_overrides.inn must be 10 or 12 digits' });
     }
+    if (!isValidInn(o.inn)) {
+      return res.status(400).json({ error: 'ИНН не проходит проверку контрольной суммы — проверьте цифры' });
+    }
     if (!/^[0-9]{9}$/.test(o.bank_bic)) {
       return res.status(400).json({ error: 'supplier_overrides.bank_bic must be 9 digits' });
     }
@@ -2018,7 +2025,10 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   // Карточка, подобранная при распознавании ПО НАЗВАНИЮ, требует явного
   // подтверждения перед первой оплатой: ИНН на фото с ней не совпал.
   const linkedByName = !overrides && invoice.supplier_match === 'name';
-  if (!supplier || !supplier.verified || linkedByName) {
+  // Карточка с ИНН, не проходящим контрольную сумму (OCR-ошибка, сохранённая
+  // как «подтверждённая»), — платить по ней без человека нельзя.
+  const cardInnInvalid = !!supplier && !isValidInn(supplier.inn);
+  if (!supplier || !supplier.verified || linkedByName || cardInnInvalid) {
     // Префилл: карточка по ИНН (даже verified=0 — например, из фото-экстракта),
     // иначе — лучшая похожая по названию, иначе — OCR-данные накладной.
     let base = supplier;
@@ -2035,6 +2045,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     return res.status(409).json({
       needs_supplier_confirmation: true,
       supplier_match: match,
+      inn_invalid: cardInnInvalid,
       // Что распознано на фото — для предупреждения «подобрано по названию».
       ocr: {
         inn: invoice.supplier_inn_ocr ?? (linkedByName ? null : invoice.supplier_inn),

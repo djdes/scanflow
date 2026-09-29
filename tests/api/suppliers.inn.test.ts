@@ -112,7 +112,7 @@ describe('POST /api/suppliers/:inn/merge-into/:targetInn', () => {
     const res = await request(makeApp()).post(`/api/suppliers/${TYPO}/merge-into/${GOOD}`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual(result);
-    expect(mergeSupplierCards).toHaveBeenCalledWith(1, TYPO, GOOD);
+    expect(mergeSupplierCards).toHaveBeenCalledWith(1, TYPO, GOOD, 1);
   });
 
   it('ошибки сервиса отдаются со своим статусом и текстом', async () => {

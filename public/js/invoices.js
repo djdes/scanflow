@@ -1344,7 +1344,7 @@ const Invoices = {
     if (data.supplier_match === 'name') {
       return `<div class="price-warning-banner"><span class="price-warning-banner__icon">⚠️</span><div>
         <strong>Реквизиты подобраны по названию поставщика, а не по ИНН.</strong><br>
-        На фото: ${ocrName ? ocrName + ', ' : ''}${ocrInn} — в справочнике такого ИНН нет.
+        На фото: ${ocrName ? ocrName + ', ' : ''}${ocrInn} — подтверждённой карточки с верным ИНН по нему не нашлось.
         Использована карточка справочника ${card}. Проверьте перед оплатой — при отправке в Сбербанк поставщика нужно будет подтвердить.
       </div></div>`;
     }
