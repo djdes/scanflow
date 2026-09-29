@@ -28,6 +28,7 @@ import suppliersRouter from './routes/suppliers';
 import integrationsRouter from './routes/integrations';
 import usersRouter from './routes/users';
 import operationsRouter from './routes/operations';
+import goldenRouter from './routes/golden';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
@@ -249,6 +250,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);
   app.use('/api/operations', apiKeyAuth, operationsRouter);
+  // Эталоны (п.17 v2): отметка — владелец накладной, прогон и отчёты — admin
+  // (requireAdmin стоит на роутах внутри).
+  app.use('/api/golden', apiKeyAuth, goldenRouter);
   // Self-service: генерация кода подключения доступна любому пользователю.
   app.use('/api/onec', apiKeyAuth, onecUserRouter);
   app.use('/api/onec', apiKeyAuth, requireAdmin, onecAdminRouter);
