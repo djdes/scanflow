@@ -82,6 +82,13 @@ export function buildInvoiceThread(invoice: Invoice, state: EventState): string 
     `Сумма: ${sum}`,
     '',
   ];
+  // Реквизиты взяты из справочника по названию — ИНН на фото там не нашёлся.
+  // Предупреждаем прямо в ленте, чтобы оплату не провели «на автомате».
+  if (invoice.supplier_match === 'name') {
+    const ocrInn = invoice.supplier_inn_ocr ? `ИНН с фото ${invoice.supplier_inn_ocr} нет в справочнике` : 'ИНН на фото не распознан';
+    lines.splice(lines.length - 1, 0,
+      `⚠️ Реквизиты подобраны по НАЗВАНИЮ поставщика, не по ИНН (${ocrInn}). Проверьте перед оплатой.`);
+  }
 
   for (const step of STEP_ORDER) {
     const ts = state[step];

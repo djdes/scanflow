@@ -24,6 +24,7 @@ import { preprocessInvoiceImage } from '../../ocr/imagePreprocess';
 import { emit as emitNotification, notifySupplierExtractError, emitElevatedPricesIfAny } from '../../notifications/events';
 import { normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
 import { resolveSupplierName } from '../../services/resolveSupplierName';
+import { linkApprovedSupplier } from '../../services/supplierMatch';
 import { autoSendSberForInvoice } from '../../services/autoSendSber';
 import { mergeBlockedByNumber } from '../../services/mergeDecision';
 import { userRepo } from '../../database/repositories/userRepo';
@@ -555,6 +556,8 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     }
 
     if (!isMerge) {
+      // Реквизиты — из справочника утверждённых поставщиков (ИНН, иначе название).
+      await linkApprovedSupplier(id);
       await invoiceRepo.updateStatus(id, 'processed');
 
       // Multi-page reconciliation against same-upload-batch siblings (number /

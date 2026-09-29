@@ -100,6 +100,17 @@ export function uncheckedAttrs(inv: Invoice): AttrKey[] {
  * остальное — пер-колоночные фильтры из строки под шапкой таблицы; все условия
  * складываются через AND.
  */
+export type SupplierMatchKind = 'inn' | 'name' | 'manual';
+
+/** Привязка накладной к карточке справочника поставщиков (см. setSupplierLink). */
+export interface SupplierLink {
+  supplier: string;
+  supplier_inn: string;
+  match: SupplierMatchKind;
+  supplier_inn_ocr: string | null;
+  supplier_name_ocr: string | null;
+}
+
 export interface ListFilters {
   q?: string;
   from?: string;
@@ -160,6 +171,14 @@ export interface Invoice {
   owner_user_id: number | null;
   // Timestamp the "no Sber payment in N days" alert was sent (once-per-invoice).
   sber_overdue_notified_at: string | null;
+  // Откуда взят текущий supplier_inn (см. src/services/supplierMatch.ts):
+  // 'inn' — карточка справочника найдена по ИНН с фото; 'name' — ИНН с фото в
+  // справочнике нет, карточка подобрана по названию (надо предупредить);
+  // 'manual' — пользователь выбрал/подтвердил поставщика сам. NULL — не привязана.
+  supplier_match: SupplierMatchKind | null;
+  // Что было на фото до привязки по названию/вручную (NULL, если не менялось).
+  supplier_inn_ocr: string | null;
+  supplier_name_ocr: string | null;
   // Derived (not a column): 1 when this invoice matches the Sber-overdue
   // predicate. Present only on rows returned by queries that SELECT it (getAll,
   // getById). Used to highlight the row in the UI.
@@ -668,7 +687,20 @@ export const invoiceRepo = {
     if (data.invoice_date !== undefined) { fields.push('invoice_date = :invoice_date'); values.invoice_date = data.invoice_date; }
     if (data.supplier !== undefined) { fields.push('supplier = :supplier'); values.supplier = data.supplier; }
     if (data.invoice_type !== undefined) { fields.push('invoice_type = :invoice_type'); values.invoice_type = data.invoice_type; }
-    if (data.supplier_inn !== undefined) { fields.push('supplier_inn = :supplier_inn'); values.supplier_inn = data.supplier_inn; }
+    if (data.supplier_inn !== undefined) {
+      // supplier_match описывает, откуда взят ТЕКУЩИЙ supplier_inn. Новый ИНН
+      // (перераспознавание, ручная правка) делает привязку недействительной.
+      // Сбросы стоят ДО присваивания supplier_inn: MySQL вычисляет SET слева
+      // направо, и сравнение должно видеть ещё старое значение. Тот же ИНН
+      // (форма правки шлёт все поля разом) привязку не трогает.
+      fields.push(
+        'supplier_match = IF(supplier_inn <=> :supplier_inn, supplier_match, NULL)',
+        'supplier_inn_ocr = IF(supplier_inn <=> :supplier_inn, supplier_inn_ocr, NULL)',
+        'supplier_name_ocr = IF(supplier_inn <=> :supplier_inn, supplier_name_ocr, NULL)',
+        'supplier_inn = :supplier_inn',
+      );
+      values.supplier_inn = data.supplier_inn;
+    }
     if (data.supplier_kpp !== undefined) { fields.push('supplier_kpp = :supplier_kpp'); values.supplier_kpp = data.supplier_kpp; }
     if (data.supplier_bik !== undefined) { fields.push('supplier_bik = :supplier_bik'); values.supplier_bik = data.supplier_bik; }
     if (data.supplier_account !== undefined) { fields.push('supplier_account = :supplier_account'); values.supplier_account = data.supplier_account; }
@@ -684,6 +716,25 @@ export const invoiceRepo = {
         .prepare(`UPDATE invoices SET ${fields.join(', ')} WHERE id = :id`)
         .run(values);
     }
+  },
+
+  /** Привязать накладную к карточке справочника (см. src/services/supplierMatch.ts). */
+  async setSupplierLink(id: number, link: SupplierLink): Promise<void> {
+    await getDb()
+      .prepare(`
+        UPDATE invoices
+           SET supplier = :supplier, supplier_inn = :supplier_inn, supplier_match = :match,
+               supplier_inn_ocr = :supplier_inn_ocr, supplier_name_ocr = :supplier_name_ocr
+         WHERE id = :id
+      `)
+      .run({ id, ...link });
+  },
+
+  /** Отметить способ привязки, не меняя самих реквизитов (например, 'inn'). */
+  async setSupplierMatch(id: number, match: SupplierMatchKind | null): Promise<void> {
+    await getDb()
+      .prepare('UPDATE invoices SET supplier_match = ?, supplier_inn_ocr = NULL, supplier_name_ocr = NULL WHERE id = ?')
+      .run(match, id);
   },
 
   async markSent(id: number): Promise<void> {

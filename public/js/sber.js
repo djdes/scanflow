@@ -355,9 +355,16 @@ const Sber = {
       if (res.status === 409) {
         const data = await res.json();
         if (data.needs_supplier_confirmation) {
+          // Поставщика нет в справочнике по ИНН (или он подобран по названию) —
+          // даём выбрать карточку из справочника; выбор закрепится за накладной.
           SberModal.open(data.prefilled, async (overrides) => {
             await Sber.sendToSber(invoiceId, overrides);
             return true;
+          }, {
+            picker: true,
+            supplier_match: data.supplier_match ?? null,
+            ocr: data.ocr || {},
+            candidates: data.candidates || [],
           });
           return;
         }

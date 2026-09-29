@@ -16,6 +16,7 @@ import type { ParsedInvoiceData } from '../ocr/types';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { resolveSupplierName } from '../services/resolveSupplierName';
+import { linkApprovedSupplier } from '../services/supplierMatch';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
@@ -504,6 +505,8 @@ export class FileWatcher {
     }
 
     await invoiceRepo.recalculateTotal(invoiceId);
+    // Реквизиты — из справочника утверждённых поставщиков (ИНН, иначе название).
+    await linkApprovedSupplier(invoiceId);
     await invoiceRepo.updateStatus(invoiceId, 'processed');
 
     // The invoice is 'processed' now — relocate any page photos still sitting in
@@ -1221,6 +1224,7 @@ export class FileWatcher {
               }
 
               await invoiceRepo.recalculateTotal(targetInvoiceId);
+              await linkApprovedSupplier(targetInvoiceId);
               await invoiceRepo.updateStatus(targetInvoiceId, 'processed');
 
               const totalItems = await invoiceRepo.getItems(targetInvoiceId);
@@ -1497,6 +1501,9 @@ export class FileWatcher {
         // OCR blunder (e.g. reading "165 229,2" as 1652292) would slip
         // straight into total_sum with items_total_mismatch=0.
         await invoiceRepo.recalculateTotal(invoice.id);
+        // Реквизиты — из справочника утверждённых поставщиков: по ИНН, а если
+        // ИНН с фото там нет — по названию (с пометкой supplier_match='name').
+        await linkApprovedSupplier(invoice.id);
         await invoiceRepo.updateStatus(invoice.id, 'processed');
         logger.info('Invoice processed successfully', {
           id: invoice.id,

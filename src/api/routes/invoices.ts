@@ -38,6 +38,7 @@ import { createPaymentOrder, SberApiError } from '../../sber/payments';
 import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
 import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
+import { findSuppliersByName, AUTO_LINK_MIN_SCORE } from '../../services/supplierMatch';
 import { bulkSend1c, bulkSendSber } from '../../services/bulkSend';
 import { requireAdmin } from '../middleware/auth';
 import { automationRepo } from '../../database/repositories/automationRepo';
@@ -1868,9 +1869,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   if (!invoice.total_sum || invoice.total_sum <= 0) {
     return res.status(400).json({ error: 'invoice has no total_sum' });
   }
-  if (!invoice.supplier_inn) {
-    return res.status(400).json({ error: 'invoice has no supplier_inn' });
-  }
+  // Нет ИНН — не отказ: ниже поставщика можно выбрать из справочника.
 
   // Подключение к Сберу и справочник поставщиков пер-тенантные: работаем только
   // в области владельца накладной. Без владельца платить нельзя — иначе и счёт
@@ -1887,9 +1886,13 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'payer details incomplete (settings → Сбербанк)' });
   }
 
-  // Resolve supplier
+  // Resolve supplier. Реквизиты для оплаты — ТОЛЬКО из справочника поставщиков:
+  // по ИНН накладной, а если его там нет — человек подтверждает карточку в окне
+  // (с подсказками по названию и выпадающим списком всего справочника).
   const overrides = (req.body as { supplier_overrides?: Record<string, unknown> }).supplier_overrides;
-  let supplier = await supplierRepo.findByInn(invoice.supplier_inn, supplierOwnerId);
+  let supplier = invoice.supplier_inn
+    ? await supplierRepo.findByInn(invoice.supplier_inn, supplierOwnerId)
+    : null;
   if (overrides) {
     const o = overrides as {
       inn?: string; name?: string; kpp?: string;
@@ -1899,6 +1902,12 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     if (!o.inn || !o.name || !o.bank_bic) {
       return res.status(400).json({ error: 'supplier_overrides missing required fields (inn, name, bank_bic)' });
     }
+    if (!/^([0-9]{10}|[0-9]{12})$/.test(o.inn)) {
+      return res.status(400).json({ error: 'supplier_overrides.inn must be 10 or 12 digits' });
+    }
+    if (!/^[0-9]{9}$/.test(o.bank_bic)) {
+      return res.status(400).json({ error: 'supplier_overrides.bank_bic must be 9 digits' });
+    }
     supplier = await supplierRepo.upsert({
       inn: o.inn, name: o.name, kpp: o.kpp ?? null,
       account: o.account ?? null, bank_bic: o.bank_bic,
@@ -1906,24 +1915,64 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       bank_name: o.bank_name ?? null, address: o.address ?? null,
       verified: 1, source: 'invoice',
     }, supplierOwnerId);
+    // Человек выбрал/подтвердил поставщика — закрепляем накладную за карточкой,
+    // чтобы 1С, повторные отправки и карточка накладной видели тот же ИНН.
+    // Что было на фото — сохраняем (если уже сохранено при автопривязке — не
+    // затираем).
+    if (supplier.inn !== invoice.supplier_inn || invoice.supplier_match === 'name') {
+      const changedInn = supplier.inn !== invoice.supplier_inn;
+      await invoiceRepo.setSupplierLink(id, {
+        supplier: supplier.name,
+        supplier_inn: supplier.inn,
+        match: 'manual',
+        supplier_inn_ocr: invoice.supplier_inn_ocr ?? (changedInn ? invoice.supplier_inn : null),
+        supplier_name_ocr: invoice.supplier_name_ocr ?? (changedInn ? invoice.supplier : null),
+      });
+      logger.info('[sber] invoice supplier linked manually', {
+        invoice_id: id, from_inn: invoice.supplier_inn, to_inn: supplier.inn,
+      });
+    }
   }
-  if (!supplier || !supplier.verified) {
-    // Prefill the confirmation modal from the saved supplier card (looked up by
-    // ИНН) when one exists — даже если verified=0 (например, заведён фото-
-    // экстрактом). Реквизиты (БИК/счёт/корсчёт/банк/адрес) берём из справочника,
-    // OCR-данные накладной — только как запасной вариант. Так пользователю не
-    // нужно вводить то, что уже сохранено в Справочники → Поставщики.
+  // Карточка, подобранная при распознавании ПО НАЗВАНИЮ, требует явного
+  // подтверждения перед первой оплатой: ИНН на фото с ней не совпал.
+  const linkedByName = !overrides && invoice.supplier_match === 'name';
+  if (!supplier || !supplier.verified || linkedByName) {
+    // Префилл: карточка по ИНН (даже verified=0 — например, из фото-экстракта),
+    // иначе — лучшая похожая по названию, иначе — OCR-данные накладной.
+    let base = supplier;
+    let match: 'inn' | 'name' | null = supplier ? (linkedByName ? 'name' : 'inn') : null;
+    const candidates = supplier
+      ? []
+      : await findSuppliersByName(invoice.supplier, supplierOwnerId);
+    // Подставляем в форму только уверенное совпадение; остальные похожие —
+    // лишь в выпадающем списке, выбирает человек.
+    if (!base && candidates[0] && candidates[0].score >= AUTO_LINK_MIN_SCORE) {
+      base = candidates[0].supplier;
+      match = 'name';
+    }
     return res.status(409).json({
       needs_supplier_confirmation: true,
+      supplier_match: match,
+      // Что распознано на фото — для предупреждения «подобрано по названию».
+      ocr: {
+        inn: invoice.supplier_inn_ocr ?? (linkedByName ? null : invoice.supplier_inn),
+        name: invoice.supplier_name_ocr ?? invoice.supplier,
+      },
+      candidates: candidates.slice(0, 5).map(c => ({
+        inn: c.supplier.inn,
+        name: c.supplier.name,
+        verified: c.supplier.verified,
+        score: Math.round(c.score * 100) / 100,
+      })),
       prefilled: {
-        inn: invoice.supplier_inn,
-        name: supplier?.name ?? invoice.supplier ?? '',
-        kpp: supplier?.kpp ?? invoice.supplier_kpp ?? null,
-        bank_bic: supplier?.bank_bic ?? invoice.supplier_bik ?? null,
-        account: supplier?.account ?? invoice.supplier_account ?? null,
-        bank_corr_account: supplier?.bank_corr_account ?? invoice.supplier_corr_account ?? null,
-        bank_name: supplier?.bank_name ?? null,
-        address: supplier?.address ?? invoice.supplier_address ?? null,
+        inn: base?.inn ?? invoice.supplier_inn ?? '',
+        name: base?.name ?? invoice.supplier ?? '',
+        kpp: base?.kpp ?? invoice.supplier_kpp ?? null,
+        bank_bic: base?.bank_bic ?? invoice.supplier_bik ?? null,
+        account: base?.account ?? invoice.supplier_account ?? null,
+        bank_corr_account: base?.bank_corr_account ?? invoice.supplier_corr_account ?? null,
+        bank_name: base?.bank_name ?? null,
+        address: base?.address ?? invoice.supplier_address ?? null,
       },
     });
   }
@@ -2008,7 +2057,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       payment_purpose: purpose,
       amount,
       payer_account: tokenRow.account_number,
-      payee_inn: invoice.supplier_inn,
+      payee_inn: supplier.inn,
       request_payload: JSON.stringify(redact(payload)),
     });
   } catch (err) {

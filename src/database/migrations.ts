@@ -1838,6 +1838,31 @@ const MIGRATIONS: Migration[] = [
       // только новыми склейками.
     },
   },
+  {
+    version: 61,
+    name: 'invoices.supplier_match — откуда взяты реквизиты поставщика (ИНН / название / вручную)',
+    // Реквизиты для оплаты берутся из справочника утверждённых поставщиков.
+    // Если ИНН с фото в справочнике не нашёлся, карточка подбирается по
+    // названию (без ООО/ИП/кавычек) — и об этом нужно честно предупредить.
+    // supplier_match: 'inn' | 'name' | 'manual' (NULL = не привязана).
+    // supplier_inn_ocr / supplier_name_ocr — что было на фото до привязки.
+    // См. src/services/supplierMatch.ts.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'invoices', 'supplier_match'))
+      && (await hasColumn(exec, 'invoices', 'supplier_inn_ocr'))
+      && (await hasColumn(exec, 'invoices', 'supplier_name_ocr')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'supplier_match'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_match VARCHAR(16) NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'supplier_inn_ocr'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_inn_ocr VARCHAR(12) NULL`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'supplier_name_ocr'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_name_ocr VARCHAR(500) NULL`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

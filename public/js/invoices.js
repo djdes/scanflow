@@ -798,7 +798,9 @@ const Invoices = {
       // Supplier details (banking)
       const supplierBlock = document.getElementById('invoice-supplier-details');
       if (data.supplier_inn || data.supplier_bik || data.supplier_account) {
-        let html = '<h3 style="margin-bottom:12px">Реквизиты поставщика</h3><div class="invoice-header">';
+        let html = '<h3 style="margin-bottom:12px">Реквизиты поставщика</h3>';
+        html += this._supplierMatchBanner(data);
+        html += '<div class="invoice-header">';
         if (data.invoice_type) {
           html += `<div class="invoice-field"><div class="field-label">Тип документа</div><div class="field-value">${App.esc(data.invoice_type)}</div></div>`;
         }
@@ -1222,10 +1224,34 @@ const Invoices = {
     return Promise.resolve().then(fn).finally(() => this._busy.delete(token));
   },
 
+  // Откуда взяты реквизиты поставщика (invoices.supplier_match). 'name' —
+  // ИНН с фото в справочнике не нашёлся, карточка подобрана по названию:
+  // предупреждаем, чтобы не заплатить не тому. 'manual' — выбран вручную.
+  _supplierMatchBanner(data) {
+    const ocrInn = data.supplier_inn_ocr ? `ИНН ${App.esc(data.supplier_inn_ocr)}` : 'ИНН не распознан';
+    const ocrName = data.supplier_name_ocr ? `«${App.esc(data.supplier_name_ocr)}»` : '';
+    const card = `<strong>${App.esc(data.supplier || '')}</strong>, ИНН ${App.esc(data.supplier_inn || '')}`;
+    if (data.supplier_match === 'name') {
+      return `<div class="price-warning-banner"><span class="price-warning-banner__icon">⚠️</span><div>
+        <strong>Реквизиты подобраны по названию поставщика, а не по ИНН.</strong><br>
+        На фото: ${ocrName ? ocrName + ', ' : ''}${ocrInn} — в справочнике такого ИНН нет.
+        Использована карточка справочника ${card}. Проверьте перед оплатой — при отправке в Сбербанк поставщика нужно будет подтвердить.
+      </div></div>`;
+    }
+    if (data.supplier_match === 'manual' && (data.supplier_inn_ocr || data.supplier_name_ocr)) {
+      return `<div style="margin-bottom:14px;font-size:13px;color:var(--text-secondary)">
+        Поставщик выбран вручную из справочника: ${card}. На фото было: ${ocrName ? ocrName + ', ' : ''}${ocrInn}.
+      </div>`;
+    }
+    return '';
+  },
+
   // === Editable header fields & validation ===
 
   _REQUIRED_FOR_1C: ['invoice_number', 'invoice_date', 'supplier', 'supplier_inn', 'total_sum'],
-  _REQUIRED_FOR_SBER: ['supplier', 'supplier_inn', 'supplier_bik', 'total_sum'],
+  // Поставщика (ИНН/БИК) для Сбера не требуем здесь: если его нет в
+  // справочнике, окно отправки предложит выбрать карточку из списка.
+  _REQUIRED_FOR_SBER: ['total_sum'],
 
   _FIELD_LABELS: {
     invoice_type: 'Тип документа',

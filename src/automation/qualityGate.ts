@@ -13,6 +13,8 @@ export interface QualitySubject {
   unmapped_count: number;
   min_confidence: number | null;
   supplier_verified: number;
+  /** invoices.supplier_match; 'name' — реквизиты подобраны по названию, а не по ИНН. */
+  supplier_match?: string | null;
 }
 
 export interface QualityReason {
@@ -57,6 +59,11 @@ export function evaluateQualitySubject(subject: QualitySubject, settings: Automa
   if (settings.require_verified_supplier && subject.supplier_verified !== 1) {
     add('supplier_unverified', 'Реквизиты поставщика не подтверждены');
   }
+  // Карточку подобрали по названию: ИНН на фото с ней не совпал. Автопилот
+  // такое не отправляет — сначала человек подтверждает поставщика.
+  if (subject.supplier_match === 'name') {
+    add('supplier_by_name', 'Реквизиты поставщика подобраны по названию, а не по ИНН');
+  }
 
   return {
     allowed: reasons.length === 0,
@@ -69,6 +76,7 @@ export async function evaluateInvoiceQuality(invoiceId: number): Promise<Quality
   const subject = await getDb().prepare(`
     SELECT i.status, i.duplicate_of, i.invoice_number, i.invoice_date,
            i.supplier, i.total_sum, COALESCE(i.items_total_mismatch, 0) AS items_total_mismatch,
+           i.supplier_match,
            COUNT(ii.id) AS items_count,
            SUM(CASE WHEN ii.id IS NOT NULL AND (ii.onec_guid IS NULL OR ii.onec_guid = '') THEN 1 ELSE 0 END) AS unmapped_count,
            MIN(CASE WHEN ii.id IS NOT NULL THEN COALESCE(ii.mapping_confidence, 0) END) AS min_confidence,

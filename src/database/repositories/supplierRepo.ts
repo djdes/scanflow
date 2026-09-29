@@ -161,6 +161,13 @@ export const supplierRepo = {
       .run(inn, ownerUserId);
   },
 
+  /** Весь справочник компании — для подбора карточки по названию (он небольшой). */
+  async listAll(ownerUserId: number): Promise<Supplier[]> {
+    return getDb()
+      .prepare('SELECT * FROM supplier_cards WHERE owner_user_id = ? ORDER BY name')
+      .all<Supplier>(ownerUserId);
+  },
+
   async list(opts: ListOptions): Promise<Supplier[]> {
     const wheres: string[] = ['owner_user_id = ?'];
     const params: unknown[] = [opts.ownerUserId];

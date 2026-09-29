@@ -15,7 +15,7 @@ JPG photo → OCR (Google Vision → Claude API → Tesseract) → parser → no
 ## Tech stack
 
 - **Runtime:** Node.js 25 + TypeScript (strict). Server is plain Express 5; frontend is vanilla HTML/CSS/JS with hash routing — no build step for client.
-- **DB:** MySQL 9.6 (`SELECT VERSION()` → `9.6.0`; uses `caching_sha2_password`, so the MariaDB CLI client can't auth — dump/restore via a MySQL 9 client or `mysql2`). mysql2/promise driver, async pool. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration **56**.
+- **DB:** MySQL 9.6 (`SELECT VERSION()` → `9.6.0`; uses `caching_sha2_password`, so the MariaDB CLI client can't auth — dump/restore via a MySQL 9 client or `mysql2`). mysql2/promise driver, async pool. Schema lives in `src/database/migrations.ts` as a numbered array. Currently at migration **61**.
   **Прод и локалка — РАЗНЫЕ базы** (проверено 2026-08-03). Локально `.env` даёт `DB_HOST=127.0.0.1` → MySQL-служба на самой машине разработчика (`@@hostname=BSQL`, `@@datadir=C:\ProgramData\MySQL\data\`), схема `scanflow`, отдельный набор данных. Прод держит свою базу на сервере, её `.env` в rsync исключён. Более ранняя редакция этого файла утверждала «одна общая инстанция на `192.168.33.3`, используется и продом и локальной разработкой» — это неверно, из-за чего легко переоценить риск локальных прогонов.
   ⚠️ Дефолт в `src/config.ts` — `DB_HOST=192.168.33.3` (не localhost). Без `.env` приложение полезет на сетевой хост. Не полагайтесь на дефолт.
 - **OCR mode (`analyzer_config.mode`):** `claude_api` in production — Claude SDK reads the image directly, one call. The legacy `hybrid` mode (Google Vision OCR → Claude text structuring) is still in code.
@@ -53,6 +53,7 @@ Main tables: `invoices`, `invoice_items`, `nomenclature_mappings`, `onec_nomencl
 - `invoices.telegram_message_id` — message_id of the Telegram thread bubble for this invoice.
 - `users.{email, notify_mode, notify_events}` — notifications config; `email`+`notify_mode` are deprecated, `notify_events` still active.
 - `users.{telegram_chat_id, telegram_bot_token}` — current notification channel.
+- `invoices.supplier_match` (`inn`|`name`|`manual`) + `supplier_inn_ocr`/`supplier_name_ocr` — откуда взят `supplier_inn`. В конце распознавания `linkApprovedSupplier()` (`src/services/supplierMatch.ts`) привязывает накладную к подтверждённой карточке справочника: по ИНН, а если ИНН с фото там нет — по названию без ОПФ (`name`, с предупреждением в UI/Telegram, автопилот такие держит, Сбер требует подтверждения). Выбор поставщика в окне отправки в Сбер ставит `manual`. Любая запись нового `supplier_inn` через `updateInvoiceData` сбрасывает привязку.
 
 ## 1C integration
 
