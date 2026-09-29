@@ -94,7 +94,7 @@ const PACKAGING_HINT_STEMS = PACKAGING_HINTS.map(w => w.toLowerCase());
  *     size pattern (e.g. "Ведро 5л" — ведро first → container).
  * Names like "Сельдь 3 кг (ведро)" pass (цифра first → фасовка).
  */
-function looksLikeContainer(name: string): boolean {
+export function looksLikeContainer(name: string): boolean {
   const lower = name.toLowerCase();
   for (const stem of CONTAINER_STRICT_STEMS) {
     const idx = lower.indexOf(stem);
