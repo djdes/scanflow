@@ -15,7 +15,9 @@ export async function reconvertStoredItem(
   invoice: { owner_user_id: number | null; supplier_inn: string | null; supplier: string | null },
   opts: { onecGuid?: string | null; mappedName?: string | null; pack?: { size: number; unit: string } | null; mappingId?: number | null; force?: boolean } = {},
 ): Promise<boolean> {
-  if (item.conv_source === 'legacy_stored' && !opts.force) return false;
+  // conv_source пуст — строку записал не конвейер v2 (например, старый код
+  // после отката): её raw_* могут быть уже пересчитанными — тоже не трогаем.
+  if ((item.conv_source == null || item.conv_source === 'legacy_stored') && !opts.force) return false;
   const conv = await convertInvoiceLine({
     ownerUserId: invoice.owner_user_id,
     supplierKey: makeSupplierKey(invoice.supplier_inn, invoice.supplier),

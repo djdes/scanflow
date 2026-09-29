@@ -41,6 +41,7 @@ const Mappings = {
 
   async loadGrouped() {
     this.renderRejections().catch(() => {});
+    this.renderRestore();
     try {
       const { data } = await App.apiJson('/mappings');
       this.grouped = data.grouped || [];
@@ -61,6 +62,82 @@ const Mappings = {
       App.notify('Правило подтверждено', 'success');
       await this.loadGrouped();
     } catch (e) { App.notify(e.message || 'Не удалось подтвердить', 'error'); }
+  },
+
+  // Возврат правил из резервной копии (пакет v2, п.7) — только администратор.
+  // Файл готовит src/scripts/restore-mappings-from-dump.ts из SQL-дампа.
+  _restorePayload: null,
+
+  renderRestore() {
+    const host = document.getElementById('mappings-restore');
+    if (!host) return;
+    let role = '';
+    try { role = localStorage.getItem('adminRole') || ''; } catch { /* приватный режим */ }
+    if (role !== 'admin') { host.innerHTML = ''; return; }
+    if (host.dataset.ready) return;
+    host.dataset.ready = '1';
+    host.innerHTML = `
+      <div class="card" style="margin-top:20px">
+        <h3 style="margin-bottom:6px">Вернуть правила из резервной копии</h3>
+        <div class="field-hint" style="margin-bottom:12px">Возвращаются только недостающие правила, чья позиция есть в текущем каталоге 1С. Существующие правила не меняются; обрывки названий, спорные вес/объём и отклонённые («не это») пропускаются. Вернувшиеся правила — неподтверждённые (метка «восстановлено»).</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="file" id="mappings-restore-file" accept=".json,application/json">
+          <button class="btn btn-soft btn-sm" id="mappings-restore-check" disabled>Проверить</button>
+          <button class="btn btn-primary btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
+        </div>
+        <div id="mappings-restore-result" style="margin-top:12px"></div>
+      </div>`;
+    const file = document.getElementById('mappings-restore-file');
+    const check = document.getElementById('mappings-restore-check');
+    const apply = document.getElementById('mappings-restore-apply');
+    file.onchange = async () => {
+      this._restorePayload = null;
+      apply.disabled = true;
+      document.getElementById('mappings-restore-result').innerHTML = '';
+      const f = file.files && file.files[0];
+      if (!f) { check.disabled = true; return; }
+      try {
+        const parsed = JSON.parse(await f.text());
+        const rows = Array.isArray(parsed) ? parsed : parsed.rows;
+        if (!Array.isArray(rows)) throw new Error('в файле нет списка rows');
+        this._restorePayload = { rows, label: (parsed && parsed.label) || f.name };
+        check.disabled = false;
+      } catch (e) {
+        check.disabled = true;
+        App.notify(`Не удалось прочитать файл: ${e.message}`, 'error');
+      }
+    };
+    check.onclick = () => this.runRestore(true);
+    apply.onclick = () => this.runRestore(false);
+  },
+
+  async runRestore(dryRun) {
+    if (!this._restorePayload) return;
+    const apply = document.getElementById('mappings-restore-apply');
+    const out = document.getElementById('mappings-restore-result');
+    if (!dryRun && !window.confirm('Вернуть отмеченные правила? Существующие правила не изменятся.')) return;
+    try {
+      const { data } = await App.apiJson('/mappings/restore', { method: 'POST', body: { ...this._restorePayload, dry_run: dryRun } });
+      const labels = {
+        restore: dryRun ? 'вернутся' : 'возвращено', exists: 'уже есть', name_key_taken: 'есть правило для того же товара',
+        guid_missing: 'позиции нет в каталоге', identity: 'совпадает с названием в 1С', fragment: 'обрывок названия',
+        attrs_conflict: 'спорят вес/объём/жирность', rejected: 'отклонено («не это»)', invalid: 'неполная строка',
+      };
+      const counts = Object.entries(data.counts).filter(([, n]) => n > 0).map(([k, n]) => `${App.esc(labels[k] || k)}: <b>${n}</b>`).join(' · ');
+      const toRestore = data.items.filter(i => i.verdict === 'restore');
+      out.innerHTML = `<div style="margin-bottom:8px">${counts || 'Нечего возвращать'}</div>`
+        + (toRestore.length ? `<div class="table-container"><table class="data-table"><thead><tr><th>Название из накладной</th><th>Позиция 1С</th></tr></thead><tbody>
+          ${toRestore.map(i => `<tr><td>${App.esc(i.scanned_name)}</td><td>${App.esc(i.onec_name || i.onec_guid)}</td></tr>`).join('')}
+        </tbody></table></div>` : '');
+      apply.disabled = !dryRun || !toRestore.length;
+      apply.textContent = dryRun && toRestore.length ? `Вернуть ${toRestore.length}` : 'Вернуть';
+      if (!dryRun) {
+        App.notify(`Возвращено правил: ${data.counts.restore}`, 'success');
+        await this.loadGrouped();
+      }
+    } catch (e) {
+      App.notify(e.message || 'Не удалось', 'error');
+    }
   },
 
   // «Не это» (пакет v2): позиции 1С, отклонённые для товаров. Можно снять.

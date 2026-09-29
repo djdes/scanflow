@@ -3,6 +3,7 @@ import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { requireAdmin } from '../middleware/auth';
 import { rejectionRepo } from '../../database/repositories/rejectionRepo';
+import { restoreMappings, type RestoreRow } from '../../services/mappingRestore';
 
 const router = Router();
 let mapper: NomenclatureMapper;
@@ -143,6 +144,24 @@ router.post('/import', requireAdmin, async (req: Request, res: Response) => {
   const count = await mappingRepo.importBulk(items, ownerOf(req));
   if (mapper) mapper.invalidateCache(ownerOf(req));
   res.json({ message: `Imported ${count} mappings`, count });
+});
+
+// POST /api/mappings/restore — admin: вернуть сопоставления из резервной копии
+// (п.7 пакета v2: правила, стёртые выгрузкой каталога до v2, и откат).
+// body { rows: [{scanned_name, onec_guid, pack_size?, pack_unit?, ...}],
+//        dry_run (по умолчанию true!), label? }. Только в область вызывающего.
+// Что именно вернётся и почему остальное — нет, см. src/services/mappingRestore.ts.
+router.post('/restore', requireAdmin, async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as { rows?: unknown; dry_run?: unknown; label?: unknown };
+  if (!Array.isArray(body.rows)) return res.status(400).json({ error: 'rows array is required' });
+  const owner = ownerOf(req);
+  const result = await restoreMappings(owner, body.rows as RestoreRow[], {
+    dryRun: body.dry_run !== false,
+    actorUserId: req.user?.id ?? null,
+    label: typeof body.label === 'string' ? body.label.slice(0, 120) : undefined,
+  });
+  if (!result.dry_run && result.counts.restore > 0 && mapper) mapper.invalidateCache(owner);
+  return res.json({ data: result });
 });
 
 // GET /api/mappings/suggest?name=... — suggest mappings for a name
