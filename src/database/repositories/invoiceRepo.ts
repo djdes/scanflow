@@ -898,6 +898,11 @@ export const invoiceRepo = {
     triggerStatsRecompute([prev?.onec_guid, onecGuid], prev?.invoice_id);
   },
 
+  /** Уверенность строки (ручной выбор/подтверждение = 1.0). */
+  async setItemConfidence(itemId: number, confidence: number): Promise<void> {
+    await getDb().prepare('UPDATE invoice_items SET mapping_confidence = ? WHERE id = ?').run(confidence, itemId);
+  },
+
   async updateItemMappingName(itemId: number, mappedName: string, confidence: number): Promise<void> {
     await getDb().prepare(
       `UPDATE invoice_items SET mapped_name = ?, mapping_confidence = ? WHERE id = ?`

@@ -47,10 +47,11 @@ import { makeSupplierKey, supplierMappingRepo } from '../../database/repositorie
 import { ocrCorrectionRepo, supplierCorrectionKey } from '../../database/repositories/ocrCorrectionRepo';
 import { logEdit, editLogRepo } from '../../database/repositories/editLogRepo';
 import { isValidInn } from '../../utils/inn';
-import { convertInvoiceLine } from '../../services/lineConversion';
+import { reconvertStoredItem } from '../../services/itemReconvert';
 import { getEngineFlags } from '../../services/engineFlags';
 import { itemUnitRuleRepo } from '../../database/repositories/itemUnitRuleRepo';
 import { itemNameKey } from '../../mapping/nameKey';
+import { rejectionRepo } from '../../database/repositories/rejectionRepo';
 import { canonUnit } from '../../mapping/unitConverter';
 import type { InvoiceItem } from '../../database/repositories/invoiceRepo';
 import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
@@ -920,47 +921,6 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
   }
 });
 
-/**
- * Пересчитать существующую строку в единицу 1С от её значений «как в
- * накладной» (raw_*) через единую точку convertInvoiceLine. Строки, созданные
- * до v2 (conv_source='legacy_stored'), автоматически НЕ пересчитываются —
- * настоящих исходных значений у них нет, а повторное умножение уже
- * пересчитанного количества и было главной бедой. Возвращает true, если
- * строка изменилась.
- */
-async function reconvertStoredItem(
-  item: InvoiceItem,
-  invoice: { owner_user_id: number | null; supplier_inn: string | null; supplier: string | null },
-  opts: { onecGuid?: string | null; mappedName?: string | null; pack?: { size: number; unit: string } | null; mappingId?: number | null; force?: boolean } = {},
-): Promise<boolean> {
-  if (item.conv_source === 'legacy_stored' && !opts.force) return false;
-  const conv = await convertInvoiceLine({
-    ownerUserId: invoice.owner_user_id,
-    supplierKey: makeSupplierKey(invoice.supplier_inn, invoice.supplier),
-    name: item.original_name,
-    raw: {
-      quantity: item.raw_quantity ?? item.quantity,
-      unit: item.raw_unit ?? item.unit,
-      price: item.raw_price ?? item.price,
-      total: item.raw_total ?? item.total,
-    },
-    onecGuid: opts.onecGuid !== undefined ? opts.onecGuid : item.onec_guid,
-    mappedName: opts.mappedName ?? item.mapped_name,
-    mapping: opts.pack ? { mapping_id: opts.mappingId ?? null, pack_size: opts.pack.size, pack_unit: opts.pack.unit } : null,
-  });
-  const changed = conv.quantity !== item.quantity || conv.unit !== item.unit || conv.price !== item.price
-    || (conv.conversion.qty_flag ?? null) !== (item.qty_flag ?? null);
-  if (changed || item.conv_source !== conv.conversion.conv_source) {
-    await invoiceRepo.updateItemConversion(item.id, {
-      quantity: conv.quantity, unit: conv.unit, price: conv.price,
-      conv_factor: conv.conversion.conv_factor, conv_note: conv.conversion.conv_note,
-      conv_source: conv.conversion.conv_source, qty_flag: conv.conversion.qty_flag,
-      qty_flag_note: conv.conversion.qty_flag_note,
-    });
-  }
-  return changed;
-}
-
 // POST /api/invoices/:id/remap — re-run nomenclature matching.
 // Query param: ?all=true to also re-map items that already have a GUID.
 // Useful after 1C catalog update — new items may be a better match for
@@ -1651,7 +1611,9 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   // If pack transform is provided alongside the mapping, compute the new
   // quantity/unit/price BEFORE the transaction so we can write them atomically
   // with the mapping change. Total is preserved unchanged.
-  const unitsV2 = (await getEngineFlags()).units_v2;
+  const engineFlags = await getEngineFlags();
+  const unitsV2 = engineFlags.units_v2;
+  const mappingV2 = engineFlags.mapping_v2;
   const applyPack = !unitsV2 && onec_guid != null && pack_size != null && pack_unit != null;
   let transformedQty: number | null = item.quantity;
   let transformedUnit: string | null = item.unit;
@@ -1682,7 +1644,13 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
     // only when explicitly provided — if the caller omits them, any existing
     // pack values on the learned mapping are preserved (we can't tell from an
     // empty body whether the user wanted to clear or just didn't re-send them).
-    if (onec_guid) {
+    if (onec_guid && mappingV2) {
+      // Ручной выбор = подтверждённое правило (важнее выбора ИИ, не
+      // перезаписывается им). Если эту позицию раньше отклоняли — снимаем.
+      await mappingRepo.confirm(item.original_name, onec_guid, resolvedName as string, mappingOwnerId, req.user?.id ?? null);
+      await rejectionRepo.clear(mappingOwnerId, itemNameKey(item.original_name), onec_guid);
+    }
+    if (onec_guid && !mappingV2) {
       const upsertPayload: Parameters<typeof mappingRepo.upsert>[0] = {
         scanned_name: item.original_name,
         mapped_name_1c: resolvedName as string,
@@ -1693,6 +1661,8 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
         upsertPayload.pack_unit = pack_unit;
       }
       await mappingRepo.upsert(upsertPayload, mappingOwnerId);
+    }
+    if (onec_guid) {
       const supplierKey = makeSupplierKey(invoice.supplier_inn, invoice.supplier);
       if (supplierKey) {
         await supplierMappingRepo.upsert({
@@ -1708,6 +1678,15 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   });
   // Invalidate mapper cache so the next fuzzy lookup rebuilds
   if (mapper) mapper.invalidateCache();
+
+  if (mappingV2) {
+    // Прежняя позиция, которую человек заменил или очистил, — «не это» для
+    // этого товара: подбор больше её не предложит.
+    if (item.onec_guid && item.onec_guid !== onec_guid) {
+      await rejectionRepo.add(mappingOwnerId, itemNameKey(item.original_name), item.onec_guid, item.original_name, req.user?.id ?? null);
+    }
+    if (onec_guid) await invoiceRepo.setItemConfidence(itemId, 1);
+  }
 
   if (unitsV2 && onec_guid) {
     // Упаковку, подтверждённую человеком («1 шт = 50 кг»), запоминаем как
@@ -1750,6 +1729,44 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
     return;
   }
   res.json({ data: updatedItem });
+});
+
+// POST /api/invoices/:id/confirm-mappings — «Подтвердить сопоставления»:
+// все текущие позиции 1С строк становятся подтверждёнными правилами (важнее
+// выбора ИИ), уверенность строк — 1.0 (пакет v2, п.8).
+router.post('/:id/confirm-mappings', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  const owner = invoice.owner_user_id;
+  if (owner == null) return res.status(400).json({ error: 'У накладной нет владельца' });
+  const items = await invoiceRepo.getItems(id);
+  let confirmed = 0;
+  for (const it of items) {
+    if (!it.onec_guid) continue;
+    const onec = await onecNomenclatureRepo.getByGuid(it.onec_guid, owner);
+    if (!onec) continue;
+    await mappingRepo.confirm(it.original_name, it.onec_guid, onec.name, owner, req.user?.id ?? null);
+    await invoiceRepo.setItemConfidence(it.id, 1);
+    confirmed++;
+  }
+  if (mapper) mapper.invalidateCache(owner);
+  await logEdit({
+    ownerUserId: owner, userId: req.user?.id ?? null, invoiceId: id,
+    entity: 'mapping', field: 'confirm_all', oldValue: null, newValue: { confirmed },
+    context: { supplier: invoice.supplier, supplier_inn: invoice.supplier_inn },
+  });
+  res.json({ data: { confirmed, total: items.length } });
+});
+
+// GET /api/invoices/:invoiceId/items/:itemId/candidates — топ позиций 1С для
+// выбора в один клик (без отклонённых; с пометкой противоречия атрибутов).
+router.get('/:invoiceId/items/:itemId/candidates', async (req: Request, res: Response) => {
+  const ctx = await loadOwnedItem(req, res);
+  if (!ctx) return;
+  if (!mapper || ctx.invoice.owner_user_id == null) return res.json({ data: [] });
+  const list = await mapper.getCandidates(ctx.item.original_name, ctx.invoice.owner_user_id, 5);
+  res.json({ data: list.filter(c => c.guid !== ctx.item.onec_guid).slice(0, 3) });
 });
 
 /** Строка + её накладная с проверкой владельца (для маршрутов пересчёта строки). */

@@ -21,6 +21,9 @@ import { snapshotRepo } from '../database/repositories/snapshotRepo';
 import { makeSupplierKey } from '../database/repositories/supplierMappingRepo';
 import { sha256File } from '../utils/fileHash';
 import { convertInvoiceLine } from '../services/lineConversion';
+import { getEngineFlags } from '../services/engineFlags';
+import { rejectionRepo } from '../database/repositories/rejectionRepo';
+import { itemNameKey, extractAttrs, attrsConflict } from '../mapping/nameKey';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 import { editMessageText } from '../notifications/telegram/telegramClient';
@@ -225,6 +228,69 @@ export class FileWatcher {
    * (src/services/lineConversion.ts). Значения «как в накладной» (после
    * санитайзеров, до пересчёта) сохраняются в raw_* строки.
    */
+  /**
+   * Выбор позиции 1С, предложенный Claude при распознавании (catalog_idx).
+   * v2 (mapping_v2): подтверждённое человеком правило важнее выбора ИИ;
+   * выбор ИИ, отклонённый человеком для этого товара («не это») или
+   * противоречащий по объёму/размеру/жирности/артикулу, не принимается —
+   * тогда работает обычный подбор с теми же проверками. Выбор ИИ больше не
+   * перезаписывает подтверждённые правила. Выключено — прежнее поведение.
+   */
+  private async pickWithLlm(
+    name: string,
+    llmPicked: { guid: string; name: string; unit: string | null },
+    ownerUserId: number,
+    context: { supplierInn?: string | null; supplierName?: string | null },
+  ): Promise<MappingResult> {
+    const v2 = (await getEngineFlags()).mapping_v2;
+    if (v2) {
+      const confirmed = await mappingRepo.getConfirmed(name, ownerUserId).catch(() => undefined);
+      if (confirmed?.onec_guid) {
+        const onec = await onecNomenclatureRepo.getByGuid(confirmed.onec_guid, ownerUserId);
+        if (onec) {
+          void mappingRepo.touchUsage(confirmed.id, context.supplierName ?? null).catch(() => {});
+          return {
+            original_name: name, mapped_name: onec.name, onec_guid: onec.guid, confidence: 1,
+            source: 'learned', mapping_id: confirmed.id,
+            pack_size: confirmed.pack_size, pack_unit: confirmed.pack_unit,
+          };
+        }
+      }
+      const rejected = await rejectionRepo.guidsFor(ownerUserId, itemNameKey(name));
+      const conflict = attrsConflict(extractAttrs(name), extractAttrs(llmPicked.name));
+      if (rejected.has(llmPicked.guid) || conflict) {
+        logger.info('LLM catalog pick rejected by v2 guards', {
+          name, pick: llmPicked.name, rejected: rejected.has(llmPicked.guid), conflict,
+        });
+        return this.mapper.map(name, ownerUserId, context);
+      }
+    }
+    // Preserve any previously-learned pack transform on the existing mapping.
+    const existingMapping = await mappingRepo.getByScannedName(name, ownerUserId);
+    const mapping: MappingResult = {
+      original_name: name,
+      mapped_name: llmPicked.name,
+      onec_guid: llmPicked.guid,
+      confidence: 1,
+      source: 'learned',
+      mapping_id: existingMapping?.id ?? null,
+      pack_size: existingMapping?.pack_size ?? null,
+      pack_unit: existingMapping?.pack_unit ?? null,
+    };
+    // Teach the fuzzy mapper for future invoices where LLM might be off.
+    try {
+      if (v2) {
+        await mappingRepo.upsertLearned({ scanned_name: name, mapped_name_1c: llmPicked.name, onec_guid: llmPicked.guid, source: 'llm' }, ownerUserId);
+      } else {
+        await mappingRepo.upsert({ scanned_name: name, mapped_name_1c: llmPicked.name, onec_guid: llmPicked.guid, approved: false }, ownerUserId);
+      }
+    } catch (e) {
+      logger.warn('LLM-mapper: failed to persist learned mapping', { name, error: (e as Error).message });
+    }
+    this.mapper.invalidateCache();
+    return mapping;
+  }
+
   private async convertItemLine(
     item: { name: string; pack_size?: number | null },
     sanityItem: { quantity?: number | null; unit?: string | null; price?: number | null; total?: number | null },
@@ -448,30 +514,7 @@ export class FileWatcher {
       if (supplierOverride) {
         mapping = supplierOverride;
       } else if (llmPicked) {
-        const existingMapping = await mappingRepo.getByScannedName(item.name, mappingOwnerId);
-        mapping = {
-          original_name: item.name,
-          mapped_name: llmPicked.name,
-          onec_guid: llmPicked.guid,
-          confidence: 1,
-          source: 'learned',
-          mapping_id: existingMapping?.id ?? null,
-          pack_size: existingMapping?.pack_size ?? null,
-          pack_unit: existingMapping?.pack_unit ?? null,
-        };
-        try {
-          await mappingRepo.upsert({
-            scanned_name: item.name,
-            mapped_name_1c: llmPicked.name,
-            onec_guid: llmPicked.guid,
-            approved: false,
-          }, mappingOwnerId);
-        } catch (e) {
-          logger.warn('Reprocess: failed to persist learned mapping', {
-            name: item.name, error: (e as Error).message,
-          });
-        }
-        this.mapper.invalidateCache();
+        mapping = await this.pickWithLlm(item.name, llmPicked, mappingOwnerId, mappingContext);
       } else {
         mapping = await this.mapper.map(item.name, mappingOwnerId, mappingContext);
       }
@@ -1149,29 +1192,7 @@ export class FileWatcher {
                 if (supplierOverride) {
                   mapping = supplierOverride;
                 } else if (llmPicked) {
-                  mapping = {
-                    original_name: item.name,
-                    mapped_name: llmPicked.name,
-                    onec_guid: llmPicked.guid,
-                    confidence: 1,
-                    source: 'learned',
-                    mapping_id: null,
-                    pack_size: null,
-                    pack_unit: null,
-                  };
-                  try {
-                    await mappingRepo.upsert({
-                      scanned_name: item.name,
-                      mapped_name_1c: llmPicked.name,
-                      onec_guid: llmPicked.guid,
-                      approved: false,
-                    }, mappingOwnerId);
-                  } catch (e) {
-                    logger.warn('LLM-mapper (merge): failed to persist learned mapping', {
-                      name: item.name, error: (e as Error).message,
-                    });
-                  }
-                  this.mapper.invalidateCache();
+                  mapping = await this.pickWithLlm(item.name, llmPicked, mappingOwnerId, mappingContext);
                 } else {
                   mapping = await this.mapper.map(item.name, mappingOwnerId, mappingContext);
                 }
@@ -1394,34 +1415,7 @@ export class FileWatcher {
         if (supplierOverride) {
           mapping = supplierOverride;
         } else if (llmPicked) {
-          // Preserve any previously-learned pack transform on the existing
-          // mapping (if any) so pack-transform still fires even when LLM
-          // picked the GUID. Look up by scanned_name.
-          const existingMapping = await mappingRepo.getByScannedName(item.name, mappingOwnerId);
-          mapping = {
-            original_name: item.name,
-            mapped_name: llmPicked.name,
-            onec_guid: llmPicked.guid,
-            confidence: 1,
-            source: 'learned',
-            mapping_id: existingMapping?.id ?? null,
-            pack_size: existingMapping?.pack_size ?? null,
-            pack_unit: existingMapping?.pack_unit ?? null,
-          };
-          // Teach the fuzzy mapper for future invoices where LLM might be off.
-          try {
-            await mappingRepo.upsert({
-              scanned_name: item.name,
-              mapped_name_1c: llmPicked.name,
-              onec_guid: llmPicked.guid,
-              approved: false,
-            }, mappingOwnerId);
-          } catch (e) {
-            logger.warn('LLM-mapper: failed to persist learned mapping', {
-              name: item.name, error: (e as Error).message,
-            });
-          }
-          this.mapper.invalidateCache();
+          mapping = await this.pickWithLlm(item.name, llmPicked, mappingOwnerId, mappingContext);
         } else {
           mapping = await this.mapper.map(item.name, mappingOwnerId, mappingContext);
         }

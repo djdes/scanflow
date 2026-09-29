@@ -2,6 +2,9 @@ import Fuse, { IFuseOptions } from 'fuse.js';
 import { mappingRepo, NomenclatureMapping } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import { detectPackFromName } from './packTransform';
+import { itemNameKey, extractAttrs, attrsConflict, type ItemAttrs } from './nameKey';
+import { rejectionRepo } from '../database/repositories/rejectionRepo';
+import { getEngineFlags } from '../services/engineFlags';
 import { cleanItemName } from './nameCleaner';
 import { logger } from '../utils/logger';
 import { makeSupplierKey, supplierMappingRepo } from '../database/repositories/supplierMappingRepo';
@@ -369,7 +372,11 @@ export class NomenclatureMapper {
   ): Promise<MappingResult | null> {
     const supplierKey = makeSupplierKey(context?.supplierInn, context?.supplierName);
     if (supplierKey) {
-      const supplierMapping = await supplierMappingRepo.get(supplierKey, scannedName, ownerUserId);
+      let supplierMapping = await supplierMappingRepo.get(supplierKey, scannedName, ownerUserId);
+      // v2: правило поставщика находится и по другому написанию того же товара.
+      if (!supplierMapping && (await getEngineFlags()).mapping_v2) {
+        supplierMapping = await supplierMappingRepo.getByNameKey(supplierKey, itemNameKey(scannedName), ownerUserId).catch(() => null);
+      }
       if (supplierMapping) {
         const onec = await onecNomenclatureRepo.getByGuid(supplierMapping.onec_guid, ownerUserId);
         if (onec) {
@@ -402,13 +409,32 @@ export class NomenclatureMapper {
     const supplierOverride = await this.mapSupplierOverride(scannedName, ownerUserId, context);
     if (supplierOverride) return supplierOverride;
 
-    // 1. Learned mapping (try original first, then cleaned)
-    const learned = (await mappingRepo.getByScannedName(scannedName, ownerUserId))
+    // Пакет v2 (mapping_v2): ключ товара, «не это» и жёсткие атрибуты.
+    const v2 = (await getEngineFlags()).mapping_v2;
+    const nameKey = v2 ? itemNameKey(scannedName) : '';
+    const rejected = v2 ? await rejectionRepo.guidsFor(ownerUserId, nameKey) : new Set<string>();
+    const scanAttrs: ItemAttrs | null = v2 ? extractAttrs(scannedName) : null;
+    // Кандидат из каталога годится, если его не отклоняли для этого товара и
+    // объём/размер/жирность/артикул не противоречат названию из накладной.
+    const candidateOk = (guid: string | null | undefined, catalogName: string): boolean => {
+      if (!v2) return true;
+      if (guid && rejected.has(guid)) return false;
+      return !attrsConflict(scanAttrs as ItemAttrs, extractAttrs(catalogName));
+    };
+
+    // 1. Learned mapping (try original first, then cleaned; v2 — и по ключу товара)
+    let learned = (await mappingRepo.getByScannedName(scannedName, ownerUserId))
       || (cleanName !== scannedName ? (await mappingRepo.getByScannedName(cleanName, ownerUserId)) : null);
+    if (v2 && learned?.onec_guid && rejected.has(learned.onec_guid)) learned = undefined;
+    if (v2 && !learned && nameKey) {
+      const byKey = await mappingRepo.getByNameKey(nameKey, ownerUserId);
+      if (byKey?.onec_guid && !rejected.has(byKey.onec_guid)) learned = byKey;
+    }
     if (learned) {
       if (learned.onec_guid) {
         const onec = await onecNomenclatureRepo.getByGuid(learned.onec_guid, ownerUserId);
         if (onec) {
+          if (v2) void mappingRepo.touchUsage(learned.id, context?.supplierName ?? null).catch(() => {});
           return {
             original_name: scannedName,
             mapped_name: onec.name,
@@ -460,14 +486,19 @@ export class NomenclatureMapper {
     const incomingTokens = tokenize(cleanName || scannedName);
     if (incomingTokens.size >= 2 && learnedIdx.length > 0) {
       let best: { row: NomenclatureMapping; sim: number } | null = null;
+      // v2: порог выше (0,6) — «Масло сливочное 82%» и «Масло подсолнечное 82%»
+      // делят половину слов, но это разные товары.
+      const minSim = v2 ? Math.max(LEARNED_TOKEN_MIN_SIMILARITY, 0.6) : LEARNED_TOKEN_MIN_SIMILARITY;
       for (const entry of learnedIdx) {
         const sim = jaccard(incomingTokens, entry.tokens);
-        if (sim >= LEARNED_TOKEN_MIN_SIMILARITY && (!best || sim > best.sim)) {
+        if (sim >= minSim && (!best || sim > best.sim)) {
+          if (v2 && entry.row.onec_guid && rejected.has(entry.row.onec_guid)) continue;
           best = { row: entry.row, sim };
         }
       }
       if (best && best.row.onec_guid) {
-        const onec = await onecNomenclatureRepo.getByGuid(best.row.onec_guid, ownerUserId);
+        const onecRaw = await onecNomenclatureRepo.getByGuid(best.row.onec_guid, ownerUserId);
+        const onec = onecRaw && candidateOk(onecRaw.guid, onecRaw.name) ? onecRaw : undefined;
         if (onec) {
           logger.info('Mapping via learned-name token fuzzy', {
             scannedName,
@@ -484,8 +515,10 @@ export class NomenclatureMapper {
             // Never inherit the OTHER row's mapping_id — it belongs to a
             // different scanned_name and shouldn't be overwritten.
             mapping_id: null,
-            pack_size: best.row.pack_size,
-            pack_unit: best.row.pack_unit,
+            // v2: упаковку «соседнего» написания не наследуем — так она
+            // протекала на другие размеры («Сметана 3кг» получала 5 кг).
+            pack_size: v2 ? null : best.row.pack_size,
+            pack_unit: v2 ? null : best.row.pack_unit,
           };
         }
       }
@@ -499,7 +532,7 @@ export class NomenclatureMapper {
     // regardless of Fuse/token scoring. Ambiguous keys (null) fall through.
     if (ix.onecExactIndex) {
       const hit = ix.onecExactIndex.get(exactKey(scannedName));
-      if (hit) {
+      if (hit && !(v2 && rejected.has(hit.guid))) {
         logger.info('Mapping via catalog exact name', { scannedName, target: hit.name });
         return {
           original_name: scannedName,
@@ -551,6 +584,8 @@ export class NomenclatureMapper {
           if (doc.topToken && !qTokens.has(doc.topToken)) continue;
           // Never cross species (beef ≠ pork ≠ chicken …).
           if (speciesConflict(qSpecies, speciesOf(doc.tokens))) continue;
+          // v2: отклонённые и противоречащие по атрибутам кандидаты — мимо.
+          if (!candidateOk(doc.item.guid, doc.item.name)) continue;
           let shared = 0;
           for (const tk of qTokens) if (doc.tokens.has(tk)) shared += ix.onecIdf(tk);
           if (shared <= 0) continue;
@@ -576,7 +611,9 @@ export class NomenclatureMapper {
     }
 
     // 2. Fuzzy search against onec_nomenclature (use cleaned name)
-    const results = fuse.search(searchTerm);
+    const allResults = fuse.search(searchTerm, { limit: v2 ? 8 : 1 });
+    // v2: берём первого кандидата, прошедшего «не это» и атрибуты (до v2 — только первого).
+    const results = v2 ? allResults.filter(r => candidateOk(r.item.guid, r.item.name)) : allResults;
     if (results.length > 0 && results[0].score !== undefined) {
       const best = results[0];
       const confidence = 1 - (best.score as number);
@@ -600,10 +637,13 @@ export class NomenclatureMapper {
             // Единицу учёта берём у найденной позиции каталога: в названии может
             // быть сразу несколько чисел («10л/9.6кг»), и запомнить надо то,
             // которое соответствует учёту в 1С.
-            const detected = detectPackFromName(scannedName, best.item.unit ?? null);
+            // v2: упаковку не сохраняем — пересчёт единиц разбирает название сам
+            // (src/mapping/unitConverter.ts), а сохранённая упаковка протекала.
+            const detected = v2 ? null : detectPackFromName(scannedName, best.item.unit ?? null);
             const packFields = detected
               ? { pack_size: detected.pack_size, pack_unit: detected.pack_unit }
               : {};
+            const sourceField = v2 ? { source: 'fuzzy' } : {};
             const existing = await mappingRepo.getByScannedName(scannedName, ownerUserId);
             if (!existing) {
               await mappingRepo.create({
@@ -611,6 +651,7 @@ export class NomenclatureMapper {
                 mapped_name_1c: best.item.name,
                 onec_guid: best.item.guid,
                 ...packFields,
+                ...sourceField,
               }, ownerUserId);
             }
             // Also save cleaned name variant if different
@@ -622,6 +663,7 @@ export class NomenclatureMapper {
                   scanned_name: cleanName,
                   mapped_name_1c: best.item.name,
                   onec_guid: best.item.guid,
+                  ...sourceField,
                 }, ownerUserId);
               }
             }
@@ -663,6 +705,30 @@ export class NomenclatureMapper {
       results.push(await this.map(n, ownerUserId));
     }
     return results;
+  }
+
+  /**
+   * Кандидаты для выбора «в один клик» (пакет v2, п.13): топ каталога по
+   * нечёткому поиску, без отклонённых для этого товара; у каждого — причина
+   * несовпадения атрибутов, если она есть (показываем, но не прячем).
+   */
+  async getCandidates(scannedName: string, ownerUserId: number, limit = 5): Promise<Array<{ guid: string; name: string; unit: string | null; confidence: number; conflict: string | null }>> {
+    const fuse = await this.ensureIndex(ownerUserId);
+    const rejected = await rejectionRepo.guidsFor(ownerUserId, itemNameKey(scannedName));
+    const scanAttrs = extractAttrs(scannedName);
+    const results = fuse.search(normalizeName(scannedName) || scannedName, { limit: limit * 3 });
+    const out: Array<{ guid: string; name: string; unit: string | null; confidence: number; conflict: string | null }> = [];
+    for (const r of results) {
+      if (rejected.has(r.item.guid)) continue;
+      out.push({
+        guid: r.item.guid, name: r.item.name, unit: r.item.unit ?? null,
+        confidence: Math.round((1 - (r.score ?? 1)) * 100) / 100,
+        conflict: attrsConflict(scanAttrs, extractAttrs(r.item.name)),
+      });
+      if (out.length >= limit) break;
+    }
+    // Без противоречий — первыми.
+    return out.sort((a, b) => Number(!!a.conflict) - Number(!!b.conflict) || b.confidence - a.confidence);
   }
 
   async getSuggestions(scannedName: string, ownerUserId: number, limit: number = 5): Promise<Array<{ guid: string; name: string; confidence: number }>> {

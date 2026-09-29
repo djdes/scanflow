@@ -4490,3 +4490,14 @@ select.filter-input { min-width: 104px; }
 .link-btn:hover { text-decoration: underline; }
 tr.row-qty-flag td { background: var(--error-soft); }
 tr.row-unit-mismatch td { background: var(--warning-soft); }
+
+/* Пакет v2: кандидаты сопоставления «в один клик» */
+.nom-cands { margin-top: 4px; font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.nom-cand { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 1px 8px; font-size: 11.5px; cursor: pointer; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nom-cand:hover { border-color: var(--primary); }
+.nom-cand-conflict { opacity: 0.6; border-style: dashed; }
+
+/* Пакет v2: источник правила сопоставления */
+.mapping-src { display: inline-block; margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
+.mapping-src-ok { border-color: var(--green, #16a34a); color: var(--green, #16a34a); }
+.mapping-src-warn { border-color: var(--warning); color: #b45309; }

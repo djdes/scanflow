@@ -1,4 +1,5 @@
 import { getDb } from '../db';
+import { itemNameKey } from '../../mapping/nameKey';
 
 export interface NomenclatureMapping {
   id: number;
@@ -19,6 +20,12 @@ export interface NomenclatureMapping {
   // Used for "Мука (50кг) — 1 шт" → "Мука — 50 кг" type transforms.
   pack_size: number | null;
   pack_unit: string | null;
+  // Пакет v2 (миграция 65): откуда правило и подтверждено ли человеком.
+  source?: string | null;
+  confirmed_at?: string | null;
+  confirmed_by?: number | null;
+  name_key?: string | null;
+  orphaned_at?: string | null;
 }
 
 export interface CreateMappingData {
@@ -30,6 +37,8 @@ export interface CreateMappingData {
   onec_guid?: string | null;
   pack_size?: number | null;
   pack_unit?: string | null;
+  /** user | supplier | import | llm | fuzzy | restored | history | learned */
+  source?: string | null;
 }
 
 // Владелец — обязательный параметр каждого метода, без значения по умолчанию.
@@ -39,8 +48,8 @@ export const mappingRepo = {
   async create(data: CreateMappingData, ownerUserId: number): Promise<NomenclatureMapping> {
     const db = getDb();
     const result = await db.prepare(`
-      INSERT INTO nomenclature_mapping_cards (owner_user_id, scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit)
-      VALUES (:owner_user_id, :scanned_name, :mapped_name_1c, :category, :default_unit, :approved, :onec_guid, :pack_size, :pack_unit)
+      INSERT INTO nomenclature_mapping_cards (owner_user_id, scanned_name, mapped_name_1c, category, default_unit, approved, onec_guid, pack_size, pack_unit, source, name_key)
+      VALUES (:owner_user_id, :scanned_name, :mapped_name_1c, :category, :default_unit, :approved, :onec_guid, :pack_size, :pack_unit, :source, :name_key)
     `).run({
       owner_user_id: ownerUserId,
       scanned_name: data.scanned_name,
@@ -51,6 +60,8 @@ export const mappingRepo = {
       onec_guid: data.onec_guid ?? null,
       pack_size: data.pack_size ?? null,
       pack_unit: data.pack_unit ?? null,
+      source: data.source ?? 'learned',
+      name_key: itemNameKey(data.scanned_name).slice(0, 255),
     });
     return (await db
       .prepare('SELECT * FROM nomenclature_mapping_cards WHERE id = ?')
@@ -69,6 +80,66 @@ export const mappingRepo = {
       .get<NomenclatureMapping>(scannedName, ownerUserId);
   },
 
+  /**
+   * Правило по ключу товара (все написания одного товара). Подтверждённые —
+   * первыми; сопоставления позиций, которых нет в каталоге (orphaned), — мимо.
+   */
+  async getByNameKey(nameKey: string, ownerUserId: number): Promise<NomenclatureMapping | undefined> {
+    if (!nameKey) return undefined;
+    return getDb().prepare(`
+      SELECT * FROM nomenclature_mapping_cards
+       WHERE owner_user_id = ? AND name_key = ? AND orphaned_at IS NULL
+         AND onec_guid IS NOT NULL AND onec_guid != ''
+       ORDER BY (confirmed_at IS NOT NULL) DESC, times_seen DESC, id DESC
+       LIMIT 1
+    `).get<NomenclatureMapping>(ownerUserId, nameKey.slice(0, 255));
+  },
+
+  /** Подтверждённое человеком правило для названия (точное имя, затем ключ товара). */
+  async getConfirmed(scannedName: string, ownerUserId: number): Promise<NomenclatureMapping | undefined> {
+    const exact = await this.getByScannedName(scannedName, ownerUserId);
+    if (exact?.confirmed_at && exact.onec_guid && !exact.orphaned_at) return exact;
+    const byKey = await this.getByNameKey(itemNameKey(scannedName), ownerUserId);
+    return byKey?.confirmed_at ? byKey : undefined;
+  },
+
+  /**
+   * Запомнить выученное автоматически (ИИ, fuzzy) — НО не трогать правило,
+   * подтверждённое человеком. До v2 выбор ИИ перезаписывал любое правило.
+   */
+  async upsertLearned(data: CreateMappingData & { source: string }, ownerUserId: number): Promise<void> {
+    const existing = await this.getByScannedName(data.scanned_name, ownerUserId);
+    if (existing?.confirmed_at) return;
+    if (existing) {
+      await this.update(existing.id, ownerUserId, {
+        mapped_name_1c: data.mapped_name_1c, onec_guid: data.onec_guid ?? null, source: data.source,
+      });
+      return;
+    }
+    await this.create({ ...data, approved: false }, ownerUserId);
+  },
+
+  /** Человек выбрал/подтвердил позицию: правило становится подтверждённым. */
+  async confirm(scannedName: string, onecGuid: string, mappedName: string, ownerUserId: number, userId: number | null): Promise<void> {
+    const existing = await this.getByScannedName(scannedName, ownerUserId);
+    const id = existing
+      ? existing.id
+      : (await this.create({ scanned_name: scannedName, mapped_name_1c: mappedName, onec_guid: onecGuid, approved: true, source: 'user' }, ownerUserId)).id;
+    await getDb().prepare(`
+      UPDATE nomenclature_mapping_cards
+         SET onec_guid = ?, mapped_name_1c = ?, approved = 1, source = 'user',
+             confirmed_at = NOW(), confirmed_by = ?, orphaned_at = NULL
+       WHERE id = ? AND owner_user_id = ?
+    `).run(onecGuid, mappedName, userId, id, ownerUserId);
+  },
+
+  /** Живые счётчики использования (до v2 times_seen никто не увеличивал). */
+  async touchUsage(id: number, supplier: string | null): Promise<void> {
+    await getDb().prepare(
+      'UPDATE nomenclature_mapping_cards SET times_seen = times_seen + 1, last_seen_at = NOW(), last_seen_supplier = COALESCE(?, last_seen_supplier) WHERE id = ?',
+    ).run(supplier ? supplier.slice(0, 512) : null, id);
+  },
+
   async getAll(ownerUserId: number): Promise<NomenclatureMapping[]> {
     return getDb()
       .prepare('SELECT * FROM nomenclature_mapping_cards WHERE owner_user_id = ? ORDER BY mapped_name_1c')
@@ -79,7 +150,12 @@ export const mappingRepo = {
     const fields: string[] = [];
     const values: Record<string, unknown> = { id, ownerUserId };
 
-    if (data.scanned_name !== undefined) { fields.push('scanned_name = :scanned_name'); values.scanned_name = data.scanned_name; }
+    if (data.scanned_name !== undefined) {
+      fields.push('scanned_name = :scanned_name', 'name_key = :name_key');
+      values.scanned_name = data.scanned_name;
+      values.name_key = itemNameKey(data.scanned_name).slice(0, 255);
+    }
+    if (data.source !== undefined) { fields.push('source = :source'); values.source = data.source; }
     if (data.mapped_name_1c !== undefined) { fields.push('mapped_name_1c = :mapped_name_1c'); values.mapped_name_1c = data.mapped_name_1c; }
     if (data.category !== undefined) { fields.push('category = :category'); values.category = data.category; }
     if (data.default_unit !== undefined) { fields.push('default_unit = :default_unit'); values.default_unit = data.default_unit; }

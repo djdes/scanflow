@@ -40,6 +40,7 @@ const Mappings = {
   },
 
   async loadGrouped() {
+    this.renderRejections().catch(() => {});
     try {
       const { data } = await App.apiJson('/mappings');
       this.grouped = data.grouped || [];
@@ -52,6 +53,41 @@ const Mappings = {
   },
 
   filter(query) { this.renderGrouped(query); },
+
+  async confirmVariant(id, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    try {
+      await App.apiJson(`/mappings/${id}/confirm`, { method: 'POST' });
+      App.notify('Правило подтверждено', 'success');
+      await this.loadGrouped();
+    } catch (e) { App.notify(e.message || 'Не удалось подтвердить', 'error'); }
+  },
+
+  // «Не это» (пакет v2): позиции 1С, отклонённые для товаров. Можно снять.
+  async renderRejections() {
+    const host = document.getElementById('mappings-rejections');
+    if (!host) return;
+    let rows = [];
+    try { ({ data: rows } = await App.apiJson('/mappings/rejections/list')); } catch { return; }
+    if (!rows.length) { host.innerHTML = ''; return; }
+    host.innerHTML = `
+      <div class="card" style="margin-top:20px">
+        <h3 style="margin-bottom:6px">Отклонённые варианты («не это»)</h3>
+        <div class="field-hint" style="margin-bottom:12px">Когда вы меняете или очищаете сопоставление, прежняя позиция 1С больше не предлагается для этого товара. Уберите строку, если отклонили по ошибке.</div>
+        <div class="table-container"><table class="data-table"><thead><tr><th>Товар из накладной</th><th>Позиция 1С</th><th>Когда</th><th></th></tr></thead><tbody>
+          ${rows.map(r => `<tr><td>${App.esc(r.scanned_name || r.name_key)}</td><td class="muted">${App.esc((OnecCatalog.items || []).find(i => i.guid === r.onec_guid)?.name || r.onec_guid)}</td><td>${App.formatDateTime(r.created_at)}</td>
+            <td><button class="btn-icon-danger" title="Снять отклонение" onclick="Mappings.removeRejection(${r.id}, event)">&#10005;</button></td></tr>`).join('')}
+        </tbody></table></div>
+      </div>`;
+  },
+
+  async removeRejection(id, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    try {
+      await App.apiJson(`/mappings/rejections/${id}`, { method: 'DELETE' });
+      await this.renderRejections();
+    } catch (e) { App.notify(e.message || 'Не удалось снять', 'error'); }
+  },
 
   renderGrouped(filterQuery = '') {
     const tbody = document.getElementById('mappings-tbody');
@@ -91,12 +127,20 @@ const Mappings = {
           const packLabel = (v.pack_size && v.pack_unit)
             ? `<span class="pack-badge" title="1 ед. = ${v.pack_size} ${esc(v.pack_unit)}">&nbsp;↦ ${v.pack_size} ${esc(v.pack_unit)}</span>`
             : '';
+          // Пакет v2: откуда правило и подтверждено ли человеком.
+          const SRC = { user: 'вручную', supplier: 'поставщик', import: 'импорт', llm: 'ИИ', fuzzy: 'похожее', restored: 'восстановлено', learned: 'выучено', history: 'история' };
+          const srcLabel = v.confirmed_at
+            ? '<span class="mapping-src mapping-src-ok" title="Подтверждено человеком — важнее выбора ИИ">✓ подтверждено</span>'
+            : `<span class="mapping-src" title="Не подтверждено — ИИ может заменить">${esc(SRC[v.source] || v.source || 'выучено')}</span>`;
+          const orphan = v.orphaned_at ? '<span class="mapping-src mapping-src-warn" title="Этой позиции сейчас нет в каталоге 1С">нет в каталоге</span>' : '';
+          const confirmBtn = v.confirmed_at ? '' : `<button class="btn-icon" title="Подтвердить правило" onclick="Mappings.confirmVariant(${v.id}, event)">&#10003;</button>`;
           return `
           <tr class="mapping-expanded-row">
             <td></td>
-            <td>${esc(v.scanned_name)}${packLabel}</td>
+            <td>${esc(v.scanned_name)}${packLabel} ${srcLabel}${orphan}</td>
             <td style="text-align:right">${v.times_seen || 0}×</td>
             <td style="white-space:nowrap">
+              ${confirmBtn}
               <button class="btn-icon" title="Редактировать упаковку (кг)" onclick="Mappings.editPack(${v.id}, event)">&#9998;</button>
               <button class="btn-icon-danger" title="Удалить вариант" onclick="Mappings.removeVariant(${v.id}, event)">&#10005;</button>
             </td>

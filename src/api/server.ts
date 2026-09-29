@@ -20,6 +20,8 @@ import settingsRouter from './routes/settings';
 import debugRouter from './routes/debug';
 import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes/nomenclature';
 import dispatcherRouter, { setMapper as setDispatcherMapper } from './routes/dispatcher';
+import { registerAfterCatalogSync } from '../services/catalogSyncWatcher';
+import { remapUnsentInvoices } from '../services/remapUnsent';
 import authRouter from './routes/auth';
 import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
@@ -137,6 +139,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setNomenclatureMapper(mapper);
   setInvoicesMapper(mapper);
   setDispatcherMapper(mapper);
+  // После обновления каталога 1С — пересопоставить неотправленные накладные (пакет v2, п.13).
+  registerAfterCatalogSync(owner => remapUnsentInvoices(owner, mapper).then(() => undefined));
   setFileWatcher(fileWatcher);
   setInvoicesFileWatcher(fileWatcher);
   setInboundFileWatcher(fileWatcher);

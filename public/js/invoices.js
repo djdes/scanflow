@@ -922,6 +922,9 @@ const Invoices = {
       }
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.editHeader(${data.id})" title="Редактировать реквизиты накладной">✎ Реквизиты</button>`;
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true, event)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
+      if ((data.items || []).some(it => it.onec_guid)) {
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.confirmMappings(${data.id}, event)" title="Текущие позиции 1С всех строк станут подтверждёнными правилами — их больше не перебьёт выбор ИИ">✓ Подтвердить сопоставления</button>`;
+      }
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event)" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id}, event)" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
       // LLM button is always visible. When everything is already mapped it
@@ -996,6 +999,9 @@ const Invoices = {
                        onfocus="Invoices.onNomFocus(event)"
                        onblur="Invoices.onNomBlur(event)">
                 <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
+                ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
+                  ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
+                  : ''}
                 ${item.name_overridden
                   ? '<div class="nom-custom-note" title="Это название уйдёт в 1С для создания товара">✎ Своё название → создастся в 1С</div>'
                   : ''}
@@ -1041,6 +1047,7 @@ const Invoices = {
       // the user only confirms (the item still needs a click — we don't silently
       // write a sub-1.0 guess, per the ingest auto-apply policy).
       this._suggestUnmapped(data.id, data.items || []);
+      this._loadCandidates(data.id).catch(e => console.warn('candidates failed', e));
 
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
@@ -1357,6 +1364,43 @@ const Invoices = {
     }
     if (actions.length) parts.push(`<div class="conv-actions">${actions.join(' ')}</div>`);
     return parts.length ? `<div class="conv-info">${parts.join('')}</div>` : '';
+  },
+
+  // Топ-3 позиции 1С «в один клик» для строк без сопоставления или с низкой
+  // уверенностью (пакет v2, п.13). Клик = подтверждённое правило.
+  async _loadCandidates(invoiceId) {
+    const slots = Array.from(document.querySelectorAll('.nom-cands')).slice(0, 25);
+    for (const slot of slots) {
+      if (this._currentInvoiceId !== invoiceId) return;
+      const itemId = slot.getAttribute('data-item-id');
+      let list = [];
+      try {
+        ({ data: list } = await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/candidates`));
+      } catch { continue; }
+      if (!list || !list.length) continue;
+      slot.innerHTML = `<span class="muted">Похоже на:</span> ` + list.map(c => `
+        <button type="button" class="nom-cand${c.conflict ? ' nom-cand-conflict' : ''}"
+          title="${App.esc(c.conflict ? 'Не совпадает: ' + c.conflict : 'Сходство ' + Math.round(c.confidence * 100) + '%')}"
+          onclick="Invoices.pickCandidate(${invoiceId}, ${itemId}, '${App.esc(c.guid)}')">${App.esc(c.name)}${c.unit ? ` <span class="muted">(${App.esc(c.unit)})</span>` : ''}</button>`).join(' ');
+    }
+  },
+
+  async pickCandidate(invoiceId, itemId, guid) {
+    try {
+      await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/map`, { method: 'PUT', body: { onec_guid: guid } });
+      App.notify('Сопоставлено и запомнено', 'success');
+      this.showDetail(invoiceId);
+    } catch (e) { App.notify(e.message || 'Не удалось сопоставить', 'error'); }
+  },
+
+  async confirmMappings(invoiceId, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    if (!window.confirm('Подтвердить текущие позиции 1С всех строк? Они станут правилами, которые важнее выбора ИИ, для следующих накладных.')) return;
+    try {
+      const { data } = await App.apiJson(`/invoices/${invoiceId}/confirm-mappings`, { method: 'POST' });
+      App.notify(`Подтверждено правил: ${data.confirmed}`, 'success');
+      this.showDetail(invoiceId);
+    } catch (e) { App.notify(e.message || 'Не удалось подтвердить', 'error'); }
   },
 
   async itemReconvert(invoiceId, itemId) {

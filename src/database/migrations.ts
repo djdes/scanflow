@@ -2096,6 +2096,28 @@ const MIGRATIONS: Migration[] = [
     },
   },
   {
+    version: 69,
+    name: 'mapping_rejections — «не это»: отклонённые человеком позиции для товара',
+    // Человек заменил или очистил сопоставление — запоминаем, что эта позиция
+    // 1С для этого товара (name_key) НЕ подходит. До v2 тот же неверный
+    // товар возвращался на следующей накладной.
+    detect: (exec) => hasTable(exec, 'mapping_rejections'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS mapping_rejections (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id  INT NOT NULL,
+          name_key       VARCHAR(191) NOT NULL,
+          onec_guid      VARCHAR(64) NOT NULL,
+          scanned_name   VARCHAR(512) NULL,
+          created_by     INT NULL,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_mapping_rejections (owner_user_id, name_key, onec_guid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
+  {
     version: 71,
     name: 'эталоны: invoices.golden/golden_at + golden_runs',
     // п.17 пакета v2. Проверенную накладную отмечают «⭐ Эталон»: её фото не

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { requireAdmin } from '../middleware/auth';
+import { rejectionRepo } from '../../database/repositories/rejectionRepo';
 
 const router = Router();
 let mapper: NomenclatureMapper;
@@ -106,6 +107,28 @@ router.delete('/:id', async (req: Request, res: Response) => {
   await mappingRepo.delete(id, ownerOf(req));
   if (mapper) mapper.invalidateCache(ownerOf(req));
   res.json({ message: 'Deleted' });
+});
+
+// POST /api/mappings/:id/confirm — подтвердить правило (важнее выбора ИИ, пакет v2).
+router.post('/:id/confirm', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  const existing = await mappingRepo.getById(id, ownerOf(req));
+  if (!existing || !existing.onec_guid) return res.status(404).json({ error: 'Mapping not found' });
+  await mappingRepo.confirm(existing.scanned_name, existing.onec_guid, existing.mapped_name_1c, ownerOf(req), req.user?.id ?? null);
+  if (mapper) mapper.invalidateCache(ownerOf(req));
+  return res.json({ data: await mappingRepo.getById(id, ownerOf(req)) });
+});
+
+// GET /api/mappings/rejections/list — «не это»: отклонённые позиции для товаров.
+router.get('/rejections/list', async (req: Request, res: Response) => {
+  res.json({ data: await rejectionRepo.list(ownerOf(req)) });
+});
+
+// DELETE /api/mappings/rejections/:id — снять отклонение.
+router.delete('/rejections/:id', async (req: Request, res: Response) => {
+  await rejectionRepo.remove(ownerOf(req), parseInt(req.params.id as string, 10));
+  if (mapper) mapper.invalidateCache(ownerOf(req));
+  res.json({ success: true });
 });
 
 // POST /api/mappings/import — bulk import

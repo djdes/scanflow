@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { getDb } from '../db';
+import { itemNameKey } from '../../mapping/nameKey';
 
 export interface SupplierMappingRow {
   id: number;
@@ -40,13 +41,25 @@ export const supplierMappingRepo = {
     return row ?? null;
   },
 
+  /** Правило поставщика по ключу товара (другое написание того же товара). */
+  async getByNameKey(supplierKey: string, nameKey: string, ownerUserId: number): Promise<SupplierMappingRow | null> {
+    if (!nameKey) return null;
+    const row = await getDb().prepare(`
+      SELECT * FROM supplier_nomenclature_mapping_cards
+       WHERE owner_user_id = ? AND supplier_key = ? AND name_key = ?
+       ORDER BY times_seen DESC, id DESC LIMIT 1
+    `).get<SupplierMappingRow>(ownerUserId, supplierKey, nameKey.slice(0, 255));
+    return row ?? null;
+  },
+
   async upsert(input: { supplierKey: string; scannedName: string; mappedName: string; onecGuid: string }, ownerUserId: number): Promise<void> {
     await getDb().prepare(`
       INSERT INTO supplier_nomenclature_mapping_cards
-        (owner_user_id, supplier_key, scanned_hash, scanned_name, mapped_name_1c, onec_guid)
-      VALUES (?, ?, ?, ?, ?, ?)
+        (owner_user_id, supplier_key, scanned_hash, scanned_name, mapped_name_1c, onec_guid, name_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE mapped_name_1c = VALUES(mapped_name_1c),
                               onec_guid = VALUES(onec_guid),
+                              name_key = VALUES(name_key),
                               times_seen = times_seen + 1
     `).run(
       ownerUserId,
@@ -55,6 +68,7 @@ export const supplierMappingRepo = {
       input.scannedName.trim(),
       input.mappedName,
       input.onecGuid,
+      itemNameKey(input.scannedName).slice(0, 255),
     );
   },
 };
