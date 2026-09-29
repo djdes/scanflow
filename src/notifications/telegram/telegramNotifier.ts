@@ -11,6 +11,11 @@ interface TelegramConfig {
   chat_id: string;
 }
 
+// «400 Bad Request: message is not modified» — новый текст пузыря совпал с
+// текущим: событие не поменяло ни одного шага (например, invoice_edited без
+// изменений в ленте). Пузырь уже показывает нужное — это успех, а не сбой.
+const NOT_MODIFIED_RE = /message is not modified/i;
+
 // Top-level Telegram emission. Decides whether the event is urgent (separate
 // message) or progress (thread edit), formats accordingly, and persists the
 // per-chat message id when a new thread is created.
@@ -95,6 +100,14 @@ async function sendThreadToChat(
       await editMessageText(token, chatId, existingMessageId, text);
       return;
     } catch (err) {
+      if (NOT_MODIFIED_RE.test((err as Error)?.message ?? '')) {
+        // Без error-лога и без нового сообщения: дубль пузыря был бы шумом.
+        logger.debug('telegramNotifier: thread unchanged (message is not modified)', {
+          invoiceId: invoice.id,
+          chatId,
+        });
+        return;
+      }
       if (err instanceof MessageGoneError) {
         logger.warn('telegramNotifier: thread message gone, sending new one', {
           invoiceId: invoice.id,
