@@ -1875,6 +1875,44 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 71,
+    name: 'эталоны: invoices.golden/golden_at + golden_runs',
+    // п.17 пакета v2. Проверенную накладную отмечают «⭐ Эталон»: её фото не
+    // удаляет очистка через 90 дней, а админ может заново распознать эталоны
+    // текущей моделью/промптом и сравнить номер, дату, сумму, НДС, ИНН и строки
+    // с сохранёнными (src/golden/*). В накладные прогон НЕ пишет — только в
+    // golden_runs. summary/results — JSON в MEDIUMTEXT (прод — MariaDB 10.11:
+    // без JSON-типа и без DEFAULT у TEXT).
+    // Номера 63–70 зарезервированы под задачи 2–18 плана v2 — не перенумеровывать.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'invoices', 'golden'))
+      && (await hasColumn(exec, 'invoices', 'golden_at'))
+      && (await hasTable(exec, 'golden_runs')),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'golden'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN golden TINYINT(1) NOT NULL DEFAULT 0`);
+      }
+      if (!(await hasColumn(exec, 'invoices', 'golden_at'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN golden_at DATETIME NULL`);
+      }
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS golden_runs (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id  INT NULL,
+          started_by     INT NULL,
+          started_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          finished_at    DATETIME NULL,
+          status         VARCHAR(16) NOT NULL DEFAULT 'running',
+          model          VARCHAR(64) NULL,
+          summary        MEDIUMTEXT NULL,
+          results        MEDIUMTEXT NULL,
+          INDEX idx_golden_runs_owner (owner_user_id, id),
+          INDEX idx_golden_runs_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
