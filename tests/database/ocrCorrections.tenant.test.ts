@@ -76,7 +76,9 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('ocr_corrections: �
   });
 
   it('единицы измерения позиций тоже не пересекаются между компаниями', async () => {
-    await ocrCorrectionRepo.remember(INN, 'item_unit', 'шт.', 'кг', companyA);
+    // С миграции 66 правило единицы — только для конкретного товара (общие
+    // правила «на всего поставщика» портили все строки: яйца → «1080 кг»).
+    await ocrCorrectionRepo.remember(INN, 'item_unit', 'шт.', 'кг', companyA, 'Сахар');
 
     const a = await ocrCorrectionRepo.apply(scan({ items: [{ name: 'Сахар', unit: 'шт.' }] }), companyA);
     const b = await ocrCorrectionRepo.apply(scan({ items: [{ name: 'Сахар', unit: 'шт.' }] }), companyB);
