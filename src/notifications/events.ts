@@ -1,12 +1,24 @@
 import { logger } from '../utils/logger';
 import { userRepo } from '../database/repositories/userRepo';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
+import { isEngineOn } from '../services/engineFlags';
 import { sendInvoiceNotification } from './telegram/telegramNotifier';
 import { sendMessage } from './telegram/telegramClient';
+import { buildBatchSummaryMessage } from './telegram/telegramFormatter';
+import { parseValidChatIds } from './telegram/chatIds';
 import { sendNotification as sendEmail, smtpConfigured } from '../utils/mailer';
-import { renderRealtime } from './templates';
+import { renderRealtime, renderBatchSummary } from './templates';
 import { checkAndRecordSend, NOTIFY_HOURLY_CAP } from './rateLimit';
+import { BATCHABLE_EVENTS, NotificationBatcher, summarizeBatch, type BatchSnapshot } from './batcher';
 import { type EventType, type EventPayload } from './types';
+
+// Пакетный режим (п.19, флаг движка batch_notify): состояние — в памяти
+// процесса. Потеря при рестарте допустима: накопленное просто не придёт
+// сводкой, а следующая пачка распознается заново.
+const batcher = new NotificationBatcher();
+// Не больше одного таймера на получателя: он ждёт конца тишины и, если за это
+// время пришли новые события, перевзводится на остаток.
+const batchTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 // Domain-event entry point. Fans the event out to Telegram AND email — both are
 // live: a user with `users.email` set and SMTP configured really does get mail
@@ -59,7 +71,32 @@ export async function emit(
       logger.debug('notifications.emit: no config row', { eventType, userId });
       return;
     }
-    if (!cfg.notify_events.includes(eventType)) {
+    const enabled = cfg.notify_events.includes(eventType);
+
+    // Пакетный режим: при пачке загрузок события копятся в одну сводку. Стоит
+    // ДО лимита — отложенное событие квоту не тратит, сводка потратит одну.
+    // photo_uploaded учитывается, даже если выключен в настройках: пачка — это
+    // факт загрузки, а не предпочтение; прочие выключенные события в сводку не
+    // попадают.
+    if (BATCHABLE_EVENTS.has(eventType) && (enabled || eventType === 'photo_uploaded')
+        && await isEngineOn('batch_notify')) {
+      const decision = batcher.offer(userId, {
+        type: eventType,
+        invoiceId: invoice.id,
+        invoiceNumber: payload.invoice_number ?? invoice.invoice_number,
+        supplier: payload.supplier ?? invoice.supplier,
+        deliver: enabled,
+      }, Date.now());
+      if (decision !== 'send') {
+        if (decision === 'start') {
+          logger.info('notifications: batch mode on — events go to one summary', { userId, invoiceId: invoice.id });
+        }
+        armBatchFlush(userId);
+        return;
+      }
+    }
+
+    if (!enabled) {
       logger.debug('notifications.emit: event disabled in config', { eventType, userId });
       return;
     }
@@ -69,19 +106,7 @@ export async function emit(
     // Bounds the blast radius of ANY future loop that emits in a hot path.
     const throttle = await checkAndRecordSend(eventType, payload.invoice_id);
     if (!throttle.allow) {
-      if (throttle.announce) {
-        const mutedTg = await userRepo.getTelegramConfig(userId);
-        if (mutedTg?.chat_id && mutedTg?.bot_token) {
-          await sendMessage(
-            mutedTg.bot_token,
-            mutedTg.chat_id,
-            `🔇 Уведомления приглушены на час.\n\n`
-            + `За последний час их набралось ${throttle.sentInWindow} (лимит ${NOTIFY_HOURLY_CAP}) — `
-            + `это похоже на сбой, а не на обычную работу. Загляните в логи.\n\n`
-            + `Накладные продолжают обрабатываться как обычно — молчит только рассылка.`,
-          ).catch(() => {});
-        }
-      }
+      if (throttle.announce) await announceMuted(userId, throttle.sentInWindow);
       return;
     }
 
@@ -118,6 +143,109 @@ export async function emit(
       error: (err as Error).message,
     });
   }
+}
+
+/** Разовое «рассылка приглушена» — лимит сработал впервые за окно. */
+async function announceMuted(userId: number, sentInWindow: number): Promise<void> {
+  const mutedTg = await userRepo.getTelegramConfig(userId);
+  if (mutedTg?.chat_id && mutedTg?.bot_token) {
+    await sendMessage(
+      mutedTg.bot_token,
+      mutedTg.chat_id,
+      `🔇 Уведомления приглушены на час.\n\n`
+      + `За последний час их набралось ${sentInWindow} (лимит ${NOTIFY_HOURLY_CAP}) — `
+      + `это похоже на сбой, а не на обычную работу. Загляните в логи.\n\n`
+      + `Накладные продолжают обрабатываться как обычно — молчит только рассылка.`,
+    ).catch(() => {});
+  }
+}
+
+/** Взвести таймер конца тишины для получателя, если он ещё не взведён. */
+function armBatchFlush(userId: number): void {
+  if (batchTimers.has(userId)) return;
+  const deadline = batcher.quietDeadline(userId);
+  if (deadline == null) return;
+  const timer = setTimeout(() => {
+    batchTimers.delete(userId);
+    void flushBatch(userId);
+  }, Math.max(0, deadline - Date.now()));
+  // Таймер не должен держать процесс живым (остановка PM2, тесты).
+  timer.unref?.();
+  batchTimers.set(userId, timer);
+}
+
+/** Никогда не бросает: вызывается из таймера, где исключение некому поймать. */
+async function flushBatch(userId: number): Promise<void> {
+  try {
+    const snapshot = batcher.takeIfQuiet(userId, Date.now());
+    if (!snapshot) {
+      // За время ожидания пришли новые события — ждём остаток тишины.
+      armBatchFlush(userId);
+      return;
+    }
+    await sendBatchSummary(userId, snapshot);
+  } catch (err) {
+    logger.error('notifications: batch summary failed', { userId, error: (err as Error).message });
+  }
+}
+
+async function sendBatchSummary(userId: number, snapshot: BatchSnapshot): Promise<void> {
+  const summary = summarizeBatch(snapshot);
+  if (!summary.deliverable) {
+    logger.debug('notifications: batch closed, nothing the user subscribed to', { userId });
+    return;
+  }
+
+  // Ссылки только на существующие накладные: страница многостраничной
+  // накладной после склейки удаляется, и ссылка на неё вела бы в никуда.
+  // Номер и поставщика берём свежими — на момент загрузки их ещё не было.
+  const alive: typeof summary.invoices = [];
+  for (const inv of summary.invoices) {
+    const row = await invoiceRepo.getById(inv.id);
+    if (row) alive.push({ ...inv, number: row.invoice_number ?? inv.number, supplier: row.supplier ?? inv.supplier });
+  }
+  summary.invoices = alive;
+
+  // Сводка — одна отправка для лимита, как одно обычное уведомление.
+  const throttle = await checkAndRecordSend('batch_summary', null);
+  if (!throttle.allow) {
+    if (throttle.announce) await announceMuted(userId, throttle.sentInWindow);
+    return;
+  }
+
+  const tg = await userRepo.getTelegramConfig(userId);
+  if (tg?.chat_id && tg.bot_token) {
+    const text = buildBatchSummaryMessage(summary);
+    for (const chatId of parseValidChatIds(tg.chat_id)) {
+      try {
+        await sendMessage(tg.bot_token, chatId, text);
+      } catch (err) {
+        logger.error('notifications: batch summary telegram send failed', {
+          userId, chatId, error: (err as Error).message,
+        });
+      }
+    }
+  }
+
+  const cfg = await userRepo.getNotifyConfig(userId);
+  if (cfg?.email && smtpConfigured()) {
+    try {
+      const rendered = renderBatchSummary(summary);
+      await sendEmail(cfg.email, rendered.subject, rendered.html);
+    } catch (err) {
+      logger.warn('notifications: batch summary email failed', { userId, error: (err as Error).message });
+    }
+  }
+
+  logger.info('notifications: batch summary sent', {
+    userId,
+    uploaded: summary.uploaded,
+    recognized: summary.recognized,
+    errors: summary.errors.length,
+    suspicious: summary.suspicious,
+    elevated: summary.elevated,
+    events: snapshot.events.length,
+  });
 }
 
 /**

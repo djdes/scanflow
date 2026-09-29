@@ -1,5 +1,6 @@
 import { supplierRepo, type Supplier } from '../database/repositories/supplierRepo';
-import { invoiceRepo, type SupplierMatchKind } from '../database/repositories/invoiceRepo';
+import { invoiceRepo, type Invoice, type SupplierMatchKind } from '../database/repositories/invoiceRepo';
+import { isValidInn } from '../utils/inn';
 import { logger } from '../utils/logger';
 
 /**
@@ -128,6 +129,26 @@ export interface SupplierCandidate {
   score: number;
 }
 
+/**
+ * Двойники с опечаткой в ИНН. OCR путает соседние цифры, и в справочник
+ * попадает вторая карточка того же поставщика с ИНН, не проходящим контрольную
+ * сумму («Вкусный мир ТК» 7724357632 и 7724357832). Одно название при разных
+ * ИНН делало подбор неоднозначным — автопривязка отказывалась выбирать.
+ * Кандидат с невалидным ИНН отбрасывается, если среди кандидатов есть карточка
+ * с тем же названием (без ОПФ) и верным ИНН. Без такого двойника он остаётся:
+ * другой карточки этого поставщика может просто не быть.
+ */
+export function dropInvalidInnTwins(candidates: SupplierCandidate[]): SupplierCandidate[] {
+  const validNames = new Set(
+    candidates
+      .filter(c => isValidInn(c.supplier.inn))
+      .map(c => supplierCoreName(c.supplier.name))
+      .filter(Boolean),
+  );
+  if (validNames.size === 0) return candidates;
+  return candidates.filter(c => isValidInn(c.supplier.inn) || !validNames.has(supplierCoreName(c.supplier.name)));
+}
+
 /** Карточки, похожие на название, лучшие первыми (при равенстве — подтверждённые). */
 export function rankSuppliersByName(
   name: string | null | undefined,
@@ -135,18 +156,21 @@ export function rankSuppliersByName(
   minScore: number = SUGGEST_MIN_SCORE,
 ): SupplierCandidate[] {
   if (!supplierCoreName(name)) return [];
-  return cards
+  const ranked = cards
     .map(supplier => ({ supplier, score: supplierNameScore(name, supplier.name) }))
     .filter(c => c.score >= minScore)
     .sort((x, y) => (y.score - x.score) || (y.supplier.verified - x.supplier.verified));
+  return dropInvalidInnTwins(ranked);
 }
 
 /**
  * Единственный уверенный кандидат для автопривязки или null. Две близкие
  * карточки с разными ИНН — неоднозначность: выбирать за человека не будем.
+ * Исключение — двойник с невалидным ИНН при верной карточке того же названия:
+ * он в выборе не участвует (см. dropInvalidInnTwins).
  */
 export function pickAutoLinkCandidate(candidates: SupplierCandidate[]): SupplierCandidate | null {
-  const [best, second] = candidates;
+  const [best, second] = dropInvalidInnTwins(candidates);
   if (!best || best.score < AUTO_LINK_MIN_SCORE) return null;
   if (second && second.supplier.inn !== best.supplier.inn && second.score >= best.score - 0.05) return null;
   return best;
@@ -169,9 +193,55 @@ export interface LinkResult {
 }
 
 /**
+ * Подтверждённая карточка того же поставщика (то же название без ОПФ) с верным
+ * ИНН — для карточки, чей ИНН контрольную сумму не проходит. Если таких
+ * несколько (разные верные ИНН при одном названии) — неоднозначно, null.
+ */
+async function findValidInnTwin(card: Supplier, ownerUserId: number): Promise<Supplier | null> {
+  const core = supplierCoreName(card.name);
+  if (!core) return null;
+  const twins = (await supplierRepo.listAll(ownerUserId)).filter(c =>
+    c.verified === 1 && c.inn !== card.inn && isValidInn(c.inn) && supplierCoreName(c.name) === core);
+  return twins.length === 1 ? twins[0] : null;
+}
+
+/**
+ * Привязка «по названию»: ИНН и название берутся из карточки, а то, что было на
+ * фото, сохраняется в supplier_inn_ocr/supplier_name_ocr; supplier_match='name'
+ * (UI, Telegram и Сбер предупреждают, что реквизиты подобраны не по ИНН с фото).
+ */
+async function linkByName(
+  invoiceId: number,
+  inv: Pick<Invoice, 'supplier' | 'supplier_inn'>,
+  card: Supplier,
+  reason: string,
+  extra: Record<string, unknown> = {},
+): Promise<LinkResult> {
+  await invoiceRepo.setSupplierLink(invoiceId, {
+    supplier: card.name,
+    supplier_inn: card.inn,
+    match: 'name',
+    supplier_inn_ocr: inv.supplier_inn,
+    supplier_name_ocr: inv.supplier,
+  });
+  logger.info(`Supplier linked by NAME (${reason})`, {
+    invoiceId,
+    ocrInn: inv.supplier_inn,
+    ocrName: inv.supplier,
+    cardInn: card.inn,
+    cardName: card.name,
+    ...extra,
+  });
+  return { match: 'name', supplier: card };
+}
+
+/**
  * Вызывается в конце распознавания (перед статусом 'processed'): привязывает
  * накладную к утверждённой карточке справочника. Порядок:
  *   1. Карточка с ИНН с фото есть → привязка 'inn' (если подтверждена).
+ *      Исключение: ИНН этой карточки не проходит контрольную сумму, а рядом есть
+ *      подтверждённая карточка с тем же названием и верным ИНН — это двойник с
+ *      опечаткой, привязываем к верной карточке по пути «по названию».
  *   2. Иначе — уверенный единственный кандидат по названию среди подтверждённых
  *      карточек → supplier_inn/supplier берутся из карточки, исходные значения с
  *      фото сохраняются в supplier_inn_ocr/supplier_name_ocr, supplier_match='name'.
@@ -193,6 +263,13 @@ export async function linkApprovedSupplier(invoiceId: number): Promise<LinkResul
     if (inv.supplier_inn) {
       const byInn = await supplierRepo.findByInn(inv.supplier_inn, owner);
       if (byInn) {
+        const twin = isValidInn(byInn.inn) ? null : await findValidInnTwin(byInn, owner);
+        if (twin) {
+          // await обязателен: без него отказ промиса миновал бы catch ниже.
+          return await linkByName(invoiceId, inv, twin, 'card found by INN fails the checksum, valid twin used', {
+            twinOfInn: byInn.inn,
+          });
+        }
         const match = byInn.verified ? 'inn' : null;
         if (inv.supplier_match !== match) await invoiceRepo.setSupplierMatch(invoiceId, match);
         // Карточка с этим ИНН есть — ИНН установлен, по названию не ищем,
@@ -209,22 +286,9 @@ export async function linkApprovedSupplier(invoiceId: number): Promise<LinkResul
       return none;
     }
 
-    await invoiceRepo.setSupplierLink(invoiceId, {
-      supplier: best.supplier.name,
-      supplier_inn: best.supplier.inn,
-      match: 'name',
-      supplier_inn_ocr: inv.supplier_inn,
-      supplier_name_ocr: inv.supplier,
-    });
-    logger.info('Supplier linked by NAME (INN from photo not in directory)', {
-      invoiceId,
-      ocrInn: inv.supplier_inn,
-      ocrName: inv.supplier,
-      cardInn: best.supplier.inn,
-      cardName: best.supplier.name,
+    return await linkByName(invoiceId, inv, best.supplier, 'INN from photo not in directory', {
       score: Number(best.score.toFixed(3)),
     });
-    return { match: 'name', supplier: best.supplier };
   } catch (err) {
     logger.warn('linkApprovedSupplier failed', { invoiceId, error: (err as Error).message });
     return none;

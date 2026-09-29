@@ -2,6 +2,15 @@ import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../../database/db';
 
 /**
+ * GET …/sync-flag 1С дёргает раз в минуту — дешёвая проверка «нужна ли выгрузка
+ * каталога». Тысячи строк в сутки без диагностической ценности (п.20), их не
+ * пишем. /pending НЕ пропускаем: по нему считается last1cPollAt.
+ */
+export function shouldLogRequest(method: string, path: string): boolean {
+  return !(method === 'GET' && /\/sync-flag\/?$/.test(path));
+}
+
+/**
  * Logs every /api/* request to the database for debugging purposes.
  * Lets us diagnose "did client X actually reach the server?" questions
  * without needing SSH access to tail nginx/pm2 logs.
@@ -28,6 +37,10 @@ export function apiRequestLog(req: Request, res: Response, next: NextFunction): 
   // live, replay-valid secrets. Path + method + status is all the diagnostic we need.
   const capturedPath = (req.originalUrl || req.path).split('?')[0];
   const capturedMethod = req.method;
+  if (!shouldLogRequest(capturedMethod, capturedPath)) {
+    next();
+    return;
+  }
   const capturedRemoteAddr = (req.headers['x-forwarded-for'] as string | undefined)
     || req.socket.remoteAddress
     || null;

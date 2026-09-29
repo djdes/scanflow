@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
@@ -12,6 +11,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth, requireAdmin } from './middleware/auth';
 import { apiRequestLog } from './middleware/requestLog';
+import { terminalErrorHandler } from './middleware/errorHandler';
 import invoicesRouter, { setMapper as setInvoicesMapper, setFileWatcher as setInvoicesFileWatcher } from './routes/invoices';
 import mappingsRouter, { setMapper } from './routes/mappings';
 import uploadRouter, { setFileWatcher } from './routes/upload';
@@ -397,22 +397,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.sendFile(path.join(publicDir, 'index.html'));
   });
 
-  // Terminal error handler (must be the LAST app.use). Without it, multer
-  // rejections (file too large / unsupported type) and any other thrown error
-  // fall through to Express's default HTML 500; map them to clean JSON instead.
-  // headersSent guard preserves already-streaming responses (e.g. photo serving).
-  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (res.headersSent) return next(err);
-    if (err instanceof multer.MulterError) {
-      const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
-      return res.status(status).json({ error: err.message });
-    }
-    if (err) {
-      logger.error('Unhandled request error', { error: (err as Error).message });
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-    return next();
-  });
+  // Terminal error handler (must be the LAST app.use): multer → 413/400,
+  // мусорный URL → 400 + warn, остальное → JSON 500 + error-лог.
+  app.use(terminalErrorHandler);
 
   logger.info('Serving dashboard from', { path: publicDir });
 

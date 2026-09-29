@@ -22,6 +22,7 @@ import { sendInvoiceNotification } from '../../../src/notifications/telegram/tel
 import { sendMessage, editMessageText, MessageGoneError } from '../../../src/notifications/telegram/telegramClient';
 import { invoiceRepo } from '../../../src/database/repositories/invoiceRepo';
 import type { Invoice } from '../../../src/database/repositories/invoiceRepo';
+import { logger } from '../../../src/utils/logger';
 
 function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
   return {
@@ -100,6 +101,22 @@ describe('sendInvoiceNotification', () => {
       expect(sendMessage).toHaveBeenCalledOnce();
       // Пара перезаписывается: message_id сменился.
       expect(invoiceRepo.setTelegramMessageIdForChat).toHaveBeenCalledWith(85, CHAT, 999);
+    });
+
+    it('«message is not modified» при правке — успех: без error-лога и без нового сообщения', async () => {
+      withExistingBubbles([[CHAT, 42]]);
+      // Ровно в таком виде ошибку отдаёт telegramClient.callTelegram.
+      (editMessageText as any).mockRejectedValueOnce(new Error(
+        'Telegram API editMessageText failed: 400 Bad Request: message is not modified: '
+        + 'specified new message content and reply markup are exactly the same as a current content and reply markup of the message',
+      ));
+      const errorLog = vi.spyOn(logger, 'error');
+      await sendInvoiceNotification(cfg, makeInvoice(), 'invoice_edited', payload);
+      expect(editMessageText).toHaveBeenCalledOnce();
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(invoiceRepo.setTelegramMessageIdForChat).not.toHaveBeenCalled();
+      expect(errorLog).not.toHaveBeenCalled();
+      errorLog.mockRestore();
     });
 
     it('НЕ дублирует сообщение при прочих ошибках правки', async () => {

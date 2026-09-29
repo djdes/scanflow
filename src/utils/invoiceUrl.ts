@@ -14,3 +14,8 @@ import { config } from '../config';
 export function invoiceUrl(id: number): string {
   return `${config.publicBaseUrl}/app.html#/invoices/${id}`;
 }
+
+/** Список накладных — для «… и ещё N» в сводках, где все ссылки не помещаются. */
+export function invoiceListUrl(): string {
+  return `${config.publicBaseUrl}/app.html#/invoices`;
+}

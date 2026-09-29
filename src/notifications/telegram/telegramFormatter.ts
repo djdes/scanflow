@@ -1,6 +1,13 @@
 import type { Invoice } from '../../database/repositories/invoiceRepo';
 import type { EventPayload } from '../types';
-import { invoiceUrl } from '../../utils/invoiceUrl';
+import { invoiceUrl, invoiceListUrl } from '../../utils/invoiceUrl';
+import {
+  BATCH_SUMMARY_MAX_LINKS,
+  batchHeadline,
+  batchInvoiceLabel,
+  type BatchFlag,
+  type BatchSummary,
+} from '../batcher';
 
 // Per-event timestamp. Built from invoice fields directly (no separate event log
 // is maintained; the invoice itself is the source of truth for state).
@@ -192,4 +199,33 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
   if (m10 === 1 && m100 !== 11) return one;
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
+}
+
+const BATCH_FLAG_TEXT: Record<BatchFlag, string> = {
+  error: '🚨 ошибка распознавания',
+  suspicious: '⚠️ подозрительная сумма',
+  elevated: '📈 повышенные цены',
+};
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+// Сводка пакетной загрузки (п.19): строка счётчиков и до 15 ссылок —
+// сначала на накладные, которым нужно внимание. Plain text, как и остальные
+// сообщения: названия поставщиков экранировать не нужно.
+export function buildBatchSummaryMessage(s: BatchSummary): string {
+  const lines = [`📦 ${batchHeadline(s)}`];
+  const shown = s.invoices.slice(0, BATCH_SUMMARY_MAX_LINKS);
+  if (shown.length) lines.push('');
+  for (const inv of shown) {
+    const supplier = inv.supplier ? ` · ${truncate(inv.supplier, 40)}` : '';
+    const flags = inv.flags.length ? ` — ${inv.flags.map(f => BATCH_FLAG_TEXT[f]).join(', ')}` : '';
+    lines.push(`• ${batchInvoiceLabel(inv)}${supplier}${flags}`, `  ${invoiceUrl(inv.id)}`);
+  }
+  if (s.invoices.length > shown.length) {
+    lines.push(`… и ещё ${s.invoices.length - shown.length}: ${invoiceListUrl()}`);
+  }
+  lines.push('', 'Пакетная загрузка: уведомления по этим накладным собраны в одну сводку.');
+  return lines.join('\n');
 }

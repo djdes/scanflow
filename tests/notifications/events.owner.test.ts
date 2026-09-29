@@ -32,6 +32,9 @@ vi.mock('../../src/notifications/rateLimit', () => ({
   checkAndRecordSend: vi.fn(async () => ({ allow: true, announce: false, sentInWindow: 1 })),
   NOTIFY_HOURLY_CAP: 30,
 }));
+// Флаги движков читаются из analyzer_config — в тесте без базы. Пакетный режим
+// здесь выключен: проверяется только выбор получателя (пачка — events.batch.test.ts).
+vi.mock('../../src/services/engineFlags', () => ({ isEngineOn: vi.fn(async () => false) }));
 // Логгер мокаем обязательно: настоящий тянет src/config, а тот грузит dotenv
 // побочным эффектом и подставляет боевые DB_*. Тест не должен уметь дотянуться
 // до реальной базы даже случайно (правило 17).
