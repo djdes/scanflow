@@ -80,6 +80,7 @@ const Settings = {
     }
 
     this._renderUsers();
+    this._renderCompanies();
     this._renderEngineFlags();
     this._renderGolden();
   },
@@ -172,6 +173,49 @@ const Settings = {
     } catch (e) {
       host.innerHTML = '';
       console.error('Failed to load users', e);
+    }
+  },
+
+  // «Компании» (только администратор): кто чем пользуется, очередь в 1С,
+  // покрытие сопоставлениями. 403 для не-админа — карточка не рисуется.
+  async _renderCompanies() {
+    const host = document.getElementById('settings-companies');
+    if (!host) return;
+    try {
+      const res = await App.api('/users/companies');
+      if (!res.ok) { host.innerHTML = ''; return; }
+      const { data } = await res.json();
+      const esc = (s) => App.esc(String(s ?? ''));
+      const date = (s) => s ? esc(String(s).slice(0, 10).split('-').reverse().join('.')) : '<span class="muted">—</span>';
+      const rub = (n) => `${Math.round(Number(n) || 0).toLocaleString('ru-RU')} ₽`;
+      const rows = (data || []).map((c) => {
+        const stalled = c.last_sent_at && c.sent_7d === 0 && c.invoices_7d > 0 && c.queue_count > 0;
+        return `
+        <tr>
+          <td><strong>${esc(c.username || ('#' + c.owner_user_id))}</strong></td>
+          <td>${c.invoices_30d} <span class="muted">/ ${c.invoices_total}</span></td>
+          <td>${date(c.last_upload_at)}</td>
+          <td>${date(c.last_sent_at)}${stalled ? ' <span class="badge badge-error" title="За неделю есть новые накладные, но в 1С ничего не ушло">стоит</span>' : ''}</td>
+          <td>${c.queue_count ? `${c.queue_count} · ${rub(c.queue_sum)}` : '—'}${c.queue_with_sber_payment ? `<div class="muted">с платёжкой: ${c.queue_with_sber_payment}</div>` : ''}</td>
+          <td>${c.unmapped_lines_in_queue || '—'}</td>
+          <td>${c.mappings} <span class="muted">/ ${c.catalog_items}</span></td>
+          <td>${c.sber_connected ? '✓' : '—'}</td>
+        </tr>`;
+      }).join('');
+      host.innerHTML = `
+        <div class="card" style="margin-top:24px">
+          <h3 style="margin-bottom:6px">Компании</h3>
+          <p class="field-hint" style="margin-bottom:16px">Активность и очередь в 1С по каждой компании. «Стоит» — за неделю загружены накладные, но в 1С ничего не ушло (владельцу приходит напоминание в Telegram раз в неделю).</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead><tr><th>Компания</th><th>Накладных 30 дн. / всего</th><th>Последняя загрузка</th><th>Последняя отправка в 1С</th><th>Очередь в 1С</th><th>Строк без позиции 1С</th><th>Сопоставлений / каталог</th><th>Сбер</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    } catch (e) {
+      host.innerHTML = '';
+      console.error('Failed to load companies', e);
     }
   },
 

@@ -15,11 +15,16 @@ vi.mock('../../src/database/db', () => ({
 vi.mock('../../src/database/repositories/goldenRepo', () => ({
   goldenRepo: { listGoldenFileNames: vi.fn() },
 }));
+vi.mock('../../src/database/repositories/photoRepo', () => ({
+  photoRepo: { listNotYetExpiredFileNames: vi.fn() },
+}));
 
 import { goldenRepo } from '../../src/database/repositories/goldenRepo';
+import { photoRepo } from '../../src/database/repositories/photoRepo';
 import { cleanupOldPhotos } from '../../src/utils/photoRetention';
 
 const listGolden = vi.mocked(goldenRepo.listGoldenFileNames);
+const listUnsent = vi.mocked(photoRepo.listNotYetExpiredFileNames);
 const DAY = 24 * 60 * 60 * 1000;
 
 function put(name: string, ageDays: number): void {
@@ -33,6 +38,7 @@ const exists = (name: string) => fs.existsSync(path.join(cfg.processedDir, name)
 
 beforeEach(() => {
   vi.clearAllMocks();
+  listUnsent.mockResolvedValue([]);
   cfg.processedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'retention-'));
   put('old-golden.jpg', 120);
   put('old-page2-golden.jpg', 120);
@@ -72,7 +78,7 @@ describe('cleanupOldPhotos', () => {
   it('БД недоступна → очистка пропущена целиком (фото эталона важнее места на диске)', async () => {
     listGolden.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
     const r = await cleanupOldPhotos();
-    expect(r).toEqual({ deleted: 0, freedMB: 0, keptGolden: 0 });
+    expect(r).toEqual({ deleted: 0, freedMB: 0, keptGolden: 0, keptUnsent: 0 });
     expect(exists('old-plain.jpg')).toBe(true);
     expect(exists('old-golden.jpg')).toBe(true);
     expect(log.error).toHaveBeenCalled();
@@ -81,7 +87,25 @@ describe('cleanupOldPhotos', () => {
   it('нет каталога processed/ — ничего не делает и в БД не ходит', async () => {
     fs.rmSync(cfg.processedDir, { recursive: true, force: true });
     const r = await cleanupOldPhotos();
-    expect(r).toEqual({ deleted: 0, freedMB: 0, keptGolden: 0 });
+    expect(r).toEqual({ deleted: 0, freedMB: 0, keptGolden: 0, keptUnsent: 0 });
     expect(listGolden).not.toHaveBeenCalled();
+  });
+
+  it('фото накладной, не отправленной в 1С (или отправленной недавно), не удаляется', async () => {
+    listGolden.mockResolvedValue([]);
+    listUnsent.mockResolvedValue(['old-plain.jpg']);
+    const r = await cleanupOldPhotos();
+    expect(r.keptUnsent).toBe(1);
+    expect(exists('old-plain.jpg')).toBe(true);
+    expect(exists('old-golden.jpg')).toBe(false);
+    expect(listUnsent).toHaveBeenCalledWith(90);
+  });
+
+  it('список неотправленных не получен → очистка пропущена целиком', async () => {
+    listGolden.mockResolvedValue([]);
+    listUnsent.mockRejectedValue(new Error('connect ECONNREFUSED'));
+    const r = await cleanupOldPhotos();
+    expect(r.deleted).toBe(0);
+    expect(exists('old-plain.jpg')).toBe(true);
   });
 });

@@ -21,6 +21,7 @@ import { seedAdminUser } from './auth/seedAdmin';
 import { startDigestWorker } from './notifications/digestWorker';
 import { runNightlyLearning } from './learning/learningService';
 import { keepSberTokensAlive, warnSberSecretExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
+import { checkOnecStall } from './services/companyHealth';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -135,6 +136,12 @@ async function main(): Promise<void> {
   });
   cron.schedule('*/30 7-21 * * *', () => {
     pollSberPaymentStatuses().catch(err => logger.error('sber status poll failed', { error: (err as Error).message }));
+  });
+
+  // «В 1С ничего не уходит»: раз в день в 10:05 — владельцу, у которого за
+  // неделю есть новые накладные, но ни одной отправки (не чаще раза в неделю).
+  cron.schedule('5 10 * * *', () => {
+    checkOnecStall().catch(err => logger.error('onec stall check failed', { error: (err as Error).message }));
   });
 
   // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files

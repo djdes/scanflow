@@ -5,8 +5,15 @@
 import { Router, Request, Response } from 'express';
 import { userRepo } from '../../database/repositories/userRepo';
 import { logger } from '../../utils/logger';
+import { listCompanyHealth } from '../../services/companyHealth';
 
 const router = Router();
+
+// GET /api/users/companies — обзор компаний для администратора: активность,
+// очередь в 1С, покрытие сопоставлениями, подключение к Сбербанку.
+router.get('/companies', async (_req: Request, res: Response) => {
+  res.json({ data: await listCompanyHealth() });
+});
 
 const ALLOWED_ROLES = new Set(['admin', 'user']);
 
