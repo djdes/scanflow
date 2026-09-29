@@ -80,6 +80,57 @@ const Settings = {
     }
 
     this._renderUsers();
+    this._renderEngineFlags();
+  },
+
+  // «Движки v2»: каждый переключатель мгновенно сохраняется. Выключенный
+  // движок = прежнее поведение (рычаг отката без деплоя). PUT закрыт
+  // requireAdmin — у остальных переключатели только для чтения.
+  async _renderEngineFlags() {
+    const host = document.getElementById('settings-engine-flags');
+    if (!host) return;
+    let flags;
+    let isAdmin = false;
+    try {
+      const resp = await App.apiJson('/settings/engine-flags');
+      flags = resp.data;
+      isAdmin = !!resp.can_edit;
+    } catch (e) {
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = `
+      <div class="card" style="margin-top:24px">
+        <h3 style="margin-bottom:6px">Движки v2</h3>
+        <div class="field-hint" style="margin-bottom:16px">Выключенный движок работает по-старому. Если после обновления что-то считается не так — выключите нужный пункт, изменения применятся к следующим накладным в течение 30 секунд.</div>
+        ${flags.map(f => `
+          <div class="form-group" style="margin-bottom:14px">
+            <div class="toggle-wrap">
+              <label class="toggle">
+                <input type="checkbox" data-engine-flag="${App.esc(f.key)}" ${f.enabled ? 'checked' : ''} ${isAdmin ? '' : 'disabled'}>
+                <span class="toggle-slider"></span>
+              </label>
+              <span><strong>${App.esc(f.title)}</strong></span>
+            </div>
+            <div class="field-hint">${App.esc(f.hint)}</div>
+          </div>`).join('')}
+        ${isAdmin ? '' : '<div class="field-hint">Менять может только администратор.</div>'}
+      </div>`;
+    host.querySelectorAll('input[data-engine-flag]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        const key = cb.getAttribute('data-engine-flag');
+        cb.disabled = true;
+        try {
+          await App.apiJson('/settings/engine-flags', { method: 'PUT', body: { [key]: cb.checked } });
+          App.notify(`${cb.checked ? 'Включено' : 'Выключено'}: ${cb.closest('.form-group').querySelector('strong').textContent}`, 'success');
+        } catch (e) {
+          cb.checked = !cb.checked;
+          App.notify(e.message || 'Не удалось сохранить', 'error');
+        } finally {
+          cb.disabled = false;
+        }
+      });
+    });
   },
 
   // Admin-only "Команда и роли" card. Always asks the backend: a 200 means the

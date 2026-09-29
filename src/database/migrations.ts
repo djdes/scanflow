@@ -1862,6 +1862,18 @@ const MIGRATIONS: Migration[] = [
         await exec.query(`ALTER TABLE invoices ADD COLUMN supplier_name_ocr VARCHAR(500) NULL`);
       }
     },
+  },  {
+    version: 62,
+    name: 'analyzer_config.engine_flags — переключатели движков пакета v2',
+    // JSON в TEXT (прод — MariaDB 10.11, у TEXT без DEFAULT). NULL = все движки
+    // включены; выключенный движок = прежнее поведение кода. См.
+    // src/services/engineFlags.ts и docs/runbooks/rollback-v2.md.
+    detect: (exec) => hasColumn(exec, 'analyzer_config', 'engine_flags'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'engine_flags'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN engine_flags MEDIUMTEXT NULL`);
+      }
+    },
   },
 ];
 

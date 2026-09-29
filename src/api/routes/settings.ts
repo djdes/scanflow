@@ -3,6 +3,7 @@ import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { logger } from '../../utils/logger';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { requireAdmin } from '../middleware/auth';
+import { getEngineFlags, setEngineFlags, ENGINE_FLAGS, ENGINE_FLAG_INFO } from '../../services/engineFlags';
 
 const router = Router();
 
@@ -95,6 +96,35 @@ router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
 
     logger.info('Analyzer config updated', { mode, llmMapperEnabled: llmFlag, autoSend1c: auto1c, autoSendSber: autoSber });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/settings/engine-flags — переключатели движков v2 (читать может любой:
+// UI показывает состояние; менять — только админ, это платформенный конфиг).
+router.get('/engine-flags', async (req: Request, res: Response) => {
+  try {
+    const flags = await getEngineFlags();
+    res.json({
+      data: ENGINE_FLAGS.map(key => ({ key, enabled: flags[key], ...ENGINE_FLAG_INFO[key] })),
+      can_edit: req.user?.role === 'admin',
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /api/settings/engine-flags — { units_v2: false, ... } (только известные ключи).
+router.put('/engine-flags', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const before = await getEngineFlags();
+    const next = await setEngineFlags((req.body ?? {}) as Record<string, unknown>);
+    const changed = ENGINE_FLAGS.filter(k => before[k] !== next[k]);
+    if (changed.length) {
+      logger.warn('Engine flags changed', { by: req.user?.id, changed: Object.fromEntries(changed.map(k => [k, next[k]])) });
+    }
+    res.json({ data: ENGINE_FLAGS.map(key => ({ key, enabled: next[key], ...ENGINE_FLAG_INFO[key] })) });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
