@@ -81,6 +81,7 @@ const Settings = {
 
     this._renderUsers();
     this._renderEngineFlags();
+    this._renderGolden();
   },
 
   // «Движки v2»: каждый переключатель мгновенно сохраняется. Выключенный
@@ -299,5 +300,206 @@ const Settings = {
     } catch (e) {
       App.notify('Ошибка: ' + e.message, 'error');
     }
+  },
+
+  // ── Эталонные накладные (п.17 v2) ─────────────────────────────────────────
+  // Только админ: GET /api/golden/runs отдаёт 403 остальным — тогда карточку не
+  // рисуем (как «Команда и роли»). Прогон идёт на сервере в фоне; пока он идёт,
+  // таблица сама обновляется раз в 20 секунд.
+  _goldenPollTimer: null,
+  _goldenShownRun: null,
+
+  async _renderGolden() {
+    const host = document.getElementById('settings-golden');
+    if (!host) return;
+    let payload;
+    try {
+      const res = await App.api('/golden/runs');
+      if (!res.ok) { host.innerHTML = ''; return; }
+      payload = await res.json();
+    } catch (e) {
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = `
+      <div class="card" style="margin-top:24px">
+        <h3 style="margin-bottom:6px">Эталонные накладные</h3>
+        <div class="field-hint" style="margin-bottom:16px">Эталон — проверенная накладная, отмеченная кнопкой «☆ В эталоны» на её странице. Прогон заново распознаёт фото эталонов текущей моделью (в сами накладные ничего не записывается) и сравнивает номер, дату, сумму, НДС, ИНН поставщика и строки. Так после обновления видно, не стало ли распознавание хуже. Каждая накладная — отдельный запрос к Claude на 1–3 минуты; многостраничные пока пропускаются.</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+          <button type="button" class="btn btn-primary" id="golden-run-btn">Прогнать эталоны</button>
+          <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:400">не больше
+            <input type="number" id="golden-run-limit" min="1" max="50" value="10" style="width:76px"> накладных</label>
+          <button type="button" class="btn btn-outline btn-sm" id="golden-refresh-btn">Обновить</button>
+          <span class="field-hint" id="golden-count"></span>
+        </div>
+        <div id="golden-runs"></div>
+        <div id="golden-run-detail" style="margin-top:18px"></div>
+      </div>`;
+    document.getElementById('golden-run-btn').addEventListener('click', (ev) => Settings._goldenStart(ev.currentTarget));
+    document.getElementById('golden-refresh-btn').addEventListener('click', () => Settings._goldenRefresh());
+    this._goldenRenderRuns(payload);
+  },
+
+  async _goldenStart(btn) {
+    const input = document.getElementById('golden-run-limit');
+    const limit = Math.max(1, Math.min(50, parseInt(input && input.value, 10) || 10));
+    await App.withBusyButton(btn, async () => {
+      try {
+        const r = await App.apiJson('/golden/run', { method: 'POST', body: { limit } });
+        App.notify(`Прогон №${r.run_id} запущен: накладных — ${r.invoice_count}. Результаты появятся ниже.`, 'success');
+        this._goldenShownRun = r.run_id;
+      } catch (e) {
+        App.notify(e.message || 'Не удалось запустить прогон', 'error');
+      }
+    });
+    await this._goldenRefresh();
+  },
+
+  async _goldenRefresh() {
+    try {
+      this._goldenRenderRuns(await App.apiJson('/golden/runs'));
+    } catch (e) {
+      console.error('Failed to refresh golden runs', e);
+    }
+  },
+
+  _goldenPct(v) {
+    return v == null ? '—' : `${Math.round(v * 1000) / 10}%`;
+  },
+
+  _goldenFieldLabel(key) {
+    const labels = {
+      invoice_number: 'номер', invoice_date: 'дата', total_sum: 'сумма', vat_sum: 'НДС', supplier_inn: 'ИНН',
+      items_count: 'число строк', quantity: 'кол-во', unit: 'ед.', price: 'цена', total: 'сумма строки',
+      'line.quantity': 'кол-во в строках', 'line.unit': 'ед. в строках', 'line.price': 'цена в строках', 'line.total': 'суммы строк',
+    };
+    return labels[key] || key;
+  },
+
+  _goldenRenderRuns(payload) {
+    const host = document.getElementById('golden-runs');
+    if (!host) return;
+    const runs = (payload && payload.data) || [];
+    const count = document.getElementById('golden-count');
+    if (count) count.textContent = `Эталонов: ${(payload && payload.golden_count) || 0}`;
+    const runBtn = document.getElementById('golden-run-btn');
+    if (runBtn && !runBtn.classList.contains('is-busy')) runBtn.disabled = !!(payload && payload.active_run_id);
+
+    host.innerHTML = runs.length
+      ? `<div class="table-wrap"><table>
+          <thead><tr><th>№</th><th>Запущен</th><th>Статус</th><th>Модель</th><th>Накладные</th><th>Шапка</th><th>Строки</th><th>Не совпало</th><th></th></tr></thead>
+          <tbody>${runs.map(r => this._goldenRunRow(r)).join('')}</tbody>
+        </table></div>`
+      : '<div class="field-hint">Прогонов ещё не было.</div>';
+
+    const running = runs.some(r => r.status === 'running');
+    const shown = runs.find(r => r.id === this._goldenShownRun);
+    if (shown) this._goldenShowRun(shown.id);
+
+    clearTimeout(this._goldenPollTimer);
+    this._goldenPollTimer = running ? setTimeout(() => this._goldenRefresh(), 20000) : null;
+  },
+
+  _goldenRunRow(r) {
+    const s = r.summary || {};
+    const status = r.status === 'running'
+      ? `<span class="badge badge-processing">идёт: ${Number(s.processed) || 0} из ${Number(s.planned) || 0}</span>`
+      : r.status === 'done'
+        ? '<span class="badge badge-sent">готово</span>'
+        : `<span class="badge badge-error" title="${App.esc(s.error || '')}">ошибка</span>`;
+    const parts = [`сравнено ${Number(s.compared) || 0}`];
+    if (s.skipped) parts.push(`пропущено ${Number(s.skipped)}`);
+    if (s.errors) parts.push(`с ошибкой ${Number(s.errors)}`);
+    const header = s.header_total ? `${s.header_ok}/${s.header_total} · ${this._goldenPct(s.header_accuracy)}` : '—';
+    const items = s.items_total ? `${s.items_ok}/${s.items_total} · ${this._goldenPct(s.items_accuracy)}` : '—';
+    const failures = Object.entries(s.field_failures || {})
+      .map(([k, n]) => `${this._goldenFieldLabel(k)} ×${n}`).join(', ');
+    return `<tr>
+      <td>${Number(r.id)}</td>
+      <td>${App.esc(App.formatDateTime(r.started_at))}</td>
+      <td>${status}</td>
+      <td>${App.esc(r.model || '—')}</td>
+      <td>${App.esc(parts.join(', '))}</td>
+      <td style="white-space:nowrap">${App.esc(header)}</td>
+      <td style="white-space:nowrap">${App.esc(items)}</td>
+      <td>${App.esc(failures || (s.compared ? 'всё совпало' : '—'))}</td>
+      <td><button type="button" class="btn btn-outline btn-sm" onclick="Settings._goldenShowRun(${Number(r.id)})">Подробнее</button></td>
+    </tr>`;
+  },
+
+  async _goldenShowRun(id) {
+    const host = document.getElementById('golden-run-detail');
+    if (!host) return;
+    this._goldenShownRun = Number(id);
+    let run;
+    try {
+      ({ data: run } = await App.apiJson(`/golden/runs/${Number(id)}`));
+    } catch (e) {
+      host.innerHTML = `<div class="field-hint">${App.esc(e.message || 'Не удалось загрузить прогон')}</div>`;
+      return;
+    }
+    if (this._goldenShownRun !== Number(id)) return; // пока грузили, открыли другой прогон
+    const s = run.summary || {};
+    const results = Array.isArray(run.results) ? run.results : [];
+    const took = run.finished_at ? `, ${App.formatDuration(run.started_at, run.finished_at)}` : '';
+    host.innerHTML = `
+      <h4 style="margin:0 0 8px">Прогон №${Number(run.id)} · ${App.esc(run.model || '')} · ${App.esc(App.formatDateTime(run.started_at))}${App.esc(took)}</h4>
+      ${s.error ? `<div class="field-hint" style="color:#991b1b;margin-bottom:8px">${App.esc(s.error)}</div>` : ''}
+      ${results.length
+        ? `<div class="table-wrap"><table>
+            <thead><tr><th>Накладная</th><th>Итог</th><th>Шапка</th><th>Строки</th><th>Что не совпало (эталон → распознано)</th></tr></thead>
+            <tbody>${results.map(r => this._goldenResultRow(r)).join('')}</tbody>
+          </table></div>`
+        : '<div class="field-hint">Результатов пока нет.</div>'}`;
+  },
+
+  _goldenResultRow(r) {
+    const id = Number(r.invoice_id);
+    const title = `<a href="#/invoices/${id}">#${id}</a>${r.invoice_number ? ' №' + App.esc(r.invoice_number) : ''}`
+      + (r.supplier ? `<div class="muted">${App.esc(r.supplier)}</div>` : '');
+    const skipReasons = {
+      multipage: 'многостраничная — пока не перепроверяется',
+      no_photo: 'фото не найдено на диске',
+      not_found: 'накладная удалена',
+    };
+    if (r.status === 'skipped') {
+      return `<tr><td>${title}</td><td><span class="badge badge-new">пропущена</span></td><td>—</td><td>—</td><td>${App.esc(skipReasons[r.reason] || r.reason || '')}</td></tr>`;
+    }
+    if (r.status === 'error' || !r.compare) {
+      return `<tr><td>${title}</td><td><span class="badge badge-error">ошибка</span></td><td>—</td><td>—</td><td>${App.esc(r.error || '')}</td></tr>`;
+    }
+    const c = r.compare;
+    const cs = c.summary || {};
+    const verdict = r.status === 'ok'
+      ? '<span class="badge badge-sent">совпало</span>'
+      : '<span class="badge badge-error">расхождения</span>';
+    return `<tr>
+      <td>${title}</td>
+      <td>${verdict}</td>
+      <td style="white-space:nowrap">${Number(cs.header_ok) || 0}/${Number(cs.header_total) || 0}</td>
+      <td style="white-space:nowrap">${Number(cs.items_ok) || 0}/${Number(cs.items_total) || 0}</td>
+      <td>${this._goldenDiffHtml(c)}</td>
+    </tr>`;
+  },
+
+  _goldenDiffHtml(c) {
+    const v = (x) => (x == null || x === '' ? '∅' : String(x));
+    const out = [];
+    for (const h of c.header || []) {
+      if (!h.ok) out.push(`<div><strong>${App.esc(this._goldenFieldLabel(h.field))}</strong>: ${App.esc(v(h.expected))} → ${App.esc(v(h.actual))}</div>`);
+    }
+    if (c.items_count && !c.items_count.ok) {
+      out.push(`<div><strong>число строк</strong>: ${App.esc(v(c.items_count.expected))} → ${App.esc(v(c.items_count.actual))}</div>`);
+    }
+    const bad = (c.items || []).filter(l => !l.ok);
+    for (const l of bad.slice(0, 5)) {
+      const what = l.missing === 'actual' ? 'модель не нашла строку'
+        : l.missing === 'expected' ? 'лишняя строка'
+          : (l.fields || []).filter(f => !f.ok)
+            .map(f => `${this._goldenFieldLabel(f.field)} ${v(f.expected)} → ${v(f.actual)}`).join('; ');
+      out.push(`<div class="muted">строка ${Number(l.line)}: ${App.esc(what)}</div>`);
+    }
+    if (bad.length > 5) out.push(`<div class="muted">…и ещё строк: ${bad.length - 5}</div>`);
+    return out.join('') || 'всё совпало';
   }
 };
