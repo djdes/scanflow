@@ -19,6 +19,7 @@ import { supplierExtractJobRepo } from './database/repositories/supplierExtractJ
 import { notifySupplierExtractError, emit as emitNotification } from './notifications/events';
 import { seedAdminUser } from './auth/seedAdmin';
 import { startDigestWorker } from './notifications/digestWorker';
+import { runNightlyLearning } from './learning/learningService';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -114,6 +115,13 @@ async function main(): Promise<void> {
     pruneSendLog()
       .then(deleted => { if (deleted > 0) logger.info('Pruned old notification_sends', { deleted }); })
       .catch(err => logger.error('notification_sends prune failed', { error: (err as Error).message }));
+  });
+
+  // Самообучение (пакет v2, п.15): в 03:30 разобрать правки и неуверенные
+  // пересчёты → предложения правил (ничего не применяется без человека).
+  // Выключается флагом движка `learning`. Компании — последовательно.
+  cron.schedule('30 3 * * *', () => {
+    runNightlyLearning().catch(err => logger.error('nightly learning failed', { error: (err as Error).message }));
   });
 
   // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files

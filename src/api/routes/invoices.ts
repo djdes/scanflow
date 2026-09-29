@@ -1845,7 +1845,7 @@ router.post('/:invoiceId/items/:itemId/unit-rule', async (req: Request, res: Res
   const supplierKey = body.all_suppliers === true ? null : makeSupplierKey(ctx.invoice.supplier_inn, ctx.invoice.supplier);
   await itemUnitRuleRepo.upsert(ctx.invoice.owner_user_id, {
     supplierKey, nameKey: itemNameKey(ctx.item.original_name), rawUnit, targetUnit: target.unit, factor,
-    source: 'user', note: `1 ${rawUnit ?? 'ед.'} = ${factor} ${target.unit}`, createdBy: req.user?.id ?? null,
+    source: 'user', note: `«${ctx.item.original_name}»: 1 ${rawUnit ?? 'ед.'} = ${factor} ${target.unit}`.slice(0, 255), createdBy: req.user?.id ?? null,
   });
   await reconvertStoredItem(ctx.item, ctx.invoice, { force: true });
   await invoiceRepo.recalculateTotal(ctx.invoice.id);

@@ -44,6 +44,7 @@ vi.mock('../../src/database/repositories/goldenRepo', () => ({
 vi.mock('../../src/ocr/ocrManager', () => ({
   OcrManager: class { preprocessImage = ocr.preprocessImage; },
 }));
+vi.mock('../../src/learning/supplierMemory', () => ({ buildSupplierMemory: vi.fn(async () => 'ПАМЯТКА') }));
 vi.mock('../../src/ocr/claudeApiAnalyzer', () => ({
   analyzeImageWithVerification: ocr.analyze,
 }));
@@ -274,7 +275,7 @@ describe('startGoldenRun — запуск из API', () => {
     await vi.waitFor(() => expect(activeGoldenRunId()).toBeNull());
     expect(recognize).toHaveBeenCalledTimes(2);
     for (const call of recognize.mock.calls) {
-      expect(call[1]).toEqual({ apiKey: 'sk-db', model: 'claude-sonnet-5' });
+      expect(call[1]).toEqual({ apiKey: 'sk-db', model: 'claude-sonnet-5', memory: 'ПАМЯТКА' });
     }
     expect(repo.getAnalyzerConfig).toHaveBeenCalledTimes(1);
   });
@@ -375,8 +376,9 @@ describe('production-путь распознавания (по умолчани�
     expect(r.status).toBe('ok');
     expect(ocr.preprocessImage).toHaveBeenCalledWith(path.join(cfg.processedDir, 'photo-1.jpg'));
     expect(ocr.analyze).toHaveBeenCalledTimes(1);
-    // Ровно (картинка, ключ, модель) — каталог 1С не передаётся.
-    expect(ocr.analyze.mock.calls[0]).toEqual([tmp, 'sk-test', 'claude-sonnet-5']);
+    // (картинка, ключ, модель, каталог, памятка) — каталог 1С не передаётся,
+    // памятка — из контекста прогона (в этом ctx её нет).
+    expect(ocr.analyze.mock.calls[0]).toEqual([tmp, 'sk-test', 'claude-sonnet-5', undefined, undefined]);
     expect(fs.existsSync(tmp)).toBe(false);
   });
 

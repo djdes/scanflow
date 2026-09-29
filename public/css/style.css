@@ -4501,3 +4501,20 @@ tr.row-unit-mismatch td { background: var(--warning-soft); }
 .mapping-src { display: inline-block; margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
 .mapping-src-ok { border-color: var(--green, #16a34a); color: var(--green, #16a34a); }
 .mapping-src-warn { border-color: var(--warning); color: #b45309; }
+
+/* Пакет v2: «Предложения правил» (самообучение) */
+.learning-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.learning-toolbar .tabs { flex: 1 1 auto; }
+.learning-toolbar__run { display: flex; gap: 8px; flex-wrap: wrap; }
+.learning-card { margin-bottom: 12px; }
+.learning-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+.learning-card__title { font-weight: 600; overflow-wrap: anywhere; }
+.learning-card__rule { margin-top: 2px; }
+.learning-card__examples { margin: 6px 0 0 18px; padding: 0; font-size: 13px; color: var(--text-secondary); }
+.learning-card__examples li { margin: 2px 0; }
+.learning-card__actions { display: flex; gap: 8px; margin-top: 10px; }
+#learning-rules tr.row-muted td { color: var(--text-tertiary); }
+.switch-inline { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+@media (max-width: 640px) {
+  .learning-card__head { flex-direction: column; }
+}

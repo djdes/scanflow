@@ -33,6 +33,7 @@ import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { goldenRepo } from '../database/repositories/goldenRepo';
 import { OcrManager } from '../ocr/ocrManager';
 import { analyzeImageWithVerification } from '../ocr/claudeApiAnalyzer';
+import { buildSupplierMemory } from '../learning/supplierMemory';
 import type { ParsedInvoiceData } from '../ocr/types';
 import { compareGolden, truthFromInvoice, type GoldenCompareResult } from './compare';
 import { recognizedFromParsed } from './recognized';
@@ -77,6 +78,8 @@ export interface GoldenRunSummary {
 export interface GoldenRecognizeContext {
   apiKey: string;
   model: string;
+  /** Памятка по поставщикам (п.16) — та же, что уходит в боевой промпт. */
+  memory?: string;
 }
 
 export interface GoldenRunnerDeps {
@@ -114,11 +117,11 @@ function ocrManager(): OcrManager {
   return sharedOcr;
 }
 
-/** Production-путь claude_api (OcrManager.recognizeWithClaudeApi), но без каталога 1С. */
+/** Production-путь claude_api (OcrManager.recognizeWithClaudeApi), но без каталога 1С (памятка поставщиков — как в бою). */
 async function recognizeWithCurrentModel(photoPath: string, ctx: GoldenRecognizeContext): Promise<ParsedInvoiceData> {
   const prepared = await ocrManager().preprocessImage(photoPath);
   try {
-    const result = await analyzeImageWithVerification(prepared, ctx.apiKey, ctx.model);
+    const result = await analyzeImageWithVerification(prepared, ctx.apiKey, ctx.model, undefined, ctx.memory);
     if (!result.success || !result.data) {
       throw new Error(result.error || 'Claude API analysis failed');
     }
@@ -309,7 +312,7 @@ export async function startGoldenRun(
     if (!apiKey) {
       throw new GoldenRunConfigError('Не задан API-ключ Anthropic — прогон эталонов распознаёт фото через Anthropic API');
     }
-    ctx = { apiKey, model: cfg.claude_model };
+    ctx = { apiKey, model: cfg.claude_model, memory: await buildSupplierMemory(opts.ownerUserId) };
     runId = await goldenRepo.createRun({
       ownerUserId: opts.ownerUserId,
       startedBy: opts.startedBy,

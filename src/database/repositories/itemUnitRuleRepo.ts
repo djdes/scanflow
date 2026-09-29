@@ -71,7 +71,12 @@ export const itemUnitRuleRepo = {
     return getDb().prepare('SELECT * FROM item_unit_rules WHERE owner_user_id = ? ORDER BY updated_at DESC LIMIT 1000').all<ItemUnitRule>(ownerUserId);
   },
 
-  async setActive(ownerUserId: number, id: number, active: boolean): Promise<void> {
-    await getDb().prepare('UPDATE item_unit_rules SET active = ? WHERE id = ? AND owner_user_id = ?').run(active ? 1 : 0, id, ownerUserId);
+  /** false — правила нет (или оно чужое). */
+  async setActive(ownerUserId: number, id: number, active: boolean): Promise<boolean> {
+    const db = getDb();
+    const own = await db.prepare('SELECT id FROM item_unit_rules WHERE id = ? AND owner_user_id = ?').get(id, ownerUserId);
+    if (!own) return false;
+    await db.prepare('UPDATE item_unit_rules SET active = ? WHERE id = ? AND owner_user_id = ?').run(active ? 1 : 0, id, ownerUserId);
+    return true;
   },
 };

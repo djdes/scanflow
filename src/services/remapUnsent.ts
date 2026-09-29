@@ -11,7 +11,8 @@ import { logger } from '../utils/logger';
  * накладные ДО выгрузки каталога, и они так и остались несопоставленными.
  *
  * Трогаем только то, что стало лучше: новая позиция и уверенность выше
- * прежней. Ручные названия (name_overridden) и отправленные накладные — мимо.
+ * прежней. Ручные названия (name_overridden), строки с ручной правкой
+ * количества (conv_source='manual') и отправленные накладные — мимо.
  * Последовательно, без ИИ (CLAUDE.md, правило 21 — никаких параллельных
  * тяжёлых вызовов). Никогда не бросает.
  */
@@ -32,7 +33,7 @@ export async function remapUnsentInvoices(ownerUserId: number, mapper: Nomenclat
       const items = await invoiceRepo.getItems(id);
       let changed = 0;
       for (const it of items) {
-        if (it.name_overridden) continue;
+        if (it.name_overridden || it.conv_source === 'manual') continue;
         const conf = it.mapping_confidence ?? 0;
         if (it.onec_guid && conf >= 0.8) continue;
         const r = await mapper.map(it.original_name, ownerUserId, { supplierInn: inv.supplier_inn, supplierName: inv.supplier });

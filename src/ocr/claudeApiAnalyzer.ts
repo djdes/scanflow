@@ -475,14 +475,20 @@ ${lines}`;
 
 /**
  * Собирает массив system-блоков с cache_control. Блок 1 — инструкции, блок 2 —
- * каталог (если LLM-маппер включён). Порядок фиксирован → кэш стабилен.
+ * каталог (если LLM-маппер включён), блок 3 — памятка по поставщикам (если
+ * есть). Порядок фиксирован → кэш стабилен.
  */
-export function buildSystemBlocks(catalog?: CatalogEntry[]): Anthropic.TextBlockParam[] {
+export function buildSystemBlocks(catalog?: CatalogEntry[], memory?: string): Anthropic.TextBlockParam[] {
   const blocks: Anthropic.TextBlockParam[] = [
     { type: 'text', text: INVOICE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
   ];
   if (catalog && catalog.length > 0) {
     blocks.push({ type: 'text', text: buildCatalogSystemText(catalog), cache_control: { type: 'ephemeral' } });
+  }
+  // Памятка по поставщикам (пакет v2, п.16) — последним блоком: она меняется
+  // чаще каталога, и её обновление не сбивает кэш инструкций и каталога.
+  if (memory && memory.trim()) {
+    blocks.push({ type: 'text', text: memory, cache_control: { type: 'ephemeral' } });
   }
   return blocks;
 }
@@ -732,6 +738,7 @@ async function analyzeMultiPageTextCore(
   pageCount: number,
   modelId: string,
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
   const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
   if (!apiKey) {
@@ -741,7 +748,7 @@ async function analyzeMultiPageTextCore(
   logger.info('Claude API Analyzer: starting multi-page TEXT analysis', { textLength: combinedOcrText.length, pageCount, catalogSize: catalog?.length ?? 0 });
 
   const client = createClient(apiKey);
-  const system = buildSystemBlocks(catalog);
+  const system = buildSystemBlocks(catalog, memory);
   const withCatalogIdx = !!(catalog && catalog.length);
   const call = (content: string, label: string) => callClaudeStructured({
     client, modelId, system, userContent: content, withCatalogIdx,
@@ -762,8 +769,9 @@ export async function analyzeMultiPageTextWithClaudeApi(
   pageCount: number,
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog);
+  const { result } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog, memory);
   return result;
 }
 
@@ -774,8 +782,9 @@ export async function analyzeMultiPageTextWithVerification(
   pageCount: number,
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result, repair } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog);
+  const { result, repair } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog, memory);
   return verifyAndRepair('Claude API multi-page text', result, repair);
 }
 
@@ -784,6 +793,7 @@ async function analyzeMultipleImagesCore(
   apiKey: string,
   modelId: string,
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
   const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
   if (!apiKey) {
@@ -805,7 +815,7 @@ async function analyzeMultipleImagesCore(
   }
 
   const client = createClient(apiKey);
-  const system = buildSystemBlocks(catalog);
+  const system = buildSystemBlocks(catalog, memory);
   const withCatalogIdx = !!(catalog && catalog.length);
   const call = (extraText: string, label: string) => callClaudeStructured({
     client, modelId, system,
@@ -826,8 +836,9 @@ export async function analyzeMultipleImagesWithClaudeApi(
   apiKey: string,
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog);
+  const { result } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog, memory);
   return result;
 }
 
@@ -837,8 +848,9 @@ export async function analyzeMultipleImagesWithVerification(
   apiKey: string,
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result, repair } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog);
+  const { result, repair } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog, memory);
   return verifyAndRepair('Claude API multi-image', result, repair);
 }
 
@@ -921,6 +933,7 @@ async function analyzeImageCore(
   apiKey: string,
   modelId: string,
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
   const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
   if (!apiKey) {
@@ -945,7 +958,7 @@ async function analyzeImageCore(
   }
 
   const client = createClient(apiKey);
-  const system = buildSystemBlocks(catalog);
+  const system = buildSystemBlocks(catalog, memory);
   const withCatalogIdx = !!(catalog && catalog.length);
   const call = (extraText: string, label: string) => callClaudeStructured({
     client, modelId, system,
@@ -963,8 +976,9 @@ export async function analyzeImageWithClaudeApi(
   apiKey: string,
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result } = await analyzeImageCore(imagePath, apiKey, modelId, catalog);
+  const { result } = await analyzeImageCore(imagePath, apiKey, modelId, catalog, memory);
   return result;
 }
 
@@ -974,8 +988,9 @@ export async function analyzeImageWithVerification(
   apiKey: string,
   modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
+  memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result, repair } = await analyzeImageCore(imagePath, apiKey, modelId, catalog);
+  const { result, repair } = await analyzeImageCore(imagePath, apiKey, modelId, catalog, memory);
   return verifyAndRepair('Claude API single image', result, repair);
 }
 

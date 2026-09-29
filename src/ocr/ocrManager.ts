@@ -4,6 +4,7 @@ import { TesseractEngine } from './tesseract';
 import { analyzeImageWithVerification, analyzeMultipleImagesWithVerification, analyzeMultiPageTextWithVerification, CatalogEntry } from './claudeApiAnalyzer';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
+import { buildSupplierMemory } from '../learning/supplierMemory';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import sharp from 'sharp';
@@ -250,7 +251,8 @@ export class OcrManager {
 
     if (apiKey) {
       const catalog = await getCatalogForPrompt(ownerUserId);
-      const apiResult = await analyzeMultiPageTextWithVerification(ocrResult.text, apiKey, 1, modelId, catalog);
+      const memory = await buildSupplierMemory(ownerUserId);
+      const apiResult = await analyzeMultiPageTextWithVerification(ocrResult.text, apiKey, 1, modelId, catalog, memory);
       if (apiResult.success && apiResult.data) {
         logger.info('Hybrid OCR: Anthropic API text analyzer succeeded', {
           itemsCount: apiResult.data.items?.length ?? 0,
@@ -288,7 +290,8 @@ export class OcrManager {
     // Preprocess every page — each can have its own rotation.
     const processedPaths = await Promise.all(imagePaths.map(p => this.preprocessImage(p)));
     const catalog = await getCatalogForPrompt(ownerUserId);
-    const result = await analyzeMultipleImagesWithVerification(processedPaths, apiKey, modelId, catalog);
+    const memory = await buildSupplierMemory(ownerUserId);
+    const result = await analyzeMultipleImagesWithVerification(processedPaths, apiKey, modelId, catalog, memory);
     // Clean up temp files
     for (const pp of processedPaths) {
       if (!imagePaths.includes(pp)) {
@@ -323,7 +326,8 @@ export class OcrManager {
     }
 
     const catalog = await getCatalogForPrompt(ownerUserId);
-    const result = await analyzeMultiPageTextWithVerification(combinedOcrText, apiKey, pageCount, modelId, catalog);
+    const memory = await buildSupplierMemory(ownerUserId);
+    const result = await analyzeMultiPageTextWithVerification(combinedOcrText, apiKey, pageCount, modelId, catalog, memory);
 
     if (result.success && result.data) {
       // Honest engine tag: only include "google_vision" if we're actually
@@ -364,7 +368,8 @@ export class OcrManager {
 
     try {
       const catalog = await getCatalogForPrompt(ownerUserId);
-      const result = await analyzeImageWithVerification(processedPath, apiKey, modelId, catalog);
+      const memory = await buildSupplierMemory(ownerUserId);
+      const result = await analyzeImageWithVerification(processedPath, apiKey, modelId, catalog, memory);
 
       if (result.success && result.data) {
         return {

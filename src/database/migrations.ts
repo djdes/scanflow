@@ -2118,6 +2118,34 @@ const MIGRATIONS: Migration[] = [
     },
   },
   {
+    version: 70,
+    name: 'rule_proposals — предложения правил из ночного разбора правок (самообучение)',
+    // Ночной разбор (src/learning) не меняет правила сам — он предлагает, а
+    // человек принимает или отклоняет на странице «Предложения правил».
+    detect: (exec) => hasTable(exec, 'rule_proposals'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS rule_proposals (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id  INT NOT NULL,
+          kind           VARCHAR(24) NOT NULL,
+          supplier_key   VARCHAR(64) NOT NULL DEFAULT '',
+          name_key       VARCHAR(191) NOT NULL DEFAULT '',
+          title          VARCHAR(512) NOT NULL,
+          payload        MEDIUMTEXT NOT NULL,
+          evidence       MEDIUMTEXT NULL,
+          source         VARCHAR(8) NOT NULL,
+          status         VARCHAR(12) NOT NULL DEFAULT 'pending',
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          decided_at     DATETIME NULL,
+          decided_by     INT NULL,
+          INDEX idx_rule_proposals_owner (owner_user_id, status, id),
+          INDEX idx_rule_proposals_key (owner_user_id, kind, supplier_key, name_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
+  {
     version: 71,
     name: 'эталоны: invoices.golden/golden_at + golden_runs',
     // п.17 пакета v2. Проверенную накладную отмечают «⭐ Эталон»: её фото не

@@ -38,7 +38,7 @@
         </a>
 
         <div class="nav-group" data-group="catalogs">
-          <a href="#/mappings" class="nav-group-trigger" data-tab="mappings,suppliers" aria-haspopup="true">
+          <a href="#/mappings" class="nav-group-trigger" data-tab="mappings,suppliers,learning" aria-haspopup="true">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             Справочники
             <svg class="nav-caret" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -46,6 +46,7 @@
           <div class="nav-menu" role="menu">
             <a href="#/mappings" data-tab="mappings" role="menuitem">Номенклатура</a>
             <a href="#/suppliers" data-tab="suppliers" role="menuitem">Поставщики</a>
+            <a href="#/learning" data-tab="learning" role="menuitem">Предложения правил</a>
           </div>
         </div>
 
@@ -989,6 +990,28 @@
       </div>
     </section>
 
+    <!-- Learning Section (пакет v2, п.15) -->
+    <section id="view-learning">
+      <h2>Предложения правил</h2>
+      <p class="field-hint" style="margin-bottom:14px">Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.</p>
+      <div id="learning-off-hint" class="card" style="display:none;margin-bottom:14px">Ночной разбор выключен (флаг движка «Ночной разбор правок» в настройках). Запустить разбор вручную можно и сейчас.</div>
+      <div class="learning-toolbar">
+        <div class="tabs" id="learning-status-tabs">
+          <button class="tab-btn active" data-status="pending">Ждут решения</button>
+          <button class="tab-btn" data-status="accepted">Принятые</button>
+          <button class="tab-btn" data-status="rejected">Отклонённые</button>
+        </div>
+        <div class="learning-toolbar__run">
+          <button class="btn btn-soft btn-sm" onclick="Learning.run(false, this)" title="Разобрать правки и цены без обращения к ИИ">Разобрать сейчас</button>
+          <button class="btn btn-soft btn-sm" onclick="Learning.run(true, this)" title="Дополнительно спросить Claude о строках, которые разбор не объяснил">Разобрать с ИИ</button>
+        </div>
+      </div>
+      <div id="learning-proposals"></div>
+      <h3 style="margin:28px 0 8px">Правила пересчёта</h3>
+      <p class="field-hint" style="margin-bottom:10px">Действующие правила «товар + поставщик → единица 1С». Выключенное правило перестаёт применяться к новым накладным; уже пересчитанные строки не меняются.</p>
+      <div id="learning-rules"></div>
+    </section>
+
     <!-- Suppliers Section -->
     <section id="view-suppliers">
       <h2>Поставщики</h2>
@@ -1091,6 +1114,7 @@
 <script src="/js/sber-modal.js"></script>
 <script src="/js/sber.js"></script>
 <script src="/js/suppliers.js"></script>
+<script src="/js/learning.js"></script>
 <script src="/js/onboarding.js"></script>
 <script src="/js/onboarding-hint.js"></script>
 </body>

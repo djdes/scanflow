@@ -176,6 +176,10 @@ const App = {
       document.getElementById('view-suppliers').style.display = 'block';
       this.activateNavTab('suppliers');
       Suppliers.load();
+    } else if (hash === '#/learning') {
+      document.getElementById('view-learning').style.display = 'block';
+      this.activateNavTab('learning');
+      Learning.load();
     } else if (hash.startsWith('#/sber')) {
       document.getElementById('view-sber').style.display = 'block';
       this.activateNavTab('sber');
