@@ -3,13 +3,15 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { supplierRepo } from '../../database/repositories/supplierRepo';
+import { supplierRepo, type Supplier } from '../../database/repositories/supplierRepo';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { supplierExtractJobRepo } from '../../database/repositories/supplierExtractJobRepo';
 import { lookupPartyByInn, DadataNotConfiguredError } from '../../sber/dadata';
 import { analyzeImageWithClaudeApi } from '../../ocr/claudeApiAnalyzer';
 import { dispatchSupplierExtract, DispatcherConfigError, DispatcherApiError } from '../../dispatcher/createTask';
 import { notifySupplierExtractError } from '../../notifications/events';
+import { mergeSupplierCards, SupplierMergeError } from '../../services/supplierMerge';
+import { isValidInn } from '../../utils/inn';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 
@@ -54,6 +56,11 @@ const INN_RE = /^([0-9]{10}|[0-9]{12})$/;
 const BIC_RE = /^[0-9]{9}$/;
 const ACC_RE = /^[0-9]{20}$/;
 
+// Опечатка OCR в одной цифре ИНН (7724357632 → 7724357832) даёт карточку-
+// двойника: по ней уходят платежи не тому получателю, а автопривязка видит
+// два «одинаковых» поставщика. Новые карточки с такой опечаткой не сохраняем.
+const INN_CHECKSUM_ERROR = 'ИНН не проходит проверку контрольной суммы — проверьте цифры';
+
 interface SupplierBody {
   inn?: string; name?: string; kpp?: string; account?: string;
   bank_bic?: string; bank_corr_account?: string; bank_name?: string;
@@ -63,6 +70,7 @@ interface SupplierBody {
 function validateSupplier(body: SupplierBody | undefined): string | null {
   if (!body || typeof body !== 'object') return 'request body is missing or not application/json';
   if (!body.inn || !INN_RE.test(body.inn)) return 'inn must be 10 or 12 digits';
+  if (!isValidInn(body.inn)) return INN_CHECKSUM_ERROR;
   if (!body.name || body.name.trim().length === 0) return 'name is required';
   if (!body.bank_bic || !BIC_RE.test(body.bank_bic)) return 'bank_bic must be 9 digits';
   if (body.account && !ACC_RE.test(body.account)) return 'account must be 20 digits';
@@ -79,19 +87,24 @@ function ownerOf(req: Request): number {
   return id;
 }
 
+/** Карточка для ответа API: + inn_valid — UI помечает карточки с битым ИНН. */
+function withInnValid(s: Supplier): Supplier & { inn_valid: boolean } {
+  return { ...s, inn_valid: isValidInn(s.inn) };
+}
+
 router.get('/', async (req: Request, res: Response) => {
   const q = (req.query.q as string | undefined) || undefined;
   const verified = req.query.verified !== undefined ? Number(req.query.verified) : undefined;
   const limit = Math.min(parseInt((req.query.limit as string) || '100', 10), 500);
   const offset = parseInt((req.query.offset as string) || '0', 10);
   const suppliers = await supplierRepo.list({ ownerUserId: ownerOf(req), q, verified, limit, offset });
-  return res.json({ suppliers });
+  return res.json({ suppliers: suppliers.map(withInnValid) });
 });
 
 router.get('/:inn', async (req: Request, res: Response) => {
   const supplier = await supplierRepo.findByInn((req.params.inn as string), ownerOf(req));
   if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
-  return res.json({ supplier });
+  return res.json({ supplier: withInnValid(supplier) });
 });
 
 router.post('/', async (req: Request, res: Response) => {
@@ -127,6 +140,25 @@ router.patch('/:inn', async (req: Request, res: Response) => {
 router.delete('/:inn', async (req: Request, res: Response) => {
   await supplierRepo.delete((req.params.inn as string), ownerOf(req));
   return res.json({ success: true });
+});
+
+// POST /api/suppliers/:inn/merge-into/:targetInn — «Объединить с…». Карточка
+// :inn (обычно двойник с опечаткой в ИНН) вливается в :targetInn: накладные
+// перепривязываются, правила поставщика переносятся, карточка :inn удаляется
+// (полная строка — в ответе deleted_card). Только внутри своей компании: обе
+// карточки ищутся по владельцу запроса, чужую найти нельзя.
+router.post('/:inn/merge-into/:targetInn', async (req: Request, res: Response) => {
+  try {
+    const result = await mergeSupplierCards(
+      ownerOf(req),
+      String(req.params.inn),
+      String(req.params.targetInn),
+    );
+    return res.json(result);
+  } catch (err) {
+    if (err instanceof SupplierMergeError) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
 });
 
 // POST /api/suppliers/extract-from-photo — extract payee requisites from a
