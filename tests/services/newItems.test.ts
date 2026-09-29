@@ -204,6 +204,13 @@ describe('выгрузка /pending: new_item в строке', () => {
     expect(out[0]).toEqual({ ...items[0], new_item: { name: 'Ламинария', unit: 'кг', parent_guid: 'grp-1' } });
   });
 
+  it('строка, пришедшая после заявки со своим mapped_name, уходит в 1С под названием заявки', () => {
+    const late = { id: 9, original_name: 'Капуста морская 3 кг', onec_guid: null, mapped_name: 'Капуста морская 3 кг' };
+    const out = attachNewItems([late], 5, index);
+    expect(out[0]).toMatchObject({ mapped_name: 'Ламинария', new_item: { name: 'Ламинария' } });
+    expect(late.mapped_name).toBe('Капуста морская 3 кг'); // исходный объект не меняется
+  });
+
   it('остальные строки — те же объекты, выгрузка не меняется ни на байт', () => {
     const mapped = { id: 2, original_name: 'Капуста морская 3кг', onec_guid: 'g-1', mapped_name: 'Капуста' };
     const noRequest = { id: 3, original_name: 'Сахар 1кг', onec_guid: null, mapped_name: 'Сахар' };
@@ -219,7 +226,7 @@ describe('выгрузка /pending: new_item в строке', () => {
   it('заявка другой компании не применяется; пустая группа = null', () => {
     const olives = { id: 5, original_name: 'Маслины 300г', onec_guid: null };
     expect(attachNewItems([olives], 5, index)[0]).toBe(olives);
-    expect(attachNewItems([olives], 6, index)[0]).toEqual({ ...olives, new_item: { name: 'Маслины Б', unit: 'шт', parent_guid: null } });
+    expect(attachNewItems([olives], 6, index)[0]).toEqual({ ...olives, mapped_name: 'Маслины Б', new_item: { name: 'Маслины Б', unit: 'шт', parent_guid: null } });
   });
 
   it('нет владельца или заявок — массив возвращается как есть', () => {

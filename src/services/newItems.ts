@@ -343,7 +343,10 @@ export function indexPendingRequests(rows: PendingRequestRow[]): Map<string, New
 
 /**
  * Строки накладной для выгрузки в 1С: строке без позиции 1С, по товару которой
- * у компании есть заявка «Создать в 1С», добавляется new_item. Остальные строки
+ * у компании есть заявка «Создать в 1С», добавляется new_item, а mapped_name
+ * становится названием из заявки — модуль 1С ищет и создаёт позицию по
+ * mapped_name, и так ВСЕ строки группы (в том числе пришедшие после заявки со
+ * своим mapped_name) попадут в одну новую позицию. Остальные строки
  * возвращаются теми же объектами — выгрузка для них не меняется ни на байт
  * (старые модули 1С незнакомое поле просто не читают).
  */
@@ -351,14 +354,14 @@ export function attachNewItems<I extends { onec_guid?: string | null; original_n
   items: I[],
   ownerUserId: number | null | undefined,
   index: Map<string, NewItemPayload>,
-): Array<I | (I & { new_item: NewItemPayload })> {
+): Array<I | (I & { mapped_name: string; new_item: NewItemPayload })> {
   if (ownerUserId == null || index.size === 0) return items;
   return items.map(it => {
     if (it.onec_guid) return it;
     const key = newItemGroupKey(it.original_name);
     if (!key) return it;
     const payload = index.get(indexKey(ownerUserId, key));
-    return payload ? { ...it, new_item: { ...payload } } : it;
+    return payload ? { ...it, mapped_name: payload.name, new_item: { ...payload } } : it;
   });
 }
 
