@@ -4573,3 +4573,22 @@ tr.ni-form-row > td { background: #f8faff; }
 @media (max-width: 640px) {
   .sber-auth-grid { grid-template-columns: 1fr; }
 }
+
+/* Правка строк накладной: цена, НДС, удалить/добавить строку */
+.item-edit-price { width: 90px; text-align: right; }
+.item-vat-select { font-size: 13px; padding: 2px 4px; }
+.item-conf-cell { white-space: nowrap; }
+.item-del-btn { background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 13px; padding: 2px 4px; margin-left: 4px; opacity: 0.55; }
+.item-del-btn:hover { color: #dc2626; opacity: 1; }
+.items-toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 12px; }
+.items-toolbar-vat { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.add-item-form { display: grid; grid-template-columns: minmax(160px, 2fr) 80px 70px 100px 100px 80px auto; gap: 8px; margin-top: 10px; align-items: center; }
+@media (max-width: 760px) {
+  .add-item-form { grid-template-columns: 1fr 1fr; }
+  .add-item-form input[name="original_name"] { grid-column: 1 / -1; }
+}
+
+/* Список накладных: НДС под суммой, банковский статус платёжки */
+.list-vat { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; margin-top: 1px; }
+.sber-cell-paid { color: #16a34a; font-weight: 700; white-space: nowrap; }
+.sber-cell-failed { color: #dc2626; font-weight: 700; font-size: 16px; }

@@ -909,6 +909,32 @@ export const invoiceRepo = {
     }
   },
 
+  /** Ставка НДС строки (null — без НДС / не указана). */
+  async setItemVatRate(itemId: number, rate: number | null): Promise<void> {
+    await getDb().prepare('UPDATE invoice_items SET vat_rate = ? WHERE id = ?').run(rate, itemId);
+  },
+
+  /** Одна ставка НДС для всех строк накладной. Возвращает число строк. */
+  async setAllItemsVatRate(invoiceId: number, rate: number | null): Promise<number> {
+    const r = await getDb().prepare('UPDATE invoice_items SET vat_rate = ? WHERE invoice_id = ?').run(rate, invoiceId);
+    return r.changes;
+  },
+
+  /** Удалить одну строку (например, «Итого», распознанное как товар). */
+  async deleteItem(itemId: number): Promise<void> {
+    const db = getDb();
+    const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
+    await db.prepare('DELETE FROM invoice_items WHERE id = ?').run(itemId);
+    if (prev) triggerStatsRecompute([prev.onec_guid], prev.invoice_id);
+  },
+
+  async nextRowNo(invoiceId: number): Promise<number> {
+    const r = await getDb().prepare('SELECT MAX(row_no) AS m, COUNT(*) AS n FROM invoice_items WHERE invoice_id = ?')
+      .get<{ m: number | null; n: number }>(invoiceId);
+    return Math.max(Number(r?.m) || 0, Number(r?.n) || 0) + 1;
+  },
+
   async updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number): Promise<void> {
     const db = getDb();
     const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')

@@ -64,14 +64,22 @@ import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type Restor
  * `sber_payment_number` so the frontend can render a status icon next to
  * each row without opening the invoice.
  */
-async function attachSberStatus<T extends { id: number }>(invoices: T[]): Promise<(T & { sber_payment_status: string | null; sber_payment_number: string | null })[]> {
-  if (invoices.length === 0) return [] as (T & { sber_payment_status: string | null; sber_payment_number: string | null })[];
+type WithSberStatus<T> = T & {
+  sber_payment_status: string | null;
+  sber_payment_number: string | null;
+  sber_bank_status: string | null;
+  sber_bank_kind: string | null;
+  sber_bank_label: string | null;
+};
+
+async function attachSberStatus<T extends { id: number }>(invoices: T[]): Promise<WithSberStatus<T>[]> {
+  if (invoices.length === 0) return [] as WithSberStatus<T>[];
   const ids = invoices.map(i => i.id);
   const placeholders = ids.map(() => '?').join(',');
   const rows = await getDb().prepare(
-    `SELECT invoice_id, status, sber_payment_number
+    `SELECT invoice_id, status, sber_payment_number, bank_status
      FROM sber_payments WHERE invoice_id IN (${placeholders})`
-  ).all<{ invoice_id: number; status: string; sber_payment_number: string | null }>(...ids);
+  ).all<{ invoice_id: number; status: string; sber_payment_number: string | null; bank_status: string | null }>(...ids);
   const map = new Map(rows.map(r => [r.invoice_id, r]));
   return invoices.map(inv => {
     const p = map.get(inv.id);
@@ -79,6 +87,9 @@ async function attachSberStatus<T extends { id: number }>(invoices: T[]): Promis
       ...inv,
       sber_payment_status: p?.status ?? null,
       sber_payment_number: p?.sber_payment_number ?? null,
+      sber_bank_status: p?.bank_status ?? null,
+      sber_bank_kind: p?.bank_status ? bankStatusKind(p.bank_status) : null,
+      sber_bank_label: p?.bank_status ? bankStatusLabel(p.bank_status) : null,
     };
   });
 }
@@ -1865,6 +1876,101 @@ router.post('/:invoiceId/items/:itemId/unit-rule', async (req: Request, res: Res
 //
 // Always triggers recalculateTotal on the parent invoice so the sum +
 // items_total_mismatch flag stay accurate.
+// Ставки НДС в РФ: 0, 10, 20, 22 (с 2026), 5 и 7 (УСН), 18 (старые документы).
+const VAT_RATES = [0, 5, 7, 10, 18, 20, 22] as const;
+/** null — без НДС; undefined — недопустимое значение. */
+function parseVatRate(v: unknown): number | null | undefined {
+  if (v === null || v === '' || v === 'none') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).replace('%', '').trim());
+  return (VAT_RATES as readonly number[]).includes(n) ? n : undefined;
+}
+
+async function loadOwnedInvoice(req: Request, res: Response): Promise<Invoice | null> {
+  const id = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: 'invalid id' }); return null; }
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice || invoice.owner_user_id !== req.user?.id) { res.status(404).json({ error: 'Invoice not found' }); return null; }
+  return invoice;
+}
+
+// POST /api/invoices/:id/items/vat-rate — { vat_rate } — одна ставка для всех строк.
+router.post('/:id/items/vat-rate', async (req: Request, res: Response) => {
+  const invoice = await loadOwnedInvoice(req, res);
+  if (!invoice) return;
+  const rate = parseVatRate((req.body ?? {}).vat_rate);
+  if (rate === undefined) return res.status(400).json({ error: `Ставка НДС: ${VAT_RATES.join(', ')} % или пусто` });
+  const n = await invoiceRepo.setAllItemsVatRate(invoice.id, rate);
+  await invoiceRepo.recalculateTotal(invoice.id);
+  await logEdit({
+    ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: invoice.id,
+    entity: 'item', field: 'vat_rate_all', oldValue: null, newValue: rate, context: { lines: n },
+  });
+  return res.json({ data: { lines: n, vat_rate: rate } });
+});
+
+// POST /api/invoices/:id/items — добавить строку, пропущенную при распознавании.
+// body: { original_name, quantity, unit, price?, total?, vat_rate? }; если дана
+// только цена или только сумма — вторая считается от количества.
+router.post('/:id/items', async (req: Request, res: Response) => {
+  const invoice = await loadOwnedInvoice(req, res);
+  if (!invoice) return;
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof b.original_name === 'string' ? b.original_name.trim().slice(0, 500) : '';
+  if (!name) return res.status(400).json({ error: 'Укажите название товара' });
+  const num = (v: unknown): number | null => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = typeof v === 'number' ? v : Number(String(v).replace(/\s/g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : NaN;
+  };
+  const quantity = num(b.quantity);
+  let price = num(b.price);
+  let total = num(b.total);
+  if ([quantity, price, total].some(x => Number.isNaN(x))) return res.status(400).json({ error: 'Количество, цена и сумма — числа' });
+  if (quantity == null || quantity <= 0) return res.status(400).json({ error: 'Укажите количество больше нуля' });
+  if (price == null && total == null) return res.status(400).json({ error: 'Укажите цену или сумму' });
+  if (total == null && price != null) total = Math.round(price * quantity * 100) / 100;
+  if (price == null && total != null) price = Math.round((total / quantity) * 10000) / 10000;
+  const unit = typeof b.unit === 'string' && b.unit.trim() ? b.unit.trim().slice(0, 32) : 'шт';
+  const rate = parseVatRate(b.vat_rate);
+  if (rate === undefined) return res.status(400).json({ error: `Ставка НДС: ${VAT_RATES.join(', ')} % или пусто` });
+  const created = await invoiceRepo.addItem({
+    invoice_id: invoice.id, original_name: name, quantity, unit, price: price!, total: total!,
+    vat_rate: rate ?? undefined, row_no: await invoiceRepo.nextRowNo(invoice.id), mapping_confidence: 0,
+    conversion: {
+      raw_quantity: quantity, raw_unit: unit, raw_price: price, raw_total: total,
+      conv_source: 'manual', conv_note: 'строка добавлена вручную',
+    },
+  });
+  await invoiceRepo.recalculateTotal(invoice.id);
+  await logEdit({
+    ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: invoice.id, itemId: created.id,
+    entity: 'item', field: 'added', oldValue: null, newValue: { name, quantity, unit, price, total, vat_rate: rate },
+  });
+  return res.status(201).json({ data: created });
+});
+
+// DELETE /api/invoices/:invoiceId/items/:itemId — удалить строку (например,
+// «Итого» или «Доставка», распознанные как товар). Строка — в журнал правок.
+router.delete('/:invoiceId/items/:itemId', async (req: Request, res: Response) => {
+  const invoiceId = parseInt(req.params.invoiceId as string, 10);
+  const itemId = parseInt(req.params.itemId as string, 10);
+  if (!Number.isFinite(invoiceId) || !Number.isFinite(itemId)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = await invoiceRepo.getById(invoiceId);
+  const item = await invoiceRepo.getItemById(itemId);
+  if (!invoice || invoice.owner_user_id !== req.user?.id || !item || item.invoice_id !== invoiceId) {
+    return res.status(404).json({ error: 'Invoice item not found' });
+  }
+  await invoiceRepo.deleteItem(itemId);
+  await invoiceRepo.recalculateTotal(invoiceId);
+  await logEdit({
+    ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
+    entity: 'item', field: 'deleted',
+    oldValue: { name: item.original_name, quantity: item.quantity, unit: item.unit, price: item.price, total: item.total, onec_guid: item.onec_guid },
+    newValue: null,
+  });
+  return res.json({ data: { deleted: itemId } });
+});
+
 router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) => {
   const invoiceId = parseInt(req.params.invoiceId as string, 10);
   const itemId = parseInt(req.params.itemId as string, 10);
@@ -1903,6 +2009,25 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
       context: { original_name: item.original_name, onec_guid: item.onec_guid, supplier_inn: editedInvoice.supplier_inn },
     });
     res.json({ data: updated });
+    return;
+  }
+
+  // Ставка НДС строки: уходит в 1С построчно. Деньги строки не меняет.
+  if ('vat_rate' in body) {
+    const rate = parseVatRate(body.vat_rate);
+    if (rate === undefined) {
+      res.status(400).json({ error: `Ставка НДС: ${VAT_RATES.join(', ')} % или пусто` });
+      return;
+    }
+    await invoiceRepo.setItemVatRate(itemId, rate);
+    await invoiceRepo.recalculateTotal(invoiceId);
+    await logEdit({
+      ownerUserId: editedInvoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
+      entity: 'item', field: 'vat_rate', oldValue: item.vat_rate, newValue: rate,
+      context: { original_name: item.original_name },
+    });
+    const inv = await invoiceRepo.getById(invoiceId);
+    res.json({ data: { item: await invoiceRepo.getItemById(itemId), invoice_total_sum: inv?.total_sum ?? null, vat_sum: inv?.vat_sum ?? null } });
     return;
   }
 

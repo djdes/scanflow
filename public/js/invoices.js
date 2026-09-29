@@ -177,7 +177,7 @@ const Invoices = {
           <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}${inv.duplicate_score ? `, вероятность ${Math.round(inv.duplicate_score * 100)}%` : ''}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
           <td data-label="Дата">${App.formatDate(inv.invoice_date)}</td>
           <td data-label="Поставщик">${App.esc(inv.supplier || '—')}</td>
-          <td style="text-align:right" data-label="Сумма">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}</td>
+          <td style="text-align:right" data-label="Сумма">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}${Invoices._vatLine(inv)}</td>
           <td style="text-align:center" data-label="Цены ↑">${this._elevatedCell(inv)}</td>
           <td data-label="Статус">${this._statusCell(inv)}</td>
           <td style="text-align:center" data-label="Сбер">${this._sberCell(inv)}</td>
@@ -684,6 +684,16 @@ const Invoices = {
     }
   },
 
+  // «в т.ч. НДС» под суммой в списке — раньше НДС был виден только внутри накладной.
+  _vatLine(inv) {
+    if (inv.vat_sum == null) return '';
+    const v = Number(inv.vat_sum);
+    if (!Number.isFinite(v)) return '';
+    return v > 0
+      ? `<div class="list-vat">в т.ч. НДС ${App.formatMoney(v)}</div>`
+      : '<div class="list-vat">без НДС</div>';
+  },
+
   // Renders one cell in the invoices list that shows whether a Sber payment
   // exists for this invoice (created/failed/pending), so the user can spot at
   // a glance which invoices have already been pushed to the bank.
@@ -704,7 +714,15 @@ const Invoices = {
     if (!status) return '<span style="color:#cbd5e1" title="Платёж в Сбер.Бизнес не создан">—</span>';
     const num = inv.sber_payment_number ? ` №${App.esc(inv.sber_payment_number)}` : '';
     if (status === 'created') {
-      return `<span style="color:#16a34a;font-size:18px" title="Черновик создан в Сбер.Бизнес${num}">✓</span>`;
+      // Банковский статус платёжки (опрос раз в 30 минут): оплачено / отклонено / в работе.
+      if (inv.sber_bank_kind === 'paid') {
+        return `<span class="sber-cell-paid" title="Платёжка${num} исполнена банком">₽ ✓</span>`;
+      }
+      if (inv.sber_bank_kind === 'failed') {
+        return `<span class="sber-cell-failed" title="${App.esc(inv.sber_bank_label || 'Отклонена банком')}${num}">✕</span>`;
+      }
+      const bank = inv.sber_bank_label ? ` — ${App.esc(inv.sber_bank_label)}` : '';
+      return `<span style="color:#16a34a;font-size:18px" title="Черновик создан в Сбер.Бизнес${num}${bank}">✓</span>`;
     }
     if (status === 'failed') {
       return `<span style="color:#dc2626;font-size:16px" title="Ошибка отправки${num} — открой накладную чтобы увидеть детали">⚠</span>`;
@@ -1030,14 +1048,21 @@ const Invoices = {
                      data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="total"
                      onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
             </td>
-            <td style="text-align:center">${item.vat_rate != null ? item.vat_rate + '%' : '—'}</td>
-            <td>${App.confidenceBadge(item.mapping_confidence || 0)}</td>
+            <td style="text-align:center">${Invoices._vatSelect(data.id, item)}</td>
+            <td class="item-conf-cell">${App.confidenceBadge(item.mapping_confidence || 0)}
+              <button type="button" class="item-del-btn" title="Удалить строку"
+                      onclick="Invoices.deleteItem(${data.id}, ${item.id}, '${App.esc(String(item.original_name || '').slice(0, 60)).replace(/'/g, '&#39;')}')">✕</button>
+            </td>
           </tr>
         `;
         }).join('');
       } else {
         itemsTbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">Товары не найдены</div></td></tr>';
       }
+
+      // Правка строк: добавить пропущенную, одна ставка НДС на все строки.
+      const tb = document.getElementById('invoice-items-toolbar');
+      if (tb) tb.innerHTML = this._itemsToolbar(data.id);
 
       // Elevated-price warning banner + mobile square counters.
       this._renderPriceWarning(data.items || []);
@@ -1072,11 +1097,100 @@ const Invoices = {
   // Render «Цена» as read-only «X,XX ₽/<unit>». Per-unit cost = item.price
   // (OCR parses price as total/qty per ScanFlow convention, so it's already
   // per-unit). Falls back to «—» when price is null.
+  // Цена редактируется: сумма строки пересчитается как количество × цена.
   _priceCell(item) {
-    if (item.price == null) return '<span class="muted">—</span>';
-    const v = Number(item.price).toFixed(2).replace('.', ',');
-    const u = item.unit ? `/${App.esc(item.unit)}` : '';
-    return `<span class="price-readonly">${v} ₽${u}</span>${Invoices._priceBadge(item)}`;
+    const v = item.price != null ? Number(item.price).toFixed(2).replace('.', ',') : '';
+    return `<input type="text" inputmode="decimal" class="item-edit item-edit-price"
+                   value="${v}" title="Цена за единицу с НДС — сумма пересчитается"
+                   data-invoice-id="${item.invoice_id}" data-item-id="${item.id}" data-field="price"
+                   onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">${Invoices._priceBadge(item)}`;
+  },
+
+  _VAT_OPTIONS: [['', '—'], ['0', '0%'], ['5', '5%'], ['7', '7%'], ['10', '10%'], ['18', '18%'], ['20', '20%'], ['22', '22%']],
+
+  _vatSelect(invoiceId, item) {
+    const cur = item.vat_rate == null ? '' : String(Number(item.vat_rate));
+    return `<select class="item-vat-select" title="Ставка НДС строки (уходит в 1С)"
+                    onchange="Invoices.onItemVatChange(${invoiceId}, ${item.id}, this)">
+      ${this._VAT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')}
+    </select>`;
+  },
+
+  async onItemVatChange(invoiceId, itemId, sel) {
+    try {
+      await App.apiJson(`/invoices/${invoiceId}/items/${itemId}`, { method: 'PATCH', body: { vat_rate: sel.value === '' ? null : Number(sel.value) } });
+      App.notify('Ставка НДС сохранена', 'success');
+    } catch (e) {
+      App.notify('Не сохранилось: ' + e.message, 'error');
+    }
+    this.showDetail(Number(invoiceId));
+  },
+
+  async setAllVat(invoiceId, sel) {
+    if (sel.value === '__') return;
+    const label = sel.options[sel.selectedIndex].text;
+    if (!window.confirm(`Поставить НДС ${label} всем строкам?`)) { sel.value = '__'; return; }
+    try {
+      const { data } = await App.apiJson(`/invoices/${invoiceId}/items/vat-rate`, { method: 'POST', body: { vat_rate: sel.value === '' ? null : Number(sel.value) } });
+      App.notify(`НДС ${label} — у ${data.lines} строк`, 'success');
+    } catch (e) {
+      App.notify('Не сохранилось: ' + e.message, 'error');
+    }
+    this.showDetail(Number(invoiceId));
+  },
+
+  async deleteItem(invoiceId, itemId, name) {
+    if (!window.confirm(`Удалить строку «${name}»?\n\nСумма накладной не изменится — если строка была в итоге документа, поправьте сумму в реквизитах.`)) return;
+    try {
+      await App.apiJson(`/invoices/${invoiceId}/items/${itemId}`, { method: 'DELETE' });
+      App.notify('Строка удалена', 'success');
+    } catch (e) {
+      App.notify('Не удалилось: ' + e.message, 'error');
+    }
+    this.showDetail(Number(invoiceId));
+  },
+
+  _itemsToolbar(invoiceId) {
+    return `
+      <div class="items-toolbar">
+        <button type="button" class="btn btn-soft btn-sm" onclick="Invoices.toggleAddItem(${invoiceId})">+ Добавить строку</button>
+        <label class="items-toolbar-vat">НДС для всех строк
+          <select onchange="Invoices.setAllVat(${invoiceId}, this)">
+            <option value="__" selected>выбрать…</option>
+            ${this._VAT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <form id="add-item-form" class="add-item-form" hidden onsubmit="Invoices.submitAddItem(event, ${invoiceId})">
+        <input name="original_name" placeholder="Название товара" required>
+        <input name="quantity" inputmode="decimal" placeholder="Кол-во" required>
+        <input name="unit" placeholder="Ед." value="шт">
+        <input name="price" inputmode="decimal" placeholder="Цена с НДС">
+        <input name="total" inputmode="decimal" placeholder="или сумма">
+        <select name="vat_rate">${this._VAT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+        <button class="btn btn-primary btn-sm" type="submit">Добавить</button>
+      </form>`;
+  },
+
+  toggleAddItem() {
+    const f = document.getElementById('add-item-form');
+    if (!f) return;
+    f.hidden = !f.hidden;
+    if (!f.hidden) f.querySelector('input[name="original_name"]').focus();
+  },
+
+  async submitAddItem(e, invoiceId) {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = Object.fromEntries(fd.entries());
+    if (body.vat_rate === '') body.vat_rate = null;
+    try {
+      await App.apiJson(`/invoices/${invoiceId}/items`, { method: 'POST', body });
+      App.notify('Строка добавлена — выберите позицию 1С в строке', 'success');
+      this.showDetail(Number(invoiceId));
+    } catch (err) {
+      App.notify('Не добавилось: ' + err.message, 'error');
+    }
   },
 
   // Inline "повышенная цена" pill — shown when the scanned price is >10% above
