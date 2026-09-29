@@ -1,4 +1,5 @@
 import type { EventType, EventPayload } from './types';
+import { batchHeadline, batchInvoiceLabel, type BatchFlag, type BatchSummary } from './batcher';
 
 interface RenderedEmail {
   subject: string;
@@ -106,6 +107,50 @@ export function renderRealtime(eventType: EventType, payload: EventPayload, base
     </div>
   `;
   return { subject: label, html };
+}
+
+const BATCH_FLAG_LABELS: Record<BatchFlag, string> = {
+  error: 'ошибка распознавания',
+  suspicious: 'подозрительная сумма',
+  elevated: 'повышенные цены',
+};
+const BATCH_EMAIL_MAX_ROWS = 50;
+
+/** Письмо-сводка пакетной загрузки (п.19) — пара к Telegram-сводке, одно на пачку. */
+export function renderBatchSummary(s: BatchSummary, baseUrl = 'https://scanflow.ru'): RenderedEmail {
+  const td = 'padding:6px 10px;border-bottom:1px solid #eef2f7';
+  const rows = s.invoices.slice(0, BATCH_EMAIL_MAX_ROWS).map(inv => {
+    const link = `${baseUrl}/app.html#/invoices/${inv.id}`;
+    const flags = inv.flags.map(f => BATCH_FLAG_LABELS[f]).join(', ');
+    return `<tr>
+        <td style="${td};white-space:nowrap"><a href="${link}" style="color:#2563eb">${escapeHtml(batchInvoiceLabel(inv))}</a></td>
+        <td style="${td}">${inv.supplier ? escapeHtml(inv.supplier) : '—'}</td>
+        <td style="${td};color:#b45309">${escapeHtml(flags)}</td>
+      </tr>`;
+  }).join('');
+  const more = s.invoices.length > BATCH_EMAIL_MAX_ROWS
+    ? `<p style="margin:6px 0 0;font-size:12px;color:#94a3b8">… и ещё ${s.invoices.length - BATCH_EMAIL_MAX_ROWS}</p>`
+    : '';
+  const table = rows ? `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e2e8f0">
+        <thead>
+          <tr style="background:#f8fafc;color:#64748b;text-transform:uppercase;font-size:11px;letter-spacing:0.4px">
+            <th style="padding:8px 10px;text-align:left">Накладная</th>
+            <th style="padding:8px 10px;text-align:left">Поставщик</th>
+            <th style="padding:8px 10px;text-align:left">Внимание</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>${more}` : '';
+  const html = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:640px">
+      <h3 style="color:#0f172a;margin:0 0 12px">Пакетная загрузка</h3>
+      <p style="margin:0 0 12px">${escapeHtml(batchHeadline(s))}</p>
+      ${table}
+      <p style="color:#94a3b8;font-size:12px;margin-top:16px">Уведомления по этим накладным собраны в одну сводку. ScanFlow · ${new Date().toLocaleString('ru-RU')}</p>
+    </div>
+  `;
+  return { subject: `Пакетная загрузка: ${s.uploaded} фото`, html };
 }
 
 export interface DigestGroup {
