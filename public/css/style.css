@@ -4479,3 +4479,14 @@ select.filter-input { min-width: 104px; }
   .date-nav__all { border-bottom: none; margin-bottom: 0; padding-bottom: 7px; }
   .date-nav__sub { display: none; }
 }
+
+/* Пакет v2: пересчёт единиц в строке накладной */
+.conv-info { margin-top: 4px; font-size: 11.5px; line-height: 1.35; text-align: left; color: var(--text-secondary); max-width: 260px; margin-left: auto; }
+.conv-info .conv-raw { color: var(--text-tertiary); }
+.conv-info .conv-note { color: var(--text-secondary); }
+.conv-info .qty-flag { color: var(--error); font-weight: 600; }
+.conv-info .conv-actions { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.link-btn { background: none; border: none; padding: 0; color: var(--primary); cursor: pointer; font-size: 11.5px; }
+.link-btn:hover { text-decoration: underline; }
+tr.row-qty-flag td { background: var(--error-soft); }
+tr.row-unit-mismatch td { background: var(--warning-soft); }

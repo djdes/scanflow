@@ -17,7 +17,8 @@ import { logger } from '../../utils/logger';
 import { ParsedInvoiceData, ParsedInvoiceItem } from '../../ocr/types';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { evaluateInvoiceQuality } from '../../automation/qualityGate';
-import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
+import { convertInvoiceLine } from '../../services/lineConversion';
+import { makeSupplierKey } from '../../database/repositories/supplierMappingRepo';
 import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
 import { preprocessInvoiceImage } from '../../ocr/imagePreprocess';
@@ -509,20 +510,19 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       //     expands qty correctly into base units;
       //   - the final coerce step rebrands any countable supplier unit
       //     (уп/кор/банка/пач) to "шт" — our 1С catalog only tracks {шт, кг, л}.
-      {
-        const onec = mapping?.onec_guid ? await onecNomenclatureRepo.getByGuid(mapping.onec_guid, row.owner_user_id ?? -1) : null;
-        const hintedPackSize = it.pack_size ?? mapping?.pack_size ?? null;
-        const hintedPackUnit = it.pack_size ? 'шт' : (mapping?.pack_unit ?? null);
-        const r = resolveAndApplyPackTransform(
-          transformedItem,
-          it.name ?? '',
-          hintedPackSize,
-          hintedPackUnit,
-          mapping?.mapped_name ?? null,
-          onec?.unit ?? null,
-        );
-        transformedItem = r.item;
-      }
+      // Единая точка пересчёта (src/services/lineConversion.ts): значения
+      // «как в накладной» сохраняются в raw_*, флаги — в qty_flag.
+      const conv = await convertInvoiceLine({
+        ownerUserId: row.owner_user_id ?? null,
+        supplierKey: makeSupplierKey(data.supplier_inn ?? null, data.supplier ?? null),
+        name: it.name ?? '',
+        raw: transformedItem,
+        onecGuid: mapping?.onec_guid ?? null,
+        mappedName: mapping?.mapped_name ?? null,
+        mapping: mapping ? { mapping_id: mapping.mapping_id ?? null, pack_size: mapping.pack_size ?? null, pack_unit: mapping.pack_unit ?? null } : null,
+        llmPackHint: it.pack_size ?? null,
+      });
+      transformedItem = { quantity: conv.quantity, unit: conv.unit, price: conv.price, total: conv.total };
 
       // 2) Persist the (possibly transformed) item — onto target invoice
       //    (which is `id` when standalone, `mergeTarget.id` when multi-page).
@@ -534,6 +534,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         unit: transformedItem.unit ?? undefined,
         price: transformedItem.price ?? undefined,
         total: transformedItem.total ?? undefined,
+        conversion: conv.conversion,
         vat_rate: it.vat_rate ?? undefined,
         mapping_confidence: mapping?.confidence ?? 0,
         onec_guid: mapping?.onec_guid ?? undefined,

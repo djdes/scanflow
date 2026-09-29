@@ -981,7 +981,7 @@ const Invoices = {
           // esc() also escapes quotes, which is what we need for value="..."
           const safeName = App.esc(currentName);
           return `
-          <tr data-item-id="${item.id}" class="${Invoices._rowClassForDeviation(item.price_deviation_pct)}">
+          <tr data-item-id="${item.id}" class="${Invoices._rowClassForItem(item)}">
             <td>${i + 1}</td>
             <td>${App.esc(item.original_name || '')}</td>
             <td>
@@ -1006,6 +1006,7 @@ const Invoices = {
                      value="${item.quantity != null ? String(item.quantity).replace('.', ',') : ''}"
                      data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="quantity"
                      onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
+              ${Invoices._convInfo(data.id, item)}
             </td>
             <td>
               <input type="text" class="item-edit item-edit-unit"
@@ -1308,6 +1309,96 @@ const Invoices = {
   },
 
   // Map a price-deviation percentage to a row class.
+  // Нормализованная единица для сравнения «в накладной» vs «в 1С».
+  _normUnit(u) {
+    const s = String(u || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[.\s]+/g, '').trim();
+    const alias = { 'штук': 'шт', 'штука': 'шт', 'гр': 'г', 'килограмм': 'кг', 'литр': 'л', 'дм3': 'л', 'уп': 'упак', 'упаковка': 'упак' };
+    return alias[s] || s;
+  },
+
+  _unitMismatch(item) {
+    return !!(item.onec_unit && item.unit && this._normUnit(item.unit) !== this._normUnit(item.onec_unit));
+  },
+
+  // Строка с флагом пересчёта — красная. «Дешевле обычного» не красим в
+  // зелёный, если количество под вопросом: ровно так выглядит ошибка ×N.
+  _rowClassForItem(item) {
+    if (item.qty_flag) return 'row-qty-flag';
+    if (this._unitMismatch(item)) return 'row-unit-mismatch';
+    return this._rowClassForDeviation(item.price_deviation_pct);
+  },
+
+  // Пояснение пересчёта под количеством (пакет v2): как в накладной, формула,
+  // флаг и действия «пересчитать / вернуть / запомнить».
+  _convInfo(invoiceId, item) {
+    const FLAG = { price_outlier: 'цена не похожа на обычную', unit_mismatch: 'единицы не совпадают с 1С', needs_weight: 'нужен фактический вес' };
+    const fmtN = (v) => (v == null ? '—' : String(Math.round(Number(v) * 1000) / 1000).replace('.', ','));
+    const parts = [];
+    const rawDiffers = item.raw_quantity != null && (Number(item.raw_quantity) !== Number(item.quantity) || this._normUnit(item.raw_unit) !== this._normUnit(item.unit));
+    if (rawDiffers) {
+      parts.push(`<div class="conv-raw">в накладной: ${fmtN(item.raw_quantity)} ${App.esc(item.raw_unit || '')}${item.raw_price != null ? ` × ${Number(item.raw_price).toFixed(2).replace('.', ',')} ₽` : ''}</div>`);
+    }
+    if (item.conv_note) parts.push(`<div class="conv-note">${App.esc(item.conv_note)}</div>`);
+    if (item.qty_flag) {
+      parts.push(`<div class="qty-flag" title="${App.esc(item.qty_flag_note || '')}">⚠ ${FLAG[item.qty_flag] || App.esc(item.qty_flag)}</div>`);
+      if (item.qty_flag_note) parts.push(`<div class="conv-note">${App.esc(item.qty_flag_note)}</div>`);
+    } else if (this._unitMismatch(item)) {
+      parts.push(`<div class="qty-flag">⚠ в 1С учёт в «${App.esc(item.onec_unit)}»</div>`);
+    }
+    const actions = [];
+    if (item.qty_flag || this._unitMismatch(item)) {
+      actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemReconvert(${invoiceId}, ${item.id})" title="Пересчитать в единицу 1С от значений «как в накладной»">↻ пересчитать</button>`);
+    }
+    if (rawDiffers) {
+      actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemRevertRaw(${invoiceId}, ${item.id})" title="Вернуть количество, единицу и цену как в накладной">↺ как в накладной</button>`);
+    }
+    if (item.onec_guid && (item.qty_flag || this._unitMismatch(item) || rawDiffers)) {
+      actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemRememberRule(${invoiceId}, ${item.id})" title="Запомнить, сколько единиц 1С в одной единице накладной — для этого товара у этого поставщика">📌 запомнить</button>`);
+    }
+    if (actions.length) parts.push(`<div class="conv-actions">${actions.join(' ')}</div>`);
+    return parts.length ? `<div class="conv-info">${parts.join('')}</div>` : '';
+  },
+
+  async itemReconvert(invoiceId, itemId) {
+    try {
+      const { data } = await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/reconvert`, { method: 'POST' });
+      App.notify(data && data.conv_note ? `Пересчитано: ${data.conv_note}` : 'Пересчитано', data && data.qty_flag ? 'warn' : 'success');
+      this.showDetail(invoiceId);
+    } catch (e) { App.notify(e.message || 'Не удалось пересчитать', 'error'); }
+  },
+
+  async itemRevertRaw(invoiceId, itemId) {
+    if (!window.confirm('Вернуть количество, единицу, цену и сумму строки как в накладной?')) return;
+    try {
+      await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/revert-raw`, { method: 'POST' });
+      App.notify('Строка возвращена как в накладной', 'success');
+      this.showDetail(invoiceId);
+    } catch (e) { App.notify(e.message || 'Не удалось вернуть', 'error'); }
+  },
+
+  async itemRememberRule(invoiceId, itemId) {
+    let item;
+    try {
+      const { data } = await App.apiJson(`/invoices/${invoiceId}`);
+      item = (data.items || []).find(it => it.id === itemId);
+    } catch { /* ниже сообщим */ }
+    if (!item) { App.notify('Строка не найдена', 'error'); return; }
+    const rawUnit = item.raw_unit || item.unit || 'ед.';
+    const target = item.onec_unit || item.unit || '';
+    const guess = item.conv_factor && item.conv_factor > 0 ? String(Math.round(item.conv_factor * 1000) / 1000).replace('.', ',') : '';
+    const answer = window.prompt(`Сколько «${target}» в одной «${rawUnit}» для «${item.original_name}»?
+Например, батон 0,4 кг → 0,4; упаковка по 100 шт → 100.
+Правило запомнится для этого товара у этого поставщика.`, guess);
+    if (answer == null) return;
+    const factor = Number(String(answer).replace(',', '.').trim());
+    if (!Number.isFinite(factor) || factor <= 0) { App.notify('Нужно положительное число', 'error'); return; }
+    try {
+      await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/unit-rule`, { method: 'POST', body: { factor, target_unit: target } });
+      App.notify(`Запомнено: 1 ${rawUnit} = ${String(factor).replace('.', ',')} ${target}`, 'success');
+      this.showDetail(invoiceId);
+    } catch (e) { App.notify(e.message || 'Не удалось запомнить', 'error'); }
+  },
+
   _rowClassForDeviation(pct) {
     if (pct == null) return '';
     if (pct <= -10) return 'row-price-good';
@@ -1546,6 +1637,17 @@ const Invoices = {
           `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
           `При загрузке в 1С они будут созданы как НОВЫЕ позиции в справочнике Номенклатура по их названию из скана.\n\n` +
           `Продолжить?`
+        );
+        if (!ok) return;
+      }
+      // Пакет v2: строки, где количество под вопросом (флаг пересчёта или
+      // единица не совпадает с 1С), — главная причина неверных остатков в 1С.
+      const suspect = (invoice.items || []).filter(it => it.qty_flag || this._unitMismatch(it));
+      if (suspect.length > 0) {
+        const names = suspect.slice(0, 5).map(it => '• ' + (it.original_name || it.mapped_name || '')).join('\n');
+        const ok = confirm(
+          `Количество под вопросом в ${suspect.length} строк(ах):\n${names}${suspect.length > 5 ? '\n…' : ''}\n\n` +
+          `Проверьте пересчёт единиц (кнопки под количеством). Всё равно отправить в 1С?`
         );
         if (!ok) return;
       }

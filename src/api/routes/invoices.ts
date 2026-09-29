@@ -47,6 +47,12 @@ import { makeSupplierKey, supplierMappingRepo } from '../../database/repositorie
 import { ocrCorrectionRepo, supplierCorrectionKey } from '../../database/repositories/ocrCorrectionRepo';
 import { logEdit, editLogRepo } from '../../database/repositories/editLogRepo';
 import { isValidInn } from '../../utils/inn';
+import { convertInvoiceLine } from '../../services/lineConversion';
+import { getEngineFlags } from '../../services/engineFlags';
+import { itemUnitRuleRepo } from '../../database/repositories/itemUnitRuleRepo';
+import { itemNameKey } from '../../mapping/nameKey';
+import { canonUnit } from '../../mapping/unitConverter';
+import type { InvoiceItem } from '../../database/repositories/invoiceRepo';
 import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
 
 /**
@@ -436,6 +442,17 @@ router.get('/:id', async (req: Request, res: Response) => {
       price_deviation_pct,
     };
   });
+
+  // Единица учёта позиции 1С у каждой строки — чтобы интерфейс видел
+  // расхождение «в накладной шт, в 1С кг» и предлагал пересчёт (пакет v2).
+  const guids = Array.from(new Set(enriched.items.map((it: any) => it.onec_guid).filter(Boolean)));
+  if (guids.length && raw.owner_user_id != null) {
+    const units = await getDb().prepare(
+      `SELECT guid, unit FROM onec_nomenclature_cards WHERE owner_user_id = ? AND guid IN (${guids.map(() => '?').join(',')})`,
+    ).all<{ guid: string; unit: string | null }>(raw.owner_user_id, ...guids);
+    const byGuid = new Map(units.map(u => [u.guid, u.unit]));
+    enriched.items = enriched.items.map((it: any) => ({ ...it, onec_unit: it.onec_guid ? byGuid.get(it.onec_guid) ?? null : null }));
+  }
 
   (enriched as typeof enriched & { possible_siblings: unknown }).possible_siblings =
     await invoiceRepo.findSiblings(id);
@@ -903,6 +920,47 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
   }
 });
 
+/**
+ * Пересчитать существующую строку в единицу 1С от её значений «как в
+ * накладной» (raw_*) через единую точку convertInvoiceLine. Строки, созданные
+ * до v2 (conv_source='legacy_stored'), автоматически НЕ пересчитываются —
+ * настоящих исходных значений у них нет, а повторное умножение уже
+ * пересчитанного количества и было главной бедой. Возвращает true, если
+ * строка изменилась.
+ */
+async function reconvertStoredItem(
+  item: InvoiceItem,
+  invoice: { owner_user_id: number | null; supplier_inn: string | null; supplier: string | null },
+  opts: { onecGuid?: string | null; mappedName?: string | null; pack?: { size: number; unit: string } | null; mappingId?: number | null; force?: boolean } = {},
+): Promise<boolean> {
+  if (item.conv_source === 'legacy_stored' && !opts.force) return false;
+  const conv = await convertInvoiceLine({
+    ownerUserId: invoice.owner_user_id,
+    supplierKey: makeSupplierKey(invoice.supplier_inn, invoice.supplier),
+    name: item.original_name,
+    raw: {
+      quantity: item.raw_quantity ?? item.quantity,
+      unit: item.raw_unit ?? item.unit,
+      price: item.raw_price ?? item.price,
+      total: item.raw_total ?? item.total,
+    },
+    onecGuid: opts.onecGuid !== undefined ? opts.onecGuid : item.onec_guid,
+    mappedName: opts.mappedName ?? item.mapped_name,
+    mapping: opts.pack ? { mapping_id: opts.mappingId ?? null, pack_size: opts.pack.size, pack_unit: opts.pack.unit } : null,
+  });
+  const changed = conv.quantity !== item.quantity || conv.unit !== item.unit || conv.price !== item.price
+    || (conv.conversion.qty_flag ?? null) !== (item.qty_flag ?? null);
+  if (changed || item.conv_source !== conv.conversion.conv_source) {
+    await invoiceRepo.updateItemConversion(item.id, {
+      quantity: conv.quantity, unit: conv.unit, price: conv.price,
+      conv_factor: conv.conversion.conv_factor, conv_note: conv.conversion.conv_note,
+      conv_source: conv.conversion.conv_source, qty_flag: conv.conversion.qty_flag,
+      qty_flag_note: conv.conversion.qty_flag_note,
+    });
+  }
+  return changed;
+}
+
 // POST /api/invoices/:id/remap — re-run nomenclature matching.
 // Query param: ?all=true to also re-map items that already have a GUID.
 // Useful after 1C catalog update — new items may be a better match for
@@ -1043,6 +1101,11 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     // When we skipped the mapper lookup above (already-mapped item without
     // ?all=true), fetch the current mapping directly so pack_size can still
     // be honoured.
+    if ((await getEngineFlags()).units_v2) {
+      const fresh = await invoiceRepo.getItemById(item.id);
+      if (fresh && await reconvertStoredItem(fresh, invoice)) repacked++;
+      continue;
+    }
     const mappingForPack = result ?? await mapper.map(item.original_name, mappingOwnerId, mappingContext);
     // Prefer the unit from whatever catalog row this item resolves to —
     // either the mapping's guid (learned mapping) or the item's own guid
@@ -1172,6 +1235,16 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
       // either NEW (was unmapped) or the guid switched. Otherwise we'd double-
       // count on every re-run.
       const canRepack = wasUnmapped || guidChanged;
+
+      if ((await getEngineFlags()).units_v2) {
+        const fresh = await invoiceRepo.getItemById(it.id);
+        const llmPack = hit.pack_size && hit.pack_size > 0 && hit.unit_override
+          ? { size: hit.pack_size, unit: hit.unit_override } : null;
+        if (fresh && await reconvertStoredItem(fresh, invoice, { onecGuid: hit.guid, mappedName: hit.name, pack: llmPack, force: canRepack && fresh.conv_source !== 'legacy_stored' })) {
+          repacked++;
+        }
+        continue;
+      }
 
       if (canRepack) {
         // Unified pack-transform path that mirrors fileWatcher. Priority for
@@ -1578,7 +1651,8 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   // If pack transform is provided alongside the mapping, compute the new
   // quantity/unit/price BEFORE the transaction so we can write them atomically
   // with the mapping change. Total is preserved unchanged.
-  const applyPack = onec_guid != null && pack_size != null && pack_unit != null;
+  const unitsV2 = (await getEngineFlags()).units_v2;
+  const applyPack = !unitsV2 && onec_guid != null && pack_size != null && pack_unit != null;
   let transformedQty: number | null = item.quantity;
   let transformedUnit: string | null = item.unit;
   let transformedPrice: number | null = item.price;
@@ -1635,6 +1709,31 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   // Invalidate mapper cache so the next fuzzy lookup rebuilds
   if (mapper) mapper.invalidateCache();
 
+  if (unitsV2 && onec_guid) {
+    // Упаковку, подтверждённую человеком («1 шт = 50 кг»), запоминаем как
+    // правило для этого товара у этого поставщика — а не как глобальную
+    // упаковку сопоставления, которая «протекала» на другие размеры.
+    const target = (await onecNomenclatureRepo.getByGuid(onec_guid, mappingOwnerId))?.unit ?? null;
+    const rawUnit = canonUnit(item.raw_unit ?? item.unit)?.unit ?? null;
+    const packU = pack_unit ? canonUnit(pack_unit) : null;
+    const targetU = target ? canonUnit(target) : null;
+    if (pack_size && packU && targetU && packU.cls === targetU.cls && invoice.owner_user_id != null) {
+      await itemUnitRuleRepo.upsert(invoice.owner_user_id, {
+        supplierKey: makeSupplierKey(invoice.supplier_inn, invoice.supplier),
+        nameKey: itemNameKey(item.original_name),
+        rawUnit,
+        targetUnit: targetU.unit,
+        factor: (pack_size * packU.toBase) / targetU.toBase,
+        source: 'user',
+        note: `1 ${rawUnit ?? 'ед.'} = ${pack_size} ${packU.unit} (указано при сопоставлении)`,
+        createdBy: req.user?.id ?? null,
+      });
+    }
+    const fresh = await invoiceRepo.getItemById(itemId);
+    if (fresh) await reconvertStoredItem(fresh, invoice, { onecGuid: onec_guid, mappedName: resolvedName, force: true });
+    await invoiceRepo.recalculateTotal(invoiceId);
+  }
+
   await logEdit({
     ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
     entity: 'mapping', field: 'onec_guid', oldValue: item.onec_guid, newValue: onec_guid,
@@ -1651,6 +1750,95 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
     return;
   }
   res.json({ data: updatedItem });
+});
+
+/** Строка + её накладная с проверкой владельца (для маршрутов пересчёта строки). */
+async function loadOwnedItem(req: Request, res: Response): Promise<{ item: InvoiceItem; invoice: NonNullable<Awaited<ReturnType<typeof invoiceRepo.getById>>> } | null> {
+  const invoiceId = parseInt(req.params.invoiceId as string, 10);
+  const itemId = parseInt(req.params.itemId as string, 10);
+  if (!Number.isFinite(invoiceId) || !Number.isFinite(itemId)) { res.status(400).json({ error: 'invalid invoiceId or itemId' }); return null; }
+  const item = await invoiceRepo.getItemById(itemId);
+  const invoice = await invoiceRepo.getById(invoiceId);
+  if (!item || item.invoice_id !== invoiceId || !invoice || invoice.owner_user_id !== req.user?.id) {
+    res.status(404).json({ error: 'Invoice item not found' });
+    return null;
+  }
+  return { item, invoice };
+}
+
+// POST /api/invoices/:invoiceId/items/:itemId/reconvert — пересчитать строку в
+// единицу 1С от значений «как в накладной» (явное действие человека: работает
+// и для строк, созданных до v2).
+router.post('/:invoiceId/items/:itemId/reconvert', async (req: Request, res: Response) => {
+  const ctx = await loadOwnedItem(req, res);
+  if (!ctx) return;
+  const before = { quantity: ctx.item.quantity, unit: ctx.item.unit, price: ctx.item.price };
+  await reconvertStoredItem(ctx.item, ctx.invoice, { force: true });
+  await invoiceRepo.recalculateTotal(ctx.invoice.id);
+  const after = await invoiceRepo.getItemById(ctx.item.id);
+  await logEdit({
+    ownerUserId: ctx.invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: ctx.invoice.id, itemId: ctx.item.id,
+    entity: 'item', field: 'reconvert', oldValue: before,
+    newValue: after ? { quantity: after.quantity, unit: after.unit, price: after.price } : null,
+    context: { original_name: ctx.item.original_name, note: after?.conv_note ?? null, flag: after?.qty_flag ?? null },
+  });
+  res.json({ data: after });
+});
+
+// POST /api/invoices/:invoiceId/items/:itemId/revert-raw — вернуть строку «как
+// в накладной»: количество/единица/цена/сумма = raw_*.
+router.post('/:invoiceId/items/:itemId/revert-raw', async (req: Request, res: Response) => {
+  const ctx = await loadOwnedItem(req, res);
+  if (!ctx) return;
+  const it = ctx.item;
+  if (it.raw_quantity == null && it.raw_unit == null) return res.status(400).json({ error: 'У строки нет значений «как в накладной»' });
+  await invoiceRepo.updateItemConversion(it.id, {
+    quantity: it.raw_quantity ?? it.quantity, unit: it.raw_unit ?? it.unit, price: it.raw_price ?? it.price,
+    total: it.raw_total ?? it.total,
+    conv_factor: 1, conv_source: 'manual', conv_note: 'возвращено как в накладной', qty_flag: null, qty_flag_note: null,
+  });
+  await invoiceRepo.recalculateTotal(ctx.invoice.id);
+  const after = await invoiceRepo.getItemById(it.id);
+  await logEdit({
+    ownerUserId: ctx.invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: ctx.invoice.id, itemId: it.id,
+    entity: 'item', field: 'revert_raw', oldValue: { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
+    newValue: after ? { quantity: after.quantity, unit: after.unit, price: after.price, total: after.total } : null,
+    context: { original_name: it.original_name },
+  });
+  res.json({ data: after });
+});
+
+// POST /api/invoices/:invoiceId/items/:itemId/unit-rule — «Запомнить пересчёт»:
+// body { factor, target_unit?, all_suppliers? }. factor — сколько единиц 1С в
+// одной единице накладной (1 шт батона = 0,4 кг → 0.4). Создаёт правило
+// «поставщик + товар» (или для товара у любого поставщика) и пересчитывает строку.
+router.post('/:invoiceId/items/:itemId/unit-rule', async (req: Request, res: Response) => {
+  const ctx = await loadOwnedItem(req, res);
+  if (!ctx) return;
+  const body = (req.body ?? {}) as { factor?: unknown; target_unit?: unknown; all_suppliers?: unknown };
+  const factor = Number(body.factor);
+  if (!Number.isFinite(factor) || factor <= 0 || factor > 100000) return res.status(400).json({ error: 'factor должен быть положительным числом' });
+  if (ctx.invoice.owner_user_id == null) return res.status(400).json({ error: 'У накладной нет владельца' });
+  const onecUnit = ctx.item.onec_guid
+    ? (await onecNomenclatureRepo.getByGuid(ctx.item.onec_guid, ctx.invoice.owner_user_id))?.unit ?? null
+    : null;
+  const target = canonUnit(typeof body.target_unit === 'string' ? body.target_unit : onecUnit);
+  if (!target) return res.status(400).json({ error: 'Не известна единица 1С для строки — сначала сопоставьте позицию' });
+  const rawUnit = canonUnit(ctx.item.raw_unit ?? ctx.item.unit)?.unit ?? null;
+  const supplierKey = body.all_suppliers === true ? null : makeSupplierKey(ctx.invoice.supplier_inn, ctx.invoice.supplier);
+  await itemUnitRuleRepo.upsert(ctx.invoice.owner_user_id, {
+    supplierKey, nameKey: itemNameKey(ctx.item.original_name), rawUnit, targetUnit: target.unit, factor,
+    source: 'user', note: `1 ${rawUnit ?? 'ед.'} = ${factor} ${target.unit}`, createdBy: req.user?.id ?? null,
+  });
+  await reconvertStoredItem(ctx.item, ctx.invoice, { force: true });
+  await invoiceRepo.recalculateTotal(ctx.invoice.id);
+  await logEdit({
+    ownerUserId: ctx.invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: ctx.invoice.id, itemId: ctx.item.id,
+    entity: 'rule', field: 'unit_rule', oldValue: null,
+    newValue: { factor, target_unit: target.unit, raw_unit: rawUnit, supplier_key: supplierKey },
+    context: { original_name: ctx.item.original_name },
+  });
+  res.json({ data: await invoiceRepo.getItemById(ctx.item.id) });
 });
 
 // PATCH /api/invoices/:invoiceId/items/:itemId — inline-edit of an item's
@@ -1727,6 +1915,58 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
     const t = toNumOrNull(body.total);
     if (t === undefined) { res.status(400).json({ error: 'invalid total' }); return; }
     fields.total = t;
+  }
+
+  if ((await getEngineFlags()).units_v2 && !('price' in fields) && !('total' in fields)
+      && ('quantity' in fields || 'unit' in fields)) {
+    // Пакет v2: деньги строки не трогаем. Правка единицы = исправление
+    // распознанной единицы → пересчёт от raw; правка количества = ручной итог
+    // в единице 1С (цена = сумма / количество).
+    if ('unit' in fields) {
+      await invoiceRepo.updateItemConversion(itemId, {
+        quantity: item.quantity, unit: item.unit, price: item.price,
+        raw_unit: fields.unit ?? null,
+        raw_quantity: 'quantity' in fields ? fields.quantity ?? null : (item.raw_quantity ?? item.quantity),
+      });
+      const fresh = await invoiceRepo.getItemById(itemId);
+      if (fresh) await reconvertStoredItem(fresh, editedInvoice, { force: true });
+    } else {
+      const q = fields.quantity ?? null;
+      const total = item.total;
+      const price = q != null && q > 0 && total != null ? Math.round((total / q) * 10000) / 10000 : item.price;
+      const rawQ = item.raw_quantity ?? null;
+      await invoiceRepo.updateItemConversion(itemId, {
+        quantity: q, unit: item.unit, price,
+        conv_factor: q != null && rawQ ? q / rawQ : null,
+        conv_source: 'manual',
+        conv_note: `исправлено вручную: ${item.quantity ?? '—'} → ${q ?? '—'} ${item.unit ?? ''}`.slice(0, 255),
+        qty_flag: null, qty_flag_note: null,
+      });
+    }
+    await invoiceRepo.recalculateTotal(invoiceId);
+    for (const [field, value] of Object.entries(fields)) {
+      await logEdit({
+        ownerUserId: editedInvoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
+        entity: 'item', field, oldValue: (item as unknown as Record<string, unknown>)[field], newValue: value,
+        context: {
+          original_name: item.original_name, onec_guid: item.onec_guid,
+          supplier_inn: editedInvoice.supplier_inn, supplier: editedInvoice.supplier,
+          before: { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+          raw: { quantity: item.raw_quantity, unit: item.raw_unit, price: item.raw_price, total: item.raw_total },
+        },
+      });
+    }
+    if ('unit' in fields && editedInvoice.owner_user_id != null) {
+      await ocrCorrectionRepo.remember(
+        supplierCorrectionKey(editedInvoice), 'item_unit', item.raw_unit ?? item.unit, fields.unit, editedInvoice.owner_user_id,
+        item.original_name,
+      );
+    }
+    const updatedV2 = await invoiceRepo.getItemById(itemId);
+    const invV2 = await invoiceRepo.getById(invoiceId);
+    return res.json({
+      data: { item: updatedV2, invoice_total_sum: invV2?.total_sum ?? null, items_total_mismatch: invV2?.items_total_mismatch ?? 0 },
+    });
   }
 
   // Auto-derive total from qty*price if both are set after this patch and

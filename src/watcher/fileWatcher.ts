@@ -18,8 +18,9 @@ import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { resolveSupplierName } from '../services/resolveSupplierName';
 import { linkApprovedSupplier } from '../services/supplierMatch';
 import { snapshotRepo } from '../database/repositories/snapshotRepo';
+import { makeSupplierKey } from '../database/repositories/supplierMappingRepo';
 import { sha256File } from '../utils/fileHash';
-import { resolveAndApplyPackTransform } from '../mapping/packTransform';
+import { convertInvoiceLine } from '../services/lineConversion';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
 import { emit as emitNotification, emitElevatedPricesIfAny } from '../notifications/events';
 import { editMessageText } from '../notifications/telegram/telegramClient';
@@ -220,28 +221,33 @@ export class FileWatcher {
   }
 
   /**
-   * When a pack transform was resolved via name-based fallback (i.e. the
-   * learned mapping didn't carry pack_size / pack_unit), persist the detected
-   * values back onto the mapping row so the next run skips the regex pass.
+   * Пересчёт строки в единицу 1С — единая точка для всех путей конвейера
+   * (src/services/lineConversion.ts). Значения «как в накладной» (после
+   * санитайзеров, до пересчёта) сохраняются в raw_* строки.
    */
-  private async persistPackFallback(
-    mappingId: number | null,
-    resolved: { usedFallback: boolean; packSize: number | null; packUnit: string | null },
+  private async convertItemLine(
+    item: { name: string; pack_size?: number | null },
+    sanityItem: { quantity?: number | null; unit?: string | null; price?: number | null; total?: number | null },
+    mapping: MappingResult,
     ownerUserId: number,
-  ): Promise<void> {
-    if (!mappingId || !resolved.usedFallback) return;
-    if (!resolved.packSize || !resolved.packUnit) return;
-    try {
-      await mappingRepo.update(mappingId, ownerUserId, {
-        pack_size: resolved.packSize,
-        pack_unit: resolved.packUnit,
-      });
-    } catch (err) {
-      logger.warn('Failed to persist pack fallback to mapping', {
-        mappingId,
-        error: (err as Error).message,
-      });
-    }
+    supplierInn: string | null | undefined,
+    supplierName: string | null | undefined,
+  ) {
+    return convertInvoiceLine({
+      ownerUserId: ownerUserId > 0 ? ownerUserId : null,
+      supplierKey: makeSupplierKey(supplierInn ?? null, supplierName ?? null),
+      name: item.name,
+      raw: {
+        quantity: sanityItem.quantity ?? null,
+        unit: sanityItem.unit ?? null,
+        price: sanityItem.price ?? null,
+        total: sanityItem.total ?? null,
+      },
+      onecGuid: mapping.onec_guid ?? null,
+      mappedName: mapping.mapped_name ?? null,
+      mapping: { mapping_id: mapping.mapping_id ?? null, pack_size: mapping.pack_size ?? null, pack_unit: mapping.pack_unit ?? null },
+      llmPackHint: item.pack_size ?? null,
+    });
   }
 
   /**
@@ -473,32 +479,17 @@ export class FileWatcher {
       // packTransform runs unconditionally — even for unmapped items, the
       // pack_size hint expands qty correctly AND coerce relabels supplier
       // packs (уп/кор/банка) to "шт" so 1С never sees non-{шт,кг,л} units.
-      const resolved = await (async () => {
-        const onec1cUnit = mapping.onec_guid
-          ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
-          : null;
-        const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
-        const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
-        const r = resolveAndApplyPackTransform(
-          sanity.item,
-          item.name,
-          hintedPackSize,
-          hintedPackUnit,
-          mapping.mapped_name,
-          onec1cUnit,
-        );
-        if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r, mappingOwnerId);
-        return r;
-      })();
+      const resolved = await this.convertItemLine(item, sanity.item, mapping, mappingOwnerId, mappingContext.supplierInn, mappingContext.supplierName);
 
       await invoiceRepo.addItem({
         invoice_id: invoiceId,
         original_name: item.name,
         mapped_name: mapping.mapped_name,
-        quantity: resolved.item.quantity,
-        unit: resolved.item.unit,
-        price: resolved.item.price,
-        total: resolved.item.total,
+        quantity: resolved.quantity ?? undefined,
+        unit: resolved.unit ?? undefined,
+        price: resolved.price ?? undefined,
+        total: resolved.total ?? undefined,
+        conversion: resolved.conversion,
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
         onec_guid: mapping.onec_guid,
@@ -611,22 +602,16 @@ export class FileWatcher {
         quantity: item.quantity, unit: item.unit, price: item.price, total: item.total,
       });
       const mapping = await this.mapper.map(item.name, mappingOwnerId, { supplierInn: target.supplier_inn, supplierName: target.supplier });
-      const onec1cUnit = mapping.onec_guid
-        ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
-        : null;
-      const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
-      const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
-      const r = resolveAndApplyPackTransform(
-        sanity.item, item.name, hintedPackSize, hintedPackUnit, mapping.mapped_name, onec1cUnit,
-      );
+      const r = await this.convertItemLine(item, sanity.item, mapping, mappingOwnerId, target.supplier_inn, target.supplier);
       await invoiceRepo.addItem({
         invoice_id: targetInvoiceId,
         original_name: item.name,
         mapped_name: mapping.mapped_name,
-        quantity: r.item.quantity,
-        unit: r.item.unit,
-        price: r.item.price,
-        total: r.item.total,
+        quantity: r.quantity ?? undefined,
+        unit: r.unit ?? undefined,
+        price: r.price ?? undefined,
+        total: r.total ?? undefined,
+        conversion: r.conversion,
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
         onec_guid: mapping.onec_guid,
@@ -1196,31 +1181,16 @@ export class FileWatcher {
                 // "К-139, 500мл 139х102х56мм (х50/500)". For mapped items
                 // 1С unit drives the conversion; for unmapped, coerce still
                 // relabels supplier packs (уп/кор/банка) to "шт".
-                const mergedResolved = await (async () => {
-                  const onec1cUnit = mapping.onec_guid
-                    ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
-                    : null;
-                  const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
-                  const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
-                  const r = resolveAndApplyPackTransform(
-                    sanity.item,
-                    item.name,
-                    hintedPackSize,
-                    hintedPackUnit,
-                    mapping.mapped_name,
-                    onec1cUnit,
-                  );
-                  if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r, mappingOwnerId);
-                  return r;
-                })();
+                const mergedResolved = await this.convertItemLine(item, sanity.item, mapping, mappingOwnerId, mappingContext.supplierInn, mappingContext.supplierName);
                 await invoiceRepo.addItem({
                   invoice_id: targetInvoiceId,
                   original_name: item.name,
                   mapped_name: mapping.mapped_name,
-                  quantity: mergedResolved.item.quantity,
-                  unit: mergedResolved.item.unit,
-                  price: mergedResolved.item.price,
-                  total: mergedResolved.item.total,
+                  quantity: mergedResolved.quantity ?? undefined,
+                  unit: mergedResolved.unit ?? undefined,
+                  price: mergedResolved.price ?? undefined,
+                  total: mergedResolved.total ?? undefined,
+                  conversion: mergedResolved.conversion,
                   vat_rate: item.vat_rate,
                   mapping_confidence: mapping.confidence,
                   onec_guid: mapping.onec_guid,
@@ -1459,31 +1429,16 @@ export class FileWatcher {
         // packTransform unconditionally: Claude's pack_size hint ("*48",
         // "1/12") expands qty even for unmapped rows, and coerce relabels
         // supplier packs to "шт" so 1С never sees уп/кор/банка.
-        const resolved = await (async () => {
-          const onec1cUnit = mapping.onec_guid
-            ? (await onecNomenclatureRepo.getByGuid(mapping.onec_guid, mappingOwnerId))?.unit ?? null
-            : null;
-          const hintedPackSize = item.pack_size ?? mapping.pack_size ?? null;
-          const hintedPackUnit = item.pack_size ? 'шт' : (mapping.pack_unit ?? null);
-          const r = resolveAndApplyPackTransform(
-            sanity.item,
-            item.name,
-            hintedPackSize,
-            hintedPackUnit,
-            mapping.mapped_name,
-            onec1cUnit,
-          );
-          if (mapping.mapping_id) await this.persistPackFallback(mapping.mapping_id, r, mappingOwnerId);
-          return r;
-        })();
+        const resolved = await this.convertItemLine(item, sanity.item, mapping, mappingOwnerId, mappingContext.supplierInn, mappingContext.supplierName);
         await invoiceRepo.addItem({
           invoice_id: targetInvoiceId,
           original_name: item.name,
           mapped_name: mapping.mapped_name,
-          quantity: resolved.item.quantity,
-          unit: resolved.item.unit,
-          price: resolved.item.price,
-          total: resolved.item.total,
+          quantity: resolved.quantity ?? undefined,
+          unit: resolved.unit ?? undefined,
+          price: resolved.price ?? undefined,
+          total: resolved.total ?? undefined,
+          conversion: resolved.conversion,
           vat_rate: item.vat_rate,
           mapping_confidence: mapping.confidence,
           onec_guid: mapping.onec_guid,
