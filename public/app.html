@@ -38,13 +38,14 @@
         </a>
 
         <div class="nav-group" data-group="catalogs">
-          <a href="#/mappings" class="nav-group-trigger" data-tab="mappings,suppliers" aria-haspopup="true">
+          <a href="#/mappings" class="nav-group-trigger" data-tab="mappings,new-items,suppliers" aria-haspopup="true">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             Справочники
             <svg class="nav-caret" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
           <div class="nav-menu" role="menu">
             <a href="#/mappings" data-tab="mappings" role="menuitem">Номенклатура</a>
+            <a href="#/new-items" data-tab="new-items" role="menuitem">Новые товары</a>
             <a href="#/suppliers" data-tab="suppliers" role="menuitem">Поставщики</a>
           </div>
         </div>
@@ -538,6 +539,23 @@
         </div>
       </div>
           <div id="mappings-rejections"></div>
+    </section>
+
+    <!-- «Новые товары» (пакет v2, п.12): строки без позиции 1С, сгруппированные
+         по товару. Разметку списка строит public/js/newItems.js. -->
+    <section id="view-new-items">
+      <div class="section-header">
+        <div>
+          <h2>Новые товары</h2>
+          <p class="section-subtitle">Строки неотправленных накладных, для которых нет позиции в 1С, — по товарам. Сопоставьте товар с позицией справочника или попросите 1С создать новую с нужными единицей и группой.</p>
+        </div>
+      </div>
+      <div class="ni-toolbar">
+        <div class="ni-summary" id="new-items-summary"></div>
+        <input type="search" id="new-items-search" placeholder="Поиск по названию или поставщику" aria-label="Поиск по товарам" autocomplete="off" name="new-items-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other">
+      </div>
+      <div id="new-items-list"></div>
+      <div id="new-items-waiting"></div>
     </section>
 
     <!-- Integration activity log -->
@@ -1084,6 +1102,7 @@
 <script src="/js/invoices.js"></script>
 <script src="/js/upload.js"></script>
 <script src="/js/mappings.js"></script>
+<script src="/js/newItems.js"></script>
 <script src="/js/integrations-log.js"></script>
 <script src="/js/operations.js"></script>
 <script src="/js/settings.js"></script>

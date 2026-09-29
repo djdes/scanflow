@@ -4501,3 +4501,46 @@ tr.row-unit-mismatch td { background: var(--warning-soft); }
 .mapping-src { display: inline-block; margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
 .mapping-src-ok { border-color: var(--green, #16a34a); color: var(--green, #16a34a); }
 .mapping-src-warn { border-color: var(--warning); color: #b45309; }
+
+/* Пакет v2, п.12: «Новые товары» (public/js/newItems.js) */
+.ni-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+.ni-summary { font-size: 13.5px; color: var(--text-secondary); }
+.ni-toolbar input[type="search"] { max-width: 360px; }
+/* Выпадающий список позиций 1С в форме не должен обрезаться прокруткой таблицы. */
+.ni-table-wrap { overflow: visible; }
+.ni-table td { vertical-align: top; }
+.ni-cell { display: block; min-width: 0; }
+.ni-name { font-weight: 600; overflow-wrap: anywhere; }
+.ni-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; overflow-wrap: anywhere; }
+.ni-warn-text { font-size: 12px; color: #b45309; margin-top: 4px; max-width: 280px; }
+.ni-price { white-space: nowrap; }
+.ni-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+tr.ni-row.is-open td { background: var(--primary-soft); }
+tr.ni-form-row > td { background: #f8faff; }
+.ni-form { display: grid; gap: 10px; max-width: 680px; text-align: left; }
+.ni-form .form-group { margin: 0; }
+.ni-form-title { font-weight: 600; overflow-wrap: anywhere; }
+.ni-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; }
+.ni-picker .nom-picker-dropdown { left: 0; }
+.nom-picker-option.ni-none { color: var(--text-secondary); cursor: default; }
+.ni-picked { font-size: 13px; overflow-wrap: anywhere; }
+.ni-picked .link-btn { margin-left: 6px; }
+.ni-warning { font-size: 12.5px; color: #92400e; background: var(--warning-soft); border-radius: 6px; padding: 6px 10px; }
+.ni-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ni-waiting { margin-top: 20px; }
+.ni-waiting h3 { margin-bottom: 6px; }
+.ni-waiting-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.ni-waiting-list li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; padding: 6px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  table.ni-table tbody tr td.cell-action::before { display: none; }
+  table.ni-table .ni-actions { width: 100%; flex-direction: row; flex-wrap: wrap; }
+  table.ni-table .ni-actions .btn { flex: 1 1 auto; white-space: normal; }
+  table.ni-table tbody tr td .ni-cell { text-align: right; }
+  table.ni-table tbody tr.ni-row.is-open { border-color: var(--primary); }
+  table.ni-table tbody tr.ni-row.is-open td { background: transparent; }
+  table.ni-table tbody tr.ni-form-row { padding: 12px 14px; }
+  table.ni-table tbody tr.ni-form-row td { display: block; text-align: left; padding: 0; }
+  table.ni-table tbody tr.ni-form-row td::before { display: none; }
+  .ni-toolbar input[type="search"] { max-width: none; }
+  .ni-form-grid { grid-template-columns: minmax(0, 1fr) 96px; }
+}
