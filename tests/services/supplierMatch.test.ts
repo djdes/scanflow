@@ -16,6 +16,7 @@ import {
   supplierNameScore,
   rankSuppliersByName,
   pickAutoLinkCandidate,
+  dropInvalidInnTwins,
   linkApprovedSupplier,
   AUTO_LINK_MIN_SCORE,
 } from '../../src/services/supplierMatch';
@@ -158,6 +159,87 @@ describe('linkApprovedSupplier', () => {
 
   it('никогда не бросает', async () => {
     vi.mocked(invoiceRepo.getById).mockRejectedValue(new Error('db down'));
+    await expect(linkApprovedSupplier(10)).resolves.toEqual({ match: null, supplier: null });
+  });
+});
+
+// Реальный случай 29.09: две подтверждённые карточки «Вкусный мир ТК» —
+// верная 7724357632 и двойник 7724357832 (OCR перепутал цифру, ИНН не проходит
+// контрольную сумму). Раньше одинаковое название с разными ИНН блокировало
+// автопривязку, а накладная с ИНН-опечаткой цеплялась к двойнику.
+describe('двойники с невалидным ИНН', () => {
+  const GOOD = '7724357632';
+  const TYPO = '7724357832';
+  const good = card(GOOD, 'ООО "Вкусный мир ТК"');
+  const typo = card(TYPO, 'ООО "Вкусный мир ТК"');
+
+  beforeEach(() => { vi.resetAllMocks(); });
+
+  it('rankSuppliersByName отбрасывает двойника с битым ИНН', () => {
+    const r = rankSuppliersByName('ВКУСНЫЙ МИР ТК ООО', [typo, good]);
+    expect(r.map(c => c.supplier.inn)).toEqual([GOOD]);
+  });
+
+  it('pickAutoLinkCandidate берёт верную карточку, а не отказывается от выбора', () => {
+    const r = pickAutoLinkCandidate([{ supplier: typo, score: 1 }, { supplier: good, score: 1 }]);
+    expect(r?.supplier.inn).toBe(GOOD);
+  });
+
+  it('карточка с битым ИНН без верного двойника остаётся кандидатом', () => {
+    expect(rankSuppliersByName('Вкусный мир ТК', [typo]).map(c => c.supplier.inn)).toEqual([TYPO]);
+    expect(pickAutoLinkCandidate(rankSuppliersByName('Вкусный мир ТК', [typo]))?.supplier.inn).toBe(TYPO);
+  });
+
+  it('битый ИНН у поставщика с другим названием не выбрасывается', () => {
+    const other = card('5258006806', 'ООО "Ромашка"'); // ИНН не проходит проверку
+    const r = dropInvalidInnTwins([{ supplier: good, score: 1 }, { supplier: other, score: 0.7 }]);
+    expect(r.map(c => c.supplier.inn)).toEqual([GOOD, '5258006806']);
+  });
+
+  it('linkApprovedSupplier: ИНН с фото нашёл двойника — привязка к верной карточке по названию', async () => {
+    vi.mocked(invoiceRepo.getById).mockResolvedValue({
+      id: 10, owner_user_id: 1, supplier: 'ВКУСНЫЙ МИР ТК', supplier_inn: TYPO,
+      supplier_match: null, supplier_inn_ocr: null, supplier_name_ocr: null,
+    } as never);
+    vi.mocked(supplierRepo.findByInn).mockResolvedValue(typo);
+    vi.mocked(supplierRepo.listAll).mockResolvedValue([typo, good]);
+
+    const r = await linkApprovedSupplier(10);
+
+    expect(r).toEqual({ match: 'name', supplier: good });
+    expect(invoiceRepo.setSupplierLink).toHaveBeenCalledWith(10, {
+      supplier: 'ООО "Вкусный мир ТК"',
+      supplier_inn: GOOD,
+      match: 'name',
+      supplier_inn_ocr: TYPO,
+      supplier_name_ocr: 'ВКУСНЫЙ МИР ТК',
+    });
+    expect(invoiceRepo.setSupplierMatch).not.toHaveBeenCalled();
+  });
+
+  it('linkApprovedSupplier: у двойника нет верной подтверждённой пары — прежняя привязка по ИНН', async () => {
+    vi.mocked(invoiceRepo.getById).mockResolvedValue({
+      id: 10, owner_user_id: 1, supplier: 'Вкусный мир ТК', supplier_inn: TYPO, supplier_match: null,
+    } as never);
+    vi.mocked(supplierRepo.findByInn).mockResolvedValue(typo);
+    // Верная карточка есть, но не подтверждена — подменять ею нельзя.
+    vi.mocked(supplierRepo.listAll).mockResolvedValue([typo, card(GOOD, 'ООО "Вкусный мир ТК"', 0)]);
+
+    const r = await linkApprovedSupplier(10);
+
+    expect(r).toEqual({ match: 'inn', supplier: typo });
+    expect(invoiceRepo.setSupplierMatch).toHaveBeenCalledWith(10, 'inn');
+    expect(invoiceRepo.setSupplierLink).not.toHaveBeenCalled();
+  });
+
+  it('linkApprovedSupplier не бросает, если запись привязки к двойнику упала', async () => {
+    vi.mocked(invoiceRepo.getById).mockResolvedValue({
+      id: 10, owner_user_id: 1, supplier: 'Вкусный мир ТК', supplier_inn: TYPO, supplier_match: null,
+    } as never);
+    vi.mocked(supplierRepo.findByInn).mockResolvedValue(typo);
+    vi.mocked(supplierRepo.listAll).mockResolvedValue([typo, good]);
+    vi.mocked(invoiceRepo.setSupplierLink).mockRejectedValue(new Error('db down'));
+
     await expect(linkApprovedSupplier(10)).resolves.toEqual({ match: null, supplier: null });
   });
 });
