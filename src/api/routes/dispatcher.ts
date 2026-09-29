@@ -25,6 +25,7 @@ import { emit as emitNotification, notifySupplierExtractError, emitElevatedPrice
 import { normalizeInvoiceNumber, suppliersMatch } from '../../utils/invoiceNumber';
 import { resolveSupplierName } from '../../services/resolveSupplierName';
 import { linkApprovedSupplier } from '../../services/supplierMatch';
+import { snapshotRepo } from '../../database/repositories/snapshotRepo';
 import { autoSendSberForInvoice } from '../../services/autoSendSber';
 import { mergeBlockedByNumber } from '../../services/mergeDecision';
 import { userRepo } from '../../database/repositories/userRepo';
@@ -557,6 +558,9 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
 
     if (!isMerge) {
       // Реквизиты — из справочника утверждённых поставщиков (ИНН, иначе название).
+      // Снимок «как распознано» — до пересчёта единиц, привязки поставщика и
+      // ручных правок: к нему можно вернуть номер/дату/сумму/НДС (п.0 пакета v2).
+      await snapshotRepo.record(id, 'recognized');
       await linkApprovedSupplier(id);
       await invoiceRepo.updateStatus(id, 'processed');
 

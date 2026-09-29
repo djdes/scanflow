@@ -13,6 +13,7 @@ import { syncStateRepo } from '../../database/repositories/syncStateRepo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+import { onCatalogChanged } from '../../services/catalogSyncWatcher';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -269,7 +270,11 @@ onecExchangeRouter.post('/nomenclature/sync', async (req: Request, res: Response
   if (items.some(item => !String(item?.guid || '').trim() || !String(item?.name || '').trim())) return res.status(400).json({ error: 'У каждой позиции обязательны guid и name' });
   try {
     const upserted = await onecNomenclatureRepo.bulkUpsert(items, catalogOwner(req));
-    const orphaned = await mappingRepo.removeOrphaned(catalogOwner(req));
+    // Сопоставления НЕ удаляем: это только одна пачка из нескольких (1С шлёт по
+    // 500). Пометка «позиции нет в каталоге» ставится после паузы — см.
+    // catalogSyncWatcher. До v2 здесь стоял removeOrphaned и стирал правила.
+    onCatalogChanged(catalogOwner(req));
+    const orphaned = 0;
     mapper?.invalidateCache(catalogOwner(req));
     void logIntegrationEvent({ integration: 'nomenclature', event_type: 'catalog_synced', summary: `1С «${req.onecConnection?.name}»: синхронизировано ${upserted} позиций` });
     res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });

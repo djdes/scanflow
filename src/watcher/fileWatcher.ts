@@ -17,6 +17,7 @@ import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { resolveSupplierName } from '../services/resolveSupplierName';
 import { linkApprovedSupplier } from '../services/supplierMatch';
+import { snapshotRepo } from '../database/repositories/snapshotRepo';
 import { sha256File } from '../utils/fileHash';
 import { resolveAndApplyPackTransform } from '../mapping/packTransform';
 import { sanitizeItemArithmetic, sanitizeInvoiceVat, sanitizeItemVatPerItem } from '../parser/itemSanitizer';
@@ -506,6 +507,9 @@ export class FileWatcher {
 
     await invoiceRepo.recalculateTotal(invoiceId);
     // Реквизиты — из справочника утверждённых поставщиков (ИНН, иначе название).
+    // Снимок «как распознано» — до пересчёта единиц, привязки поставщика и
+    // ручных правок: к нему можно вернуть номер/дату/сумму/НДС (п.0 пакета v2).
+    await snapshotRepo.record(invoiceId, 'recognized');
     await linkApprovedSupplier(invoiceId);
     await invoiceRepo.updateStatus(invoiceId, 'processed');
 
@@ -1224,6 +1228,9 @@ export class FileWatcher {
               }
 
               await invoiceRepo.recalculateTotal(targetInvoiceId);
+              // Снимок «как распознано» — до пересчёта единиц, привязки поставщика и
+              // ручных правок: к нему можно вернуть номер/дату/сумму/НДС (п.0 пакета v2).
+              await snapshotRepo.record(targetInvoiceId, 'recognized');
               await linkApprovedSupplier(targetInvoiceId);
               await invoiceRepo.updateStatus(targetInvoiceId, 'processed');
 
@@ -1503,6 +1510,9 @@ export class FileWatcher {
         await invoiceRepo.recalculateTotal(invoice.id);
         // Реквизиты — из справочника утверждённых поставщиков: по ИНН, а если
         // ИНН с фото там нет — по названию (с пометкой supplier_match='name').
+        // Снимок «как распознано» — до пересчёта единиц, привязки поставщика и
+        // ручных правок: к нему можно вернуть номер/дату/сумму/НДС (п.0 пакета v2).
+        await snapshotRepo.record(invoice.id, 'recognized');
         await linkApprovedSupplier(invoice.id);
         await invoiceRepo.updateStatus(invoice.id, 'processed');
         logger.info('Invoice processed successfully', {

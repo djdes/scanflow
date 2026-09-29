@@ -45,6 +45,8 @@ import { automationRepo } from '../../database/repositories/automationRepo';
 import { approvalRepo } from '../../database/repositories/approvalRepo';
 import { makeSupplierKey, supplierMappingRepo } from '../../database/repositories/supplierMappingRepo';
 import { ocrCorrectionRepo, supplierCorrectionKey } from '../../database/repositories/ocrCorrectionRepo';
+import { logEdit, editLogRepo } from '../../database/repositories/editLogRepo';
+import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -440,6 +442,47 @@ router.get('/:id', async (req: Request, res: Response) => {
   res.json({ data: enriched });
 });
 
+// GET /api/invoices/:id/edits — журнал правок и снимки шапки (вкладка «История»).
+router.get('/:id/edits', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  const [edits, snapshots] = await Promise.all([
+    editLogRepo.listForInvoice(id).catch(() => []),
+    snapshotRepo.list(id).catch(() => []),
+  ]);
+  return res.json({ data: { edits, snapshots } });
+});
+
+// POST /api/invoices/:id/restore-snapshot — вернуть номер/дату/сумму/НДС из снимка.
+// body: { kind: 'recognized' | 'baseline', fields?: [...] }. Строки не трогает.
+// Страховка пакета v2: «вернуться хотя бы к правильным суммам, НДС и номерам».
+router.post('/:id/restore-snapshot', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  const body = (req.body ?? {}) as { kind?: string; fields?: unknown };
+  const kind: SnapshotKind = body.kind === 'baseline' ? 'baseline' : 'recognized';
+  const fields = Array.isArray(body.fields)
+    ? RESTORABLE_HEADER_FIELDS.filter(f => (body.fields as unknown[]).includes(f))
+    : [...RESTORABLE_HEADER_FIELDS];
+  const snap = await snapshotRepo.latest(id, kind);
+  if (!snap) return res.status(404).json({ error: kind === 'baseline' ? 'Снимка на момент обновления нет' : 'Снимка распознавания нет' });
+  const patch = headerRestorePatch(invoice as unknown as Partial<Record<RestorableField, string | number | null>>, snap, fields);
+  await snapshotRepo.applyHeaderPatch(id, patch);
+  for (const [field, value] of Object.entries(patch)) {
+    await logEdit({
+      ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: id,
+      entity: 'invoice', field, oldValue: (invoice as unknown as Record<string, unknown>)[field], newValue: value,
+      context: { restored_from: kind, snapshot_id: snap.id },
+    });
+  }
+  const updated = await invoiceRepo.getById(id);
+  return res.json({ data: { restored: patch, snapshot_id: snap.id, invoice: updated ? await enrichInvoiceWithSupplier(updated) : null } });
+});
+
 // PATCH /api/invoices/:id — отредактировать header-поля накладной.
 // Используется UI-формой «Реквизиты накладной» когда юзеру нужно дозаполнить
 // или поправить распознанные данные перед отправкой в 1С / Сбербанк.
@@ -561,6 +604,13 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 
   await invoiceRepo.updateInvoiceData(id, update);
+  for (const [field, value] of Object.entries(update)) {
+    await logEdit({
+      ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: id,
+      entity: 'invoice', field, oldValue: (invoice as unknown as Record<string, unknown>)[field], newValue: value,
+      context: { supplier: invoice.supplier, supplier_inn: invoice.supplier_inn },
+    });
+  }
 
   // Правка реквизита обнуляет его отметку «сверено с фото»: галочка означает,
   // что человек сверил КОНКРЕТНОЕ значение, а оно только что изменилось. Другие
@@ -1581,6 +1631,16 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   // Invalidate mapper cache so the next fuzzy lookup rebuilds
   if (mapper) mapper.invalidateCache();
 
+  await logEdit({
+    ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
+    entity: 'mapping', field: 'onec_guid', oldValue: item.onec_guid, newValue: onec_guid,
+    context: {
+      original_name: item.original_name, old_name: item.mapped_name, new_name: displayName,
+      supplier_inn: invoice.supplier_inn, supplier: invoice.supplier,
+      pack: applyPack ? { pack_size, pack_unit } : null,
+    },
+  });
+
   const updatedItem = await invoiceRepo.getItemById(itemId);
   if (!updatedItem) {
     res.status(500).json({ error: 'Failed to retrieve updated item' });
@@ -1628,6 +1688,11 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
       return;
     }
     const updated = await invoiceRepo.setItemCustomName(itemId, name);
+    await logEdit({
+      ownerUserId: editedInvoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
+      entity: 'item', field: 'mapped_name', oldValue: item.mapped_name, newValue: name,
+      context: { original_name: item.original_name, onec_guid: item.onec_guid, supplier_inn: editedInvoice.supplier_inn },
+    });
     res.json({ data: updated });
     return;
   }
@@ -1680,11 +1745,23 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
     await invoiceRepo.recalculateTotal(invoiceId);
     void txn;
   });
-  // Единицу измерения запоминаем только в области владельца накладной —
-  // см. комментарий в PATCH /:id. Без владельца правка просто не запоминается.
+  for (const [field, value] of Object.entries(fields)) {
+    await logEdit({
+      ownerUserId: editedInvoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
+      entity: 'item', field, oldValue: (item as unknown as Record<string, unknown>)[field], newValue: value,
+      context: {
+        original_name: item.original_name, onec_guid: item.onec_guid,
+        supplier_inn: editedInvoice.supplier_inn, supplier: editedInvoice.supplier,
+        before: { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total },
+      },
+    });
+  }
+  // Единицу измерения запоминаем только в области владельца накладной и только
+  // для ЭТОГО товара (см. миграцию 66) — не для всех строк поставщика.
   if ('unit' in fields && editedInvoice.owner_user_id != null) {
     await ocrCorrectionRepo.remember(
       supplierCorrectionKey(editedInvoice), 'item_unit', item.unit, fields.unit, editedInvoice.owner_user_id,
+      item.original_name,
     );
   }
 
@@ -1930,6 +2007,11 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       });
       logger.info('[sber] invoice supplier linked manually', {
         invoice_id: id, from_inn: invoice.supplier_inn, to_inn: supplier.inn,
+      });
+      await logEdit({
+        ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: id,
+        entity: 'supplier', field: 'supplier_inn', oldValue: invoice.supplier_inn, newValue: supplier.inn,
+        context: { old_name: invoice.supplier, new_name: supplier.name, via: 'send-sber', prev_match: invoice.supplier_match },
       });
     }
   }

@@ -169,6 +169,31 @@ export const mappingRepo = {
    * Сверка идёт с каталогом ТОЙ ЖЕ компании: по чужому каталогу вычистились бы
    * все сопоставления подряд — там этих guid просто нет.
    */
+  /**
+   * Пометить (не удалять!) сопоставления, чьей позиции больше нет в каталоге
+   * компании, и снять пометку с вернувшихся. Вызывается после того, как
+   * выгрузка каталога из 1С закончилась (src/services/catalogSyncWatcher.ts).
+   */
+  async markOrphaned(ownerUserId: number): Promise<{ marked: number; restored: number }> {
+    const db = getDb();
+    const marked = await db.prepare(
+      `UPDATE nomenclature_mapping_cards SET orphaned_at = NOW()
+       WHERE owner_user_id = ? AND orphaned_at IS NULL
+         AND onec_guid IS NOT NULL AND onec_guid != ''
+         AND onec_guid NOT IN (SELECT guid FROM onec_nomenclature_cards WHERE owner_user_id = ?)`
+    ).run(ownerUserId, ownerUserId);
+    const restored = await db.prepare(
+      `UPDATE nomenclature_mapping_cards SET orphaned_at = NULL
+       WHERE owner_user_id = ? AND orphaned_at IS NOT NULL
+         AND onec_guid IN (SELECT guid FROM onec_nomenclature_cards WHERE owner_user_id = ?)`
+    ).run(ownerUserId, ownerUserId);
+    return { marked: marked.changes, restored: restored.changes };
+  },
+
+  /**
+   * Физическое удаление «осиротевших» сопоставлений — ТОЛЬКО по явному
+   * действию человека. С v2 синк каталога его не вызывает (см. markOrphaned).
+   */
   async removeOrphaned(ownerUserId: number): Promise<number> {
     const result = await getDb().prepare(
       `DELETE FROM nomenclature_mapping_cards

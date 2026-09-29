@@ -7,6 +7,7 @@ import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { requireAdmin } from '../middleware/auth';
 import { parseCatalogSpreadsheet } from '../../integration/catalogSpreadsheet';
+import { onCatalogChanged } from '../../services/catalogSyncWatcher';
 
 const router = Router();
 
@@ -60,7 +61,9 @@ router.post('/import', requireAdmin, receiveCatalogFile, async (req: Request, re
     } else {
       upserted = await onecNomenclatureRepo.bulkUpsert(parsed.items, ownerOf(req));
     }
-    const orphaned = await mappingRepo.removeOrphaned(ownerOf(req));
+    // Таблица приходит целиком — можно сразу пометить сопоставления исчезнувших
+    // позиций. Помечаем, а не удаляем (правила не теряются).
+    const orphaned = (await mappingRepo.markOrphaned(ownerOf(req))).marked;
     mapper?.invalidateCache(ownerOf(req));
     logger.info('Nomenclature spreadsheet import completed', {
       mode, upserted, deleted, skipped: parsed.skippedRows, generatedIds: parsed.generatedIds,
@@ -108,11 +111,11 @@ router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
   }
   try {
     const upserted = await onecNomenclatureRepo.bulkUpsert(items, ownerOf(req));
-    // Clean up mappings that point to deleted 1C items
-    const orphaned = await mappingRepo.removeOrphaned(ownerOf(req));
-    if (orphaned > 0) {
-      logger.info('Removed orphaned mappings after sync', { orphaned });
-    }
+    // Пачка из нескольких — сопоставления не трогаем; пометка «позиции нет в
+    // каталоге» ставится после паузы (catalogSyncWatcher). До v2 здесь
+    // removeOrphaned стирал правила позиций из следующих пачек.
+    onCatalogChanged(ownerOf(req));
+    const orphaned = 0;
     // CRITICAL: invalidate the Fuse index used by NomenclatureMapper so the
     // next map() call rebuilds from fresh onec_nomenclature rows.
     if (mapper) mapper.invalidateCache(ownerOf(req));

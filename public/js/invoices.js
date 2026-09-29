@@ -1145,7 +1145,9 @@ const Invoices = {
       <div class="invoice-header">${procRows.join('')}</div>
       <h3 style="margin:20px 0 12px">Замечания</h3>
       ${remarksHtml}
+      <div id="invoice-history-edits"></div>
     `;
+    this._renderEditsAndSnapshots(data).catch(e => console.warn('edits/snapshots render failed', e));
 
     // Lifecycle: Sber payment is stored in a separate table — fetch and append
     // its «создан» timestamp when present. Optional; failure degrades silently.
@@ -1163,6 +1165,85 @@ const Invoices = {
         }
       }
     } catch { /* sber status optional */ }
+  },
+
+  // Правки «было → стало» и снимки шапки (номер/дата/сумма/НДС) с кнопкой
+  // «вернуть» — страховка пакета v2: к правильным суммам, НДС и номерам можно
+  // вернуться в один клик.
+  async _renderEditsAndSnapshots(data) {
+    const host = document.getElementById('invoice-history-edits');
+    if (!host) return;
+    let payload;
+    try {
+      ({ data: payload } = await App.apiJson(`/invoices/${data.id}/edits`));
+    } catch { return; }
+    if (this._currentInvoiceId !== data.id) return;
+    const LABELS = {
+      invoice_number: 'Номер', invoice_date: 'Дата', total_sum: 'Сумма', vat_sum: 'НДС',
+      supplier: 'Поставщик', supplier_inn: 'ИНН поставщика', supplier_kpp: 'КПП', supplier_bik: 'БИК',
+      supplier_account: 'Счёт', supplier_corr_account: 'Корсчёт', supplier_address: 'Адрес',
+      invoice_type: 'Тип документа', quantity: 'Количество', unit: 'Единица', price: 'Цена',
+      total: 'Сумма строки', mapped_name: 'Название (1С)', onec_guid: 'Позиция 1С',
+    };
+    const fmt = (v) => (v == null || v === '') ? '—' : App.esc(String(v).replace(/^"|"$/g, ''));
+    const edits = payload.edits || [];
+    const editsHtml = edits.length
+      ? `<div class="table-container"><table class="data-table"><thead><tr><th>Когда</th><th>Что</th><th>Было</th><th>Стало</th></tr></thead><tbody>${
+        edits.map(e => {
+          let ctx = {};
+          try { ctx = e.context ? JSON.parse(e.context) : {}; } catch { ctx = {}; }
+          const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:12px">${App.esc(ctx.original_name)}</div>` : '');
+          const oldV = e.field === 'onec_guid' ? fmt(ctx.old_name) : fmt(e.old_value);
+          const newV = e.field === 'onec_guid' ? fmt(ctx.new_name) : fmt(e.new_value);
+          const src = ctx.restored_from ? ` <span class="muted">(откат из снимка)</span>` : '';
+          return `<tr><td>${App.formatDateTime(e.created_at)}</td><td>${what}${src}</td><td>${oldV}</td><td>${newV}</td></tr>`;
+        }).join('')}</tbody></table></div>`
+      : '<div class="muted">Правок не было</div>';
+
+    const snaps = payload.snapshots || [];
+    const latest = (kind) => snaps.find(sn => sn.kind === kind);
+    const money = (v) => v == null ? '—' : App.formatMoney ? App.formatMoney(v) : String(v);
+    const differs = (sn) => sn && (
+      String(sn.invoice_number ?? '') !== String(data.invoice_number ?? '')
+      || String(sn.invoice_date ?? '') !== String(data.invoice_date ?? '')
+      || (sn.total_sum != null && Math.abs(Number(sn.total_sum) - Number(data.total_sum ?? 0)) >= 0.005)
+      || (sn.vat_sum != null && Math.abs(Number(sn.vat_sum) - Number(data.vat_sum ?? 0)) >= 0.005)
+    );
+    const snapRow = (kind, title) => {
+      const sn = latest(kind);
+      if (!sn) return '';
+      const btn = differs(sn)
+        ? `<button class="btn btn-sm btn-outline" data-restore-kind="${kind}">Вернуть номер, дату, сумму и НДС</button>`
+        : '<span class="muted">совпадает с текущими</span>';
+      return `<tr><td>${title}<div class="muted" style="font-size:12px">${App.formatDateTime(sn.created_at)}</div></td>
+        <td>${fmt(sn.invoice_number)}</td><td>${fmt(sn.invoice_date)}</td><td>${money(sn.total_sum)}</td><td>${money(sn.vat_sum)}</td><td>${btn}</td></tr>`;
+    };
+    const snapsRows = snapRow('recognized', 'Как распознано') + snapRow('baseline', 'До обновления v2 (29.09)');
+    const snapsHtml = snapsRows
+      ? `<div class="table-container"><table class="data-table"><thead><tr><th>Снимок</th><th>Номер</th><th>Дата</th><th>Сумма</th><th>НДС</th><th></th></tr></thead><tbody>${snapsRows}</tbody></table></div>`
+      : '<div class="muted">Снимков пока нет</div>';
+
+    host.innerHTML = `
+      <h3 style="margin:20px 0 12px">Правки</h3>
+      ${editsHtml}
+      <h3 style="margin:20px 0 12px">Снимки шапки</h3>
+      ${snapsHtml}`;
+    host.querySelectorAll('button[data-restore-kind]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const kind = btn.getAttribute('data-restore-kind');
+        if (!window.confirm('Вернуть номер, дату, сумму и НДС из этого снимка? Строки накладной не изменятся.')) return;
+        btn.disabled = true;
+        try {
+          const { data: r } = await App.apiJson(`/invoices/${data.id}/restore-snapshot`, { method: 'POST', body: { kind } });
+          const n = Object.keys(r.restored || {}).length;
+          App.notify(n ? `Восстановлено полей: ${n}` : 'Значения уже совпадали', 'success');
+          this.showDetail(data.id);
+        } catch (e) {
+          App.notify(e.message || 'Не удалось восстановить', 'error');
+          btn.disabled = false;
+        }
+      });
+    });
   },
 
   _plural(n, one, few, many) {

@@ -1,5 +1,6 @@
 import { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { logger } from '../utils/logger';
+import { itemNameKey } from '../mapping/nameKey';
 
 type Executor = Pool | PoolConnection;
 
@@ -1873,6 +1874,137 @@ const MIGRATIONS: Migration[] = [
       if (!(await hasColumn(exec, 'analyzer_config', 'engine_flags'))) {
         await exec.query(`ALTER TABLE analyzer_config ADD COLUMN engine_flags MEDIUMTEXT NULL`);
       }
+    },
+  },  {
+    version: 63,
+    name: 'invoice_snapshots — снимки номера/даты/суммы/НДС для отката (baseline + recognized)',
+    // Требование заказчика к пакету v2: «если что-то будет не так — вернуться
+    // хотя бы к правильным суммам, НДС и номерам счетов». baseline — состояние
+    // всех накладных на момент выкладки v2 (бэкфилл ниже), recognized — пишется
+    // при каждом распознавании до пересчёта единиц. Строки — JSON для аудита.
+    detect: (exec) => hasTable(exec, 'invoice_snapshots'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS invoice_snapshots (
+          id              INT AUTO_INCREMENT PRIMARY KEY,
+          invoice_id      INT NOT NULL,
+          kind            VARCHAR(16) NOT NULL,
+          invoice_number  VARCHAR(255) NULL,
+          invoice_date    VARCHAR(32) NULL,
+          total_sum       DOUBLE NULL,
+          vat_sum         DOUBLE NULL,
+          supplier        VARCHAR(512) NULL,
+          supplier_inn    VARCHAR(12) NULL,
+          items_json      MEDIUMTEXT NULL,
+          created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_snapshots_invoice (invoice_id, kind, id),
+          CONSTRAINT fk_snapshots_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      // Бэкфилл baseline — только тем, у кого его ещё нет (повторный прогон безопасен).
+      const [invs] = await exec.query<RowDataPacket[]>(`
+        SELECT i.id, i.invoice_number, i.invoice_date, i.total_sum, i.vat_sum, i.supplier, i.supplier_inn
+          FROM invoices i
+         WHERE NOT EXISTS (SELECT 1 FROM invoice_snapshots s WHERE s.invoice_id = i.id AND s.kind = 'baseline')
+      `);
+      for (const inv of invs) {
+        const [items] = await exec.query<RowDataPacket[]>(
+          `SELECT id, original_name, mapped_name, quantity, unit, price, total, vat_rate, onec_guid, row_no
+             FROM invoice_items WHERE invoice_id = ? ORDER BY id`, [inv.id]);
+        await exec.query(
+          `INSERT INTO invoice_snapshots (invoice_id, kind, invoice_number, invoice_date, total_sum, vat_sum, supplier, supplier_inn, items_json)
+           VALUES (?, 'baseline', ?, ?, ?, ?, ?, ?, ?)`,
+          [inv.id, inv.invoice_number, inv.invoice_date, inv.total_sum, inv.vat_sum, inv.supplier,
+            inv.supplier_inn ? String(inv.supplier_inn).slice(0, 12) : null, JSON.stringify(items)]);
+      }
+    },
+  },
+  {
+    version: 64,
+    name: 'edit_log — журнал правок «было → стало» (основа самообучения)',
+    // Без внешнего ключа на invoices: запись о правке переживает удаление
+    // накладной (это и есть смысл журнала).
+    detect: (exec) => hasTable(exec, 'edit_log'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS edit_log (
+          id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id  INT NULL,
+          user_id        INT NULL,
+          invoice_id     INT NULL,
+          item_id        INT NULL,
+          entity         VARCHAR(16) NOT NULL,
+          field          VARCHAR(48) NOT NULL,
+          old_value      TEXT NULL,
+          new_value      TEXT NULL,
+          context        MEDIUMTEXT NULL,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_edit_log_invoice (invoice_id, id),
+          INDEX idx_edit_log_owner_time (owner_user_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
+  {
+    version: 65,
+    name: 'сопоставления: источник, подтверждение, ключ товара, «позиции нет в каталоге» вместо удаления',
+    // До v2 выгрузка каталога из 1С пачками по 500 после первой пачки УДАЛЯЛА
+    // сопоставления позиций из следующих пачек (removeOrphaned на каждом sync).
+    // Теперь такие строки только помечаются orphaned_at. source/confirmed_at:
+    // подтверждённые правила важнее выбора ИИ; name_key — один ключ на все
+    // написания товара (src/mapping/nameKey.ts).
+    detect: async (exec) =>
+      (await hasColumn(exec, 'nomenclature_mapping_cards', 'name_key'))
+      && (await hasColumn(exec, 'nomenclature_mapping_cards', 'orphaned_at'))
+      && (await hasColumn(exec, 'supplier_nomenclature_mapping_cards', 'name_key')),
+    run: async (exec) => {
+      const t = 'nomenclature_mapping_cards';
+      if (!(await hasColumn(exec, t, 'source'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN source VARCHAR(16) NULL`);
+      if (!(await hasColumn(exec, t, 'confirmed_at'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN confirmed_at DATETIME NULL`);
+      if (!(await hasColumn(exec, t, 'confirmed_by'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN confirmed_by INT NULL`);
+      if (!(await hasColumn(exec, t, 'orphaned_at'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN orphaned_at DATETIME NULL`);
+      if (!(await hasColumn(exec, t, 'name_key'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN name_key VARCHAR(255) NULL`);
+      if (!(await hasIndex(exec, t, 'idx_nmc_owner_name_key'))) await exec.query(`CREATE INDEX idx_nmc_owner_name_key ON ${t} (owner_user_id, name_key)`);
+      // Первичный импорт (approved=1) — подтверждённые правила; остальное —
+      // выучено автоматически (ИИ / fuzzy / ручной выбор без подтверждения).
+      await exec.query(`UPDATE ${t} SET source = 'import', confirmed_at = COALESCE(confirmed_at, created_at) WHERE source IS NULL AND approved = 1`);
+      await exec.query(`UPDATE ${t} SET source = 'learned' WHERE source IS NULL`);
+
+      const s = 'supplier_nomenclature_mapping_cards';
+      if (!(await hasColumn(exec, s, 'name_key'))) await exec.query(`ALTER TABLE ${s} ADD COLUMN name_key VARCHAR(255) NULL`);
+      if (!(await hasIndex(exec, s, 'idx_snmc_owner_supplier_key'))) await exec.query(`CREATE INDEX idx_snmc_owner_supplier_key ON ${s} (owner_user_id, supplier_key, name_key)`);
+
+      for (const table of [t, s]) {
+        const [rows] = await exec.query<RowDataPacket[]>(`SELECT id, scanned_name FROM ${table} WHERE name_key IS NULL`);
+        for (const r of rows) {
+          await exec.query(`UPDATE ${table} SET name_key = ? WHERE id = ?`, [itemNameKey(String(r.scanned_name ?? '')).slice(0, 255), r.id]);
+        }
+      }
+    },
+  },
+  {
+    version: 66,
+    name: 'ocr_correction_cards: правило единицы — для товара, а не для всего поставщика',
+    // Инцидент: одна правка «шт→кг» у СВИТ ЛАЙФ (17.07) переписывала единицу у
+    // ВСЕХ строк поставщика — яйца «С1 360шт» стали «1080 кг». Теперь правило
+    // item_unit хранит item_key (itemNameKey названия строки). Старые правила
+    // без товара выключаются (active=0), а не удаляются — для отката.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'ocr_correction_cards', 'item_key'))
+      && (await hasColumn(exec, 'ocr_correction_cards', 'active')),
+    run: async (exec) => {
+      const t = 'ocr_correction_cards';
+      if (!(await hasColumn(exec, t, 'item_key'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN item_key VARCHAR(191) NOT NULL DEFAULT ''`);
+      if (!(await hasColumn(exec, t, 'active'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN active TINYINT NOT NULL DEFAULT 1`);
+      // Уникальность — с учётом товара (иначе два товара одного поставщика с
+      // одинаковой «сырой» единицей не могли бы иметь разные правила).
+      if (!(await hasIndex(exec, t, 'uq_ocr_correction_cards_item'))) {
+        await exec.query(`CREATE UNIQUE INDEX uq_ocr_correction_cards_item ON ${t} (owner_user_id, supplier_key, field_name, original_hash, item_key)`);
+      }
+      if (await hasIndex(exec, t, 'uq_ocr_correction_cards')) {
+        await exec.query(`ALTER TABLE ${t} DROP INDEX uq_ocr_correction_cards`);
+      }
+      await exec.query(`UPDATE ${t} SET active = 0 WHERE field_name = 'item_unit' AND item_key = ''`);
     },
   },
 ];
