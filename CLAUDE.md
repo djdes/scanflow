@@ -74,15 +74,17 @@ Russian-language UNF source dump (when you need to look up metadata or canonical
 
 - Кнопка «Отправить в Сбербанк» на странице деталей накладной создаёт **черновик** платёжного поручения через `POST https://fintech.sberbank.ru:9443/fintech/api/v1/payments` (scope `PAY_DOC_RU`). Без `digestSignatures` документ ложится в черновики СберБизнес — пользователь подписывает токеном вручную. ЭП на стороне ScanFlow не реализуем.
 - mTLS: PFX + passphrase (`./certs/sber.p12`, env `SBER_TLS_PFX_PASSWORD`). CA — `./certs/sber-ca.pem`. Папка `certs/` в gitignore.
-- Подключение: `/#/sber` страница — OAuth (`GET /api/sber/authorize` → callback) или manual seed-token (вставить access/refresh из dev-портала + реквизиты плательщика).
+- Подключение: `/#/sber` — «Войти через Сбербанк» (`GET /api/sber/authorize-url` → браузер на Сбер → публичный `GET /api/sber/callback`, смонтирован ВЫШЕ `apiKeyAuth`, компания — в подписанном `state`) или пара токенов из личного кабинета Sber API (`POST /api/sber/seed-token`, access 30 дней / refresh 180).
+- Авторизация (документация — `developers.sber.ru/docs/ru/sber-api/llms-full.txt`, открывается только с РФ-IP): адреса OAuth — с префиксом `/ic/sso/api/` (`sbi…/ic/sso/api/v2/oauth/authorize`, `fintech…/ic/sso/api/v2/oauth/token`); access через API — 60 минут, refresh — 180 дней с последнего использования. `client_secret` живёт 40 дней — хранится в `sber_app` (миграция 74) зашифрованным от `JWT_SECRET`; бессрочный — `POST /fintech/api/applications/secrets/v1/refresh-client-secret`, только по кнопке. Обновление токена: за 5 минут до конца, по 401 (`withSberToken`), ночью (`src/services/sberMaintenance.ts`). Статусы платёжек (`bank_status`) опрашиваются каждые 30 минут днём.
 - Поставщики хранятся в локальной таблице `suppliers` (PK = ИНН). Auto-create при первой отправке (через модалку подтверждения, prefill из OCR-данных накладной + опциональный DaData lookup по `DADATA_API_KEY`). Отдельная страница `/#/suppliers` для CRUD.
 - Лог отправок — `sber_payments` (UNIQUE по `invoice_id` = один платёж на накладную). Дебаг: `SELECT * FROM sber_payments WHERE invoice_id = ?`.
 
 Файлы:
 - `src/sber/` — sberClient (mTLS), oauth, payments, purposeTemplate, dadata, clientInfo, redact
-- `src/api/routes/sber.ts` — `/api/sber/*` (authorize, callback, seed-token, payer, status, disconnect)
+- `src/api/routes/sber.ts` — `/api/sber/*` (authorize-url, callback, seed-token, client-secret, refresh-now, payments/sync, payer, status, disconnect)
+- `src/sber/appCredentials.ts` (client_secret, UTC-даты), `src/sber/secretBox.ts` (AES-256-GCM), `src/services/sberMaintenance.ts` (ночное обновление, опрос статусов)
 - `src/api/routes/suppliers.ts` — `/api/suppliers/*` CRUD + lookup-dadata
-- `src/api/routes/invoices.ts` — `POST /:id/send-sber`, `GET /:id/sber-status`
+- `src/api/routes/invoices.ts` — `POST /:id/send-sber` (`amount_override`, `purpose_override`), `GET /:id/sber-preview`, `GET /:id/sber-status`
 - `public/js/sber.js`, `public/js/suppliers.js`, `public/js/sber-modal.js`
 
 ## Deploy
@@ -154,6 +156,8 @@ First start with empty `users` table prints a one-time random admin password to 
 26. **Флаги движков** (`analyzer_config.engine_flags`, `src/services/engineFlags.ts`: `units_v2`, `price_guard`, `mapping_v2`, `ocr_memory`, `batch_notify`, `learning`): выключенный флаг = прежний путь кода. Прежние пути не удалять — это откат без выкладки.
 27. **Самообучение ничего не применяет само.** Ночной разбор (03:30) и ИИ только создают `rule_proposals`; правило появляется после «Принять». Памятка поставщиков в промпте — без коэффициентов пересчёта (модель возвращает напечатанное). В публичный `GET /api/dispatcher/prompt` данные компании не добавлять.
 28. **`claude-sonnet-5` размышляет по умолчанию, и размышления тратят тот же `max_tokens`.** При малом лимите ответ приходит без текстового блока (так молча не работал советчик с лимитом 2500). Для новых вызовов — structured outputs + `thinking: {type: 'adaptive'}` с `effort` и запасом токенов, или явно `disabled`.
+29. **Сбер: `client_secret` не менять автоматически и 30-дневный токен из кабинета не обновлять без бессрочного ключа.** Замена секрета (в т.ч. на бессрочный) делает старый недействительным — если тот же `client_id` использует другая программа, она сломается; поэтому только по кнопке. Обновление превращает 30-дневный токен из личного кабинета в часовой, и дальше доступ держится на секрете: пока ключ не бессрочный, ночное обновление — только за 3 дня до конца токена. Даты токенов — UTC (`sqlUtc`/`parseDbUtc`): база прода живёт по МСК (`NOW()` = МСК).
+30. **Фото накладной, не отправленной в 1С, не удаляется** (`photoRepo.listNotYetExpiredFileNames`); после отправки хранится ещё 90 дней. Служебные оповещения владельцу (не про накладную) — `sendOwnerAlert` с интервалом в `owner_alerts` (миграция 75).
 
 ## API surface (mounted in `src/api/server.ts`)
 
@@ -173,7 +177,8 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET/PUT /api/webhook/config` | `X-API-Key` + **admin** | legacy webhook config |
 | `GET/POST /api/nomenclature/*` | `X-API-Key` | 1C catalog sync from UNF |
 | `GET /api/debug/*` | `X-API-Key` + **admin** | error inspection, stuck-row recovery |
-| `GET/POST /api/sber/*` | `X-API-Key` | OAuth, seed-token, payer, status, disconnect (connect/write — admin) |
+| `GET/POST /api/sber/*` | `X-API-Key` | authorize-url, seed-token, client-secret, refresh-now, payments/sync, payer, status, disconnect (connect/write — admin) |
+| `GET /api/sber/callback` | none (подписанный `state`) | возврат от Сбера после входа — смонтирован ВЫШЕ `apiKeyAuth` |
 | `GET/POST/PATCH /api/suppliers/*` | `X-API-Key` | справочник поставщиков + `lookup-dadata` |
 | `GET/POST /api/operations/*` | `X-API-Key` | банковские выписки, согласования, автопилот |
 | `GET /api/integrations/*` | `X-API-Key` | лог интеграционных событий |
@@ -196,6 +201,8 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET/POST /api/learning/*` | `X-API-Key` | предложения правил (принять/отклонить/разобрать), правила пересчёта |
 | `GET/POST/DELETE /api/new-items/*` | `X-API-Key` | «Новые товары»: сопоставить группу или «Создать в 1С» |
 | `PATCH /api/golden/invoices/:id`, `/api/golden/runs*` | `X-API-Key` (прогон — admin) | эталоны |
+| `POST /api/invoices/:id/items`, `DELETE …/items/:itemId`, `POST …/items/vat-rate` | `X-API-Key` | добавить/удалить строку, НДС всем строкам (НДС шапки не трогают) |
+| `GET /api/users/companies` | `X-API-Key` + **admin** | обзор компаний: активность, очередь в 1С, сопоставления, Сбер |
 
 Порядок монтирования в `server.ts` load-bearing: роутеры с собственной аутентификацией (`/api/dispatcher`, `/api/inbound/public`, `/api/onec/exchange`, `/api/onec/pair`) обязаны стоять ВЫШЕ `apiKeyAuth`-роутеров, иначе префиксный мидлвар вернёт им 401.
 
