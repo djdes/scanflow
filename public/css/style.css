@@ -2157,6 +2157,7 @@ tr.inv-visited:hover td { opacity: 1; }
    В ch, чтобы не пересчитывать при смене шрифта. */
 .item-edit-qty { min-width: calc(7ch + 14px); }    /* «20,98», «1080,000» */
 .item-edit-total { min-width: calc(9ch + 14px); }  /* «17556,81» */
+.item-edit-price { min-width: calc(8ch + 14px); }  /* «1900,00», «816,6667» */
 .item-edit-unit {
   text-align: left;
   /* Самая длинная единица в данных — «упак»; 40px обрезали даже «шт». */
@@ -4575,11 +4576,14 @@ tr.ni-form-row > td { background: #f8faff; }
 }
 
 /* Правка строк накладной: цена, НДС, удалить/добавить строку */
-.item-edit-price { width: 90px; text-align: right; }
-.item-vat-select { font-size: 13px; padding: 2px 4px; }
-.item-conf-cell { white-space: nowrap; }
-.item-del-btn { background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 13px; padding: 2px 4px; margin-left: 4px; opacity: 0.55; }
-.item-del-btn:hover { color: #dc2626; opacity: 1; }
+/* hidden у формы добавления строки: display:grid ниже иначе перебивает атрибут. */
+.add-item-form[hidden] { display: none; }
+.item-vat-select { font-size: 13px; padding: 2px 4px; min-width: 64px; }
+.item-no-cell { white-space: nowrap; }
+.item-del-btn { background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 13px; padding: 2px 4px; margin-left: 4px; opacity: 0; }
+tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
+.item-del-btn:hover { color: #dc2626; opacity: 1 !important; }
+@media (hover: none) { .item-del-btn { opacity: 0.6; } }
 .items-toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 12px; }
 .items-toolbar-vat { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
 .add-item-form { display: grid; grid-template-columns: minmax(160px, 2fr) 80px 70px 100px 100px 80px auto; gap: 8px; margin-top: 10px; align-items: center; }
@@ -4592,3 +4596,8 @@ tr.ni-form-row > td { background: #f8faff; }
 .list-vat { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; margin-top: 1px; }
 .sber-cell-paid { color: #16a34a; font-weight: 700; white-space: nowrap; }
 .sber-cell-failed { color: #dc2626; font-weight: 700; font-size: 16px; }
+
+/* Формы на странице Сбербанка: подпись над полем, поле на всю ширину формы */
+#view-sber form label:not(.switch-inline) { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
+#view-sber form label:not(.switch-inline) input { width: 100%; box-sizing: border-box; font-size: 14px; color: var(--text); padding: 8px 10px; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; background: var(--card, #fff); }
+#view-sber form label:not(.switch-inline) input:focus { outline: none; border-color: var(--primary, #2383e2); }

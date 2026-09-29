@@ -1900,7 +1900,6 @@ router.post('/:id/items/vat-rate', async (req: Request, res: Response) => {
   const rate = parseVatRate((req.body ?? {}).vat_rate);
   if (rate === undefined) return res.status(400).json({ error: `Ставка НДС: ${VAT_RATES.join(', ')} % или пусто` });
   const n = await invoiceRepo.setAllItemsVatRate(invoice.id, rate);
-  await invoiceRepo.recalculateTotal(invoice.id);
   await logEdit({
     ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: invoice.id,
     entity: 'item', field: 'vat_rate_all', oldValue: null, newValue: rate, context: { lines: n },
@@ -1941,7 +1940,7 @@ router.post('/:id/items', async (req: Request, res: Response) => {
       conv_source: 'manual', conv_note: 'строка добавлена вручную',
     },
   });
-  await invoiceRepo.recalculateTotal(invoice.id);
+  await invoiceRepo.recalculateTotal(invoice.id, { keepVat: true });
   await logEdit({
     ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: invoice.id, itemId: created.id,
     entity: 'item', field: 'added', oldValue: null, newValue: { name, quantity, unit, price, total, vat_rate: rate },
@@ -1961,7 +1960,7 @@ router.delete('/:invoiceId/items/:itemId', async (req: Request, res: Response) =
     return res.status(404).json({ error: 'Invoice item not found' });
   }
   await invoiceRepo.deleteItem(itemId);
-  await invoiceRepo.recalculateTotal(invoiceId);
+  await invoiceRepo.recalculateTotal(invoiceId, { keepVat: true });
   await logEdit({
     ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
     entity: 'item', field: 'deleted',
@@ -2020,7 +2019,6 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
       return;
     }
     await invoiceRepo.setItemVatRate(itemId, rate);
-    await invoiceRepo.recalculateTotal(invoiceId);
     await logEdit({
       ownerUserId: editedInvoice.owner_user_id, userId: req.user?.id ?? null, invoiceId, itemId,
       entity: 'item', field: 'vat_rate', oldValue: item.vat_rate, newValue: rate,

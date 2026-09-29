@@ -1451,7 +1451,12 @@ export const invoiceRepo = {
     }
   },
 
-  async recalculateTotal(id: number, opts: { forceDerive?: boolean } = {}): Promise<void> {
+  /**
+   * keepVat — не трогать vat_sum шапки: ручная правка строк (ставка НДС,
+   * добавить/удалить строку) не меняет НДС «как в документе»; его человек
+   * правит в реквизитах сам.
+   */
+  async recalculateTotal(id: number, opts: { forceDerive?: boolean; keepVat?: boolean } = {}): Promise<void> {
     const db = getDb();
     const items = await db.prepare(
       'SELECT total, vat_rate FROM invoice_items WHERE invoice_id = ?'
@@ -1490,7 +1495,7 @@ export const invoiceRepo = {
       ? statedVat
       : derivedVat;
 
-    if (finalVat != null) {
+    if (finalVat != null && !opts.keepVat) {
       await db.prepare(
         'UPDATE invoices SET total_sum = ?, items_total_mismatch = ?, vat_sum = ? WHERE id = ?'
       ).run(nextTotal, mismatch, finalVat, id);

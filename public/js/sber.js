@@ -158,7 +158,7 @@ const Sber = {
       <details class="card" style="margin-bottom:24px">
         <summary style="cursor:pointer;font-weight:600">Вставить пару токенов вручную (запасной вариант)</summary>
         <p class="muted" style="margin:10px 0 12px">
-          Обычно не нужно: доступ обновляется сам. Пара из личного кабинета Sber API: access — 30 дней, refresh — 180 дней. После вставки ScanFlow сразу проверит, что сможет обновлять её автоматически.
+          Обычно не нужно: доступ обновляется сам. Пара из личного кабинета Sber API: access — 30 дней, refresh — 180 дней. Если ключ приложения бессрочный, ScanFlow сразу проверит, что сможет продлевать пару сам.
         </p>
         ${this.tokenHelpHtml()}
         <form id="sber-token-form" style="display:grid;gap:12px;max-width:480px;margin-top:16px">
@@ -222,7 +222,7 @@ const Sber = {
           </li>
           <li>
             <span class="help-step-num">5</span>
-            <div>Скопируйте оба значения и вставьте в поля ниже: access → в <b>«Access Token»</b>, refresh → в <b>«Refresh Token»</b>. Если портал показал срок действия — впишите его в <b>«Действует до»</b>.</div>
+            <div>Скопируйте оба значения и вставьте в поля ниже: access → в <b>«Access Token»</b>, refresh → в <b>«Refresh Token»</b>.</div>
           </li>
           <li>
             <span class="help-step-num">6</span>
@@ -338,7 +338,7 @@ const Sber = {
         : '';
       wrap.innerHTML = `
         <h3 style="margin-bottom:8px">Сбербанк</h3>
-        <div class="badge badge-sent" style="padding:8px 16px;display:inline-block">✓ Платёж создан в Сбере (черновик № ${App.esc(payment.sber_payment_number || '?')}${payment.amount != null ? `, ${App.esc(String(payment.amount).replace('.', ','))} ₽` : ''}). Подпишите в Сбер.Бизнес.</div>
+        <div class="badge badge-sent" style="padding:8px 16px;display:inline-block">✓ Платёж создан в Сбере (черновик № ${App.esc(payment.sber_payment_number || '?')}${payment.amount != null ? `, ${Sber._money(payment.amount)} ₽` : ''}). Подпишите в Сбер.Бизнес.</div>
         ${bankLine}
         <div style="margin-top:12px">
           <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Назначение платежа:</div>

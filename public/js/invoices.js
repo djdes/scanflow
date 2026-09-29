@@ -1003,7 +1003,8 @@ const Invoices = {
           const safeName = App.esc(currentName);
           return `
           <tr data-item-id="${item.id}" class="${Invoices._rowClassForItem(item)}">
-            <td>${i + 1}</td>
+            <td class="item-no-cell">${i + 1}<button type="button" class="item-del-btn" title="Удалить строку"
+                      onclick="Invoices.deleteItem(${data.id}, ${item.id}, '${App.esc(String(item.original_name || '').slice(0, 60)).replace(/'/g, '&#39;')}')">✕</button></td>
             <td>${App.esc(item.original_name || '')}</td>
             <td>
               <div class="nom-picker">
@@ -1049,10 +1050,7 @@ const Invoices = {
                      onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
             </td>
             <td style="text-align:center">${Invoices._vatSelect(data.id, item)}</td>
-            <td class="item-conf-cell">${App.confidenceBadge(item.mapping_confidence || 0)}
-              <button type="button" class="item-del-btn" title="Удалить строку"
-                      onclick="Invoices.deleteItem(${data.id}, ${item.id}, '${App.esc(String(item.original_name || '').slice(0, 60)).replace(/'/g, '&#39;')}')">✕</button>
-            </td>
+            <td>${App.confidenceBadge(item.mapping_confidence || 0)}</td>
           </tr>
         `;
         }).join('');
