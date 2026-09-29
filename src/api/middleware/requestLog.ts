@@ -2,6 +2,15 @@ import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../../database/db';
 
 /**
+ * GET …/sync-flag 1С дёргает раз в минуту — дешёвая проверка «нужна ли выгрузка
+ * каталога». Тысячи строк в сутки без диагностической ценности (п.20), их не
+ * пишем. /pending НЕ пропускаем: по нему считается last1cPollAt.
+ */
+export function shouldLogRequest(method: string, path: string): boolean {
+  return !(method === 'GET' && /\/sync-flag\/?$/.test(path));
+}
+
+/**
  * Logs every /api/* request to the database for debugging purposes.
  * Lets us diagnose "did client X actually reach the server?" questions
  * without needing SSH access to tail nginx/pm2 logs.
@@ -12,15 +21,6 @@ import { getDb } from '../../database/db';
  * Old entries (>7 days) are periodically cleaned up by a cron-like
  * prune on each insert (delete where timestamp < now - 7 days).
  */
-/**
- * GET …/sync-flag 1С дёргает раз в минуту — дешёвая проверка «нужна ли выгрузка
- * каталога». Тысячи строк в сутки без диагностической ценности (п.20), их не
- * пишем. /pending НЕ пропускаем: по нему считается last1cPollAt.
- */
-export function shouldLogRequest(method: string, path: string): boolean {
-  return !(method === 'GET' && /\/sync-flag\/?$/.test(path));
-}
-
 export function apiRequestLog(req: Request, res: Response, next: NextFunction): void {
   // Only log API requests — skip static files, health checks, etc.
   if (!req.path.startsWith('/api/')) {

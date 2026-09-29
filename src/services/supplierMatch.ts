@@ -206,8 +206,8 @@ async function findValidInnTwin(card: Supplier, ownerUserId: number): Promise<Su
 }
 
 /**
- * Привязка «по названию»: ИНН и название берутся из карточки, что было на фото —
- * сохраняется в supplier_inn_ocr/supplier_name_ocr, supplier_match='name'
+ * Привязка «по названию»: ИНН и название берутся из карточки, а то, что было на
+ * фото, сохраняется в supplier_inn_ocr/supplier_name_ocr; supplier_match='name'
  * (UI, Telegram и Сбер предупреждают, что реквизиты подобраны не по ИНН с фото).
  */
 async function linkByName(
