@@ -3,9 +3,127 @@ const Sber = {
   state: { status: null },
 
   async load() {
+    // Возврат от Сбера после входа: #/sber?sber=connected | ?sber=error&sber_error=…
+    const q = new URLSearchParams((window.location.hash.split('?')[1]) || '');
+    if (q.get('sber') === 'connected') App.notify('Сбербанк подключён — доступ будет обновляться автоматически', 'success');
+    if (q.get('sber') === 'error') App.notify(`Вход через Сбербанк не удался: ${q.get('sber_error') || 'неизвестная ошибка'}`, 'error');
+    if (q.get('sber')) history.replaceState(null, '', '#/sber');
     const res = await App.api('/sber/status');
     this.state.status = await res.json();
     this.renderConnectPage();
+  },
+
+  async startOAuth(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const { url } = await App.apiJson('/sber/authorize-url');
+      window.location.href = url;
+    } catch (e) {
+      App.notify(e.message || 'Не удалось начать вход через Сбербанк', 'error');
+      if (btn) btn.disabled = false;
+    }
+  },
+
+  _fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  },
+
+  // Состояние доступа к Сбербанку: токены, автообновление, ключ приложения.
+  authHtml(s) {
+    const a = s.auth || {};
+    const sec = a.secret || {};
+    const autoOk = !a.last_refresh_error && a.last_refresh_at;
+    const autoLine = a.last_refresh_error
+      ? `<div class="sber-auth-warn">⚠ Автообновление не работает: ${App.esc(a.last_refresh_error)}</div>`
+      : autoOk
+        ? `<div class="sber-auth-ok">✓ Доступ обновляется автоматически (последний раз ${this._fmtDate(a.last_refresh_at)})</div>`
+        : '<div class="muted">Автообновление ещё не проверялось — нажмите «Обновить доступ сейчас».</div>';
+    const secretLine = sec.perpetual
+      ? '<b style="color:var(--green,#16a34a)">бессрочный ✓</b>'
+      : sec.source === 'db' && sec.days_left != null
+        ? (sec.days_left <= 5 ? `<b style="color:#dc2626">истекает через ${sec.days_left} дн.</b>` : `действует ещё ${sec.days_left} дн.`)
+        : sec.source === 'env' ? 'задан в настройках сервера, срок неизвестен (живёт 40 дней)' : '<b style="color:#dc2626">не задан</b>';
+    return `
+      <div class="card sber-auth-card">
+        <h3 style="margin-bottom:8px">Доступ к API СберБизнес</h3>
+        ${autoLine}
+        <div class="sber-auth-grid">
+          <span class="muted">Токен доступа до</span><span>${this._fmtDate(a.access_expires_at)}</span>
+          <span class="muted">Токен обновления до</span><span>${this._fmtDate(a.refresh_expires_at)} <span class="muted">(продлевается при каждом обновлении)</span></span>
+          <span class="muted">Ключ приложения (client_secret)</span><span>${secretLine}</span>
+        </div>
+        ${sec.last_error ? `<div class="sber-auth-warn" style="margin-top:6px">Последняя ошибка ключа: ${App.esc(sec.last_error)}</div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-soft btn-sm" onclick="Sber.refreshNow(this)">Обновить доступ сейчас</button>
+          <button class="btn btn-soft btn-sm" onclick="Sber.startOAuth(this)">Войти через Сбербанк заново</button>
+          <button class="btn btn-soft btn-sm" onclick="Sber.syncPayments(this)">Проверить статусы платёжек</button>
+        </div>
+        <details class="help-block" style="margin-top:14px">
+          <summary>Ключ приложения (client_secret)</summary>
+          <p class="field-hint" style="margin:8px 0">Сбер выдаёт client_secret на 40 дней; без действующего ключа доступ не обновляется. ScanFlow может заменить его на <b>бессрочный</b> — тогда ничего не придётся обновлять вручную. Если этот же client_id используется ещё в какой-то программе, после замены ключ там тоже нужно будет обновить.</p>
+          ${sec.perpetual ? '' : '<button class="btn btn-primary btn-sm" onclick="Sber.makePerpetual(this)">Сделать текущий ключ бессрочным</button>'}
+          <form id="sber-secret-form" style="display:grid;gap:8px;max-width:480px;margin-top:12px">
+            <label>Новый client_secret из личного кабинета Sber API<input name="client_secret" autocomplete="off" spellcheck="false" required></label>
+            <label class="switch-inline"><input type="checkbox" name="make_perpetual" checked> сразу сделать бессрочным</label>
+            <div><button class="btn btn-soft btn-sm" type="submit">Сохранить ключ</button></div>
+          </form>
+        </details>
+      </div>`;
+  },
+
+  async refreshNow(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      await App.apiJson('/sber/refresh-now', { method: 'POST' });
+      App.notify('Доступ обновлён — автообновление работает', 'success');
+    } catch (e) {
+      App.notify(e.message || 'Не удалось обновить доступ', 'error');
+    } finally {
+      await this.load();
+    }
+  },
+
+  async makePerpetual(btn) {
+    if (!window.confirm('Заменить client_secret на бессрочный?\n\nТекущий ключ перестанет действовать. Если этот client_id используется ещё в какой-то программе — там ключ нужно будет обновить.')) return;
+    if (btn) btn.disabled = true;
+    try {
+      await App.apiJson('/sber/client-secret/perpetual', { method: 'POST' });
+      App.notify('Ключ приложения теперь бессрочный', 'success');
+    } catch (e) {
+      App.notify(e.message || 'Не удалось сделать ключ бессрочным', 'error');
+    } finally {
+      await this.load();
+    }
+  },
+
+  async saveSecret(e) {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      const { data } = await App.apiJson('/sber/client-secret', {
+        method: 'POST',
+        body: { client_secret: String(fd.get('client_secret') || ''), make_perpetual: fd.get('make_perpetual') === 'on' },
+      });
+      App.notify(data.perpetual ? 'Ключ сохранён и стал бессрочным' : (data.warning ? `Ключ сохранён на 40 дней. Бессрочным сделать не удалось: ${data.warning}` : 'Ключ сохранён на 40 дней'), data.warning ? 'info' : 'success');
+    } catch (err) {
+      App.notify(err.message || 'Не удалось сохранить ключ', 'error');
+    } finally {
+      await this.load();
+    }
+  },
+
+  async syncPayments(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const { data } = await App.apiJson('/sber/payments/sync', { method: 'POST' });
+      App.notify(`Проверено платёжек: ${data.checked}, изменилось: ${data.changed}${data.errors ? `, ошибок: ${data.errors}` : ''}`, data.errors ? 'info' : 'success');
+    } catch (e) {
+      App.notify(e.message || 'Не удалось проверить статусы', 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   },
 
   renderConnectPage() {
@@ -16,8 +134,8 @@ const Sber = {
       card.innerHTML = '<p>● <strong>Не подключено</strong></p>';
       actions.innerHTML = `
         <div style="display:flex;gap:8px;margin-bottom:16px">
-          <button id="sber-connect-oauth" class="btn btn-primary" onclick="window.location.href='/api/sber/authorize?key='+encodeURIComponent(App.apiKey)">Подключить через OAuth</button>
-          <button class="btn btn-outline" onclick="Sber.toggleSeedForm()">Ввести токены вручную</button>
+          <button id="sber-connect-oauth" class="btn btn-primary" onclick="Sber.startOAuth(this)">Войти через Сбербанк</button>
+          <button class="btn btn-outline" onclick="Sber.toggleSeedForm()">Вставить токены из личного кабинета</button>
         </div>
         <div id="sber-seed-form" style="display:none"></div>
       `;
@@ -33,24 +151,22 @@ const Sber = {
       <p class="muted">Токен: ${expiredText}</p>
       <p class="muted">Реквизиты плательщика: ${s.payer_complete ? 'заполнены' : '<strong style="color:#f59e0b">НЕПОЛНЫЕ — заполните ниже</strong>'}</p>
     `;
-    const tokenBorder = s.token_expired ? 'border-color:#f59e0b' : '';
     actions.innerHTML = `
-      <div class="card" style="margin-bottom:24px;${tokenBorder}">
-        <h3 style="margin-bottom:4px">Токен API СберБизнес</h3>
-        <p class="muted" style="margin-bottom:12px">
-          Вставьте новый Access и Refresh токен, чтобы продлить доступ — реквизиты плательщика при этом сохранятся.
+      ${s.auth ? this.authHtml(s) : ''}
+      <details class="card" style="margin-bottom:24px">
+        <summary style="cursor:pointer;font-weight:600">Вставить пару токенов вручную (запасной вариант)</summary>
+        <p class="muted" style="margin:10px 0 12px">
+          Обычно не нужно: доступ обновляется сам. Пара из личного кабинета Sber API: access — 30 дней, refresh — 180 дней. После вставки ScanFlow сразу проверит, что сможет обновлять её автоматически.
         </p>
         ${this.tokenHelpHtml()}
         <form id="sber-token-form" style="display:grid;gap:12px;max-width:480px;margin-top:16px">
           <label>Access Token<input name="access_token" autocomplete="off" spellcheck="false" required></label>
           <label>Refresh Token<input name="refresh_token" autocomplete="off" spellcheck="false" required></label>
-          <label>Действует до <span class="muted" style="font-weight:400">(необязательно, по умолчанию +30 дней)</span><input name="expires_at" type="date"></label>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-primary" type="submit">Сохранить токен</button>
-            <button type="button" class="btn btn-outline" onclick="window.location.href='/api/sber/authorize?key='+encodeURIComponent(App.apiKey)">Обновить через OAuth (автоматически)</button>
+            <button class="btn btn-primary" type="submit">Сохранить токены</button>
           </div>
         </form>
-      </div>
+      </details>
       <h3 style="margin-bottom:12px">Реквизиты плательщика</h3>
       <form id="sber-payer-form" style="display:grid;gap:12px;max-width:480px;margin-bottom:16px">
         <label>ИНН<input name="payer_inn" value="${App.esc(s.payer_inn || '')}" pattern="[0-9]{10}|[0-9]{12}" required></label>
@@ -63,6 +179,7 @@ const Sber = {
     `;
     document.getElementById('sber-token-form').addEventListener('submit', (e) => Sber.saveSeed(e));
     document.getElementById('sber-payer-form').addEventListener('submit', (e) => Sber.savePayer(e));
+    document.getElementById('sber-secret-form')?.addEventListener('submit', (e) => Sber.saveSecret(e));
   },
 
   // Пошаговая инструкция «где взять токен на СберБизнес». Используется и в
@@ -96,8 +213,8 @@ const Sber = {
             <span class="help-step-num">4</span>
             <div>Подтвердите доступ (токен/SMS). Портал покажет <b>два значения</b>:
               <ul style="margin:6px 0 0;padding-left:18px">
-                <li><b>Access token</b> (токен доступа) — им ScanFlow подписывает каждый запрос. Именно он «протухает» через несколько часов/дней — тогда его и нужно обновить здесь.</li>
-                <li><b>Refresh token</b> (токен обновления) — длинный, живёт дольше; используется, чтобы автоматически продлевать access-токен.</li>
+                <li><b>Access token</b> (токен доступа) — им ScanFlow подписывает каждый запрос. Из личного кабинета он живёт 30 дней, дальше ScanFlow продлевает его сам.</li>
+                <li><b>Refresh token</b> (токен обновления) — живёт 180 дней и продлевается при каждом обновлении; по нему ScanFlow получает новые токены без вас.</li>
               </ul>
             </div>
           </li>
@@ -111,8 +228,8 @@ const Sber = {
           </li>
         </ol>
         <p class="muted" style="margin-top:8px;font-size:12px">
-          Названия разделов на портале могут немного отличаться. Чтобы не обновлять токен вручную каждый раз — нажмите
-          <b>«Обновить через OAuth»</b>: ScanFlow проведёт авторизацию и будет продлевать access-токен сам.
+          Названия разделов на портале могут немного отличаться. Проще всего — кнопка <b>«Войти через Сбербанк»</b>:
+          ScanFlow получит токены сам и будет их продлевать.
         </p>
       </details>
     `;
@@ -160,7 +277,12 @@ const Sber = {
       App.notify(err.error || 'Ошибка', 'error');
       return;
     }
-    App.notify('Токены сохранены', 'success');
+    const ok = await res.json().catch(() => ({}));
+    if (ok.auto_refresh === 'failed') {
+      App.notify(`Токены сохранены (работают 30 дней), но автообновление не работает: ${ok.warning || 'причина неизвестна'}`, 'error');
+    } else {
+      App.notify('Токены сохранены — дальше доступ обновляется автоматически', 'success');
+    }
     this.load();
   },
 
@@ -204,14 +326,22 @@ const Sber = {
     const stRes = await App.api(`/invoices/${invoice.id}/sber-status`);
     const { payment } = await stRes.json();
     if (payment && payment.status === 'created') {
+      const kind = payment.bank_status_kind;
+      const badgeCls = kind === 'paid' ? 'badge-sent' : kind === 'failed' ? 'badge-error' : 'badge-processing';
+      const bankLine = payment.bank_status
+        ? `<div class="badge ${badgeCls}" style="padding:6px 12px;display:inline-block;margin-top:8px">В банке: ${App.esc(payment.bank_status_label || payment.bank_status)}</div>
+           ${payment.bank_comment ? `<div class="field-hint" style="margin-top:4px">Комментарий банка: ${App.esc(payment.bank_comment)}</div>` : ''}`
+        : '';
       wrap.innerHTML = `
         <h3 style="margin-bottom:8px">Сбербанк</h3>
-        <div class="badge badge-sent" style="padding:8px 16px;display:inline-block">✓ Платёж создан в Сбере (черновик № ${App.esc(payment.sber_payment_number || '?')}). Подпишите в Сбер.Бизнес.</div>
+        <div class="badge badge-sent" style="padding:8px 16px;display:inline-block">✓ Платёж создан в Сбере (черновик № ${App.esc(payment.sber_payment_number || '?')}${payment.amount != null ? `, ${App.esc(String(payment.amount).replace('.', ','))} ₽` : ''}). Подпишите в Сбер.Бизнес.</div>
+        ${bankLine}
         <div style="margin-top:12px">
           <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Назначение платежа:</div>
           <div style="font-family:var(--font-mono,monospace);font-size:13px;background:var(--code-bg,rgba(0,0,0,0.04));padding:8px 12px;border-radius:6px;border:1px solid var(--border,rgba(0,0,0,0.08))">${App.esc(payment.payment_purpose || '')}</div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-outline" onclick="Sber.checkInvoicePayment(${invoice.id}, this)">↻ Проверить статус</button>
           <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
           <button class="btn btn-outline" onclick="Sber.resend(${invoice.id})">⟳ Отправить повторно</button>
           <button class="btn btn-danger" onclick="Sber.deletePayment(${invoice.id})">🗑 Удалить черновик</button>
@@ -219,10 +349,12 @@ const Sber = {
       `;
       return;
     }
+    const preview = await this._loadPreview(invoice.id);
     if (payment && payment.status === 'failed') {
       wrap.innerHTML = `
         <h3 style="margin-bottom:8px">Сбербанк</h3>
         <p style="color:#dc2626">Ошибка предыдущей отправки: ${App.esc(payment.error_message || 'unknown')}</p>
+        ${this._presendHtml(preview)}
         ${this._attrGateRow(invoice)}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Попробовать снова</button>
@@ -234,6 +366,7 @@ const Sber = {
     }
     wrap.innerHTML = `
       <h3 style="margin-bottom:8px">Сбербанк</h3>
+      ${this._presendHtml(preview)}
       ${this._attrGateRow(invoice)}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Отправить в Сбербанк →</button>
@@ -243,6 +376,62 @@ const Sber = {
     // Начальное состояние кнопки считаем от галочек в шапке — одна точка
     // истины на весь экран (Invoices._syncSberGate).
     Invoices._syncSberGate();
+  },
+
+  // Что уйдёт в Сбер: сумма и назначение этой платёжки (можно поправить, не
+  // меняя накладную). Пусто — сервер возьмёт сумму накладной и шаблон.
+  async _loadPreview(invoiceId) {
+    try {
+      const { data } = await App.apiJson(`/invoices/${invoiceId}/sber-preview`);
+      this.state.preview = { invoiceId, ...data };
+      return this.state.preview;
+    } catch {
+      this.state.preview = null;
+      return null;
+    }
+  },
+
+  _money(n) {
+    return n == null ? '—' : Number(n).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  },
+
+  _presendHtml(p) {
+    if (!p) return '';
+    const amount = p.amount != null ? String(p.amount.toFixed(2)).replace('.', ',') : '';
+    return `
+      <div class="sber-presend">
+        <label>Сумма платежа, ₽
+          <input id="sber-amount" inputmode="decimal" value="${App.esc(amount)}" autocomplete="off">
+        </label>
+        <div class="field-hint">Сумма накладной: ${this._money(p.total_sum)} ₽${p.vat_sum != null ? ` · в т.ч. НДС ${this._money(p.vat_sum)} ₽` : ''}. Поменяете здесь — изменится только эта платёжка.</div>
+        <label style="margin-top:8px">Назначение платежа <span class="muted">(до 210 символов)</span>
+          <textarea id="sber-purpose" rows="2" maxlength="210">${App.esc(p.purpose || '')}</textarea>
+        </label>
+      </div>`;
+  },
+
+  _presendOverrides(invoiceId) {
+    const p = this.state.preview;
+    if (!p || p.invoiceId !== invoiceId) return {};
+    const out = {};
+    const amountEl = document.getElementById('sber-amount');
+    const purposeEl = document.getElementById('sber-purpose');
+    if (amountEl) {
+      const n = Number(String(amountEl.value).replace(/\s/g, '').replace(',', '.'));
+      if (Number.isFinite(n) && n > 0 && Math.abs(n - (p.amount ?? 0)) >= 0.005) out.amount_override = Math.round(n * 100) / 100;
+    }
+    if (purposeEl && purposeEl.value.trim() && purposeEl.value.trim() !== (p.purpose || '').trim()) out.purpose_override = purposeEl.value.trim();
+    return out;
+  },
+
+  async checkInvoicePayment(invoiceId, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      await App.apiJson('/sber/payments/sync', { method: 'POST' });
+    } catch (e) {
+      App.notify(e.message || 'Не удалось проверить статус', 'error');
+    }
+    Invoices.showDetail(invoiceId);
   },
 
   // Общая галочка «Все реквизиты сверены» + подсказка о недостающих полях.
@@ -346,7 +535,8 @@ const Sber = {
     // «разблокироваться», хотя реквизиты не сверены).
     const btn = document.getElementById('sber-send-btn');
     await App.withBusyButton(btn, async () => {
-      const body = supplierOverrides ? { supplier_overrides: supplierOverrides } : {};
+      const body = { ...Sber._presendOverrides(invoiceId), ...(supplierOverrides ? { supplier_overrides: supplierOverrides } : {}) };
+      if (body.amount_override != null && !window.confirm(`Сумма платежа ${Sber._money(body.amount_override)} ₽ отличается от суммы накладной. Отправить так?`)) return;
       const res = await App.api(`/invoices/${invoiceId}/send-sber`, {
         method: 'POST',
         body: JSON.stringify(body),

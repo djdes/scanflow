@@ -101,3 +101,65 @@ export async function createPaymentOrder(
     status: data.status,
   };
 }
+
+// ─── Статус платёжки (раздел «Получение статуса рублевого платежного поручения») ───
+
+export interface PaymentState {
+  bankStatus: string | null;
+  bankComment: string | null;
+}
+
+export async function getPaymentState(accessToken: string, externalId: string): Promise<PaymentState> {
+  const res = await sberFetch(`${PAYMENTS_URL}/${encodeURIComponent(externalId)}/state`, {
+    headers: { Authorization: accessToken, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new SberApiError(res.status, res.body);
+  const data = res.json<{ bankStatus?: string; bankComment?: string }>();
+  return { bankStatus: data.bankStatus ?? null, bankComment: data.bankComment ?? null };
+}
+
+/** Окончательные статусы: опрос прекращается. Остальные — промежуточные. */
+const FINAL_OK = new Set(['IMPLEMENTED']);
+const FINAL_FAIL = new Set([
+  'CHECKERROR', 'DELETED', 'INVALIDEDS', 'RECALL', 'REFUSEDBYBANK', 'REFUSEDBYABS',
+  'REQUISITEERROR', 'REFUSED_BY_RZK', 'FRAUDDENY',
+  // Наш статус: банк не нашёл платёжку по externalId (черновик удалили в банке).
+  'NOT_FOUND',
+]);
+
+/** Все окончательные статусы — для выборки «что ещё опрашивать». */
+export const FINAL_BANK_STATUSES: readonly string[] = [...FINAL_OK, ...FINAL_FAIL];
+
+export type BankStatusKind = 'paid' | 'failed' | 'draft' | 'in_progress' | 'unknown';
+
+export function bankStatusKind(status: string | null | undefined): BankStatusKind {
+  if (!status) return 'unknown';
+  if (FINAL_OK.has(status)) return 'paid';
+  if (FINAL_FAIL.has(status)) return 'failed';
+  if (status === 'CREATED' || status === 'PARTSIGNED') return 'draft';
+  return 'in_progress';
+}
+
+export function isFinalBankStatus(status: string | null | undefined): boolean {
+  const k = bankStatusKind(status);
+  return k === 'paid' || k === 'failed';
+}
+
+const LABELS: Record<string, string> = {
+  CREATED: 'Создан, ждёт подписи', PARTSIGNED: 'Частично подписан', SIGNED: 'Подписан',
+  ACCEPTED: 'Принят банком', ACCEPTED_BY_ABS: 'Принят банком', DELIVERED: 'Доставлен в банк',
+  DELIVERED_RZK: 'Доставлен в СБК', TO_PROCESSING_RZK: 'К отправке в СБК', SENDING_TO_RZK: 'Отправляется в СБК',
+  PROCESSING_RZK: 'Обрабатывается СБК', NOT_ACCEPTED_RZK: 'Не принят СБК', RZK_SIGN_ERROR: 'Ошибка ЭП СБК',
+  CARD2: 'Картотека 2 — ждёт денег на счёте', DELAYED: 'Приостановлен', REQUESTED_RECALL: 'Запрошен отзыв',
+  FRAUDSENT: 'На проверке безопасности', FRAUDREVIEW: 'На проверке у специалиста банка',
+  FRAUDSMS: 'Нужно подтверждение SMS', FRAUDALLOW: 'Проверка безопасности пройдена',
+  IMPLEMENTED: 'Исполнен', CHECKERROR: 'Ошибка контроля', DELETED: 'Удалён', INVALIDEDS: 'Подпись неверна',
+  RECALL: 'Отозван', REFUSEDBYBANK: 'Отклонён банком', REFUSEDBYABS: 'Отказан АБС',
+  REQUISITEERROR: 'Ошибка реквизитов', REFUSED_BY_RZK: 'Отказан контролирующей организацией',
+  FRAUDDENY: 'Отвергнут проверкой безопасности', NOT_FOUND: 'Не найден в банке (черновик удалён?)',
+};
+
+export function bankStatusLabel(status: string | null | undefined): string {
+  if (!status) return 'Статус неизвестен';
+  return LABELS[status] ?? status;
+}

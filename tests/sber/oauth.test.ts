@@ -3,6 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../src/sber/sberClient', () => ({
   sberFetch: vi.fn(),
 }));
+// Секрет приложения в БД не задан — берётся SBER_CLIENT_SECRET из env.
+vi.mock('../../src/database/repositories/sberAppRepo', () => ({
+  sberAppRepo: { get: vi.fn(async () => null), saveSecret: vi.fn(), setError: vi.fn() },
+}));
+vi.mock('../../src/database/repositories/sberTokenRepo', () => ({
+  sberTokenRepo: { get: vi.fn(), updateTokens: vi.fn(), setRefreshMeta: vi.fn(async () => {}) },
+}));
 
 import { sberFetch } from '../../src/sber/sberClient';
 import {
@@ -48,7 +55,8 @@ describe('buildAuthUrl', () => {
 
   it('includes required params', () => {
     const url = buildAuthUrl('STATE-X');
-    expect(url).toMatch(/^https:\/\/sbi\.sberbank\.ru:9443\/v2\/oauth\/authorize\?/);
+    // Адрес по документации Sber API — с префиксом /ic/sso/api (без него вход не работал).
+    expect(url).toMatch(/^https:\/\/sbi\.sberbank\.ru:9443\/ic\/sso\/api\/v2\/oauth\/authorize\?/);
     expect(url).toContain('client_id=40285');
     expect(url).toContain(`state=STATE-X`);
     expect(url).toContain('scope=openid+GET_CLIENT_ACCOUNTS+PAY_DOC_RU');
@@ -74,7 +82,7 @@ describe('exchangeCodeForToken', () => {
     const out = await exchangeCodeForToken('CODE');
     expect(out).toEqual({ accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
     expect(sberFetch).toHaveBeenCalledWith(
-      'https://fintech.sberbank.ru:9443/v2/oauth/token',
+      'https://fintech.sberbank.ru:9443/ic/sso/api/v2/oauth/token',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -88,7 +96,7 @@ describe('exchangeCodeForToken', () => {
       status: 400, ok: false, body: '{"error":"invalid_grant"}',
       json<T>() { return JSON.parse(this.body) as T; },
     });
-    await expect(exchangeCodeForToken('BAD')).rejects.toThrow(/Sber token exchange/);
+    await expect(exchangeCodeForToken('BAD')).rejects.toThrow(/Токен обновления недействителен/);
   });
 });
 

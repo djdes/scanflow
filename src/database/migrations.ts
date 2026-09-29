@@ -2233,6 +2233,64 @@ const MIGRATIONS: Migration[] = [
       await exec.query(`UPDATE ocr_correction_cards SET field_name = 'item_unit_off', active = 0 WHERE field_name = 'item_unit' AND item_key = ''`);
     },
   },
+  {
+    version: 74,
+    name: 'Сбер: секрет приложения в БД (бессрочный), срок и ошибки обновления токенов, банковский статус платёжек',
+    // Авторизация Сбера без ежемесячной ручной вставки ключа
+    // (docs/superpowers/specs/2026-09-29-queue-sber-analytics-design.md):
+    //  • sber_app — client_secret приложения, зашифрованный (AES-256-GCM),
+    //    со сроком (40 дней) или признаком «бессрочный»;
+    //  • sber_connections — когда получен refresh (живёт 180 дней с последнего
+    //    использования), последнее обновление и его ошибка, источник пары;
+    //  • sber_payments — банковский статус платёжки (IMPLEMENTED, REFUSEDBYBANK…).
+    detect: async (exec) =>
+      (await hasTable(exec, 'sber_app'))
+      && (await hasColumn(exec, 'sber_connections', 'last_refresh_error'))
+      && (await hasColumn(exec, 'sber_payments', 'bank_status')),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS sber_app (
+          id                 INT AUTO_INCREMENT PRIMARY KEY,
+          client_id          VARCHAR(64) NOT NULL,
+          client_secret_enc  MEDIUMTEXT NULL,
+          secret_set_at      DATETIME NULL,
+          secret_expires_at  DATETIME NULL,
+          secret_perpetual   TINYINT NOT NULL DEFAULT 0,
+          last_error         VARCHAR(500) NULL,
+          updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_sber_app_client (client_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      const c = 'sber_connections';
+      if (!(await hasColumn(exec, c, 'token_source'))) await exec.query(`ALTER TABLE ${c} ADD COLUMN token_source VARCHAR(16) NULL`);
+      if (!(await hasColumn(exec, c, 'refresh_obtained_at'))) await exec.query(`ALTER TABLE ${c} ADD COLUMN refresh_obtained_at DATETIME NULL`);
+      if (!(await hasColumn(exec, c, 'last_refresh_at'))) await exec.query(`ALTER TABLE ${c} ADD COLUMN last_refresh_at DATETIME NULL`);
+      if (!(await hasColumn(exec, c, 'last_refresh_error'))) await exec.query(`ALTER TABLE ${c} ADD COLUMN last_refresh_error VARCHAR(500) NULL`);
+      const p = 'sber_payments';
+      if (!(await hasColumn(exec, p, 'bank_status'))) await exec.query(`ALTER TABLE ${p} ADD COLUMN bank_status VARCHAR(32) NULL`);
+      if (!(await hasColumn(exec, p, 'bank_status_at'))) await exec.query(`ALTER TABLE ${p} ADD COLUMN bank_status_at DATETIME NULL`);
+      if (!(await hasColumn(exec, p, 'bank_comment'))) await exec.query(`ALTER TABLE ${p} ADD COLUMN bank_comment VARCHAR(1000) NULL`);
+      if (!(await hasColumn(exec, p, 'status_checked_at'))) await exec.query(`ALTER TABLE ${p} ADD COLUMN status_checked_at DATETIME NULL`);
+    },
+  },
+  {
+    version: 75,
+    name: 'owner_alerts — когда владельцу последний раз отправлено служебное оповещение (не спамить)',
+    // «В 1С ничего не уходит 7 дней», «Сбер: не удалось обновить токен» и т.п.
+    // шлются не чаще заданного интервала; здесь — время последней отправки.
+    detect: (exec) => hasTable(exec, 'owner_alerts'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS owner_alerts (
+          owner_user_id  INT NOT NULL,
+          kind           VARCHAR(32) NOT NULL,
+          last_sent_at   DATETIME NOT NULL,
+          detail         VARCHAR(500) NULL,
+          PRIMARY KEY (owner_user_id, kind)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

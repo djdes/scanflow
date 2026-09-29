@@ -27,7 +27,7 @@ import newItemsRouter, { setMapper as setNewItemsMapper } from './routes/newItem
 import authRouter from './routes/auth';
 import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
-import sberRouter from './routes/sber';
+import sberRouter, { sberCallbackRouter } from './routes/sber';
 import suppliersRouter from './routes/suppliers';
 import integrationsRouter from './routes/integrations';
 import usersRouter from './routes/users';
@@ -247,6 +247,10 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // 1С без токена получит 401 вместо обмена кода.
   const onecPairLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
   app.use('/api/onec/pair', onecPairLimiter, onecPairRouter);
+  // Возврат от Сбера после входа через Сбербанк (OAuth) — без X-API-Key:
+  // компания в подписанном state. ДО `/api/sber` (apiKeyAuth), иначе 401.
+  const sberCallbackLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
+  app.use('/api/sber/callback', sberCallbackLimiter, sberCallbackRouter);
 
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);

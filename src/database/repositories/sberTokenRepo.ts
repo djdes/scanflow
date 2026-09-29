@@ -15,6 +15,11 @@ export interface SberToken {
   payer_bank_corr_account: string | null;
   created_at: string;
   updated_at: string;
+  /** Миграция 74: откуда пара ('oauth' | 'manual' | 'refresh'), когда получен refresh, последнее обновление и его ошибка (время — UTC). */
+  token_source?: string | null;
+  refresh_obtained_at?: string | null;
+  last_refresh_at?: string | null;
+  last_refresh_error?: string | null;
 }
 
 export interface UpsertSberTokenInput {
@@ -117,6 +122,29 @@ export const sberTokenRepo = {
     await getDb()
       .prepare(`UPDATE sber_connections SET ${sets.join(', ')} WHERE owner_user_id = ?`)
       .run(...vals);
+  },
+
+  /**
+   * Итог обновления токена. Успех — новый refresh получен сейчас (его 180 дней
+   * отсчитываются заново), ошибка сброшена. Провал — только текст ошибки.
+   */
+  async setRefreshMeta(ownerUserId: number, r: { ok: true; source: 'oauth' | 'manual' | 'refresh' } | { ok: false; error: string }): Promise<void> {
+    if (r.ok) {
+      await getDb().prepare(`
+        UPDATE sber_connections
+           SET token_source = ?, refresh_obtained_at = UTC_TIMESTAMP(), last_refresh_at = UTC_TIMESTAMP(), last_refresh_error = NULL
+         WHERE owner_user_id = ?
+      `).run(r.source, ownerUserId);
+    } else {
+      await getDb().prepare('UPDATE sber_connections SET last_refresh_error = ? WHERE owner_user_id = ?')
+        .run(r.error.slice(0, 500), ownerUserId);
+    }
+  },
+
+  /** Компании с подключением к Сберу — для ночного обновления токенов и опроса статусов. */
+  async listOwners(): Promise<number[]> {
+    const rows = await getDb().prepare('SELECT owner_user_id FROM sber_connections ORDER BY owner_user_id').all<{ owner_user_id: number }>();
+    return rows.map(r => Number(r.owner_user_id));
   },
 
   async clear(ownerUserId: number): Promise<void> {

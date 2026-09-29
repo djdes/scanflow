@@ -33,8 +33,8 @@ import { supplierRepo } from '../../database/repositories/supplierRepo';
 import { sberPaymentRepo } from '../../database/repositories/sberPaymentRepo';
 import { userRepo } from '../../database/repositories/userRepo';
 import { syncStateRepo } from '../../database/repositories/syncStateRepo';
-import { getValidAccessToken } from '../../sber/oauth';
-import { createPaymentOrder, SberApiError } from '../../sber/payments';
+import { getValidAccessToken, withSberToken } from '../../sber/oauth';
+import { createPaymentOrder, SberApiError, bankStatusKind, bankStatusLabel } from '../../sber/payments';
 import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
 import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
@@ -2107,11 +2107,51 @@ router.post('/:id/unlink-duplicate', async (req: Request, res: Response) => {
 });
 
 // GET /api/invoices/:id/sber-status — текущее состояние платежа в Сбере
+// GET /api/invoices/:id/sber-preview — что уйдёт в Сбер: сумма и назначение
+// (по шаблону компании). Окно отправки даёт их поправить для этой платёжки.
+router.get('/:id/sber-preview', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  const card = invoice.supplier_inn ? await supplierRepo.findByInn(invoice.supplier_inn, invoice.owner_user_id) : null;
+  const tpl = (await userRepo.getPurposeTemplate(invoice.owner_user_id))
+    ?? 'Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}';
+  const items = await invoiceRepo.getItems(id);
+  const purpose = renderPurpose(tpl, {
+    invoice_number: invoice.invoice_number,
+    invoice_date: invoice.invoice_date,
+    total_sum: invoice.total_sum,
+    vat_sum: invoice.vat_sum,
+    vat_rate: items[0]?.vat_rate ?? null,
+    supplier: card?.name ?? invoice.supplier ?? '',
+  });
+  return res.json({
+    data: {
+      amount: typeof invoice.total_sum === 'number' ? Math.round(invoice.total_sum * 100) / 100 : null,
+      total_sum: invoice.total_sum,
+      vat_sum: invoice.vat_sum,
+      purpose,
+      template: tpl,
+      payee: card ? { name: card.name, inn: card.inn, account: card.account, bank_bic: card.bank_bic } : null,
+    },
+  });
+});
+
 router.get('/:id/sber-status', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  // Платёжка — данные компании-владельца накладной: чужая → 404 (правило 19).
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
   const payment = await sberPaymentRepo.findByInvoiceId(id);
-  return res.json({ payment });
+  return res.json({
+    payment: payment ? {
+      ...payment,
+      bank_status_label: payment.bank_status ? bankStatusLabel(payment.bank_status) : null,
+      bank_status_kind: payment.bank_status ? bankStatusKind(payment.bank_status) : null,
+    } : null,
+  });
 });
 
 // DELETE /api/invoices/:id/sber-payment — удалить запись о платеже из БД ScanFlow.
@@ -2122,6 +2162,8 @@ router.get('/:id/sber-status', async (req: Request, res: Response) => {
 router.delete('/:id/sber-payment', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
   await sberPaymentRepo.deleteByInvoiceId(id);
   return res.json({ success: true });
 });
@@ -2226,7 +2268,16 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       });
     }
   }
-  if (!invoice.total_sum || invoice.total_sum <= 0) {
+  // Сумма платежа: по умолчанию — сумма накладной; человек может поправить её
+  // для этой платёжки в окне Сбера (amount_override), не трогая накладную.
+  const rawAmount = (req.body as { amount_override?: unknown }).amount_override;
+  let amountOverride: number | null = null;
+  if (rawAmount !== undefined && rawAmount !== null && rawAmount !== '') {
+    const n = typeof rawAmount === 'number' ? rawAmount : Number(String(rawAmount).replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0.01 || n > 1e10) return res.status(400).json({ error: 'Сумма платежа должна быть положительным числом' });
+    amountOverride = Math.round(n * 100) / 100;
+  }
+  if (amountOverride == null && (!invoice.total_sum || invoice.total_sum <= 0)) {
     return res.status(400).json({ error: 'invoice has no total_sum' });
   }
   // Нет ИНН — не отказ: ниже поставщика можно выбрать из справочника.
@@ -2394,9 +2445,9 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   // carry binary-float artifacts (e.g. 300.30000000000007). Sber expects a
   // 2-decimal currency amount, and the audit row should store the exact value
   // shown in the UI / purpose line. No-op for already-2-decimal values.
-  const amount = typeof invoice.total_sum === 'number'
+  const amount = amountOverride ?? (typeof invoice.total_sum === 'number'
     ? Math.round(invoice.total_sum * 100) / 100
-    : invoice.total_sum;
+    : invoice.total_sum) as number;
 
   // Build payload first so we can persist it BEFORE the request — that way
   // if Sber API/TLS errors out, the row in sber_payments still has the
@@ -2440,7 +2491,16 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   }
 
   try {
-    const result = await createPaymentOrder(accessToken, payload);
+    // На 401 (токен отозван/протух раньше срока) — обновить и повторить один раз.
+    void accessToken;
+    const result = await withSberToken(supplierOwnerId, t => createPaymentOrder(t, payload));
+    if (amountOverride != null && amountOverride !== Math.round((invoice.total_sum ?? 0) * 100) / 100) {
+      await logEdit({
+        ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: id,
+        entity: 'invoice', field: 'sber_amount', oldValue: invoice.total_sum, newValue: amountOverride,
+        context: { external_id: externalId, note: 'сумма платёжки отличается от суммы накладной' },
+      });
+    }
     await sberPaymentRepo.updateStatus(id, {
       status: 'created',
       sber_payment_number: result.number ?? null,

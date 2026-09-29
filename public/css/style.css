@@ -4561,3 +4561,15 @@ tr.ni-form-row > td { background: #f8faff; }
   .ni-toolbar input[type="search"] { max-width: none; }
   .ni-form-grid { grid-template-columns: minmax(0, 1fr) 96px; }
 }
+
+/* Сбербанк: доступ к API и платёжка перед отправкой */
+.sber-auth-card { margin-bottom: 20px; }
+.sber-auth-ok { color: var(--green, #16a34a); font-weight: 600; }
+.sber-auth-warn { color: #b45309; background: var(--warning-soft); border-radius: 6px; padding: 6px 10px; }
+.sber-auth-grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin-top: 10px; font-size: 14px; }
+.sber-presend { display: grid; gap: 2px; max-width: 560px; margin-bottom: 12px; }
+.sber-presend label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.sber-presend input, .sber-presend textarea { font-size: 14px; }
+@media (max-width: 640px) {
+  .sber-auth-grid { grid-template-columns: 1fr; }
+}

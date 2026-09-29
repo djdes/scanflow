@@ -4,12 +4,22 @@ import { requireAdmin } from '../middleware/auth';
 import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
 import {
   buildAuthUrl, createOAuthState, verifyOAuthState,
-  exchangeCodeForToken,
+  exchangeCodeForToken, getValidAccessToken, LK_ACCESS_TOKEN_TTL_DAYS,
 } from '../../sber/oauth';
 import { fetchClientInfo } from '../../sber/clientInfo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
+import { secretStatus, setClientSecretFromUser, makeSecretPerpetual, sqlUtc, parseDbUtc } from '../../sber/appCredentials';
+import { pollSberPaymentStatuses, refreshExpiresAt } from '../../services/sberMaintenance';
 
 const router = Router();
+
+/**
+ * Возврат от Сбера после входа (OAuth). Монтируется ОТДЕЛЬНО и ВЫШЕ apiKeyAuth
+ * (src/api/server.ts): у редиректа Сбера нет нашего X-API-Key, и раньше он
+ * получал 401 — поэтому вход через Сбербанк не работал. Компания берётся из
+ * подписанного `state` (HS256, 10 минут), подменить её нельзя.
+ */
+export const sberCallbackRouter = Router();
 
 const ACC_RE = /^[0-9]{20}$/;
 const BIC_RE = /^[0-9]{9}$/;
@@ -23,6 +33,19 @@ function ownerOf(req: Request): number {
   if (id == null) throw new Error('sber route reached without an authenticated user');
   return id;
 }
+
+// GET /api/sber/authorize-url — ссылка на вход через Сбербанк. Отдаётся JSON с
+// ключом в заголовке: раньше кнопка открывала /authorize?key=…, а ключ в адресе
+// принимается только для фото — запрос отбивался с 401 и до Сбера не доходил.
+router.get('/authorize-url', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const state = await createOAuthState({ purpose: 'connect', owner_user_id: ownerOf(req) });
+    return res.json({ url: buildAuthUrl(state) });
+  } catch (err) {
+    logger.error('[sber] authorize-url failed', { err: (err as Error).message });
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
 
 router.get('/authorize', requireAdmin, async (req: Request, res: Response) => {
   try {
@@ -38,7 +61,7 @@ router.get('/authorize', requireAdmin, async (req: Request, res: Response) => {
   }
 });
 
-router.get('/callback', async (req: Request, res: Response) => {
+sberCallbackRouter.get('/', async (req: Request, res: Response) => {
   const code = req.query.code as string | undefined;
   const state = req.query.state as string | undefined;
   const error = req.query.error as string | undefined;
@@ -47,7 +70,10 @@ router.get('/callback', async (req: Request, res: Response) => {
     return res.redirect(`/#/sber?sber=error&sber_error=${encodeURIComponent(reason)}`);
   };
 
-  if (error) return fail(error);
+  if (error) {
+    logger.warn('[sber] OAuth returned an error', { error, description: req.query.error_description });
+    return fail(String(req.query.error_description || error));
+  }
   if (!code || !state) return fail('missing_params');
 
   const stateData = await verifyOAuthState(state);
@@ -60,12 +86,12 @@ router.get('/callback', async (req: Request, res: Response) => {
 
   try {
     const token = await exchangeCodeForToken(code);
-    const expiresAt = new Date(Date.now() + token.expiresIn * 1000).toISOString();
     await sberTokenRepo.upsert({
       access_token: token.accessToken,
       refresh_token: token.refreshToken,
-      expires_at: expiresAt,
+      expires_at: sqlUtc(new Date(Date.now() + token.expiresIn * 1000)),
     }, ownerUserId);
+    await sberTokenRepo.setRefreshMeta(ownerUserId, { ok: true, source: 'oauth' });
     try {
       const info = await fetchClientInfo(token.accessToken);
       await sberTokenRepo.updatePayerDetails({
@@ -103,9 +129,11 @@ router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => 
   if (payer_inn && !INN_RE.test(payer_inn)) {
     return res.status(400).json({ error: 'payer_inn must be 10 or 12 digits' });
   }
-  const expiresAt = expires_at
-    ? new Date(expires_at).toISOString()
-    : new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+  // Пара из личного кабинета Sber API: access живёт 30 дней, refresh — 180.
+  const parsed = expires_at ? new Date(expires_at) : null;
+  const expiresAt = sqlUtc(parsed && !Number.isNaN(parsed.getTime())
+    ? parsed
+    : new Date(Date.now() + (LK_ACCESS_TOKEN_TTL_DAYS * 24 - 1) * 3_600_000));
   await sberTokenRepo.upsert({
     access_token, refresh_token, expires_at: expiresAt,
     account_number: account_number ?? null,
@@ -115,8 +143,17 @@ router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => 
     payer_bank_bic: payer_bank_bic ?? null,
     payer_bank_corr_account: payer_bank_corr_account ?? null,
   }, ownerOf(req));
+  await sberTokenRepo.setRefreshMeta(ownerOf(req), { ok: true, source: 'manual' });
   void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк подключён (токен вручную)' });
-  return res.json({ success: true });
+  // Сразу проверяем, что пару можно обновлять автоматически: иначе ошибка
+  // (например, просроченный client_secret) всплыла бы только через месяц.
+  // Неудача не отменяет вставку — токен из кабинета работает 30 дней.
+  try {
+    await getValidAccessToken(ownerOf(req), { force: true });
+    return res.json({ success: true, auto_refresh: 'ok' });
+  } catch (err) {
+    return res.json({ success: true, auto_refresh: 'failed', warning: (err as Error).message });
+  }
 });
 
 router.patch('/payer', requireAdmin, async (req: Request, res: Response) => {
@@ -148,7 +185,7 @@ router.patch('/payer', requireAdmin, async (req: Request, res: Response) => {
 router.get('/status', async (req: Request, res: Response) => {
   const t = await sberTokenRepo.get(ownerOf(req));
   if (!t) return res.json({ connected: false });
-  const tokenExpired = new Date(t.expires_at).getTime() < Date.now();
+  const tokenExpired = (parseDbUtc(t.expires_at)?.getTime() ?? 0) < Date.now();
   const payerComplete = !!(
     t.account_number &&
     t.org_name &&
@@ -171,7 +208,65 @@ router.get('/status', async (req: Request, res: Response) => {
     payer_bank_corr_account: t.payer_bank_corr_account,
     token_expired: tokenExpired,
     payer_complete: payerComplete,
+    auth: {
+      token_source: t.token_source ?? null,
+      access_expires_at: parseDbUtc(t.expires_at)?.toISOString() ?? null,
+      refresh_obtained_at: parseDbUtc(t.refresh_obtained_at ?? null)?.toISOString() ?? null,
+      refresh_expires_at: refreshExpiresAt(t.refresh_obtained_at),
+      last_refresh_at: parseDbUtc(t.last_refresh_at ?? null)?.toISOString() ?? null,
+      last_refresh_error: t.last_refresh_error ?? null,
+      secret: await secretStatus(),
+    },
   });
+});
+
+// POST /api/sber/client-secret — { client_secret, make_perpetual? } — новый секрет
+// из личного кабинета Sber API. По умолчанию сразу меняется на бессрочный
+// (make_perpetual: false — оставить 40-дневным, если тот же client_id нужен
+// другой программе: замена на бессрочный делает текущий секрет недействительным).
+router.post('/client-secret', requireAdmin, async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as { client_secret?: unknown; make_perpetual?: unknown };
+  const secret = typeof body.client_secret === 'string' ? body.client_secret : '';
+  try {
+    const r = await setClientSecretFromUser(secret, { makePerpetual: body.make_perpetual !== false });
+    void logIntegrationEvent({
+      integration: 'sber', event_type: 'config_changed',
+      summary: r.perpetual ? 'Сбербанк: client_secret заменён на бессрочный' : 'Сбербанк: введён новый client_secret (40 дней)',
+    });
+    return res.json({ data: { perpetual: r.perpetual, warning: r.warning ?? null, secret: await secretStatus() } });
+  } catch (err) {
+    return res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/sber/client-secret/perpetual — заменить текущий секрет на бессрочный.
+router.post('/client-secret/perpetual', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    await makeSecretPerpetual();
+    void logIntegrationEvent({ integration: 'sber', event_type: 'config_changed', summary: 'Сбербанк: client_secret заменён на бессрочный' });
+    return res.json({ data: { secret: await secretStatus() } });
+  } catch (err) {
+    return res.status(502).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/sber/refresh-now — обновить пару токенов сейчас (проверка, что
+// автообновление работает). Ошибка — 502, не 401: 401 фронт считает «ключ ScanFlow недействителен».
+router.post('/refresh-now', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    await getValidAccessToken(ownerOf(req), { force: true });
+    return res.json({ data: { ok: true } });
+  } catch (err) {
+    return res.status(502).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/sber/payments/sync — проверить банковские статусы платёжек компании сейчас.
+router.post('/payments/sync', async (req: Request, res: Response) => {
+  const t = await sberTokenRepo.get(ownerOf(req));
+  if (!t) return res.status(404).json({ error: 'Сбербанк не подключён' });
+  const r = await pollSberPaymentStatuses({ ownerUserId: ownerOf(req), minAgeMinutes: 1 });
+  return res.json({ data: r });
 });
 
 router.post('/disconnect', requireAdmin, async (req: Request, res: Response) => {

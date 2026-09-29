@@ -20,6 +20,7 @@ import { notifySupplierExtractError, emit as emitNotification } from './notifica
 import { seedAdminUser } from './auth/seedAdmin';
 import { startDigestWorker } from './notifications/digestWorker';
 import { runNightlyLearning } from './learning/learningService';
+import { keepSberTokensAlive, warnSberSecretExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -122,6 +123,18 @@ async function main(): Promise<void> {
   // Выключается флагом движка `learning`. Компании — последовательно.
   cron.schedule('30 3 * * *', () => {
     runNightlyLearning().catch(err => logger.error('nightly learning failed', { error: (err as Error).message }));
+  });
+
+  // Сбербанк: раз в сутки обновить пару токенов (refresh живёт 180 дней с
+  // последнего использования — подключение не протухает) и предупредить о
+  // сроке client_secret; днём каждые 30 минут — банковские статусы платёжек.
+  cron.schedule('15 4 * * *', () => {
+    keepSberTokensAlive()
+      .then(() => warnSberSecretExpiry())
+      .catch(err => logger.error('sber keep-alive failed', { error: (err as Error).message }));
+  });
+  cron.schedule('*/30 7-21 * * *', () => {
+    pollSberPaymentStatuses().catch(err => logger.error('sber status poll failed', { error: (err as Error).message }));
   });
 
   // Weekly photo cleanup on Sunday at 03:10 — deletes processed/ files
