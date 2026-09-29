@@ -28,7 +28,7 @@ export class SupplierMergeError extends Error {
 
 export interface SupplierMergeResult {
   moved_invoices: number;
-  /** Правила поставщика (сопоставления позиций + исправления OCR), переехавшие на ИНН цели. */
+  /** Правила поставщика (сопоставления позиций, исправления OCR, правила пересчёта), переехавшие на ИНН цели. */
   moved_rules: number;
   /** Правила, оставленные на старом ключе: у цели уже есть правило на то же значение. */
   skipped_rules: number;
@@ -43,7 +43,7 @@ export interface SupplierMergeResult {
  * определяется, что у цели уже есть такое же правило.
  */
 interface RuleTable {
-  table: 'supplier_nomenclature_mapping_cards' | 'ocr_correction_cards';
+  table: 'supplier_nomenclature_mapping_cards' | 'ocr_correction_cards' | 'item_unit_rules';
   uniq: readonly string[];
   key: (inn: string) => string | null;
 }
@@ -51,8 +51,11 @@ interface RuleTable {
 const RULE_TABLES: readonly RuleTable[] = [
   // Сопоставления позиций по поставщику: supplier_key = 'inn:<цифры>'.
   { table: 'supplier_nomenclature_mapping_cards', uniq: ['scanned_hash'], key: inn => makeSupplierKey(inn, null) },
-  // Выученные исправления OCR: supplier_key = '<цифры>'.
-  { table: 'ocr_correction_cards', uniq: ['field_name', 'original_hash'], key: inn => supplierCorrectionKey({ supplier_inn: inn }) },
+  // Выученные исправления OCR: supplier_key = '<цифры>'. item_key — часть
+  // уникального ключа (миграция 66): «шт→кг» для батона и для муки — разные правила.
+  { table: 'ocr_correction_cards', uniq: ['field_name', 'original_hash', 'item_key'], key: inn => supplierCorrectionKey({ supplier_inn: inn }) },
+  // Правила пересчёта «товар + поставщик» (миграция 68): supplier_key = 'inn:<цифры>'.
+  { table: 'item_unit_rules', uniq: ['name_key', 'raw_unit'], key: inn => makeSupplierKey(inn, null) },
 ];
 
 const ID_CHUNK = 500;

@@ -8,6 +8,14 @@ const LEARNABLE_FIELDS = new Set([
   'item_unit',
 ]);
 
+/**
+ * Правило единицы для товара хранится под СВОИМ именем поля, а не 'item_unit'
+ * (миграция 73): код до v2 применял любую строку 'item_unit' ко ВСЕМ строкам
+ * поставщика. Если придётся откатить код, старый код этих правил просто не
+ * увидит, вместо того чтобы снова испортить яйца «С1 360шт» в «1080 кг».
+ */
+export const ITEM_UNIT_STORED_FIELD = 'item_unit_item';
+
 function normalize(value: unknown): string {
   return String(value ?? '').normalize('NFKC').toLocaleLowerCase('ru-RU').replace(/\s+/g, ' ').trim();
 }
@@ -61,13 +69,14 @@ export const ocrCorrectionRepo = {
     // все строки поставщика.
     if (fieldName === 'item_unit' && !itemKey) return;
     const hash = crypto.createHash('sha256').update(original).digest('hex');
+    const storedField = fieldName === 'item_unit' ? ITEM_UNIT_STORED_FIELD : fieldName;
     await getDb().prepare(`
       INSERT INTO ocr_correction_cards
         (owner_user_id, supplier_key, field_name, original_hash, original_value, corrected_value, item_key, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
       ON DUPLICATE KEY UPDATE corrected_value = VALUES(corrected_value), active = 1,
         times_seen = times_seen + 1, updated_at = NOW()
-    `).run(ownerUserId, supplierKey, fieldName, hash, String(originalValue ?? '').slice(0, 1024), corrected.slice(0, 1024), itemKey);
+    `).run(ownerUserId, supplierKey, storedField, hash, String(originalValue ?? '').slice(0, 1024), corrected.slice(0, 1024), itemKey);
   },
 
   async apply<T extends Record<string, unknown>>(data: T, ownerUserId: number): Promise<T> {
@@ -102,10 +111,10 @@ export const ocrCorrectionRepo = {
       const hash = crypto.createHash('sha256').update(unit).digest('hex');
       const correction = await getDb().prepare(`
         SELECT id, corrected_value FROM ocr_correction_cards
-         WHERE owner_user_id = ? AND supplier_key = ? AND field_name = 'item_unit' AND original_hash = ?
+         WHERE owner_user_id = ? AND supplier_key = ? AND field_name = ? AND original_hash = ?
            AND item_key = ? AND active = 1
          ORDER BY times_seen DESC LIMIT 1
-      `).get<{ id: number; corrected_value: string }>(ownerUserId, supplierKey, hash, itemKey);
+      `).get<{ id: number; corrected_value: string }>(ownerUserId, supplierKey, ITEM_UNIT_STORED_FIELD, hash, itemKey);
       if (!correction) continue;
       item.unit = correction.corrected_value;
       await getDb()

@@ -2183,6 +2183,24 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 73,
+    name: 'ocr_correction_cards: правила единицы для товара — под своим именем поля (безопасный откат кода)',
+    // Код до v2 применял ЛЮБУЮ строку field_name='item_unit' ко всем строкам
+    // поставщика. После миграции 66 такие строки бывают двух видов: для товара
+    // (item_key <> '') и выключенные «общие» (active = 0). Старый код не знает
+    // ни item_key, ни active — при откате кода он снова испортил бы единицы.
+    // Переименовываем: для товара → 'item_unit_item' (его читает v2), общие
+    // выключенные → 'item_unit_off' (не читает никто, лежат для истории).
+    detect: async (exec) => {
+      const [rows] = await exec.query<RowDataPacket[]>(`SELECT COUNT(*) AS n FROM ocr_correction_cards WHERE field_name = 'item_unit'`);
+      return Number(rows[0]?.n ?? 0) === 0;
+    },
+    run: async (exec) => {
+      await exec.query(`UPDATE ocr_correction_cards SET field_name = 'item_unit_item' WHERE field_name = 'item_unit' AND item_key <> ''`);
+      await exec.query(`UPDATE ocr_correction_cards SET field_name = 'item_unit_off', active = 0 WHERE field_name = 'item_unit' AND item_key = ''`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

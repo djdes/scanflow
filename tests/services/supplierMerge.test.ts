@@ -10,7 +10,8 @@ let executed: string[] = [];
 
 const UNIQUE: Record<string, string[]> = {
   supplier_nomenclature_mapping_cards: ['owner_user_id', 'supplier_key', 'scanned_hash'],
-  ocr_correction_cards: ['owner_user_id', 'supplier_key', 'field_name', 'original_hash'],
+  ocr_correction_cards: ['owner_user_id', 'supplier_key', 'field_name', 'original_hash', 'item_key'],
+  item_unit_rules: ['owner_user_id', 'supplier_key', 'name_key', 'raw_unit'],
 };
 
 function checkUnique(table: string): void {
@@ -143,10 +144,18 @@ beforeEach(() => {
       { id: 103, owner_user_id: OTHER, supplier_key: `inn:${TYPO}`, scanned_hash: 'h-sugar' },
     ],
     ocr_correction_cards: [
-      { id: 200, owner_user_id: OWNER, supplier_key: TYPO, field_name: 'item_unit', original_hash: 'u-sht' },
-      { id: 201, owner_user_id: OWNER, supplier_key: TYPO, field_name: 'supplier_kpp', original_hash: 'k-1' },
-      { id: 202, owner_user_id: OWNER, supplier_key: GOOD, field_name: 'item_unit', original_hash: 'u-sht' }, // у цели уже есть
-      { id: 203, owner_user_id: OWNER, supplier_key: TYPO, field_name: 'supplier_bik', original_hash: 'u-sht' },
+      { id: 200, owner_user_id: OWNER, supplier_key: TYPO, field_name: 'item_unit_item', original_hash: 'u-sht', item_key: 'батон' },
+      { id: 201, owner_user_id: OWNER, supplier_key: TYPO, field_name: 'supplier_kpp', original_hash: 'k-1', item_key: '' },
+      { id: 202, owner_user_id: OWNER, supplier_key: GOOD, field_name: 'item_unit_item', original_hash: 'u-sht', item_key: 'батон' }, // у цели уже есть
+      { id: 203, owner_user_id: OWNER, supplier_key: TYPO, field_name: 'supplier_bik', original_hash: 'u-sht', item_key: '' },
+      // Та же «сырая» единица, но другой товар — не конфликт с 202.
+      { id: 204, owner_user_id: OWNER, supplier_key: TYPO, field_name: 'item_unit_item', original_hash: 'u-sht', item_key: 'мука' },
+    ],
+    item_unit_rules: [
+      { id: 300, owner_user_id: OWNER, supplier_key: `inn:${TYPO}`, name_key: 'батон', raw_unit: 'шт' },
+      { id: 301, owner_user_id: OWNER, supplier_key: `inn:${TYPO}`, name_key: 'мука', raw_unit: 'меш' },
+      { id: 302, owner_user_id: OWNER, supplier_key: `inn:${GOOD}`, name_key: 'мука', raw_unit: 'меш' }, // у цели уже есть
+      { id: 303, owner_user_id: OTHER, supplier_key: `inn:${TYPO}`, name_key: 'батон', raw_unit: 'шт' },
     ],
   };
 });
@@ -156,8 +165,8 @@ describe('mergeSupplierCards — «Объединить карточки»', () 
     const r = await mergeSupplierCards(OWNER, TYPO, GOOD);
 
     expect(r.moved_invoices).toBe(2);
-    expect(r.moved_rules).toBe(3);   // h-sugar + supplier_kpp + supplier_bik
-    expect(r.skipped_rules).toBe(2); // h-flour и item_unit/u-sht у цели уже были
+    expect(r.moved_rules).toBe(5);   // h-sugar + supplier_kpp + supplier_bik + единица «мука» + правило пересчёта «батон»
+    expect(r.skipped_rules).toBe(3); // h-flour, единица «батон» и правило пересчёта «мука» у цели уже были
     expect(r.deleted_card).toMatchObject({ id: 2, inn: TYPO, name: 'ООО "Вкусный мир ТК"', account: '40702810000000000001' });
 
     // Карточка-источник удалена, остальные на месте.
@@ -185,6 +194,10 @@ describe('mergeSupplierCards — «Объединить карточки»', () 
     expect(key('ocr_correction_cards', 200)).toBe(TYPO);                          // конфликт — остался
     expect(key('ocr_correction_cards', 201)).toBe(GOOD);
     expect(key('ocr_correction_cards', 203)).toBe(GOOD); // тот же hash, но другое поле — не конфликт
+    expect(key('ocr_correction_cards', 204)).toBe(GOOD); // тот же hash и поле, но другой товар — не конфликт
+    expect(key('item_unit_rules', 300)).toBe(`inn:${GOOD}`);
+    expect(key('item_unit_rules', 301)).toBe(`inn:${TYPO}`); // конфликт — остался
+    expect(key('item_unit_rules', 303)).toBe(`inn:${TYPO}`); // чужая компания
   });
 
   it('пишет в лог удалённую карточку целиком (для восстановления)', async () => {

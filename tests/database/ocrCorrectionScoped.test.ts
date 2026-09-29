@@ -21,9 +21,9 @@ vi.mock('../../src/database/db', () => ({
       },
       get: async (...args: unknown[]) => {
         calls.push({ sql, args });
-        if (sql.includes("field_name = 'item_unit'")) {
-          const [owner, supplierKey, hash, itemKey] = args as [number, string, string, string];
-          const r = rows.find(x => x.owner_user_id === owner && x.supplier_key === supplierKey && x.field_name === 'item_unit' && x.original_hash === hash && x.item_key === itemKey && x.active === 1);
+        if (sql.includes('AND item_key = ?')) {
+          const [owner, supplierKey, field, hash, itemKey] = args as [number, string, string, string, string];
+          const r = rows.find(x => x.owner_user_id === owner && x.supplier_key === supplierKey && x.field_name === field && x.original_hash === hash && x.item_key === itemKey && x.active === 1);
           return r ? { id: r.id, corrected_value: r.corrected_value } : undefined;
         }
         return undefined;
@@ -32,7 +32,7 @@ vi.mock('../../src/database/db', () => ({
   }),
 }));
 
-import { ocrCorrectionRepo, itemUnitRuleKey } from '../../src/database/repositories/ocrCorrectionRepo';
+import { ocrCorrectionRepo, itemUnitRuleKey, ITEM_UNIT_STORED_FIELD } from '../../src/database/repositories/ocrCorrectionRepo';
 
 describe('ocrCorrectionRepo: единица — правило для товара', () => {
   beforeEach(() => { rows.length = 0; calls.length = 0; });
@@ -41,6 +41,9 @@ describe('ocrCorrectionRepo: единица — правило для товар
     await ocrCorrectionRepo.remember('5258068806', 'item_unit', 'кг', 'шт', 1, 'Яйцо Куриное Коричневое С1 360шт');
     expect(rows).toHaveLength(1);
     expect(rows[0].item_key).toBe(itemUnitRuleKey('Яйцо Куриное Коричневое С1 360шт'));
+    // Не 'item_unit': код до v2 (при откате) применил бы такую строку ко всему поставщику.
+    expect(rows[0].field_name).toBe(ITEM_UNIT_STORED_FIELD);
+    expect(ITEM_UNIT_STORED_FIELD).not.toBe('item_unit');
     await ocrCorrectionRepo.remember('5258068806', 'item_unit', 'шт', 'кг', 1);
     expect(rows).toHaveLength(1); // без товара — не запоминаем
   });
