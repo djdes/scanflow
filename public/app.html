@@ -716,6 +716,10 @@
            Рендерит settings.js; менять может только админ. -->
       <div id="settings-engine-flags"></div>
 
+      <!-- Admin-only: эталонные накладные (п.17 v2) — прогон и отчёты.
+           Рендерит settings.js, только если GET /api/golden/runs вернул 200. -->
+      <div id="settings-golden"></div>
+
       <!-- Admin-only: team & roles. Rendered by settings.js only when
            GET /api/users returns 200 (i.e. the caller is an admin). -->
       <div id="settings-users"></div>

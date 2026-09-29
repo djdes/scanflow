@@ -933,9 +933,35 @@ const Invoices = {
         ? 'Пересобрать все маппинги через Claude LLM (Anthropic API)'
         : 'Сопоставить несопоставленные товары через Claude LLM (Anthropic API)';
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id}, ${llmAll}, event)" title="${llmTitle}">${llmLabel}</button>`;
+      // ⭐ Эталон (п.17 v2): проверенная накладная, по которой админ сверяет
+      // распознавание после обновлений (Настройки → Эталонные накладные).
+      // Фото эталона не удаляется через 90 дней. PATCH /api/golden/invoices/:id.
+      const goldenTitle = (on) => on
+        ? 'Эталон: по этой накладной проверяется распознавание после обновлений, фото хранится бессрочно. Нажмите, чтобы убрать из эталонов.'
+        : 'Накладная проверена и верна? Отметьте её эталоном — по эталонам после обновлений проверяется, что номера, суммы и НДС распознаются правильно.';
+      const goldenOn = Number(data.golden) === 1;
+      actionsHtml += `<button type="button" class="btn btn-outline" id="invoice-golden-btn" data-golden="${goldenOn ? 1 : 0}" title="${goldenTitle(goldenOn)}">${goldenOn ? '⭐ Эталон' : '☆ В эталоны'}</button>`;
       // Delete button (destructive, always visible, pushed to the right)
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
+      const goldenBtn = document.getElementById('invoice-golden-btn');
+      if (goldenBtn) {
+        goldenBtn.addEventListener('click', async () => {
+          const next = goldenBtn.dataset.golden !== '1';
+          goldenBtn.disabled = true;
+          try {
+            await App.apiJson(`/golden/invoices/${data.id}`, { method: 'PATCH', body: { golden: next } });
+            goldenBtn.dataset.golden = next ? '1' : '0';
+            goldenBtn.textContent = next ? '⭐ Эталон' : '☆ В эталоны';
+            goldenBtn.title = goldenTitle(next);
+            App.notify(next ? 'Накладная добавлена в эталоны' : 'Накладная убрана из эталонов', 'success');
+          } catch (e) {
+            App.notify(e.message || 'Не удалось изменить отметку эталона', 'error');
+          } finally {
+            goldenBtn.disabled = false;
+          }
+        });
+      }
 
       // Sber section (button + status)
       if (window.Sber) {
