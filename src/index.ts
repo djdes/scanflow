@@ -108,6 +108,9 @@ async function main(): Promise<void> {
     integrationEventRepo.prune(90)
       .then(deleted => { if (deleted > 0) logger.info('Pruned old integration_events', { deleted }); })
       .catch(err => logger.error('integration_events prune failed', { error: (err as Error).message }));
+    integrationEventRepo.prunePolls(3)
+      .then(deleted => { if (deleted > 0) logger.info('Pruned old 1C poll events', { deleted }); })
+      .catch(err => logger.error('integration_events poll prune failed', { error: (err as Error).message }));
     pruneSendLog()
       .then(deleted => { if (deleted > 0) logger.info('Pruned old notification_sends', { deleted }); })
       .catch(err => logger.error('notification_sends prune failed', { error: (err as Error).message }));

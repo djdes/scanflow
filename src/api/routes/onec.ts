@@ -11,6 +11,7 @@ import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repo
 import { onecPairingRepo } from '../../database/repositories/onecPairingRepo';
 import { syncStateRepo } from '../../database/repositories/syncStateRepo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
+import { createPollLogGate } from '../../integration/pollLogGate';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 
@@ -192,6 +193,9 @@ onecExchangeRouter.get('/status', async (req: Request, res: Response) => {
   res.json({ data: { ok: true, connection: req.onecConnection?.name, catalog, sync_state: syncState, server_time: new Date().toISOString() } });
 });
 
+// Опрос очереди идёт раз в минуту: в журнал — непустой всегда, пустой — раз в час.
+const shouldLogPoll = createPollLogGate();
+
 onecExchangeRouter.get('/invoices/pending', async (req: Request, res: Response) => {
   const limitRaw = Number(req.query.limit);
   const offsetRaw = Number(req.query.offset);
@@ -200,7 +204,9 @@ onecExchangeRouter.get('/invoices/pending', async (req: Request, res: Response) 
     offset: Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0,
     ownerUserId: exchangeOwner(req) ?? undefined,
   });
-  void logIntegrationEvent({ integration: '1c', event_type: 'poll', status: 'info', summary: `Подключение «${req.onecConnection?.name}» запросило очередь: ${result.rows.length}` });
+  if (shouldLogPoll(req.onecConnection?.id, result.rows.length)) {
+    void logIntegrationEvent({ integration: '1c', event_type: 'poll', status: 'info', summary: `Подключение «${req.onecConnection?.name}» запросило очередь: ${result.rows.length}` });
+  }
   res.json({ data: result.rows, count: result.rows.length, total: result.total });
 });
 

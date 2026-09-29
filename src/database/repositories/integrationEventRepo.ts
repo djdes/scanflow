@@ -43,4 +43,14 @@ export const integrationEventRepo = {
       .run();
     return r.changes;
   },
+
+  // Опросы очереди 1С (event_type='poll') — самые частые и самые бесполезные
+  // в истории строки; им хватает нескольких дней, остальному журналу — 90.
+  async prunePolls(days = 3): Promise<number> {
+    const d = Math.max(1, Math.floor(days));
+    const r = await getDb()
+      .prepare(`DELETE FROM integration_events WHERE event_type = 'poll' AND ts < (NOW() - INTERVAL ${d} DAY)`)
+      .run();
+    return r.changes;
+  },
 };
