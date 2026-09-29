@@ -1,6 +1,7 @@
 import { getDb } from '../database/db';
 import { logger } from '../utils/logger';
-import { medianOf } from './medianOf';
+import { robustMedian } from './medianOf';
+import { canonUnit } from '../mapping/unitConverter';
 
 const HISTORY_LIMIT = 10;
 const MIN_SAMPLES = 3;
@@ -41,6 +42,7 @@ export async function recomputeMedianForGuid(guid: string, ownerUserId: number):
        AND i.owner_user_id = ?
        AND ii.price > 0
        AND ii.unit IS NOT NULL AND ii.unit != ''
+       AND ii.qty_flag IS NULL
      ORDER BY i.invoice_date DESC, ii.id DESC
      LIMIT ${HISTORY_LIMIT}`,
   ).all<ItemRow>(guid, ownerUserId);
@@ -69,7 +71,7 @@ export async function recomputeMedianForGuid(guid: string, ownerUserId: number):
     return null;
   }
 
-  const median = medianOf(prices);
+  const median = robustMedian(prices, 5, MIN_SAMPLES);
   if (median === null) {
     await dropStat();
     return null;
@@ -134,4 +136,31 @@ export async function backfillAllStats(): Promise<{ scanned: number; written: nu
   }
   logger.info('priceStats: backfill complete', { scanned, written });
   return { scanned, written };
+}
+
+/**
+ * «Обычная» цена за единицу 1С для проверки правдоподобия пересчёта (пакет v2,
+ * п.4): устойчивая медиана последних 20 строк этой позиции в той же единице,
+ * без строк с флагом. null — истории мало, судить не по чему.
+ */
+export async function getReferencePrice(guid: string | null | undefined, ownerUserId: number | null, unit: string | null | undefined): Promise<number | null> {
+  if (!guid || ownerUserId == null || !unit) return null;
+  const want = canonUnit(unit)?.unit;
+  if (!want) return null;
+  try {
+    const rows = await getDb().prepare(
+      `SELECT ii.price, ii.unit
+         FROM invoice_items ii
+         JOIN invoices i ON i.id = ii.invoice_id
+        WHERE ii.onec_guid = ? AND i.owner_user_id = ?
+          AND ii.price > 0 AND ii.qty_flag IS NULL
+        ORDER BY i.invoice_date DESC, ii.id DESC
+        LIMIT 20`,
+    ).all<ItemRow>(guid, ownerUserId);
+    const prices = rows.filter(r => canonUnit(r.unit)?.unit === want).map(r => Number(r.price));
+    return robustMedian(prices, 5, 3);
+  } catch (err) {
+    logger.warn('priceStats: reference price failed', { guid, error: (err as Error).message });
+    return null;
+  }
 }

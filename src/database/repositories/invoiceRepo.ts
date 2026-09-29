@@ -204,6 +204,30 @@ export interface InvoiceItem {
   // 1 when the user manually set mapped_name as the name to create in 1C
   // (unmatched item). Lets the UI mark it and assures it's what 1C will use.
   name_overridden: number;
+  // Пакет v2 (миграция 67): значения «как в накладной» и результат пересчёта
+  // в единицу 1С. См. src/mapping/unitConverter.ts.
+  raw_quantity?: number | null;
+  raw_unit?: string | null;
+  raw_price?: number | null;
+  raw_total?: number | null;
+  conv_factor?: number | null;
+  conv_note?: string | null;
+  conv_source?: string | null;
+  qty_flag?: string | null;
+  qty_flag_note?: string | null;
+}
+
+/** Поля результата пересчёта строки (src/services/lineConversion.ts). */
+export interface ItemConversionColumns {
+  raw_quantity: number | null;
+  raw_unit: string | null;
+  raw_price: number | null;
+  raw_total: number | null;
+  conv_factor: number | null;
+  conv_note: string | null;
+  conv_source: string | null;
+  qty_flag: string | null;
+  qty_flag_note: string | null;
 }
 
 export interface CreateInvoiceData {
@@ -250,6 +274,8 @@ export interface CreateInvoiceItemData {
   mapping_confidence?: number;
   onec_guid?: string | null;
   row_no?: number | null;
+  /** Пакет v2: «как в накладной» + результат пересчёта. Не передано — raw = итоговые значения. */
+  conversion?: Partial<ItemConversionColumns> | null;
 }
 
 /**
@@ -746,8 +772,10 @@ export const invoiceRepo = {
   async addItem(data: CreateInvoiceItemData): Promise<InvoiceItem> {
     const db = getDb();
     const result = await db.prepare(`
-      INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence, onec_guid, row_no)
-      VALUES (:invoice_id, :original_name, :mapped_name, :quantity, :unit, :price, :total, :vat_rate, :mapping_confidence, :onec_guid, :row_no)
+      INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence, onec_guid, row_no,
+        raw_quantity, raw_unit, raw_price, raw_total, conv_factor, conv_note, conv_source, qty_flag, qty_flag_note)
+      VALUES (:invoice_id, :original_name, :mapped_name, :quantity, :unit, :price, :total, :vat_rate, :mapping_confidence, :onec_guid, :row_no,
+        :raw_quantity, :raw_unit, :raw_price, :raw_total, :conv_factor, :conv_note, :conv_source, :qty_flag, :qty_flag_note)
     `).run({
       invoice_id: data.invoice_id,
       original_name: data.original_name,
@@ -760,6 +788,16 @@ export const invoiceRepo = {
       mapping_confidence: data.mapping_confidence ?? 0,
       onec_guid: data.onec_guid ?? null,
       row_no: data.row_no ?? null,
+      // Без явного пересчёта «как в накладной» = то, что пишем (никаких догадок).
+      raw_quantity: data.conversion?.raw_quantity !== undefined ? data.conversion.raw_quantity : (data.quantity ?? null),
+      raw_unit: data.conversion?.raw_unit !== undefined ? data.conversion.raw_unit : (data.unit ?? null),
+      raw_price: data.conversion?.raw_price !== undefined ? data.conversion.raw_price : (data.price ?? null),
+      raw_total: data.conversion?.raw_total !== undefined ? data.conversion.raw_total : (data.total ?? null),
+      conv_factor: data.conversion?.conv_factor ?? null,
+      conv_note: data.conversion?.conv_note ?? null,
+      conv_source: data.conversion?.conv_source ?? null,
+      qty_flag: data.conversion?.qty_flag ?? null,
+      qty_flag_note: data.conversion?.qty_flag_note ?? null,
     });
     const created = (await db
       .prepare('SELECT * FROM invoice_items WHERE id = ?')
@@ -802,6 +840,28 @@ export const invoiceRepo = {
     await db.prepare(
       `UPDATE invoice_items SET quantity = ?, unit = ?, price = ? WHERE id = ?`
     ).run(quantity, unit, price, itemId);
+    const after = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
+      .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
+    triggerStatsRecompute([after?.onec_guid], after?.invoice_id);
+  },
+
+  /**
+   * Записать результат пересчёта единиц (итог + «как в накладной» + формула).
+   * raw_* пишутся только если переданы — пересчёт существующей строки их не трогает.
+   */
+  async updateItemConversion(
+    itemId: number,
+    r: { quantity: number | null; unit: string | null; price: number | null; total?: number | null } & Partial<ItemConversionColumns>,
+  ): Promise<void> {
+    const sets: string[] = ['quantity = ?', 'unit = ?', 'price = ?'];
+    const vals: unknown[] = [r.quantity, r.unit, r.price];
+    if (r.total !== undefined) { sets.push('total = ?'); vals.push(r.total); }
+    for (const k of ['raw_quantity', 'raw_unit', 'raw_price', 'raw_total', 'conv_factor', 'conv_note', 'conv_source', 'qty_flag', 'qty_flag_note'] as const) {
+      if (r[k] !== undefined) { sets.push(`${k} = ?`); vals.push(r[k]); }
+    }
+    vals.push(itemId);
+    const db = getDb();
+    await db.prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     const after = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     triggerStatsRecompute([after?.onec_guid], after?.invoice_id);

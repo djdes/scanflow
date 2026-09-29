@@ -2032,6 +2032,70 @@ const MIGRATIONS: Migration[] = [
     },
   },
   {
+    version: 67,
+    name: 'invoice_items: значения «как в накладной» (raw_*) и результат пересчёта единиц (conv_*, qty_flag)',
+    // Пересчёт v2 всегда идёт от raw_* — повторный /remap больше не умножает
+    // второй раз, а строку можно вернуть «как в накладной». Для старых строк
+    // raw_* = текущие значения (как было на самом деле, уже не узнать), а
+    // conv_source = 'legacy_stored' — такие строки автоматически не
+    // пересчитываются, только по явному действию человека.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'invoice_items', 'raw_quantity'))
+      && (await hasColumn(exec, 'invoice_items', 'qty_flag_note')),
+    run: async (exec) => {
+      const t = 'invoice_items';
+      const cols: Array<[string, string]> = [
+        ['raw_quantity', 'DOUBLE NULL'],
+        ['raw_unit', 'VARCHAR(32) NULL'],
+        ['raw_price', 'DOUBLE NULL'],
+        ['raw_total', 'DOUBLE NULL'],
+        ['conv_factor', 'DOUBLE NULL'],
+        ['conv_note', 'VARCHAR(255) NULL'],
+        ['conv_source', 'VARCHAR(16) NULL'],
+        ['qty_flag', 'VARCHAR(24) NULL'],
+        ['qty_flag_note', 'VARCHAR(255) NULL'],
+      ];
+      for (const [c, def] of cols) {
+        if (!(await hasColumn(exec, t, c))) await exec.query(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`);
+      }
+      await exec.query(`UPDATE ${t}
+        SET raw_quantity = quantity, raw_unit = unit, raw_price = price, raw_total = total,
+            conv_source = 'legacy_stored'
+        WHERE conv_source IS NULL`);
+    },
+  },
+  {
+    version: 68,
+    name: 'item_unit_rules — правила пересчёта единиц «поставщик + товар»',
+    // «1 шт «Батон 0,4 кг» у поставщика X = 0,4 кг». supplier_key '' — правило
+    // для товара у любого поставщика; raw_unit '' — для любой единицы накладной.
+    // Пустые строки, а не NULL: MySQL/MariaDB не схлопывают NULL в UNIQUE.
+    detect: (exec) => hasTable(exec, 'item_unit_rules'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS item_unit_rules (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id  INT NOT NULL,
+          supplier_key   VARCHAR(64) NOT NULL DEFAULT '',
+          name_key       VARCHAR(191) NOT NULL,
+          raw_unit       VARCHAR(32) NOT NULL DEFAULT '',
+          target_unit    VARCHAR(32) NOT NULL,
+          factor         DOUBLE NOT NULL,
+          source         VARCHAR(16) NOT NULL,
+          note           VARCHAR(255) NULL,
+          active         TINYINT NOT NULL DEFAULT 1,
+          times_used     INT NOT NULL DEFAULT 0,
+          last_used_at   DATETIME NULL,
+          created_by     INT NULL,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_item_unit_rules (owner_user_id, supplier_key, name_key, raw_unit),
+          INDEX idx_item_unit_rules_key (owner_user_id, name_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
+  {
     version: 71,
     name: 'эталоны: invoices.golden/golden_at + golden_runs',
     // п.17 пакета v2. Проверенную накладную отмечают «⭐ Эталон»: её фото не
