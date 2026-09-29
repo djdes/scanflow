@@ -7,6 +7,9 @@ import {
 import { recomputeMedianForGuids } from '../../pricing/priceStats';
 import { deriveVatSum, isStatedVatConsistent } from '../../parser/itemSanitizer';
 import { DuplicateItemLike, scoreDuplicate } from '../../duplicate/duplicateScorer';
+import { attachNewItems, indexPendingRequests, type NewItemPayload } from '../../services/newItems';
+import { newItemRequestRepo } from './newItemRequestRepo';
+import { logger } from '../../utils/logger';
 
 // Multi-page hold: a freshly-recognized invoice is withheld from /pending for
 // this many minutes so a SECOND photographed page still has time to auto-merge
@@ -595,8 +598,26 @@ export const invoiceRepo = {
       itemsByInvoice.get(item.invoice_id)!.push(item);
     }
 
+    // «Новые товары» (пакет v2, п.12): строке без позиции 1С, по товару которой
+    // компания попросила «Создать в 1С», добавляется new_item {name, unit,
+    // parent_guid} — модуль 1С создаст позицию с этой единицей и в этой группе.
+    // Один запрос на вызов; остальные строки уходят байт-в-байт как раньше.
+    // Сбой здесь не должен останавливать выгрузку в 1С — тогда просто без new_item.
+    let newItemIndex = new Map<string, NewItemPayload>();
+    const owners = Array.from(new Set(invoices.map(i => i.owner_user_id).filter((o): o is number => o != null)));
+    if (owners.length > 0 && items.some(it => !it.onec_guid)) {
+      try {
+        newItemIndex = indexPendingRequests(await newItemRequestRepo.listPendingForOwners(owners));
+      } catch (err) {
+        logger.warn('getPendingWithItems: new_item requests unavailable', { error: (err as Error).message });
+      }
+    }
+
     return {
-      rows: invoices.map(inv => ({ ...inv, items: itemsByInvoice.get(inv.id) ?? [] })),
+      rows: invoices.map(inv => ({
+        ...inv,
+        items: attachNewItems(itemsByInvoice.get(inv.id) ?? [], inv.owner_user_id, newItemIndex),
+      })),
       total,
     };
   },

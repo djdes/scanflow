@@ -2155,6 +2155,38 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 72,
+    name: 'new_item_requests — «Создать в 1С»: новые позиции с именем, единицей и группой',
+    // п.12 пакета v2. До v2 строка без позиции 1С уходила в 1С, и модуль
+    // создавал Номенклатуру по mapped_name ВСЕГДА с единицей «кг». Теперь
+    // человек на странице «Новые товары» либо сопоставляет группу строк
+    // (name_key) с существующей позицией, либо просит 1С создать позицию с
+    // нужными названием/единицей/группой: заявка уходит в /pending как
+    // item.new_item. status: pending (попросили, в справочнике ещё нет) →
+    // created (позиция появилась после выгрузки каталога, onec_guid связан) |
+    // cancelled. name_key — itemNameKey(original_name), обрезанный до 191.
+    detect: (exec) => hasTable(exec, 'new_item_requests'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS new_item_requests (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id  INT NOT NULL,
+          name_key       VARCHAR(191) NOT NULL,
+          name           VARCHAR(512) NOT NULL,
+          unit           VARCHAR(32) NOT NULL,
+          parent_guid    VARCHAR(64) NULL,
+          status         VARCHAR(12) NOT NULL DEFAULT 'pending',
+          onec_guid      VARCHAR(64) NULL,
+          created_by     INT NULL,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_new_item_requests (owner_user_id, name_key),
+          INDEX idx_new_item_requests_status (owner_user_id, status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
