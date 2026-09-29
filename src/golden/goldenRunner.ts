@@ -339,7 +339,9 @@ export async function reconcileInterruptedGoldenRuns(): Promise<number> {
   const running = await goldenRepo.listRunning();
   let fixed = 0;
   for (const run of running) {
-    if (run.id === activeRunId) continue;
+    // activeRunId перечитываем на каждой строке: пока ждали listRunning, мог
+    // начаться новый прогон (0 — его INSERT ещё не вернул id).
+    if (activeRunId === 0 || run.id === activeRunId) continue;
     let summary: Record<string, unknown> = {};
     try {
       const parsed = run.summary ? JSON.parse(run.summary) : null;

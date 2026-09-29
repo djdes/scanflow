@@ -297,6 +297,24 @@ describe('reconcileInterruptedGoldenRuns', () => {
     }));
   });
 
+  it('гонка: пока читали «running», начался новый прогон (INSERT без id) — свежую строку не трогает', async () => {
+    let releaseList!: (rows: Array<{ id: number; summary: string | null }>) => void;
+    golden.listRunning.mockImplementation(() => new Promise(r => { releaseList = r; }));
+    let releaseCreate!: (id: number) => void;
+    golden.createRun.mockImplementation(() => new Promise(r => { releaseCreate = r; }));
+
+    const reconciling = reconcileInterruptedGoldenRuns();          // ждёт listRunning
+    const starting = startGoldenRun({ ownerUserId: 1, startedBy: 1, invoiceIds: [1] }, deps());
+    await vi.waitFor(() => expect(golden.createRun).toHaveBeenCalled()); // резерв 0, INSERT «в полёте»
+    releaseList([{ id: 43, summary: null }]);                        // SELECT успел увидеть новую строку
+    expect(await reconciling).toBe(0);
+    expect(golden.markInterrupted).not.toHaveBeenCalled();
+
+    releaseCreate(43);
+    await starting;
+    await vi.waitFor(() => expect(activeGoldenRunId()).toBeNull());
+  });
+
   it('идущий в этом процессе прогон не трогает', async () => {
     let release!: () => void;
     const gate = new Promise<void>(r => { release = r; });
