@@ -8,6 +8,7 @@ import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { inboundChannelRepo } from '../../database/repositories/inboundChannelRepo';
 import { userRepo } from '../../database/repositories/userRepo';
+import { isXmlFileName, isXmlMimeType } from '../../xml';
 
 export const inboundPublicRouter = Router();
 export const inboundConfigRouter = Router();
@@ -15,7 +16,8 @@ export const inboundConfigRouter = Router();
 let fileWatcher: FileWatcher;
 export function setInboundFileWatcher(value: FileWatcher): void { fileWatcher = value; }
 
-const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf']);
+// .xml — электронные УПД/ТОРГ-12 из ЭДО (src/xml): разбираются без распознавания.
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf', '.xml']);
 const emailUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024, files: 10 },
@@ -32,8 +34,10 @@ function secretMatches(value: string, expectedHash: string | null): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function safeExtension(originalName: string, mimeType?: string): string | null {
+export function safeExtension(originalName: string, mimeType?: string): string | null {
   let ext = path.extname(originalName || '').toLowerCase();
+  // XML без расширения или с чужим (почтовые пересыльщики переименовывают) — по MIME.
+  if (!ALLOWED_EXTENSIONS.has(ext) && isXmlMimeType(mimeType)) return '.xml';
   if (!ext && mimeType) {
     const byMime: Record<string, string> = {
       'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
@@ -55,7 +59,7 @@ async function queueBuffer(
   if (!fileWatcher) throw new Error('FileWatcher not initialized');
   if (buffer.length === 0 || buffer.length > 20 * 1024 * 1024) throw new Error('Attachment size must be between 1 byte and 20 MB');
   const ext = safeExtension(originalName, mimeType);
-  if (!ext) throw new Error('Only PDF, JPG, PNG, WEBP, BMP and TIFF attachments are supported');
+  if (!ext) throw new Error('Only PDF, JPG, PNG, WEBP, BMP, TIFF and XML (УПД, ТОРГ-12) attachments are supported');
   const fileName = `${source}-${ownerUserId}-${Date.now()}-${randomBytes(4).toString('hex')}${ext}`;
   const filePath = path.join(config.inboxDir, fileName);
   await fs.promises.mkdir(config.inboxDir, { recursive: true });
@@ -177,7 +181,9 @@ inboundPublicRouter.post('/telegram/:userId', async (req: Request, res: Response
     let mimeType = 'image/jpeg';
     if (Array.isArray(message.photo) && message.photo.length > 0) {
       fileId = message.photo[message.photo.length - 1]?.file_id || null;
-    } else if (message.document?.file_id && (String(message.document.mime_type || '').startsWith('image/') || message.document.mime_type === 'application/pdf')) {
+    } else if (message.document?.file_id && (String(message.document.mime_type || '').startsWith('image/')
+      || message.document.mime_type === 'application/pdf'
+      || isXmlMimeType(message.document.mime_type) || isXmlFileName(message.document.file_name))) {
       fileId = message.document.file_id;
       fileName = message.document.file_name || fileName;
       mimeType = message.document.mime_type || mimeType;

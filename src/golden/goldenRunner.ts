@@ -37,8 +37,9 @@ import { buildSupplierMemory } from '../learning/supplierMemory';
 import type { ParsedInvoiceData } from '../ocr/types';
 import { compareGolden, truthFromInvoice, type GoldenCompareResult } from './compare';
 import { recognizedFromParsed } from './recognized';
+import { isXmlInvoice } from '../xml';
 
-export type GoldenSkipReason = 'multipage' | 'no_photo' | 'not_found';
+export type GoldenSkipReason = 'multipage' | 'no_photo' | 'not_found' | 'xml';
 
 export interface GoldenInvoiceResult {
   invoice_id: number;
@@ -204,6 +205,8 @@ export async function evaluateGoldenInvoice(
     if (!inv) return { ...base, status: 'skipped', reason: 'not_found' };
     base.invoice_number = inv.invoice_number ?? null;
     base.supplier = inv.supplier ?? null;
+    // Электронный документ (XML) не распознаётся — проверять распознавание не на чем.
+    if (isXmlInvoice(inv)) return { ...base, status: 'skipped', reason: 'xml' };
 
     const files = (inv.file_name || '').split(',').map(s => s.trim()).filter(Boolean);
     if (files.length > 1) return { ...base, status: 'skipped', reason: 'multipage' };

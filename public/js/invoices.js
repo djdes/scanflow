@@ -609,10 +609,11 @@ const Invoices = {
 
   _attrCheckbox(data, attr) {
     const checked = data[`attr_checked_${attr}`] ? ' checked' : '';
-    return `<label class="attr-check" title="Отметить, что реквизит сверён с фотографией">
+    const xml = App.isXmlInvoice(data);
+    return `<label class="attr-check" title="Отметить, что реквизит сверён с ${xml ? 'документом' : 'фотографией'}">
       <input type="checkbox"${checked} data-attr="${attr}"
              onchange="Invoices.toggleAttrCheck(${data.id}, '${attr}', this.checked)"
-             aria-label="Сверено с фото">
+             aria-label="Сверено с ${xml ? 'документом' : 'фото'}">
     </label>`;
   },
 
@@ -761,6 +762,13 @@ const Invoices = {
         return;
       }
 
+      // Электронный документ из XML: вкладка «Фото» показывает сам документ,
+      // «OCR-текст» — разобранные из него данные.
+      const isXml = App.isXmlInvoice(data);
+      this._currentXml = isXml ? this._xmlMeta(data) : null;
+      if (tabBtns[1]) tabBtns[1].textContent = isXml ? 'Документ' : 'Фото';
+      if (tabBtns[2]) tabBtns[2].textContent = isXml ? 'Данные XML' : 'OCR-текст';
+
       // Header fields
       const header = document.getElementById('invoice-header-fields');
       header.innerHTML = `
@@ -899,12 +907,14 @@ const Invoices = {
               ⚠ <strong>Похоже на ту же накладную:</strong>
               <a href="#/invoices/${s.id}">№${s.id}</a>
               — ${s.items_count} позиц., ${App.formatMoney(s.total_sum)}${s.status === 'sent_to_1c' ? ', «Отправлен»' : ''}.
-              Возможно, это страницы одной накладной.
+              ${isXml
+                ? 'Эта накладная загружена из XML целиком — если там фото того же документа, лишнюю накладную удалите.'
+                : 'Возможно, это страницы одной накладной.'}
             </div>
-            <div class="duplicate-banner-actions">
+            ${isXml ? '' : `<div class="duplicate-banner-actions">
               <button class="btn btn-primary btn-sm"
                 onclick="Invoices.mergeSibling(${data.id}, ${s.id}, ${sentWarn})">Объединить →</button>
-            </div>
+            </div>`}
           </div>
         `).join('');
       } else {
@@ -943,8 +953,14 @@ const Invoices = {
       if ((data.items || []).some(it => it.onec_guid)) {
         actionsHtml += `<button class="btn btn-outline" onclick="Invoices.confirmMappings(${data.id}, event)" title="Текущие позиции 1С всех строк станут подтверждёнными правилами — их больше не перебьёт выбор ИИ">✓ Подтвердить сопоставления</button>`;
       }
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event)" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id}, event)" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
+      if (isXml) {
+        // Электронный документ целиком: «пересканировать» = перечитать исходный
+        // XML, а страниц к нему не бывает (сервер вернёт 409).
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event, true)" title="Заново разобрать исходный XML-файл и пересопоставить товары">🔄 Перечитать XML</button>`;
+      } else {
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event)" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
+        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id}, event)" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
+      }
       // LLM button is always visible. When everything is already mapped it
       // passes all=true so Claude can reconsider existing picks (catalog may
       // have grown, or an old fuzzy match may be improvable).
@@ -961,7 +977,10 @@ const Invoices = {
         ? 'Эталон: по этой накладной проверяется распознавание после обновлений, фото хранится бессрочно. Нажмите, чтобы убрать из эталонов.'
         : 'Накладная проверена и верна? Отметьте её эталоном — по эталонам после обновлений проверяется, что номера, суммы и НДС распознаются правильно.';
       const goldenOn = Number(data.golden) === 1;
-      actionsHtml += `<button type="button" class="btn btn-outline" id="invoice-golden-btn" data-golden="${goldenOn ? 1 : 0}" title="${goldenTitle(goldenOn)}">${goldenOn ? '⭐ Эталон' : '☆ В эталоны'}</button>`;
+      // Эталон проверяет распознавание фото — у документа из XML его нет.
+      if (!isXml || goldenOn) {
+        actionsHtml += `<button type="button" class="btn btn-outline" id="invoice-golden-btn" data-golden="${goldenOn ? 1 : 0}" title="${goldenTitle(goldenOn)}">${goldenOn ? '⭐ Эталон' : '☆ В эталоны'}</button>`;
+      }
       // Delete button (destructive, always visible, pushed to the right)
       actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
       actions.innerHTML = actionsHtml;
@@ -1838,23 +1857,25 @@ const Invoices = {
     });
   },
 
-  rescan(id, ev) {
+  rescan(id, ev, isXml = false) {
     // Кнопку запоминаем ДО показа модалки: к моменту подтверждения событие уже
     // отработало и currentTarget будет null, а сам узел кнопки останется живым.
     const btn = ev?.currentTarget || ev?.target || null;
     this.showConfirm(
       'Вы уверены?',
-      'Фото будет заново распознано через Claude API, текущие позиции заменятся новыми.',
+      isXml
+        ? 'Исходный XML будет разобран заново, товары — пересопоставлены с 1С; текущие позиции заменятся новыми.'
+        : 'Фото будет заново распознано через Claude API, текущие позиции заменятся новыми.',
       () => this._withGuard(`rescan:${id}`, () => App.withBusyButton(btn, async () => {
         try {
-          App.notify('Пересканирование запущено, ожидайте 10–30 сек…', 'info');
+          App.notify(isXml ? 'Перечитываем XML…' : 'Пересканирование запущено, ожидайте 10–30 сек…', 'info');
           const res = await App.api(`/invoices/${id}/rescan`, { method: 'POST' });
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             App.notify(err.error || `Ошибка ${res.status}`, 'error');
             return;
           }
-          App.notify('Накладная пересканирована', 'success');
+          App.notify(isXml ? 'Документ перечитан' : 'Накладная пересканирована', 'success');
           this.showDetail(id);
         } catch (e) {
           App.notify('Ошибка: ' + e.message, 'error');
@@ -2375,9 +2396,16 @@ const Invoices = {
       // URL comes from the server but still passes through escape — defence in depth
       // against a compromised backend or badly-sanitised filename returned by the API.
       container.innerHTML = data.map((photo, i) => {
+        const kind = photo.kind || this._fileKind(photo.filename);
+        if (kind === 'xml') return this._xmlDocBlock(photo);
+        if (kind === 'pdf') return this._pdfDocBlock(photo, i);
         const safeUrl = encodeURI(String(photo.url || ''));
         const safeName = App.esc(photo.filename);
         const deg = this._getPhotoRotation(id, i);
+        if (photo.exists === false) {
+          return `<div class="photo-block"><div class="photo-toolbar"><span class="photo-caption">Лист ${i + 1}: ${safeName}</span></div>
+            <div class="empty-state">Фото удалено с сервера по сроку хранения</div></div>`;
+        }
         return `
         <div class="photo-block" data-page="${i}">
           <div class="photo-toolbar">
@@ -2416,6 +2444,74 @@ const Invoices = {
     } catch (e) {
       container.innerHTML = '<div class="empty-state">Ошибка загрузки фото</div>';
     }
+  },
+
+  // ── Не-фото во вкладке «Фото»: электронный документ XML и PDF ─────────────
+  _fileKind(name) {
+    const n = String(name || '').trim().toLowerCase();
+    if (n.endsWith('.xml')) return 'xml';
+    return n.endsWith('.pdf') ? 'pdf' : 'image';
+  },
+
+  _fileUrl(photo) {
+    return `${encodeURI(String(photo.url || ''))}?key=${encodeURIComponent(App.apiKey)}`;
+  },
+
+  // Что за документ — из разбора XML (invoices.raw_text: JSON с document,
+  // function, warnings — см. src/xml/index.ts). Битый JSON — общие слова.
+  _xmlMeta(data) {
+    let raw = {};
+    try { raw = JSON.parse(data.raw_text || '{}') || {}; } catch { raw = {}; }
+    const FUNCTIONS = {
+      'СЧФДОП': 'счёт-фактура и передаточный документ',
+      'ДОП': 'передаточный документ',
+      'СЧФ': 'счёт-фактура',
+    };
+    return {
+      title: typeof raw.document === 'string' ? raw.document : 'Электронный документ ФНС',
+      func: FUNCTIONS[raw.function] || null,
+      warnings: Array.isArray(raw.warnings) ? raw.warnings.filter(w => typeof w === 'string') : [],
+    };
+  },
+
+  _xmlDocBlock(photo) {
+    const meta = this._currentXml || { title: 'Электронный документ ФНС', func: null, warnings: [] };
+    const download = photo.exists === false
+      ? '<span class="xml-doc__missing">Исходный файл удалён с сервера по сроку хранения.</span>'
+      : `<a class="btn btn-outline btn-sm" href="${this._fileUrl(photo)}" download>Скачать исходный XML</a>`;
+    const warnings = meta.warnings.length
+      ? `<div class="xml-doc__warnings"><strong>Замечания к документу</strong>
+           <ul>${meta.warnings.map(w => `<li>${App.esc(w)}</li>`).join('')}</ul></div>`
+      : '';
+    return `
+      <div class="photo-block xml-doc">
+        <div class="xml-doc__icon" aria-hidden="true">XML</div>
+        <div class="xml-doc__body">
+          <div class="xml-doc__title">Документ из XML</div>
+          <div class="xml-doc__meta">${App.esc(meta.title)}${meta.func ? ` · ${App.esc(meta.func)}` : ''}</div>
+          <p class="xml-doc__hint">Электронный документ из ЭДО: номер, суммы и строки взяты из файла как есть, без распознавания.</p>
+          <div class="xml-doc__actions">${download}<span class="xml-doc__file">${App.esc(photo.filename)}</span></div>
+          ${warnings}
+        </div>
+      </div>`;
+  },
+
+  // PDF в <img> не показывается (было «Файл не найден на диске») — ссылкой.
+  _pdfDocBlock(photo, i) {
+    const open = photo.exists === false
+      ? '<span class="xml-doc__missing">Файл удалён с сервера по сроку хранения.</span>'
+      : `<a class="btn btn-outline btn-sm" href="${this._fileUrl(photo)}" target="_blank" rel="noopener">Открыть PDF</a>`;
+    return `
+      <div class="photo-block">
+        <div class="photo-toolbar"><span class="photo-caption">Лист ${i + 1}: ${App.esc(photo.filename)}</span></div>
+        <div class="xml-doc">
+          <div class="xml-doc__icon xml-doc__icon--pdf" aria-hidden="true">PDF</div>
+          <div class="xml-doc__body">
+            <div class="xml-doc__title">PDF-документ</div>
+            <div class="xml-doc__actions">${open}</div>
+          </div>
+        </div>
+      </div>`;
   },
 
   // ── Поворот фото во вкладке «Фото» ────────────────────────────────────────

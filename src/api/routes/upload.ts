@@ -5,12 +5,29 @@ import { config } from '../../config';
 import { FileWatcher } from '../../watcher/fileWatcher';
 import { logger } from '../../utils/logger';
 import { inferUploadSource } from '../../utils/uploadSource';
+import { isXmlMimeType } from '../../xml';
 
 const router = Router();
 let fileWatcher: FileWatcher;
 
 export function setFileWatcher(fw: FileWatcher): void {
   fileWatcher = fw;
+}
+
+// .xml — электронные УПД/счёт-фактуры/ТОРГ-12 из ЭДО (формат ФНС, src/xml):
+// разбираются без распознавания, дальше — тот же конвейер, что у фото.
+const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.pdf', '.xml'];
+
+/**
+ * Расширение, под которым файл ляжет в inbox/ (оно же решает, как его
+ * обрабатывать), или null — файл не принимается. Расширение — из имени; XML
+ * без расширения (или с чужим) узнаём по MIME application/xml, text/xml.
+ */
+export function uploadExtension(originalName: string, mimeType?: string | null): string | null {
+  const ext = path.extname(originalName || '').toLowerCase();
+  if (ALLOWED_EXTENSIONS.includes(ext)) return ext;
+  if (isXmlMimeType(mimeType)) return '.xml';
+  return null;
 }
 
 const storage = multer.diskStorage({
@@ -24,7 +41,7 @@ const storage = multer.diskStorage({
       cb(null, customName);
     } else {
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-      const ext = path.extname(file.originalname);
+      const ext = uploadExtension(file.originalname, file.mimetype) ?? path.extname(file.originalname);
       cb(null, `upload-${uniqueSuffix}${ext}`);
     }
   },
@@ -33,12 +50,11 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
-    const allowed = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.pdf'];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) {
+    if (uploadExtension(file.originalname, file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`Unsupported file type: ${ext}. Allowed: ${allowed.join(', ')}`));
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(new Error(`Unsupported file type: ${ext}. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`));
     }
   },
   limits: {

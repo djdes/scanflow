@@ -185,6 +185,14 @@ describe('evaluateGoldenInvoice — одна накладная', () => {
     expect(r).toMatchObject({ status: 'skipped', reason: 'not_found' });
   });
 
+  it('документ из XML → skipped xml, Claude не вызывается', async () => {
+    repo.getById.mockResolvedValue(invoice(1, { file_name: 'upload-1.xml', ocr_engine: 'xml_upd' }) as never);
+    const d = deps();
+    const r = await evaluateGoldenInvoice(1, ctx, d);
+    expect(r).toMatchObject({ status: 'skipped', reason: 'xml' });
+    expect(d.recognize).not.toHaveBeenCalled();
+  });
+
   it('распознавание упало → status error с текстом, без исключения наружу', async () => {
     const r = await evaluateGoldenInvoice(1, ctx, deps({
       recognize: vi.fn(async () => { throw new Error('Claude API error: 529 overloaded'); }),

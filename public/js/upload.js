@@ -82,7 +82,8 @@ const Upload = {
   },
 
   _addMultiple(files) {
-    const ALLOWED = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf'];
+    // .xml — электронные УПД/ТОРГ-12 из ЭДО (Диадок, СБИС): разбираются без распознавания.
+    const ALLOWED = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf', '.xml'];
     for (const file of files) {
       const ext = '.' + (file.name || '').split('.').pop().toLowerCase();
       if (!ALLOWED.includes(ext)) {
@@ -637,10 +638,12 @@ const Upload = {
           <button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Удалить</button>
         `;
       }
-      const isPdf = String(h.name || '').toLowerCase().endsWith('.pdf');
-      const preview = isPdf
+      const lowerName = String(h.name || '').toLowerCase();
+      const preview = lowerName.endsWith('.pdf')
         ? '<div class="upload-history-file" aria-hidden="true">PDF</div>'
-        : `<img src="${esc(h.url)}" alt="">`;
+        : lowerName.endsWith('.xml')
+          ? '<div class="upload-history-file upload-history-file--xml" aria-hidden="true">XML</div>'
+          : `<img src="${esc(h.url)}" alt="">`;
       return `<div class="upload-history-item">
         ${preview}
         <div class="upload-history-info">

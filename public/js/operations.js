@@ -265,12 +265,12 @@ const Operations = {
     const c = this.channels || {};
     return `<div class="operations-grid operations-grid--channels">
       <article class="card channel-card">
-        <div class="channel-card__icon">✈</div><div><span class="operations-eyebrow">Telegram</span><h3>Фото прямо в бот</h3><p>Отправьте фото или изображение-документ настроенному боту — накладная появится в ScanFlow.</p></div>
+        <div class="channel-card__icon">✈</div><div><span class="operations-eyebrow">Telegram</span><h3>Фото прямо в бот</h3><p>Отправьте фото, PDF или XML-файл УПД из ЭДО настроенному боту — накладная появится в ScanFlow.</p></div>
         <div class="channel-card__footer"><span class="reconcile-badge reconcile-badge--${c.telegram_enabled ? 'success' : 'muted'}">${c.telegram_enabled ? 'Приём включён' : c.telegram_ready ? 'Готов к включению' : 'Настройте бот в профиле'}</span>
           <button class="btn ${c.telegram_enabled ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleTelegram(${c.telegram_enabled ? 'false' : 'true'})">${c.telegram_enabled ? 'Выключить' : 'Включить'}</button></div>
       </article>
       <article class="card channel-card">
-        <div class="channel-card__icon">@</div><div><span class="operations-eyebrow">Email</span><h3>Вложения из почты</h3><p>Сгенерируйте защищённый webhook и укажите его в сервисе пересылки входящих писем. Поддерживаются изображения и PDF до 20 МБ.</p></div>
+        <div class="channel-card__icon">@</div><div><span class="operations-eyebrow">Email</span><h3>Вложения из почты</h3><p>Сгенерируйте защищённый webhook и укажите его в сервисе пересылки входящих писем. Поддерживаются изображения, PDF и XML-документы из ЭДО (УПД, счёт-фактура, ТОРГ-12) до 20 МБ.</p></div>
         <div id="operations-email-url"></div>
         <div class="channel-card__footer"><span class="reconcile-badge reconcile-badge--${c.email_enabled ? 'success' : 'muted'}">${c.email_enabled ? 'Webhook активен' : 'Выключено'}</span>
           <button class="btn ${c.email_enabled ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleEmail(${c.email_enabled ? 'false' : 'true'})">${c.email_enabled ? 'Выключить' : 'Создать webhook'}</button></div>

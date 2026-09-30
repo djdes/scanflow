@@ -505,6 +505,7 @@ const Settings = {
       multipage: 'многостраничная — пока не перепроверяется',
       no_photo: 'фото не найдено на диске',
       not_found: 'накладная удалена',
+      xml: 'документ из XML — распознавания нет',
     };
     if (r.status === 'skipped') {
       return `<tr><td>${title}</td><td><span class="badge badge-new">пропущена</span></td><td>—</td><td>—</td><td>${App.esc(skipReasons[r.reason] || r.reason || '')}</td></tr>`;
