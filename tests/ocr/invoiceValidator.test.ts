@@ -250,4 +250,86 @@ describe('validateParsedInvoice', () => {
     expect(set).toContain('inn_checksum');
     expect(set).toContain('total_mismatch');
   });
+
+  // Накладная 783 (30.09.2026, ИП Кнутова): фото снято под углом, числа справа
+  // визуально на полстроки ниже названий. Модель оставила строку 1 без чисел,
+  // сдвинула названия на строку и «догнала» сдвиг, повторив «Мука (50кг)».
+  // Сумма строк при этом совпала с итогом — прежние проверки молчали.
+  describe('row_alignment', () => {
+    function shifted(): ParsedInvoiceData {
+      const row = (row_no: number, name: string, quantity: number | null, unit: string | null, price: number | null, total: number | null) =>
+        ({ name, quantity, unit, price, total, vat_rate: null, row_no, pack_size: null });
+      return {
+        ...baseInvoice(),
+        vat_sum: 0,
+        total_sum: 25306,
+        items: [
+          row(1, 'Баклажаны', null, null, null, null),
+          row(2, 'Грибы шампиньоны', 5.4, 'кг', 95, 513),
+          row(3, 'Кабачки', 3, 'кг', 220, 660),
+          row(4, 'Капуста квашенная', 5.6, 'кг', 130, 728),
+          row(5, 'Капуста китайская', 10, 'кг', 90, 900),
+          row(6, 'Капуста морская(3кг)', 31.8, 'кг', 120, 3816),
+          row(7, 'Лук зеленый', 2, 'шт', 600, 1200),
+          row(8, 'Лук красный', 1, 'кг', 250, 250),
+          row(9, 'Лук репчатый', 6.2, 'кг', 65, 403),
+          row(10, 'Морковь', 66.5, 'кг', 42, 2793),
+          row(11, 'Мука (50кг)', 57.2, 'кг', 45, 2574),
+          row(12, 'Мука (50кг)', 1, 'шт', 1900, 1900),
+          row(13, 'Огурцы гладкие', 9.7, 'кг', 120, 1164),
+          row(14, 'Перец желтый', 5.9, 'кг', 330, 1947),
+          row(15, 'Перец красный болгарский', 4.9, 'кг', 260, 1274),
+          row(16, 'Салат Айсберг', 2.8, 'кг', 180, 504),
+          row(17, 'Стебель сельдерея(кг)', 5.8, 'кг', 150, 870),
+          row(18, 'Томат (помидоры)', 7.1, 'кг', 250, 1775),
+          row(18, 'Томат Черри (вес)', 3.7, 'кг', 550, 2035),
+        ],
+      };
+    }
+
+    it('catches the shifted table even though the sum matches the total', () => {
+      const issues = validateParsedInvoice(shifted(), NOW);
+      expect(issues.map(i => i.code)).toEqual(['row_alignment']);
+      const msg = issues[0].message;
+      expect(msg).toContain('Баклажаны');      // строка без чисел
+      expect(msg).toContain('Мука (50кг)');    // одно название у двух соседних строк
+      expect(msg).toContain('18');             // номер строки дважды
+      expect(msg).toMatch(/под углом|сетк/);   // как перечитать
+    });
+
+    it('the correctly aligned table is clean', () => {
+      const d = shifted();
+      const names = d.items.map(i => i.name);
+      // Правильная привязка: название i ↔ числа i, без повтора муки.
+      const fixedNames = ['Баклажаны', 'Грибы шампиньоны', 'Кабачки', 'Капуста квашенная', 'Капуста китайская',
+        'Капуста морская(3кг)', 'Лук зеленый', 'Лук красный', 'Лук репчатый', 'Морковь', 'Мука (50кг)',
+        'Огурцы гладкие', 'Перец желтый', 'Перец красный болгарский', 'Салат Айсберг', 'Стебель сельдерея(кг)',
+        'Томат (помидоры)', 'Томат Черри (вес)'];
+      expect(names.length).toBe(19);
+      const numbers = d.items.filter(i => i.total != null);
+      d.items = numbers.map((it, k) => ({ ...it, name: fixedNames[k], row_no: k + 1 }));
+      expect(validateParsedInvoice(d, NOW)).toEqual([]);
+    });
+
+    it('the same name on non-adjacent rows or with identical numbers is not a shift', () => {
+      const d = baseInvoice();
+      d.items = [
+        { name: 'Товар А', quantity: 2, unit: 'шт', price: 50, total: 100, vat_rate: 20, row_no: 1, pack_size: null },
+        { name: 'Товар Б', quantity: 1, unit: 'шт', price: 50, total: 50, vat_rate: 20, row_no: 2, pack_size: null },
+        { name: 'Товар А', quantity: 3, unit: 'шт', price: 50, total: 150, vat_rate: 20, row_no: 3, pack_size: null },
+      ];
+      expect(codes(d)).not.toContain('row_alignment');
+    });
+
+    it('a single row without numbers is reported (the model re-checks it)', () => {
+      const d = baseInvoice();
+      d.items = [
+        ...d.items,
+        { name: 'Доставка', quantity: null, unit: null, price: null, total: null, vat_rate: null, row_no: 3, pack_size: null },
+      ];
+      const issues = validateParsedInvoice(d, NOW).filter(i => i.code === 'row_alignment');
+      expect(issues).toHaveLength(1);
+      expect(issues[0].message).toContain('Доставка');
+    });
+  });
 });

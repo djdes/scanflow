@@ -35,3 +35,18 @@ describe('autopilot quality gate', () => {
     ]));
   });
 });
+
+describe('rows misaligned by a skewed photo', () => {
+  it('holds the invoice and says which rows look shifted', () => {
+    const result = evaluateQualitySubject({
+      ...clean, alignment_problems: ['у соседних строк 18 и 18 одно название «Мука (50кг)», а числа разные'],
+    }, settings);
+    expect(result.allowed).toBe(false);
+    const reason = result.reasons.find(r => r.code === 'rows_misaligned');
+    expect(reason?.message).toContain('Мука (50кг)');
+  });
+
+  it('does not hold an invoice without alignment problems', () => {
+    expect(evaluateQualitySubject({ ...clean, alignment_problems: [] }, settings).allowed).toBe(true);
+  });
+});

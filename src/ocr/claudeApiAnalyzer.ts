@@ -200,6 +200,11 @@ ${lines}`;
      total       ← колонка 9 "Стоимость С НАЛОГОМ — всего" (самая правая цифра в строке).
                    НИКОГДА не колонка 5 (без НДС).
      vat_rate    ← колонка 7 (10, 20, 22, 0; "без акциза" → null для акциза, но ставка НДС есть отдельно)
+   ВЫРАВНИВАНИЕ СТРОК (фото часто снято под углом, лист бывает изогнут): числа справа могут
+   оказаться выше или ниже своего названия — вплоть до уровня соседней строки. НЕ сопоставляй по
+   высоте текста: перечисли сверху вниз названия и строки чисел; если их поровну — i-я строка
+   чисел относится к i-му названию. Строк столько, сколько номеров в «№». Название без чисел или
+   одно название у двух соседних строк — признак сдвига: перечитай таблицу.
 
 3) ИТОГ (строка под таблицей):
    Ищи строку подписанную одним из: "Всего к оплате", "Всего к оплате (9)",
@@ -326,6 +331,8 @@ async function encodeImageForApi(imagePath: string): Promise<{ data: string; med
 // ============================================================================
 
 import { validateParsedInvoice, ValidationIssue } from './invoiceValidator';
+import { repairRowPairing, NumberRow } from './rowPairing';
+import { getEngineFlags } from '../services/engineFlags';
 
 // max_tokens под adaptive thinking: размышления тратят тот же бюджет, поэтому
 // заметно больше прежних 4096/8192. Одиночная — non-streaming (16k безопасно
@@ -385,6 +392,18 @@ const INVOICE_INSTRUCTIONS = `Ты эксперт по русским товар
      price     ← цена ЗА ЕДИНИЦУ С НДС = total / quantity. Колонка «БЕЗ налога» — НЕ price.
      total     ← "Стоимость С налогом — всего" (самая правая цифра строки). НИКОГДА не «без НДС».
      vat_rate  ← ставка НДС (10, 20, 22, 0). "без акциза" акциза не касается.
+   ВЫРАВНИВАНИЕ СТРОК (важно: фото часто снято под углом, лист бывает изогнут): числа справа
+   (Кол-во, Ед., Цена, Сумма) на снимке могут оказаться выше или ниже своего названия — вплоть до
+   уровня соседней строки, причём вверху и внизу листа по-разному. Поэтому НЕ сопоставляй по
+   высоте текста. Порядок: 1) перечисли сверху вниз названия с номерами «№»; 2) перечисли сверху
+   вниз строки чисел; 3) если их поровну — i-я строка чисел относится к i-му названию. Первое
+   название без чисел на его уровне и «лишняя» строка чисел внизу (или наоборот) — это сдвиг, а не
+   пустая строка: не переноси «лишнюю» строку чисел в пустую строку, а сопоставь всё по порядку.
+   Строк в items столько, сколько номеров в «№» (и сколько «Всего наименований N», если это
+   напечатано); не повторяй название соседней строки, чтобы «догнать» сдвиг. Проверь результат
+   здравым смыслом: цена и единица должны подходить товару (товар с фасовкой в названии — «Мука
+   (50кг)», «Капуста морская(3кг)» — обычно идёт штуками по цене мешка или ведра; огурцы не стоят
+   1 900 ₽ за штуку). Не подходит — пересопоставь строки по порядку.
 
 3) ИТОГ (строка под таблицей): "Всего к оплате", "Всего по накладной", "Итого", "К оплате".
    В строке две цифры: левая = Σ без НДС (НЕ брать), правая = Σ с НДС → total_sum.
@@ -672,6 +691,108 @@ function buildRepairUserText(prevJson: string, issues: ValidationIssue[]): strin
 
 type RepairFn = (prevJson: string, issues: ValidationIssue[]) => Promise<ApiAnalyzerResult>;
 
+// ---------------------------------------------------------------------------
+// Отдельное чтение чисел таблицы (флаг движка row_pairing), см. rowPairing.ts.
+// Идёт параллельно основному вызову, без размышлений: ~7 с и ~600 токенов.
+// ---------------------------------------------------------------------------
+const NUMBER_ROWS_TIMEOUT_MS = 60_000;
+const NUMBER_ROWS_RULES = `Названия товаров не читай и не используй. Иди строго сверху вниз по самим колонкам чисел, строку за строкой, `
+  + `без пропусков и перестановок. quantity — количество, unit — единица измерения, total — сумма строки: самая правая `
+  + `денежная колонка строки (сумма с НДС; в УПД и ТОРГ-12 — «Стоимость с налогом — всего»). Шапку таблицы и строки `
+  + `«Итого», «Всего», «В том числе НДС» не включай.`;
+const NUMBER_ROWS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['number_rows'],
+  properties: {
+    number_rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['quantity', 'unit', 'total'],
+        properties: { quantity: { type: ['number', 'null'] }, unit: { type: ['string', 'null'] }, total: { type: ['number', 'null'] } },
+      },
+    },
+  },
+};
+
+async function readNumberRows(imagePaths: string[], apiKey: string, modelId: string): Promise<NumberRow[] | null> {
+  if (!apiKey || !imagePaths.length || imagePaths.some(p => path.extname(p).toLowerCase() === '.pdf')) return null;
+  try {
+    const content: Anthropic.ContentBlockParam[] = [];
+    for (const imagePath of imagePaths) {
+      const { data, mediaType } = await encodeImageForApi(imagePath);
+      content.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data } });
+    }
+    const intro = imagePaths.length > 1
+      ? `Фото — страницы ОДНОГО документа по порядку. Перепиши ТОЛЬКО числовую часть таблицы товаров: для каждой строки сверху вниз, страница за страницей, одним списком — количество, единицу и сумму строки. `
+      : `На фото — счёт или накладная с таблицей товаров. Перепиши ТОЛЬКО числовую часть таблицы: для каждой строки сверху вниз — количество, единицу и сумму строки. `;
+    content.push({ type: 'text', text: intro + NUMBER_ROWS_RULES });
+    const client = createClient(apiKey);
+    const response = await client.messages.stream({
+      model: modelId,
+      max_tokens: 8000,
+      thinking: { type: 'disabled' },
+      output_config: { format: { type: 'json_schema', schema: NUMBER_ROWS_SCHEMA } },
+      messages: [{ role: 'user', content }],
+    }, { signal: AbortSignal.timeout(NUMBER_ROWS_TIMEOUT_MS) }).finalMessage();
+    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
+    const parsed = JSON.parse(textBlock?.text ?? '{}') as { number_rows?: unknown };
+    if (!Array.isArray(parsed.number_rows)) return null;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const rows = parsed.number_rows.map((r: { quantity?: unknown; unit?: unknown; total?: unknown }) => ({
+      quantity: num(r?.quantity), unit: typeof r?.unit === 'string' ? r.unit : null, total: num(r?.total),
+    }));
+    logger.info('Claude API number rows: read', {
+      rows: rows.length, input: response.usage.input_tokens, output: response.usage.output_tokens,
+    });
+    return rows;
+  } catch (err) {
+    logger.warn('Claude API number rows: failed, row pairing skipped', { error: (err as Error).message });
+    return null;
+  }
+}
+
+/** Отдельное чтение чисел — только при включённом флаге row_pairing. */
+async function startNumberRows(imagePaths: string[], apiKey: string, modelId: string): Promise<NumberRow[] | null> {
+  const flags = await getEngineFlags().catch(() => null);
+  if (!flags?.row_pairing) return null;
+  return readNumberRows(imagePaths, apiKey, modelId);
+}
+
+/**
+ * Сверяет пары «название — числа» основного чтения с отдельным чтением чисел
+ * (rowPairing.ts). Пересобранный результат берётся, только если проверка
+ * находит в нём не больше замечаний (для чистого — ни одного), иначе основной.
+ */
+async function applyRowPairing(
+  label: string,
+  primary: ApiAnalyzerResult,
+  rowsPromise: Promise<NumberRow[] | null>,
+): Promise<ApiAnalyzerResult> {
+  const rows = await rowsPromise;
+  if (!rows || !primary.success || !primary.data) return primary;
+  const before = validateParsedInvoice(primary.data);
+  const outcome = repairRowPairing(primary.data, rows, { mainHasIssues: before.length > 0 });
+  if (!outcome.changed) {
+    logger.info(`${label}: row pairing kept (${outcome.reason})`);
+    return primary;
+  }
+  const after = validateParsedInvoice(outcome.data);
+  const better = before.length === 0 ? after.length === 0 : after.length < before.length;
+  if (!better) {
+    logger.info(`${label}: row pairing rejected (${before.length}→${after.length} issues)`, {
+      reason: outcome.reason, remaining: after.map(i => i.code),
+    });
+    return primary;
+  }
+  logger.warn(`${label}: row pairing fixed shifted rows (${before.length}→${after.length} issues)`, {
+    reason: outcome.reason, changes: outcome.changes.slice(0, 20),
+  });
+  return { ...primary, data: outcome.data, rawText: JSON.stringify(outcome.data) };
+}
+
 /**
  * Валидация + одно точечное до-чтение. Основной результат прогоняется через
  * invoiceValidator; при расхождениях делается ОДИН repair-вызов (тот же system —
@@ -850,8 +971,10 @@ export async function analyzeMultipleImagesWithVerification(
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
+  const rows = startNumberRows(imagePaths, apiKey, modelId);
   const { result, repair } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog, memory);
-  return verifyAndRepair('Claude API multi-image', result, repair);
+  const paired = await applyRowPairing('Claude API multi-image', result, rows);
+  return verifyAndRepair('Claude API multi-image', paired, repair);
 }
 
 /**
@@ -990,8 +1113,10 @@ export async function analyzeImageWithVerification(
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
+  const rows = startNumberRows([imagePath], apiKey, modelId);
   const { result, repair } = await analyzeImageCore(imagePath, apiKey, modelId, catalog, memory);
-  return verifyAndRepair('Claude API single image', result, repair);
+  const paired = await applyRowPairing('Claude API single image', result, rows);
+  return verifyAndRepair('Claude API single image', paired, repair);
 }
 
 /**

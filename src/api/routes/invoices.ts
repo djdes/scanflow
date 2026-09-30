@@ -38,6 +38,7 @@ import { createPaymentOrder, SberApiError } from '../../sber/payments';
 import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
 import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
+import { storedAlignmentProblems } from '../../automation/qualityGate';
 import { findSuppliersByName, AUTO_LINK_MIN_SCORE } from '../../services/supplierMatch';
 import { bulkSend1c, bulkSendSber } from '../../services/bulkSend';
 import { requireAdmin } from '../middleware/auth';
@@ -457,6 +458,10 @@ router.get('/:id', async (req: Request, res: Response) => {
 
   (enriched as typeof enriched & { possible_siblings: unknown }).possible_siblings =
     await invoiceRepo.findSiblings(id);
+  // Признаки сдвига строк (фото под углом): пустая строка, одно название у
+  // соседей с разными числами — показать предупреждение над таблицей.
+  (enriched as typeof enriched & { alignment_problems: string[] }).alignment_problems =
+    await storedAlignmentProblems(id).catch(() => []);
 
   res.json({ data: enriched });
 });
