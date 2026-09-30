@@ -413,6 +413,17 @@ describe('reocrInvoice', () => {
     expect(vi.mocked(d.mergePages).mock.calls[0][1]).toBe(2);
   });
 
+  it('электронный документ (XML) не перераспознаётся: строки взяты из самого документа', async () => {
+    repo.getById.mockResolvedValue(invoice({ file_name: 'ON_NSCHFDOPPR_1.xml', ocr_engine: 'xml_upd' }) as never);
+    const d = deps();
+    const r = await reocrInvoice(10, ctx(), d);
+    expect(r).toMatchObject({ status: 'skipped', reason: 'xml' });
+    expect(d.recognizePage).not.toHaveBeenCalled();
+    expect(qrepo.startReocr).not.toHaveBeenCalled();
+    expect(qrepo.recordReocrOutcome.mock.calls[0][0]).toMatchObject({ status: 'skipped' });
+    expectNoInvoiceWrites();
+  });
+
   it('фото удалено по сроку хранения → «фото нет», Claude не вызывается', async () => {
     const d = deps({ locatePhoto: vi.fn(() => null) });
     const r = await reocrInvoice(10, ctx(), d);

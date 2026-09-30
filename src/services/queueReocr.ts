@@ -18,6 +18,7 @@ import { itemNameKey } from '../mapping/nameKey';
 import { sanitizeInvoiceVat, sanitizeItemVatPerItem, sanitizeItemArithmetic } from '../parser/itemSanitizer';
 import { normalizeInvoiceNumber } from '../utils/invoiceNumber';
 import { toNumber, toText, normalizeDate, normalizeInn } from '../golden/compare';
+import { isXmlInvoice } from '../xml';
 import { locateGoldenPhoto } from '../golden/goldenRunner';
 import { recomputeMedianForGuids } from '../pricing/priceStats';
 import { convertInvoiceLine } from './lineConversion';
@@ -672,6 +673,14 @@ export async function reocrInvoice(invoiceId: number, ctx: ReocrRunContext, deps
         error: 'Накладная уже не в очереди — одобрена или отправлена в 1С',
       });
       return { ...base, status: 'skipped', reason: 'not_in_queue' };
+    }
+    // Электронный документ: числа взяты из самого XML, распознавать нечего.
+    if (isXmlInvoice(inv)) {
+      await queueRepo.recordReocrOutcome({
+        ownerUserId: ctx.ownerUserId, invoiceId, startedBy: ctx.startedBy, status: 'skipped', pages: files.length,
+        error: 'Электронный документ (XML) — строки взяты из самого документа, перераспознавать нечего',
+      });
+      return { ...base, status: 'skipped', reason: 'xml' };
     }
     const photos = files.map(f => deps.locatePhoto(f, inv.file_path ?? null));
     const found = photos.filter((p): p is string => !!p);
