@@ -908,7 +908,9 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
 
   const source = await invoiceRepo.getById(sourceId);
   const target = await invoiceRepo.getById(targetId);
-  if (!source || !target) {
+  // :targetId охранник router.param не проверяет (он висит на :id/:invoiceId) —
+  // без этой проверки свою накладную можно было влить в чужую (правило 19).
+  if (!source || !target || target.owner_user_id !== req.user?.id) {
     res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
