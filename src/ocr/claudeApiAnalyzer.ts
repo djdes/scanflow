@@ -1230,14 +1230,24 @@ ${catalogLines}`;
 
   try {
     const client = createClient(apiKey);
+    // claude-sonnet-5 размышляет, и размышления тратят тот же max_tokens: при
+    // прежних 4096 ответ на большой пачке мог прийти без текста (правило 28) —
+    // тогда подбор ИИ молча уступал нечёткому. Как у распознавания: явные
+    // adaptive-размышления, запас токенов, streaming (его требует SDK при больших лимитах).
     const response = await withRetry(
-      (signal) => client.messages.create({
+      async (signal) => client.messages.stream({
         model: modelId,
-        max_tokens: 4096,
+        max_tokens: 16000,
+        thinking: { type: 'adaptive' },
+        output_config: { effort: STRUCTURED_EFFORT },
         messages: [{ role: 'user', content: prompt }],
-      }, { signal }),
+      }, { signal }).finalMessage(),
       'Claude API mapper',
     );
+    if (response.stop_reason === 'max_tokens') {
+      logger.warn('Claude API Mapper: stop_reason=max_tokens — ответ обрезан', { itemsCount: items.length });
+    }
+    logger.info('Claude API Mapper: usage', { input: response.usage.input_tokens, output: response.usage.output_tokens });
 
     const textBlock = response.content.find(b => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
