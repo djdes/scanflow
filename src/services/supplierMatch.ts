@@ -247,9 +247,12 @@ async function linkByName(
  *      фото сохраняются в supplier_inn_ocr/supplier_name_ocr, supplier_match='name'.
  * Уже сделанную привязку ('name'/'manual') не трогает: updateInvoiceData
  * сбрасывает её сама, если перераспознавание принесло другой ИНН.
+ * exactInn — ИНН взят из электронного документа (XML ЭДО), а не с фото: он не
+ * ошибка чтения, и если он верный (контрольная сумма), карточка «по названию»
+ * его не подменяет — похожее название с другим ИНН — это другое юрлицо.
  * Никогда не бросает — сбой подбора не должен ронять распознавание.
  */
-export async function linkApprovedSupplier(invoiceId: number): Promise<LinkResult> {
+export async function linkApprovedSupplier(invoiceId: number, opts: { exactInn?: boolean } = {}): Promise<LinkResult> {
   const none: LinkResult = { match: null, supplier: null };
   try {
     const inv = await invoiceRepo.getById(invoiceId);
@@ -276,6 +279,11 @@ export async function linkApprovedSupplier(invoiceId: number): Promise<LinkResul
         // даже если карточка ещё не подтверждена.
         return { match, supplier: byInn };
       }
+    }
+
+    if (opts.exactInn && isValidInn(inv.supplier_inn)) {
+      if (inv.supplier_match != null) await invoiceRepo.setSupplierMatch(invoiceId, null);
+      return none;
     }
 
     const best = pickAutoLinkCandidate(

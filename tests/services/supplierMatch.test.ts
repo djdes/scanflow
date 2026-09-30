@@ -161,6 +161,33 @@ describe('linkApprovedSupplier', () => {
     vi.mocked(invoiceRepo.getById).mockRejectedValue(new Error('db down'));
     await expect(linkApprovedSupplier(10)).resolves.toEqual({ match: null, supplier: null });
   });
+
+  // XML из ЭДО: ИНН — из документа, а не с фото. Похожее название с другим ИНН —
+  // другое юрлицо, подменять ИНН карточкой «по названию» нельзя.
+  it('exactInn: верный ИНН из XML не подменяется карточкой по названию', async () => {
+    vi.mocked(invoiceRepo.getById).mockResolvedValue(inv({ supplier_inn: '7701234560' }) as never);
+    vi.mocked(supplierRepo.findByInn).mockResolvedValue(null);
+    vi.mocked(supplierRepo.listAll).mockResolvedValue([card('5258005002', 'Свит Лайф Фудсервис')]);
+    const r = await linkApprovedSupplier(10, { exactInn: true });
+    expect(r).toEqual({ match: null, supplier: null });
+    expect(invoiceRepo.setSupplierLink).not.toHaveBeenCalled();
+    expect(supplierRepo.listAll).not.toHaveBeenCalled();
+  });
+
+  it('exactInn: карточка с тем же ИНН — обычная привязка по ИНН', async () => {
+    vi.mocked(invoiceRepo.getById).mockResolvedValue(inv({ supplier_inn: '7701234560' }) as never);
+    vi.mocked(supplierRepo.findByInn).mockResolvedValue(card('7701234560', 'ООО "Северное молоко"'));
+    const r = await linkApprovedSupplier(10, { exactInn: true });
+    expect(r.match).toBe('inn');
+    expect(invoiceRepo.setSupplierMatch).toHaveBeenCalledWith(10, 'inn');
+  });
+
+  it('exactInn: ИНН в XML нет — подбор по названию как у фото', async () => {
+    vi.mocked(invoiceRepo.getById).mockResolvedValue(inv({ supplier_inn: null }) as never);
+    vi.mocked(supplierRepo.listAll).mockResolvedValue([card('5258005002', 'Свит Лайф Фудсервис')]);
+    const r = await linkApprovedSupplier(10, { exactInn: true });
+    expect(r.match).toBe('name');
+  });
 });
 
 // Реальный случай 29.09: две подтверждённые карточки «Вкусный мир ТК» —

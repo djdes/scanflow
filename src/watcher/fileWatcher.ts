@@ -6,13 +6,15 @@ import { logger } from '../utils/logger';
 import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
-import { invoiceRepo, DuplicateFileHashError } from '../database/repositories/invoiceRepo';
+import { invoiceRepo, DuplicateFileHashError, type Invoice } from '../database/repositories/invoiceRepo';
 import { userRepo } from '../database/repositories/userRepo';
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
 import type { MappingResult } from '../mapping/nomenclatureMapper';
 import { evaluateInvoiceQuality } from '../automation/qualityGate';
-import type { ParsedInvoiceData } from '../ocr/types';
+import type { ParsedInvoiceData, ParsedInvoiceItem } from '../ocr/types';
+import { mapItemsWithClaudeApi } from '../ocr/claudeApiAnalyzer';
+import { FnsXmlError, isXmlFileName, isXmlInvoice, readFnsXmlInvoice } from '../xml';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
 import { resolveSupplierName } from '../services/resolveSupplierName';
@@ -75,7 +77,11 @@ async function notifyPageMerged(
   }
 }
 
-const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'];
+// .xml — электронные УПД/ТОРГ-12 из ЭДО (src/xml): их тоже можно положить в inbox/.
+const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.xml'];
+
+/** Строк XML не больше — выбор ИИ одним запросом сопоставления (llmPicksForXml). */
+const XML_LLM_MAP_MAX_ITEMS = 150;
 
 /**
  * Extract the row_no of the FIRST item from a persisted invoice's raw_text.
@@ -380,6 +386,12 @@ export class FileWatcher {
     // сверит заново), чем с галочками от предыдущих значений.
     await invoiceRepo.resetAttrChecks(invoiceId);
 
+    // Электронный документ: «пересканировать» = перечитать исходный XML (без OCR).
+    if (isXmlInvoice(invoice)) {
+      await this.reprocessXmlInvoice(invoice);
+      return;
+    }
+
     // Каталог, сопоставления и подсказка каталога для Claude — пер-тенантные:
     // весь разбор идёт в области владельца этой накладной. У «ничьей» накладной
     // каталога нет, сопоставление вернёт «не найдено» — это корректно.
@@ -582,6 +594,8 @@ export class FileWatcher {
   async addPageToInvoice(invoiceId: number, filePath: string, fileName: string): Promise<number> {
     const invoice = await invoiceRepo.getById(invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
+    // XML — документ целиком (src/xml): страницы фото к нему не добавляются.
+    if (isXmlInvoice(invoice)) throw new Error(`Invoice ${invoiceId} is an XML document — photo pages cannot be added`);
 
     // Каталог, сопоставления и подсказка каталога для Claude — пер-тенантные:
     // весь разбор идёт в области владельца этой накладной. У «ничьей» накладной
@@ -767,6 +781,11 @@ export class FileWatcher {
     try {
       // 2. OCR (hybrid mode: Google Vision + Claude analyzer if enabled)
       await invoiceRepo.updateStatus(invoice.id, 'ocr_processing');
+      // Электронный документ ФНС (УПД/ТОРГ-12 в XML): распознавать нечего —
+      // ни OCR, ни диспетчера, ни склейки страниц. Ошибка разбора — в catch ниже.
+      if (isXmlFileName(filePath)) {
+        return await this.processXmlDocument(invoice, filePath, fileName);
+      }
       let ocrResult;
       if (path.extname(filePath).toLowerCase() === '.pdf') {
         // Anthropic supports native PDF document blocks. Other OCR engines in
@@ -1001,6 +1020,18 @@ export class FileWatcher {
         }
       }
 
+      // Накладная из XML — электронный документ целиком: фото не вклеивается в
+      // неё «страницей» (иначе строки задвоились бы, а «Перечитать XML» их бы
+      // стёр). Фото того же документа станет своей накладной — её поймает
+      // детектор дублей ниже.
+      if (existingInvoice && isXmlInvoice(existingInvoice)) {
+        logger.info('Multi-page merge blocked: target is an XML document', {
+          currentId: invoice.id,
+          existingId: existingInvoice.id,
+        });
+        existingInvoice = undefined;
+      }
+
       // Предохранитель: если у обеих накладных есть непустой номер и они РАЗНЫЕ —
       // это заведомо разные документы. Мердж запрещён, какой бы эвристике (row_no,
       // supplier, время) он ни показался продолжением. Номер сильнее row_no —
@@ -1233,28 +1264,7 @@ export class FileWatcher {
                 totalSum: unifiedParsed.total_sum,
               });
 
-              // Fire-and-forget notifications for recognised invoice.
-              const finalInvoice = await invoiceRepo.getById(targetInvoiceId);
-              if (finalInvoice) {
-                emitNotification('invoice_recognized', {
-                  invoice_id: finalInvoice.id,
-                  invoice_number: finalInvoice.invoice_number,
-                  supplier: finalInvoice.supplier,
-                  total_sum: finalInvoice.total_sum,
-                }, null).catch(() => {});
-                emitElevatedPricesIfAny(finalInvoice.id).catch(() => {});
-                if (finalInvoice.items_total_mismatch === 1) {
-                  const finalItems = await invoiceRepo.getItems(finalInvoice.id);
-                  const itemsTotal = finalItems.reduce((sum, it) => sum + (it.total ?? 0), 0);
-                  emitNotification('suspicious_total', {
-                    invoice_id: finalInvoice.id,
-                    invoice_number: finalInvoice.invoice_number,
-                    supplier: finalInvoice.supplier,
-                    total_sum: finalInvoice.total_sum,
-                    items_total: itemsTotal,
-                  }, null).catch(() => {});
-                }
-              }
+              await this.emitRecognizedNotifications(targetInvoiceId);
 
               // Move file to processed
               if (!config.dryRun) {
@@ -1472,66 +1482,12 @@ export class FileWatcher {
           engine: ocrResult.engine,
         });
 
-        // Fire-and-forget notifications for recognised invoice.
-        const finalInvoice = await invoiceRepo.getById(invoice.id);
-        if (finalInvoice) {
-          emitNotification('invoice_recognized', {
-            invoice_id: finalInvoice.id,
-            invoice_number: finalInvoice.invoice_number,
-            supplier: finalInvoice.supplier,
-            total_sum: finalInvoice.total_sum,
-          }, null).catch(() => {});
-          emitElevatedPricesIfAny(finalInvoice.id).catch(() => {});
-          if (finalInvoice.items_total_mismatch === 1) {
-            const finalItems = await invoiceRepo.getItems(finalInvoice.id);
-            const itemsTotal = finalItems.reduce((sum, it) => sum + (it.total ?? 0), 0);
-            emitNotification('suspicious_total', {
-              invoice_id: finalInvoice.id,
-              invoice_number: finalInvoice.invoice_number,
-              supplier: finalInvoice.supplier,
-              total_sum: finalInvoice.total_sum,
-              items_total: itemsTotal,
-            }, null).catch(() => {});
-          }
-        }
+        await this.emitRecognizedNotifications(invoice.id);
       }
 
       // 8. Auto-send hooks (если включены в Настройках). Skip для duplicate
       // и error статусов, чтобы не отправлять кривое.
-      try {
-        const finalInv = await invoiceRepo.getById(targetInvoiceId);
-        const cfg = await invoiceRepo.getAnalyzerConfig();
-        const quality = await evaluateInvoiceQuality(targetInvoiceId);
-        const canAutoSend = !!finalInv && quality.allowed;
-        if (!quality.allowed && (cfg.auto_send_1c || cfg.auto_send_sber)) {
-          logger.info('Autopilot quality gate held invoice', {
-            id: targetInvoiceId,
-            score: quality.score,
-            reasons: quality.reasons.map(reason => reason.code),
-          });
-        }
-
-        // Legacy webhook flag — оставляем для back-compat. ИЛИ с новым analyzer_config.
-        // Настройка вебхука пер-тенантная: читаем её от имени владельца накладной,
-        // у «ничьей» строки легаси-флага просто нет (остаётся analyzer_config).
-        const legacyAuto1c = finalInv?.owner_user_id != null
-          && await webhookConfigRepo.autoSend1cEnabled(finalInv.owner_user_id);
-        const wantAuto1c = legacyAuto1c || cfg.auto_send_1c;
-
-        if (canAutoSend && wantAuto1c) {
-          await invoiceRepo.approveForOneC(targetInvoiceId);
-          logger.info('Auto-approved for 1C', { id: targetInvoiceId });
-        }
-
-        // Auto-send Sber через loopback HTTP (переиспользует всю логику
-        // /send-sber endpoint: check supplier verified, payer details,
-        // create payment row, call Sber API). API key админа берётся из БД.
-        if (canAutoSend && cfg.auto_send_sber) {
-          await autoSendSberForInvoice(targetInvoiceId);
-        }
-      } catch (e) {
-        logger.warn('Auto-send hooks failed', { id: targetInvoiceId, error: (e as Error).message });
-      }
+      await this.runAutoSendHooks(targetInvoiceId);
 
       // 9. Move file to processed
       if (!config.dryRun) {
@@ -1560,11 +1516,15 @@ export class FileWatcher {
         error_message: errorMsg,
       }, null).catch(() => {});
 
-      // Email notification
-      sendErrorEmail(
-        `Ошибка обработки накладной: ${fileName}`,
-        `Файл: ${fileName}\nID: ${invoice.id}\n\nОшибка:\n${errorMsg}\n\nStack:\n${(err as Error).stack || '—'}`
-      ).catch(() => {});
+      // Email notification. Непригодный XML (не тот документ, оборванный файл) —
+      // ошибка пользователя, а не сбой сервиса: владелец и так видит её в
+      // накладной и в уведомлении выше, администратору письмо не нужно.
+      if (!(err instanceof FnsXmlError)) {
+        sendErrorEmail(
+          `Ошибка обработки накладной: ${fileName}`,
+          `Файл: ${fileName}\nID: ${invoice.id}\n\nОшибка:\n${errorMsg}\n\nStack:\n${(err as Error).stack || '—'}`
+        ).catch(() => {});
+      }
 
       // Move to failed
       if (!config.dryRun) {
@@ -1578,6 +1538,290 @@ export class FileWatcher {
       }
 
       throw err;
+    }
+  }
+
+  /**
+   * Уведомления о распознанной накладной: «распознана», повышенные цены и
+   * «сумма строк не сходится с итогом». Сами emit() не бросают (правило 9).
+   */
+  private async emitRecognizedNotifications(invoiceId: number): Promise<void> {
+    const finalInvoice = await invoiceRepo.getById(invoiceId);
+    if (!finalInvoice) return;
+    emitNotification('invoice_recognized', {
+      invoice_id: finalInvoice.id,
+      invoice_number: finalInvoice.invoice_number,
+      supplier: finalInvoice.supplier,
+      total_sum: finalInvoice.total_sum,
+    }, null).catch(() => {});
+    emitElevatedPricesIfAny(finalInvoice.id).catch(() => {});
+    if (finalInvoice.items_total_mismatch === 1) {
+      const finalItems = await invoiceRepo.getItems(finalInvoice.id);
+      const itemsTotal = finalItems.reduce((sum, it) => sum + (it.total ?? 0), 0);
+      emitNotification('suspicious_total', {
+        invoice_id: finalInvoice.id,
+        invoice_number: finalInvoice.invoice_number,
+        supplier: finalInvoice.supplier,
+        total_sum: finalInvoice.total_sum,
+        items_total: itemsTotal,
+      }, null).catch(() => {});
+    }
+  }
+
+  /**
+   * Автопилот: ворота качества → одобрение для 1С и черновик в Сбере (если
+   * включены в настройках). Ошибки только в лог — накладная уже распознана.
+   */
+  private async runAutoSendHooks(invoiceId: number): Promise<void> {
+    try {
+      const finalInv = await invoiceRepo.getById(invoiceId);
+      const cfg = await invoiceRepo.getAnalyzerConfig();
+      const quality = await evaluateInvoiceQuality(invoiceId);
+      const canAutoSend = !!finalInv && quality.allowed;
+      if (!quality.allowed && (cfg.auto_send_1c || cfg.auto_send_sber)) {
+        logger.info('Autopilot quality gate held invoice', {
+          id: invoiceId,
+          score: quality.score,
+          reasons: quality.reasons.map(reason => reason.code),
+        });
+      }
+
+      // Legacy webhook flag — оставляем для back-compat. ИЛИ с новым analyzer_config.
+      // Настройка вебхука пер-тенантная: читаем её от имени владельца накладной,
+      // у «ничьей» строки легаси-флага просто нет (остаётся analyzer_config).
+      const legacyAuto1c = finalInv?.owner_user_id != null
+        && await webhookConfigRepo.autoSend1cEnabled(finalInv.owner_user_id);
+      const wantAuto1c = legacyAuto1c || cfg.auto_send_1c;
+
+      if (canAutoSend && wantAuto1c) {
+        await invoiceRepo.approveForOneC(invoiceId);
+        logger.info('Auto-approved for 1C', { id: invoiceId });
+      }
+
+      // Auto-send Sber через loopback HTTP (переиспользует всю логику
+      // /send-sber endpoint: check supplier verified, payer details,
+      // create payment row, call Sber API). API key админа берётся из БД.
+      if (canAutoSend && cfg.auto_send_sber) {
+        await autoSendSberForInvoice(invoiceId);
+      }
+    } catch (e) {
+      logger.warn('Auto-send hooks failed', { id: invoiceId, error: (e as Error).message });
+    }
+  }
+
+  // ── Электронные документы ФНС (XML, src/xml) ────────────────────────────
+
+  /**
+   * Новая накладная из XML (УПД, счёт-фактура, ТОРГ-12). Шаги те же, что у
+   * фото после распознавания: шапка → дубли → сопоставление и пересчёт строк →
+   * итог → снимок «как распознано» → привязка поставщика → уведомления →
+   * автопилот. Данные документа точные, поэтому здесь НЕТ поправок
+   * распознавания, санитайзеров НДС и арифметики, склейки страниц и
+   * диспетчера. Ошибка разбора (FnsXmlError) уходит в общий catch processFile:
+   * статус «ошибка» с понятным текстом, файл — в failed/.
+   */
+  private async processXmlDocument(invoice: Invoice, filePath: string, fileName: string): Promise<number> {
+    const xml = await readFnsXmlInvoice(filePath);
+    const parsed = xml.structured as ParsedInvoiceData;
+    await invoiceRepo.updateInvoiceData(invoice.id, { raw_text: xml.text, ocr_engine: xml.engine });
+    await invoiceRepo.updateStatus(invoice.id, 'parsing');
+    await this.writeXmlHeader(invoice.id, parsed, invoice.owner_user_id);
+
+    // Дубли — тем же детектором, что у фото: тот же документ ещё раз или его фото.
+    const dupOriginal = await invoiceRepo.findDuplicateOriginal(
+      invoice.id,
+      parsed.invoice_number ?? null,
+      parsed.supplier_inn ?? null,
+      parsed.supplier ? canonicalizeSupplierName(parsed.supplier) : null,
+      parsed.invoice_date ?? null,
+      parsed.total_sum ?? null,
+      30,
+      parsed.items,
+      { account: parsed.supplier_account, bic: parsed.supplier_bik },
+    );
+    if (dupOriginal) {
+      logger.info('Duplicate invoice detected (XML)', {
+        newId: invoice.id,
+        originalId: dupOriginal.id,
+        invoiceNumber: parsed.invoice_number,
+        supplier: parsed.supplier,
+      });
+      await invoiceRepo.markAsDuplicate(invoice.id, dupOriginal.id, dupOriginal.duplicate_score, dupOriginal.duplicate_reasons);
+      this.moveInvoiceFile(filePath, fileName, config.processedDir);
+      return invoice.id;
+    }
+
+    await this.saveXmlItems(invoice.id, parsed, invoice.owner_user_id ?? -1);
+    await this.finishXmlInvoice(invoice.id, parsed);
+    logger.info('XML invoice processed', {
+      id: invoice.id,
+      fileName,
+      itemsCount: parsed.items.length,
+      engine: xml.engine,
+    });
+    await this.emitRecognizedNotifications(invoice.id);
+    await this.runAutoSendHooks(invoice.id);
+    this.moveInvoiceFile(filePath, fileName, config.processedDir);
+    return invoice.id;
+  }
+
+  /**
+   * «Пересканировать» накладную из XML = перечитать исходный файл (без OCR):
+   * шапка, строки, сопоставление и пересчёт — заново, как при загрузке. Файл
+   * ищется там же, где фото: processed/ → failed/ → inbox/ → file_path. Файл
+   * разбирается ДО любых изменений: битый XML накладную не портит.
+   */
+  private async reprocessXmlInvoice(invoice: Invoice): Promise<void> {
+    const name = (invoice.file_name || '').split(',').map(s => s.trim()).find(isXmlFileName);
+    const located = name
+      ? [config.processedDir, config.failedDir, config.inboxDir].map(dir => path.join(dir, name)).find(p => fs.existsSync(p))
+      : undefined;
+    const filePath = located
+      ?? (invoice.file_path && isXmlFileName(invoice.file_path) && fs.existsSync(invoice.file_path) ? invoice.file_path : undefined);
+    if (!filePath) {
+      throw new Error(`Исходный XML-файл накладной не найден на сервере (${name ?? invoice.file_name}) — загрузите документ заново`);
+    }
+
+    const xml = await readFnsXmlInvoice(filePath);
+    const parsed = xml.structured as ParsedInvoiceData;
+    await invoiceRepo.deleteItems(invoice.id);
+    await this.writeXmlHeader(invoice.id, parsed, invoice.owner_user_id, { raw_text: xml.text, ocr_engine: xml.engine });
+    if (invoice.duplicate_of != null) {
+      await invoiceRepo.unmarkAsDuplicate(invoice.id);
+    }
+    await this.saveXmlItems(invoice.id, parsed, invoice.owner_user_id ?? -1);
+    await this.finishXmlInvoice(invoice.id, parsed);
+    // Накладная снова 'processed' — файл из failed/ туда же, где обработанные.
+    if (name && filePath === path.join(config.failedDir, name)) {
+      this.moveInvoiceFile(filePath, name, config.processedDir);
+    }
+    logger.info('XML invoice re-read', { id: invoice.id, itemsCount: parsed.items.length, engine: xml.engine });
+  }
+
+  private async writeXmlHeader(
+    invoiceId: number,
+    parsed: ParsedInvoiceData,
+    ownerUserId: number | null,
+    extra: { raw_text?: string; ocr_engine?: string } = {},
+  ): Promise<void> {
+    await invoiceRepo.updateInvoiceData(invoiceId, {
+      invoice_number: parsed.invoice_number,
+      invoice_date: parsed.invoice_date,
+      supplier: await this.resolveSupplier(parsed.supplier, parsed.supplier_inn, ownerUserId),
+      total_sum: parsed.total_sum,
+      vat_sum: parsed.vat_sum,
+      invoice_type: parsed.invoice_type,
+      supplier_inn: parsed.supplier_inn,
+      supplier_kpp: parsed.supplier_kpp,
+      supplier_bik: parsed.supplier_bik,
+      supplier_account: parsed.supplier_account,
+      supplier_corr_account: parsed.supplier_corr_account,
+      supplier_address: parsed.supplier_address,
+      ...extra,
+    });
+  }
+
+  /**
+   * Строки XML: сопоставление с 1С в том же порядке, что у фото (правило
+   * поставщика → выбор ИИ с проверками v2 → обычный подбор), пересчёт единиц —
+   * convertInvoiceLine от значений документа как есть (правило 22).
+   */
+  private async saveXmlItems(invoiceId: number, parsed: ParsedInvoiceData, mappingOwnerId: number): Promise<void> {
+    const mappingContext = { supplierInn: parsed.supplier_inn, supplierName: parsed.supplier };
+    const llmPicks = await this.llmPicksForXml(parsed.items, mappingOwnerId);
+    for (const [k, item] of parsed.items.entries()) {
+      if (!item.name) continue;
+      let mapping: MappingResult;
+      const supplierOverride = await this.mapper.mapSupplierOverride(item.name, mappingOwnerId, mappingContext);
+      const llmPicked = llmPicks.get(k);
+      if (supplierOverride) {
+        mapping = supplierOverride;
+      } else if (llmPicked) {
+        mapping = await this.pickWithLlm(item.name, llmPicked, mappingOwnerId, mappingContext);
+      } else {
+        mapping = await this.mapper.map(item.name, mappingOwnerId, mappingContext);
+      }
+      const raw = { quantity: item.quantity, unit: item.unit, price: item.price, total: item.total };
+      const resolved = await this.convertItemLine(item, raw, mapping, mappingOwnerId, mappingContext.supplierInn, mappingContext.supplierName);
+      await invoiceRepo.addItem({
+        invoice_id: invoiceId,
+        original_name: item.name,
+        mapped_name: mapping.mapped_name,
+        quantity: resolved.quantity ?? undefined,
+        unit: resolved.unit ?? undefined,
+        price: resolved.price ?? undefined,
+        total: resolved.total ?? undefined,
+        conversion: resolved.conversion,
+        vat_rate: item.vat_rate,
+        mapping_confidence: mapping.confidence,
+        onec_guid: mapping.onec_guid,
+        row_no: item.row_no ?? null,
+      });
+    }
+  }
+
+  private async finishXmlInvoice(invoiceId: number, parsed: ParsedInvoiceData): Promise<void> {
+    // Итог и флаг «сумма строк ≠ итогу» — как у фото. НДС — цифра документа
+    // («Всего к оплате»): пересчёт не подменяет её выводом из ставок строк.
+    await invoiceRepo.recalculateTotal(invoiceId, parsed.vat_sum != null ? { keepVat: true } : {});
+    // Снимок «как распознано» — рычаг отката номера/даты/суммы/НДС (правило 25).
+    await snapshotRepo.record(invoiceId, 'recognized');
+    // ИНН из документа точный: «по названию» его не подменяем (supplierMatch).
+    await linkApprovedSupplier(invoiceId, { exactInn: true });
+    await invoiceRepo.updateStatus(invoiceId, 'processed');
+  }
+
+  /**
+   * Выбор позиции 1С ИИ для строк XML. У фото его делает сам вызов
+   * распознавания (catalog_idx), если включён LLM-маппер; у XML распознавания
+   * нет, поэтому — отдельный запрос сопоставления, тот же, что у кнопки
+   * «LLM-маппинг». Сбой — не ошибка накладной: останется обычный подбор.
+   */
+  private async llmPicksForXml(
+    items: ParsedInvoiceItem[],
+    ownerUserId: number,
+  ): Promise<Map<number, { guid: string; name: string; unit: string | null }>> {
+    const picks = new Map<number, { guid: string; name: string; unit: string | null }>();
+    const named = items.flatMap((it, k) => (it.name ? [{ key: String(k), name: it.name, unit: it.unit ?? null }] : []));
+    if (ownerUserId <= 0 || named.length === 0) return picks;
+    // Ответ запроса сопоставления ограничен (max_tokens 4096 ≈ 150 строк):
+    // на огромном документе он обрезался бы — сразу обычный подбор.
+    if (named.length > XML_LLM_MAP_MAX_ITEMS) {
+      logger.info('XML invoice: too many lines for one LLM mapping call, using rules and fuzzy match', { lines: named.length });
+      return picks;
+    }
+    try {
+      const cfg = await invoiceRepo.getAnalyzerConfig();
+      const apiKey = cfg.anthropic_api_key || config.anthropicApiKey;
+      if (!cfg.llm_mapper_enabled || !apiKey) return picks;
+      const catalog = await onecNomenclatureRepo.listItems({ ownerUserId, excludeFolders: true });
+      if (catalog.length === 0) return picks;
+      const result = await mapItemsWithClaudeApi(
+        named,
+        catalog.map(r => ({ guid: r.guid, name: r.name, unit: r.unit })),
+        apiKey,
+        cfg.claude_model || 'claude-sonnet-5',
+      );
+      if (!result.success || !result.matched) {
+        logger.warn('XML invoice: LLM mapping failed, using rules and fuzzy match', { error: result.error });
+        return picks;
+      }
+      for (const [key, hit] of result.matched) {
+        picks.set(Number(key), { guid: hit.guid, name: hit.name, unit: catalog[hit.catalog_idx - 1]?.unit ?? null });
+      }
+    } catch (err) {
+      logger.warn('XML invoice: LLM mapping failed, using rules and fuzzy match', { error: (err as Error).message });
+    }
+    return picks;
+  }
+
+  /** Файл накладной — в processed/ или failed/. Его уже может не быть: ENOENT — норма (правило 7). */
+  private moveInvoiceFile(filePath: string, fileName: string, destDir: string): void {
+    if (config.dryRun) return;
+    try {
+      fs.renameSync(filePath, path.join(destDir, fileName));
+    } catch (err) {
+      logger.debug('Could not move invoice file (may already be moved)', { filePath, destDir, error: (err as Error).message });
     }
   }
 }

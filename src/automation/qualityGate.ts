@@ -3,6 +3,7 @@ import { automationRepo, AutomationSettings } from '../database/repositories/aut
 import { rowAlignmentProblems, priceShiftProblems, UsualPriceLookup } from '../ocr/invoiceValidator';
 import { canonUnit } from '../mapping/unitConverter';
 import { robustMedian } from '../pricing/medianOf';
+import { isXmlInvoice } from '../xml';
 
 export interface QualitySubject {
   status: string;
@@ -115,14 +116,18 @@ export async function evaluateInvoiceQuality(invoiceId: number): Promise<Quality
  * Признаки сдвига по сохранённым строкам (как напечатано — raw_*, иначе
  * итоговые значения), в порядке записи. Номер строки из «№» в базе не хранится,
  * поэтому проверяются строка без чисел и одно название у соседних строк.
+ * Электронный документ (XML) не распознаётся — сдвинуться строкам не из-за чего,
+ * а одно название у соседних строк там обычное дело (две партии, две цены).
  */
 export async function storedAlignmentProblems(invoiceId: number): Promise<string[]> {
   const rows = await getDb().prepare(`
     SELECT ii.original_name, COALESCE(ii.raw_quantity, ii.quantity) AS q, COALESCE(ii.raw_unit, ii.unit) AS u,
-           COALESCE(ii.raw_price, ii.price) AS p, COALESCE(ii.raw_total, ii.total) AS t, ii.row_no, i.owner_user_id
+           COALESCE(ii.raw_price, ii.price) AS p, COALESCE(ii.raw_total, ii.total) AS t, ii.row_no, i.owner_user_id,
+           i.ocr_engine, i.file_name
       FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
      WHERE ii.invoice_id = ? ORDER BY COALESCE(ii.row_no, 1000000), ii.id
-  `).all<{ original_name: string; q: number | null; u: string | null; p: number | null; t: number | null; row_no: number | null; owner_user_id: number | null }>(invoiceId);
+  `).all<{ original_name: string; q: number | null; u: string | null; p: number | null; t: number | null; row_no: number | null; owner_user_id: number | null; ocr_engine: string | null; file_name: string | null }>(invoiceId);
+  if (rows.length && isXmlInvoice(rows[0])) return [];
   // 0 в сохранённой строке — то же «нет числа», что null в ответе модели.
   const num = (v: unknown) => (v == null || Number(v) === 0 ? undefined : Number(v));
   const items = rows.map(r => ({

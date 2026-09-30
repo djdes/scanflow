@@ -10,6 +10,7 @@ import {
   GoldenRunConfigError,
 } from '../../golden/goldenRunner';
 import { logger } from '../../utils/logger';
+import { isXmlInvoice } from '../../xml';
 
 /**
  * /api/golden — эталонные накладные (п.17 пакета v2). Монтируется за apiKeyAuth.
@@ -50,6 +51,10 @@ router.patch('/invoices/:id', async (req: Request, res: Response) => {
   // 404, а не 403 — чтобы не подтверждать существование чужой накладной.
   if (!invoice || invoice.owner_user_id !== req.user?.id) {
     return res.status(404).json({ error: 'Invoice not found' });
+  }
+  // Эталон проверяет распознавание фото; документ из XML не распознаётся.
+  if (golden && isXmlInvoice(invoice)) {
+    return res.status(409).json({ error: 'Накладная загружена из XML — распознавания нет, эталоном она быть не может' });
   }
 
   await goldenRepo.setGolden(id, golden);

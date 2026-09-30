@@ -107,6 +107,18 @@ describe('PATCH /api/golden/invoices/:id', () => {
     expect(res.status).toBe(404);
   });
 
+  it('накладная из XML эталоном не отмечается (распознавания нет) → 409; снять можно', async () => {
+    repo.getById.mockResolvedValue({ id: 10, owner_user_id: 2, ocr_engine: 'xml_upd', file_name: 'upload-1.xml' } as never);
+    const res = await request(appAs(USER)).patch('/api/golden/invoices/10').send({ golden: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('XML');
+    expect(golden.setGolden).not.toHaveBeenCalled();
+    golden.getGoldenState.mockResolvedValue({ golden: false, golden_at: null });
+    const off = await request(appAs(USER)).patch('/api/golden/invoices/10').send({ golden: false });
+    expect(off.status).toBe(200);
+    expect(golden.setGolden).toHaveBeenCalledWith(10, false);
+  });
+
   it('golden не boolean или кривой id → 400', async () => {
     repo.getById.mockResolvedValue({ id: 10, owner_user_id: 2 } as never);
     expect((await request(appAs(USER)).patch('/api/golden/invoices/10').send({ golden: 'yes' })).status).toBe(400);

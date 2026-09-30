@@ -56,6 +56,7 @@ import { rejectionRepo } from '../../database/repositories/rejectionRepo';
 import { canonUnit } from '../../mapping/unitConverter';
 import type { InvoiceItem } from '../../database/repositories/invoiceRepo';
 import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
+import { invoiceFileKind, isXmlFileName, isXmlInvoice, xmlDownloadName } from '../../xml';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -356,9 +357,13 @@ router.get('/:id/photos', async (req: Request, res: Response) => {
     .map(f => f.trim())
     .filter(f => f.length > 0);
 
+  // kind — чем показать файл в карточке (картинка, PDF, электронный документ
+  // XML); exists — лежит ли файл на диске (фото удаляются по сроку хранения).
   const photos = fileNames.map(filename => ({
     filename,
     url: `/api/invoices/${id}/photos/${encodeURIComponent(filename)}`,
+    kind: invoiceFileKind(filename),
+    exists: findStoredInvoiceFile(filename) != null,
   }));
 
   res.json({ data: photos });
@@ -389,26 +394,35 @@ router.get('/:id/photos/:filename', async (req: Request, res: Response) => {
   // Path-traversal protection: use basename only
   const safeFilename = path.basename(requestedFile);
 
-  // Look in processed → failed → inbox (priority order). Errored invoices keep
-  // their photo in failedDir (see fileWatcher error path), and that's exactly
-  // when the user needs to open the photo to fix the data by hand. Serving only
-  // from processedDir 404'd every error-invoice photo even though it's on disk.
-  let filePath: string | null = null;
-  for (const dir of [config.processedDir, config.failedDir, config.inboxDir]) {
-    const candidate = path.join(dir, safeFilename);
-    if (fs.existsSync(candidate)) {
-      filePath = candidate;
-      break;
-    }
-  }
-
+  const filePath = findStoredInvoiceFile(safeFilename);
   if (!filePath) {
     res.status(404).json({ error: 'File not found on disk' });
     return;
   }
 
+  // Исходный XML — только скачиванием: открытый в браузере с нашего домена,
+  // присланный кем угодно XML мог бы выполнить скрипт (XHTML-разметка внутри)
+  // рядом с ключом API в localStorage. Имя — как в ЭДО (ИдФайл), если известно.
+  if (isXmlFileName(safeFilename)) {
+    res.attachment(xmlDownloadName(invoice.raw_text, safeFilename));
+  }
   res.sendFile(filePath);
 });
+
+/**
+ * Файл накладной на диске: processed → failed → inbox (в таком порядке).
+ * Накладные с ошибкой держат фото в failed/ (см. fileWatcher), и именно тогда
+ * фото нужнее всего — поправить данные руками. null — файла нет (удалён по
+ * сроку хранения или не найден). Имя — уже basename.
+ */
+function findStoredInvoiceFile(fileName: string): string | null {
+  const safe = path.basename(fileName);
+  for (const dir of [config.processedDir, config.failedDir, config.inboxDir]) {
+    const candidate = path.join(dir, safe);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 // GET /api/invoices/:id — single invoice with items.
 // Supplier fields enriched from verified `suppliers` row when ИНН matches.
@@ -914,6 +928,12 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
     res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
+  // XML — цельный электронный документ: его строки точные, «страниц» у него
+  // нет. Фото того же документа — дубль, его удаляют, а не вклеивают.
+  if (isXmlInvoice(source) || isXmlInvoice(target)) {
+    res.status(409).json({ error: 'Накладная из XML — цельный электронный документ, объединять её с другими нельзя. Лишнюю накладную удалите.' });
+    return;
+  }
 
   try {
     const grand = Math.max(source.total_sum ?? 0, target.total_sum ?? 0);
@@ -1001,7 +1021,8 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
   // with mixed pre-VAT/post-VAT rows stayed broken forever. Do it first so
   // pack-transform below sees the corrected totals.
   let vatInflated = 0;
-  if (headerTotal != null && headerTotal > 0 && items.length > 0) {
+  // Строки электронного документа (XML) точные — «чинить» их НДС нечего.
+  if (headerTotal != null && headerTotal > 0 && items.length > 0 && !isXmlInvoice(invoice)) {
     const vatFix = sanitizeItemVatPerItem(
       items.map(i => ({
         quantity: i.quantity, unit: i.unit, price: i.price, total: i.total,
@@ -2689,6 +2710,15 @@ router.post('/:id/add-pages', addPagesUpload.array('files', 10), async (req: Req
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) { res.status(404).json({ error: 'Invoice not found' }); return; }
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  // Электронный документ из XML — всегда целиком: страниц к нему не бывает.
+  // Файлы multer уже положил в processed/ — убираем, чтобы не висели ничьими.
+  if (isXmlInvoice(invoice)) {
+    for (const f of files) {
+      try { fs.unlinkSync(f.path); } catch { /* уже нет — не страшно */ }
+    }
+    res.status(409).json({ error: 'Накладная загружена из XML (электронный документ) — страницы фото к ней не добавляются' });
+    return;
+  }
   if (files.length === 0) { res.status(400).json({ error: 'No files uploaded (field "files")' }); return; }
 
   // Files are in processedDir (unwatched) — no watcher race, no markProcessing needed.
