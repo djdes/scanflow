@@ -27,10 +27,19 @@
         <span>ScanFlow</span>
       </a>
       <nav id="app-primary-nav">
-        <a href="#/invoices" data-tab="invoices">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          Накладные
-        </a>
+        <div class="nav-group" data-group="invoices">
+          <a href="#/invoices" class="nav-group-trigger" data-tab="invoices,queue,analytics-quality,analytics-prices" aria-haspopup="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Накладные
+            <svg class="nav-caret" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <div class="nav-menu" role="menu">
+            <a href="#/invoices" data-tab="invoices" role="menuitem">Все накладные</a>
+            <a href="#/queue" data-tab="queue" role="menuitem">Очередь в 1С</a>
+            <a href="#/analytics/quality" data-tab="analytics-quality" role="menuitem">Качество поставщиков</a>
+            <a href="#/analytics/prices" data-tab="analytics-prices" role="menuitem">Закупочные цены</a>
+          </div>
+        </div>
 
         <a href="#/operations" data-tab="operations">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 12V8m4 4V4m4 8V6m4 6V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M1 14h14" stroke="currentColor" stroke-width="1.2" opacity=".5"/></svg>
@@ -542,6 +551,26 @@
       </div>
           <div id="mappings-rejections"></div>
           <div id="mappings-restore"></div>
+    </section>
+
+    <!-- «Очередь в 1С»: накладные, которые ещё не ушли в 1С, — что готово и что
+         держит, массовое одобрение, подбор ИИ, перераспознавание. Разметку
+         строит public/js/queue.js. -->
+    <section id="view-queue">
+      <div class="section-header queue-header">
+        <div>
+          <h1 class="section-h1">Очередь в 1С</h1>
+          <p class="section-subtitle">Накладные, которые ещё не ушли в 1С: что готово к отправке и что держит остальные.</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" data-action="reload">Обновить</button>
+      </div>
+      <div id="queue-summary" aria-live="polite"></div>
+      <div id="queue-jobs" aria-live="polite"></div>
+      <div class="queue-toolbar">
+        <div class="queue-toolbar__actions" id="queue-actions"></div>
+      </div>
+      <div id="queue-bulk-bar" class="bulk-bar" style="display:none"></div>
+      <div id="queue-list"></div>
     </section>
 
     <!-- «Новые товары» (пакет v2, п.12): строки без позиции 1С, сгруппированные
@@ -1129,6 +1158,7 @@
 <script src="/js/upload.js"></script>
 <script src="/js/mappings.js"></script>
 <script src="/js/newItems.js"></script>
+<script src="/js/queue.js"></script>
 <script src="/js/integrations-log.js"></script>
 <script src="/js/operations.js"></script>
 <script src="/js/settings.js"></script>

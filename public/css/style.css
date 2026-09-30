@@ -4603,3 +4603,148 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
 #view-sber form label:not(.switch-inline) { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
 #view-sber form label:not(.switch-inline) input { width: 100%; box-sizing: border-box; font-size: 14px; color: var(--text); padding: 8px 10px; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; background: var(--card, #fff); }
 #view-sber form label:not(.switch-inline) input:focus { outline: none; border-color: var(--primary, #2383e2); }
+
+/* ===== «Очередь в 1С» (#/queue, public/js/queue.js) ===== */
+.queue-header { flex-wrap: wrap; align-items: flex-start; }
+.queue-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.queue-tile {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.queue-tile:hover { border-color: var(--border-hover); box-shadow: var(--shadow); }
+.queue-tile:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.queue-tile.is-active { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.queue-tile__value { display: block; font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.queue-tile__label { display: block; font-size: 13px; color: var(--text-secondary); }
+.queue-tile small { display: block; margin-top: 4px; font-size: 12px; color: var(--text-tertiary); overflow-wrap: anywhere; }
+.queue-tile--ready .queue-tile__value { color: var(--success); }
+.queue-tile--blocked .queue-tile__value { color: var(--warning); }
+.queue-tile--approved .queue-tile__value { color: var(--primary); }
+.queue-note { margin: 0 0 12px; font-size: 13px; color: var(--text-secondary); }
+
+.queue-job {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.queue-job--done { border-left-color: var(--success); }
+.queue-job--muted { border-left-color: var(--border-hover); font-size: 13px; color: var(--text-secondary); }
+.queue-job__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.queue-progress { height: 6px; border-radius: 999px; background: var(--bg); overflow: hidden; }
+.queue-progress > div { height: 100%; border-radius: inherit; background: var(--primary); transition: width 0.4s ease; }
+
+.queue-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.queue-toolbar__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+/* Ячейки очереди переносят текст: общее правило для телефонов (≤768px) ставит
+   всем td white-space: nowrap — причины и названия уезжали бы за край. */
+.queue-table > tbody > tr > td { vertical-align: top; white-space: normal; }
+.queue-table .queue-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.queue-row { cursor: pointer; }
+.queue-row:hover > td { background: var(--primary-soft); }
+.queue-row.is-open > td { background: var(--primary-soft); border-bottom-color: transparent; }
+.queue-cell { display: block; min-width: 0; }
+.queue-inv { font-weight: 600; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+.queue-inv:hover { color: var(--primary); text-decoration: underline; }
+.queue-sub { margin-top: 2px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.queue-muted { color: var(--text-tertiary); }
+.queue-warn { color: #b45309; }
+.queue-bad { color: var(--error); }
+.queue-good { color: var(--success); }
+.queue-line-flags > span { display: block; white-space: nowrap; }
+.queue-reasons { max-width: 320px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-secondary); }
+.queue-reasons li { margin-top: 2px; overflow-wrap: anywhere; }
+.queue-reasons li.is-hard,
+.queue-reason-list li.is-hard { color: var(--error); }
+
+.queue-panel-row > td { padding: 0; background: var(--bg); }
+.queue-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px 18px 18px; text-align: left; }
+.queue-panel h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.queue-panel p { margin: 0 0 6px; font-size: 13px; }
+.queue-panel__cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; }
+.queue-panel__block { min-width: 0; }
+.queue-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.queue-panel .btn { white-space: normal; text-align: center; }
+.queue-reason-list { margin: 0 0 6px; padding-left: 18px; font-size: 13px; }
+.queue-reason-list li { margin: 2px 0; overflow-wrap: anywhere; }
+.queue-mini-wrap { margin: 6px 0; box-shadow: none; }
+.queue-mini { min-width: 480px; font-size: 12.5px; }
+.queue-mini tbody td:first-child { min-width: 150px; }
+.queue-mini thead th { padding: 7px 10px; font-size: 11px; }
+.queue-mini tbody td { padding: 7px 10px; vertical-align: top; white-space: normal; }
+.queue-name { font-weight: 500; overflow-wrap: anywhere; }
+.queue-header-diff { margin: 6px 0; padding: 8px 12px; border-radius: var(--radius); background: var(--warning-soft); font-size: 13px; color: #713f12; }
+.queue-header-diff ul { margin: 4px 0 0; padding-left: 18px; }
+.queue-diff { min-width: 560px; }
+.queue-diff tbody td:first-child { width: 90px; }
+.queue-diff-kind { display: inline-block; padding: 2px 7px; border-radius: 999px; background: var(--bg); font-size: 11px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+.queue-diff--changed .queue-diff-kind { background: var(--warning-soft); color: #92400e; }
+.queue-diff--added .queue-diff-kind { background: var(--success-soft); color: #065f46; }
+.queue-diff--removed .queue-diff-kind { background: var(--error-soft); color: #991b1b; }
+.queue-diff mark { padding: 0 2px; border-radius: 3px; background: var(--warning-soft); color: inherit; }
+
+@media (max-width: 960px) {
+  .queue-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .queue-panel__cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Телефон: строки очереди — карточки. Свои правила с «>», а не общий
+   table.cards-mobile: тот задевает и вложенные таблицы раскрытой накладной. */
+@media (max-width: 640px) {
+  .queue-toolbar { justify-content: stretch; }
+  .queue-toolbar__actions { justify-content: stretch; width: 100%; }
+  .queue-toolbar__actions .btn { flex: 1 1 auto; white-space: normal; }
+  .queue-table-wrap { border: none; background: transparent; box-shadow: none; overflow: visible; }
+  .queue-table > thead { display: none; }
+  .queue-table,
+  .queue-table > tbody { display: block; width: 100%; }
+  .queue-table > tbody > tr.queue-row {
+    display: block;
+    margin: 0 0 10px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+  }
+  .queue-table > tbody > tr.queue-row > td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    border: none;
+    background: transparent;
+    text-align: right;
+  }
+  .queue-table > tbody > tr.queue-row > td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: left;
+  }
+  .queue-table > tbody > tr.queue-row > td.col-check { width: auto; padding: 5px 0; text-align: right; }
+  .queue-table > tbody > tr.queue-row > td.cell-action { justify-content: flex-end; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .queue-table > tbody > tr.queue-row > td.cell-action::before { content: none; }
+  .queue-table > tbody > tr.queue-row.is-open { margin-bottom: 0; border-color: var(--primary); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  .queue-table > tbody > tr.queue-panel-row { display: block; margin: 0 0 12px; border: 1px solid var(--primary); border-top: none; border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--bg); }
+  .queue-table > tbody > tr.queue-panel-row > td { display: block; padding: 0; border: none; }
+  .queue-reasons { max-width: none; }
+  .queue-panel { padding: 12px; }
+}

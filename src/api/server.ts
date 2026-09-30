@@ -24,6 +24,7 @@ import { registerAfterCatalogSync } from '../services/catalogSyncWatcher';
 import { remapUnsentInvoices } from '../services/remapUnsent';
 import { linkCreatedNewItems } from '../services/newItemActions';
 import newItemsRouter, { setMapper as setNewItemsMapper } from './routes/newItems';
+import queueRouter, { setMapper as setQueueMapper } from './routes/queue';
 import authRouter from './routes/auth';
 import { userRepo } from '../database/repositories/userRepo';
 import profileRouter from './routes/profile';
@@ -143,6 +144,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setInvoicesMapper(mapper);
   setDispatcherMapper(mapper);
   setNewItemsMapper(mapper);
+  setQueueMapper(mapper);
   // После обновления каталога 1С (хуки идут по порядку регистрации):
   // 1) «Новые товары» (п.12) — заявки «Создать в 1С», чья позиция появилась в
   //    справочнике, связываются с ней, строки групп получают именно её;
@@ -274,6 +276,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // «Новые товары» (п.12 v2): строки без позиции 1С — сопоставить группой или
   // «Создать в 1С». Данные строго компании вызывающего.
   app.use('/api/new-items', apiKeyAuth, newItemsRouter);
+  // «Очередь в 1С»: мастер проверки неотправленных, перераспознавание очереди,
+  // массовый подбор ИИ. Только накладные компании вызывающего.
+  app.use('/api/queue', apiKeyAuth, queueRouter);
   // Self-service: генерация кода подключения доступна любому пользователю.
   app.use('/api/onec', apiKeyAuth, onecUserRouter);
   app.use('/api/onec', apiKeyAuth, requireAdmin, onecAdminRouter);

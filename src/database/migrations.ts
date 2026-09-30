@@ -2291,6 +2291,45 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 76,
+    name: 'queue_reocr_results — перераспознавание очереди в 1С: предложенные строки и что они заменили',
+    // «Очередь в 1С» (агент A, дизайн 2026-09-29). Фото неотправленной
+    // накладной заново распознаётся текущим движком; результат — ПРЕДЛОЖЕННЫЕ
+    // строки (proposed), шапку накладной он не трогает никогда. Строки
+    // заменяются только по кнопке человека; тогда в replaced ложатся прежние
+    // строки (рычаг отката). Одна строка на прогон накладной (история не
+    // затирается), актуальная — с наибольшим id. JSON — в MEDIUMTEXT без
+    // DEFAULT (прод — MariaDB 10.11, локально — MySQL 9.6).
+    // Номера 74–75 — основная сессия, 77–78 — агенты B и C.
+    detect: (exec) => hasTable(exec, 'queue_reocr_results'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS queue_reocr_results (
+          id                 INT AUTO_INCREMENT PRIMARY KEY,
+          owner_user_id      INT NOT NULL,
+          invoice_id         INT NOT NULL,
+          status             VARCHAR(16) NOT NULL,
+          model              VARCHAR(64) NULL,
+          pages              INT NULL,
+          lines_fingerprint  VARCHAR(64) NULL,
+          summary            MEDIUMTEXT NULL,
+          header_diff        MEDIUMTEXT NULL,
+          proposed           MEDIUMTEXT NULL,
+          replaced           MEDIUMTEXT NULL,
+          error              VARCHAR(500) NULL,
+          started_by         INT NULL,
+          started_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          finished_at        DATETIME NULL,
+          applied_at         DATETIME NULL,
+          applied_by         INT NULL,
+          INDEX idx_queue_reocr_owner (owner_user_id, invoice_id, id),
+          INDEX idx_queue_reocr_invoice (invoice_id, id),
+          CONSTRAINT fk_queue_reocr_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
