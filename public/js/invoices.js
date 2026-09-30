@@ -1063,7 +1063,7 @@ const Invoices = {
       if (tb) tb.innerHTML = this._itemsToolbar(data.id);
 
       // Elevated-price warning banner + mobile square counters.
-      this._renderPriceWarning(data.items || []);
+      this._renderPriceWarning(data.items || [], data.alignment_problems || []);
       this._renderPriceBadges(data.items || []);
 
       // Q4: for items left unmapped, auto-select a confident catalog match so
@@ -1402,13 +1402,22 @@ const Invoices = {
     return many;
   },
 
-  // Summary banner above the items table: counts positions priced >10% above
-  // the usual price. Empty (cleared) when there are none.
-  _renderPriceWarning(items) {
+  // Summary banner above the items table: rows that look shifted by a skewed
+  // photo, then positions priced >10% above the usual price. Empty (cleared)
+  // when there are none.
+  _renderPriceWarning(items, alignment = []) {
     const el = document.getElementById('invoice-price-warning');
     if (!el) return;
+    const shifted = alignment.length ? `
+      <div class="price-warning-banner">
+        <span class="price-warning-banner__icon">⚠</span>
+        <div>
+          <strong>Строки могли распознаться со сдвигом</strong> — названия и числа не совпадают по строкам (так бывает, когда фото снято под углом). Сверьте таблицу с фото или нажмите «Пересканировать фото».
+          <div class="muted" style="margin-top:2px">${alignment.map(p => App.esc(p)).join('; ')}</div>
+        </div>
+      </div>` : '';
     const flagged = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10);
-    if (!flagged.length) { el.innerHTML = ''; return; }
+    if (!flagged.length) { el.innerHTML = shifted; return; }
     const worst = Math.round(Math.max(...flagged.map(f => f.price_deviation_pct)));
     const names = flagged
       .sort((a, b) => b.price_deviation_pct - a.price_deviation_pct)
@@ -1417,7 +1426,7 @@ const Invoices = {
       .join(', ');
     const more = flagged.length > 3 ? ` и ещё ${flagged.length - 3}` : '';
     const noun = this._plural(flagged.length, 'позиция', 'позиции', 'позиций');
-    el.innerHTML = `
+    el.innerHTML = shifted + `
       <div class="price-warning-banner">
         <span class="price-warning-banner__icon">⚠</span>
         <div>

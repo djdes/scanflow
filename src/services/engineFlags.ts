@@ -9,9 +9,9 @@ import { logger } from '../utils/logger';
  * выключает движок в «Настройки → Движки v2», и следующая накладная идёт
  * старым путём. Хранится в analyzer_config.engine_flags (JSON в TEXT).
  */
-export type EngineFlag = 'units_v2' | 'price_guard' | 'mapping_v2' | 'ocr_memory' | 'batch_notify' | 'learning';
+export type EngineFlag = 'units_v2' | 'price_guard' | 'mapping_v2' | 'ocr_memory' | 'batch_notify' | 'learning' | 'row_pairing';
 
-export const ENGINE_FLAGS: EngineFlag[] = ['units_v2', 'price_guard', 'mapping_v2', 'ocr_memory', 'batch_notify', 'learning'];
+export const ENGINE_FLAGS: EngineFlag[] = ['units_v2', 'price_guard', 'mapping_v2', 'ocr_memory', 'batch_notify', 'learning', 'row_pairing'];
 
 export const ENGINE_FLAG_DEFAULTS: Record<EngineFlag, boolean> = {
   units_v2: true,
@@ -20,6 +20,7 @@ export const ENGINE_FLAG_DEFAULTS: Record<EngineFlag, boolean> = {
   ocr_memory: true,
   batch_notify: true,
   learning: true,
+  row_pairing: true,
 };
 
 export const ENGINE_FLAG_INFO: Record<EngineFlag, { title: string; hint: string }> = {
@@ -46,6 +47,10 @@ export const ENGINE_FLAG_INFO: Record<EngineFlag, { title: string; hint: string 
   learning: {
     title: 'Ночной разбор правок',
     hint: 'Раз в сутки правки и аномалии разбираются и превращаются в предложения правил (применяются только после вашего подтверждения).',
+  },
+  row_pairing: {
+    title: 'Сверка строк по порядку',
+    hint: 'Параллельно с распознаванием числа таблицы читаются отдельно, сверху вниз, и названия сопоставляются с ними по порядку строк. Спасает фото под углом и изогнутые листы, где числа съезжают на соседнюю строку. Выключено — пары только по основному чтению.',
   },
 };
 
