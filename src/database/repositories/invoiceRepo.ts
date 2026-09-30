@@ -301,6 +301,11 @@ function triggerStatsRecompute(guids: Array<string | null | undefined>, invoiceI
   })().catch(() => { /* logged inside */ });
 }
 
+/** Фильтр «та же компания» для поисков соседних страниц; без владельца — как раньше. */
+function ownerScope(ownerUserId: number | null | undefined): { sql: string; params: number[] } {
+  return ownerUserId != null ? { sql: '\n       AND owner_user_id = ?', params: [ownerUserId] } : { sql: '', params: [] };
+}
+
 export const invoiceRepo = {
   async create(data: CreateInvoiceData): Promise<Invoice> {
     const db = getDb();
@@ -1049,19 +1054,22 @@ export const invoiceRepo = {
     ).get<Invoice>(pattern, excludeId);
   },
 
-  async findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10): Promise<Invoice | undefined> {
+  // ownerUserId — страницы одной накладной всегда одной компании: без него
+  // страница одной компании могла приклеиться к накладной другой (правило 19).
+  async findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10, ownerUserId?: number | null): Promise<Invoice | undefined> {
     const targetNormalized = normalizeInvoiceNumber(invoiceNumber);
     if (!targetNormalized) return undefined;
 
     const targetDigits = extractDigitSequence(invoiceNumber);
 
+    const owner = ownerScope(ownerUserId);
     const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE invoice_number IS NOT NULL AND invoice_number != ''
        AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
-       AND status IN ('processed', 'parsing', 'ocr_processing')
+       AND status IN ('processed', 'parsing', 'ocr_processing')${owner.sql}
        ORDER BY created_at DESC`
-    ).all<Invoice>();
+    ).all<Invoice>(...owner.params);
 
     for (const candidate of candidates) {
       if (normalizeInvoiceNumber(candidate.invoice_number) !== targetNormalized) continue;
@@ -1123,13 +1131,14 @@ export const invoiceRepo = {
        WHERE invoice_number IS NOT NULL AND invoice_number != ''
          AND duplicate_of IS NULL
          AND id != :id
+         AND owner_user_id <=> :owner
          ${dateClause}
        ORDER BY id ASC`
     ).all<{
       id: number; invoice_number: string | null; invoice_date: string | null;
       supplier: string | null; total_sum: number | null; status: string;
       approved_for_1c: number; items_count: number;
-    }>(self.invoice_date ? { id, curDate: self.invoice_date } : { id });
+    }>(self.invoice_date ? { id, owner: self.owner_user_id ?? null, curDate: self.invoice_date } : { id, owner: self.owner_user_id ?? null });
 
     return candidates.filter((c) =>
       normalizeInvoiceNumber(c.invoice_number) === targetNormalized &&
@@ -1224,15 +1233,16 @@ export const invoiceRepo = {
     ).run(id);
   },
 
-  async findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2): Promise<Invoice | undefined> {
+  async findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2, ownerUserId?: number | null): Promise<Invoice | undefined> {
+    const owner = ownerScope(ownerUserId);
     return getDb().prepare(
       `SELECT * FROM invoices
        WHERE id != ?
        AND status = 'processed'
-       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)${owner.sql}
        ORDER BY created_at DESC
        LIMIT 1`
-    ).get<Invoice>(excludeId);
+    ).get<Invoice>(excludeId, ...owner.params);
   },
 
   /**
@@ -1338,15 +1348,16 @@ export const invoiceRepo = {
     return row?.recovery_attempts ?? 0;
   },
 
-  async findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2): Promise<Invoice | undefined> {
+  async findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2, ownerUserId?: number | null): Promise<Invoice | undefined> {
+    const owner = ownerScope(ownerUserId);
     const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE supplier IS NOT NULL AND supplier != ''
        AND id != ?
        AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
-       AND status IN ('processed', 'parsing', 'ocr_processing')
+       AND status IN ('processed', 'parsing', 'ocr_processing')${owner.sql}
        ORDER BY created_at DESC`
-    ).all<Invoice>(excludeId);
+    ).all<Invoice>(excludeId, ...owner.params);
 
     for (const candidate of candidates) {
       if (candidate.supplier && suppliersMatch(supplier, candidate.supplier)) return candidate;
@@ -1361,13 +1372,14 @@ export const invoiceRepo = {
    * merge strategies can't see it. A continuation page uses this to wait for an
    * earlier page to finish before deciding it's a standalone invoice.
    */
-  async countInFlightOlderThan(beforeId: number, withinMinutes: number): Promise<number> {
+  async countInFlightOlderThan(beforeId: number, withinMinutes: number, ownerUserId?: number | null): Promise<number> {
     const mins = Math.max(1, Math.trunc(withinMinutes));
+    const owner = ownerScope(ownerUserId);
     const row = await getDb().prepare(
       `SELECT COUNT(*) AS c FROM invoices
        WHERE id < ? AND status IN ('ocr_processing', 'parsing')
-       AND created_at > (NOW() - INTERVAL ${mins} MINUTE)`
-    ).get<{ c: number }>(beforeId);
+       AND created_at > (NOW() - INTERVAL ${mins} MINUTE)${owner.sql}`
+    ).get<{ c: number }>(beforeId, ...owner.params);
     return Number(row?.c ?? 0);
   },
 

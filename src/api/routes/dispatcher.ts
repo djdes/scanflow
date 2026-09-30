@@ -245,24 +245,27 @@ async function findMultiPageTarget(
   parsed: ParsedInvoiceData,
 ): Promise<{ id: number; invoice_number: string | null; supplier: string | null; total_sum: number | null; vat_sum: number | null } | null> {
   let candidate: Awaited<ReturnType<typeof invoiceRepo.findRecentByNumber>> | null = null;
+  // Страницы одной накладной — всегда одной компании (правило 19).
+  const owner = (await invoiceRepo.getById(currentInvoiceId))?.owner_user_id ?? null;
   // A) match by invoice_number (within last 10 min)
   if (parsed.invoice_number) {
     const e = await invoiceRepo.findRecentByNumber(
       parsed.invoice_number,
       parsed.supplier ?? undefined,
       10,
+      owner,
     );
     if (e && e.id !== currentInvoiceId) candidate = e;
   }
   // C) same supplier within 5 min AND current page has no invoice_number
   //    (page-2 of a multi-page where the number was only on page-1).
   if (!candidate && parsed.supplier && !parsed.invoice_number) {
-    const e = await invoiceRepo.findRecentBySupplier(parsed.supplier, currentInvoiceId, 5);
+    const e = await invoiceRepo.findRecentBySupplier(parsed.supplier, currentInvoiceId, 5, owner);
     if (e) candidate = e;
   }
   // D) no metadata at all → continuation of most recent in last 2 min.
   if (!candidate && !parsed.invoice_number && !parsed.supplier) {
-    const e = await invoiceRepo.findMostRecentProcessedForContinuation(currentInvoiceId, 2);
+    const e = await invoiceRepo.findMostRecentProcessedForContinuation(currentInvoiceId, 2, owner);
     if (e) candidate = e;
   }
   // Предохранитель: разные непустые номера → не мёржить (инцидент 287/288).

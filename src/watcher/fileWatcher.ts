@@ -359,11 +359,11 @@ export class FileWatcher {
    * standalone invoice (the 205/206 bug). Only EARLIER ids are awaited, so two
    * concurrent pages can never wait on each other (no deadlock).
    */
-  private async awaitInFlightPredecessors(currentId: number, withinMinutes = 5): Promise<void> {
+  private async awaitInFlightPredecessors(currentId: number, withinMinutes = 5, ownerUserId?: number | null): Promise<void> {
     const deadline = Date.now() + 120_000;
     let announced = false;
     while (Date.now() < deadline) {
-      const n = await invoiceRepo.countInFlightOlderThan(currentId, withinMinutes);
+      const n = await invoiceRepo.countInFlightOlderThan(currentId, withinMinutes, ownerUserId);
       if (n === 0) return;
       if (!announced) {
         logger.info('Multi-page: waiting for earlier page(s) still scanning before merge check', {
@@ -874,7 +874,7 @@ export class FileWatcher {
       const looksLikeContinuation = !parsed.invoice_number
         || (firstRowNo0 != null && firstRowNo0 > 1);
       if (looksLikeContinuation) {
-        await this.awaitInFlightPredecessors(invoice.id, 5);
+        await this.awaitInFlightPredecessors(invoice.id, 5, invoice.owner_user_id);
       }
 
       // Strategy A: match by invoice_number (within last 10 minutes).
@@ -886,7 +886,8 @@ export class FileWatcher {
         existingInvoice = await invoiceRepo.findRecentByNumber(
           parsed.invoice_number,
           parsed.supplier ?? undefined,
-          10
+          10,
+          invoice.owner_user_id,
         );
       }
 
@@ -933,6 +934,7 @@ export class FileWatcher {
           parsed.supplier,
           invoice.id,
           5,
+          invoice.owner_user_id,
         );
         if (candidate) {
           const existingItems = await invoiceRepo.getItems(candidate.id);
@@ -988,7 +990,8 @@ export class FileWatcher {
         existingInvoice = await invoiceRepo.findRecentBySupplier(
           parsed.supplier,
           invoice.id,
-          5  // within last 5 minutes
+          5,  // within last 5 minutes
+          invoice.owner_user_id,
         );
         if (existingInvoice && existingInvoice.id !== invoice.id) {
           logger.info('Multi-page: matched by supplier within 5 min (current page has no invoice_number)', {
@@ -1009,7 +1012,7 @@ export class FileWatcher {
       // Safety: only consults 'processed' rows (not 'parsing'), so we
       // never merge two concurrently-uploading invoices into each other.
       if (!existingInvoice && !parsed.invoice_number && !parsed.supplier) {
-        existingInvoice = await invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2);
+        existingInvoice = await invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2, invoice.owner_user_id);
         if (existingInvoice) {
           logger.info('Multi-page: matched by temporal proximity (no metadata on this page)', {
             currentFile: fileName,
