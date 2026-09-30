@@ -345,7 +345,7 @@ export const invoiceRepo = {
         e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062 ||
         (e?.message ?? '').includes('Duplicate entry');
       if (data.file_hash && isDup && (e?.message ?? '').toLowerCase().includes('file_hash')) {
-        const existing = await this.findByFileHash(data.file_hash);
+        const existing = await this.findByFileHash(data.file_hash, data.owner_user_id ?? null);
         if (existing) throw new DuplicateFileHashError(existing);
       }
       throw err;
@@ -643,14 +643,16 @@ export const invoiceRepo = {
 
   /** Distinct supplier spellings with a representative ИНН and invoice count
    *  (most-used spelling first). Backs supplier fuzzy-dedup. */
-  async distinctSuppliers(): Promise<Array<{ supplier: string; supplier_inn: string | null; count: number }>> {
+  // ownerUserId — написания поставщика только своей компании (правило 19).
+  async distinctSuppliers(ownerUserId?: number | null): Promise<Array<{ supplier: string; supplier_inn: string | null; count: number }>> {
+    const owner = ownerScope(ownerUserId);
     return getDb().prepare(
       `SELECT supplier, MAX(supplier_inn) AS supplier_inn, COUNT(*) AS count
        FROM invoices
-       WHERE supplier IS NOT NULL AND supplier <> ''
+       WHERE supplier IS NOT NULL AND supplier <> ''${owner.sql}
        GROUP BY supplier
        ORDER BY count DESC, supplier ASC`
-    ).all<{ supplier: string; supplier_inn: string | null; count: number }>();
+    ).all<{ supplier: string; supplier_inn: string | null; count: number }>(...owner.params);
   },
 
   /**
@@ -660,18 +662,19 @@ export const invoiceRepo = {
    * fuzzy name match ≥ 70%. Never matches across two DIFFERENT non-null ИНН.
    * Returns null when nothing close exists (genuinely new supplier).
    */
-  async findCanonicalSupplier(rawName: string, inn: string | null | undefined): Promise<string | null> {
+  async findCanonicalSupplier(rawName: string, inn: string | null | undefined, ownerUserId?: number | null): Promise<string | null> {
     const db = getDb();
     const innTrim = inn ? String(inn).trim() : '';
+    const owner = ownerScope(ownerUserId);
     if (innTrim) {
       const row = await db.prepare(
         `SELECT supplier FROM invoices
-         WHERE supplier_inn = ? AND supplier IS NOT NULL AND supplier <> ''
+         WHERE supplier_inn = ? AND supplier IS NOT NULL AND supplier <> ''${owner.sql}
          GROUP BY supplier ORDER BY COUNT(*) DESC LIMIT 1`
-      ).get<{ supplier: string }>(innTrim);
+      ).get<{ supplier: string }>(innTrim, ...owner.params);
       if (row?.supplier) return row.supplier;
     }
-    const names = await this.distinctSuppliers();
+    const names = await this.distinctSuppliers(ownerUserId);
     let best: { name: string; count: number } | null = null;
     for (const r of names) {
       // Don't merge across distinct legal entities.
@@ -683,14 +686,15 @@ export const invoiceRepo = {
     return best?.name ?? null;
   },
 
-  /** Rewrite every invoice whose supplier is in `fromNames` to `toName`. */
-  async renameSupplier(fromNames: string[], toName: string): Promise<number> {
+  /** Rewrite every invoice whose supplier is in `fromNames` to `toName` (only this company's when ownerUserId is set). */
+  async renameSupplier(fromNames: string[], toName: string, ownerUserId?: number | null): Promise<number> {
     const targets = fromNames.filter(n => n && n !== toName);
     if (targets.length === 0) return 0;
     const placeholders = targets.map(() => '?').join(',');
+    const owner = ownerScope(ownerUserId);
     const res = await getDb().prepare(
-      `UPDATE invoices SET supplier = ? WHERE supplier IN (${placeholders})`
-    ).run(toName, ...targets);
+      `UPDATE invoices SET supplier = ? WHERE supplier IN (${placeholders})${owner.sql}`
+    ).run(toName, ...targets, ...owner.params);
     return res.changes;
   },
 
@@ -1029,29 +1033,44 @@ export const invoiceRepo = {
     );
   },
 
-  async findByFileHash(fileHash: string): Promise<Invoice | undefined> {
+  // Дубликат ищется только среди накладных той же компании (миграция 79):
+  // одинаковый файл другой компании — её собственная накладная.
+  async findByFileHash(fileHash: string, ownerUserId: number | null): Promise<Invoice | undefined> {
     return getDb().prepare(
       `SELECT * FROM invoices
        WHERE file_hash = ?
+       AND owner_user_id <=> ?
        AND status != 'error'
        ORDER BY created_at DESC
        LIMIT 1`
-    ).get<Invoice>(fileHash);
+    ).get<Invoice>(fileHash, ownerUserId);
   },
 
   async setFileHash(id: number, fileHash: string): Promise<void> {
     await getDb().prepare('UPDATE invoices SET file_hash = ? WHERE id = ?').run(fileHash, id);
   },
 
-  async findRecentByFileNamePattern(pattern: string, excludeId: number, withinMinutes: number = 10): Promise<Invoice | undefined> {
+  async findRecentByFileNamePattern(pattern: string, excludeId: number, withinMinutes: number = 10, ownerUserId?: number | null): Promise<Invoice | undefined> {
+    const owner = ownerScope(ownerUserId);
     return getDb().prepare(
       `SELECT * FROM invoices
        WHERE file_name LIKE ?
        AND id != ?
        AND status != 'error'
-       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
+       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)${owner.sql}
        ORDER BY created_at DESC LIMIT 1`
-    ).get<Invoice>(pattern, excludeId);
+    ).get<Invoice>(pattern, excludeId, ...owner.params);
+  },
+
+  /** Сколько накладных сейчас распознаётся (любая компания — память процесса общая). */
+  async countRecognizing(withinMinutes: number = 10): Promise<number> {
+    const mins = Math.max(1, Math.trunc(withinMinutes));
+    const row = await getDb().prepare(
+      `SELECT COUNT(*) AS c FROM invoices
+       WHERE status IN ('ocr_processing', 'parsing')
+       AND created_at > (NOW() - INTERVAL ${mins} MINUTE)`
+    ).get<{ c: number }>();
+    return Number(row?.c ?? 0);
   },
 
   // ownerUserId — страницы одной накладной всегда одной компании: без него

@@ -713,7 +713,7 @@ export class FileWatcher {
     // Cheap up-front check (cuts most obvious duplicates without hitting
     // the INSERT path at all). The UNIQUE index still protects us from races.
     if (fileHash) {
-      const duplicate = await invoiceRepo.findByFileHash(fileHash);
+      const duplicate = await invoiceRepo.findByFileHash(fileHash, meta?.ownerUserId ?? null);
       if (duplicate) {
         logger.info('Duplicate file detected by hash, returning existing invoice', {
           filePath,
@@ -899,7 +899,8 @@ export class FileWatcher {
           existingInvoice = await invoiceRepo.findRecentByFileNamePattern(
             `photo_%_${timestamp}`,
             invoice.id,
-            10
+            10,
+            invoice.owner_user_id,
           );
           if (existingInvoice && existingInvoice.id !== invoice.id) {
             logger.info('Multi-page: matched by filename pattern', {

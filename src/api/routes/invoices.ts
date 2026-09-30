@@ -2584,7 +2584,9 @@ router.post('/merge-suppliers', requireAdmin, async (req: Request, res: Response
   const dryRun = String(req.query.dry_run ?? 'true') !== 'false';
   const SUP_THRESHOLD = 0.70;
 
-  const sups = await invoiceRepo.distinctSuppliers(); // most-used first
+  // Только своя компания: администратор — тоже компания, чужие написания не трогаем (правило 19).
+  const ownerId = req.user?.id ?? null;
+  const sups = await invoiceRepo.distinctSuppliers(ownerId); // most-used first
   const used = new Set<number>();
   const groups: Array<{ canonical: string; canonical_count: number; merge: Array<{ supplier: string; count: number }> }> = [];
 
@@ -2609,7 +2611,7 @@ router.post('/merge-suppliers', requireAdmin, async (req: Request, res: Response
   let invoicesUpdated = 0;
   if (!dryRun) {
     for (const g of groups) {
-      invoicesUpdated += await invoiceRepo.renameSupplier(g.merge.map(m => m.supplier), g.canonical);
+      invoicesUpdated += await invoiceRepo.renameSupplier(g.merge.map(m => m.supplier), g.canonical, ownerId);
     }
   }
 

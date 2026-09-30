@@ -36,5 +36,6 @@ export async function resolveSupplierName(
   }
   if (!rawSupplier) return undefined;
   const canon = canonicalizeSupplierName(rawSupplier);
-  return (await invoiceRepo.findCanonicalSupplier(canon, innTrim || null)) ?? canon;
+  // Написание — только из накладных своей компании (правило 19).
+  return (await invoiceRepo.findCanonicalSupplier(canon, innTrim || null, ownerUserId)) ?? canon;
 }

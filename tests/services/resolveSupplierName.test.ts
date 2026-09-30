@@ -30,11 +30,12 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('resolveSupplierNam
   });
   afterAll(async () => { await closeTestDb(); });
 
-  async function mkInvoice(supplier: string, inn: string | null, n = 1): Promise<void> {
+  // Прежние накладные той же компании: написание берётся только из них (правило 19).
+  async function mkInvoice(supplier: string, inn: string | null, n = 1, ownerId = owner): Promise<void> {
     for (let i = 0; i < n; i++) {
       await getDb().prepare(
-        `INSERT INTO invoices (file_name, file_path, status, supplier, supplier_inn) VALUES ('f','/f','processed', ?, ?)`
-      ).run(supplier, inn);
+        `INSERT INTO invoices (file_name, file_path, status, supplier, supplier_inn, owner_user_id) VALUES ('f','/f','processed', ?, ?, ?)`
+      ).run(supplier, inn, ownerId);
     }
   }
 

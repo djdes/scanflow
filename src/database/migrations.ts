@@ -2351,6 +2351,27 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 79,
+    name: 'invoices: дубликат по хешу файла — внутри компании (UNIQUE owner_user_id + file_hash)',
+    // Уникальность file_hash была по всей базе: одинаковый файл второй компании
+    // «находил» накладную первой — у второй загрузка молча пропадала, а чужую
+    // накладную она открыть не может (правило 19). Сначала новый индекс (данные
+    // уже уникальны по хешу — значит, и по паре), потом снимаем старый.
+    // Строки без владельца (NULL) индекс не ограничивает — их ловит проверка
+    // в processFile до вставки.
+    detect: async (exec) =>
+      (await hasIndex(exec, 'invoices', 'idx_invoices_owner_file_hash'))
+      && !(await hasIndex(exec, 'invoices', 'idx_invoices_file_hash_unique')),
+    run: async (exec) => {
+      if (!(await hasIndex(exec, 'invoices', 'idx_invoices_owner_file_hash'))) {
+        await exec.query(`CREATE UNIQUE INDEX idx_invoices_owner_file_hash ON invoices(owner_user_id, file_hash)`);
+      }
+      if (await hasIndex(exec, 'invoices', 'idx_invoices_file_hash_unique')) {
+        await exec.query(`DROP INDEX idx_invoices_file_hash_unique ON invoices`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

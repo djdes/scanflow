@@ -20,11 +20,13 @@ async function setupUser(): Promise<string> {
   ).run();
   return 'k';
 }
-async function mk(supplier: string, inn: string | null, n = 1): Promise<void> {
+// Накладные компании администратора (id 1): объединение написаний идёт только
+// в своей компании (правило 19).
+async function mk(supplier: string, inn: string | null, n = 1, owner = 1): Promise<void> {
   for (let i = 0; i < n; i++) {
     await getDb().prepare(
-      `INSERT INTO invoices (file_name, file_path, status, supplier, supplier_inn) VALUES ('f','/f','processed', ?, ?)`
-    ).run(supplier, inn);
+      `INSERT INTO invoices (file_name, file_path, status, supplier, supplier_inn, owner_user_id) VALUES ('f','/f','processed', ?, ?, ?)`
+    ).run(supplier, inn, owner);
   }
 }
 
@@ -55,5 +57,22 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/invoices
     expect(map['ООО "ВЕСЕЛОФФ и ГКОМПАНИЙ"']).toBe(4);
     expect(map['ООО "ВЕСЕЛОФФ и ГКОМПАНИ"']).toBeUndefined();
     expect(map['ИП Кнутова Александра Сергеевна']).toBe(2);
+  });
+
+  it('объединяет написания только своей компании — накладные другой компании не трогает', async () => {
+    const key = await setupUser();
+    await getDb().prepare(
+      `INSERT INTO users (id, username, password_hash, api_key, role, notify_events) VALUES (2,'other','x','k2','user','[]')`
+    ).run();
+    await mk('ООО "ВЕСЕЛОФФ и ГКОМПАНИЙ"', '5018202085', 3);
+    await mk('ООО "ВЕСЕЛОФФ и ГКОМПАНИ"', '5018202085', 1);
+    await mk('ООО "ВЕСЕЛОФФ и ГКОМПАНИ"', '5018202085', 2, 2); // другая компания
+
+    const apply = await request(app).post('/api/invoices/merge-suppliers?dry_run=false').set('X-API-Key', key);
+    expect(apply.body.data.invoices_updated).toBe(1);
+    const other = await getDb().prepare(
+      `SELECT supplier, COUNT(*) c FROM invoices WHERE owner_user_id = 2 GROUP BY supplier`
+    ).all<{ supplier: string; c: number }>();
+    expect(other).toEqual([{ supplier: 'ООО "ВЕСЕЛОФФ и ГКОМПАНИ"', c: 2 }]);
   });
 });
