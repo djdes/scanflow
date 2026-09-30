@@ -413,6 +413,19 @@ describe('reocrInvoice', () => {
     expect(vi.mocked(d.mergePages).mock.calls[0][1]).toBe(2);
   });
 
+  it('перед распознаванием уступает новым загрузкам: ждёт, пока они распознаются', async () => {
+    const order: string[] = [];
+    const d = deps({
+      waitForIdle: vi.fn(async () => { order.push('wait'); }),
+      recognizePage: vi.fn(async () => {
+        order.push('recognize');
+        return { text: '{}', parsed: { total_sum: 1200, items: [{ name: 'Батон 0,4кг', quantity: 60, unit: 'шт', price: 20, total: 1200 }] } };
+      }),
+    });
+    await reocrInvoice(10, ctx(), d);
+    expect(order).toEqual(['wait', 'recognize']);
+  });
+
   it('электронный документ (XML) не перераспознаётся: строки взяты из самого документа', async () => {
     repo.getById.mockResolvedValue(invoice({ file_name: 'ON_NSCHFDOPPR_1.xml', ocr_engine: 'xml_upd' }) as never);
     const d = deps();

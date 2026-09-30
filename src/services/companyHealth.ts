@@ -1,4 +1,5 @@
 import { getDb } from '../database/db';
+import { QUEUE_SQL } from './queue';
 import { sendOwnerAlert } from './ownerAlerts';
 import { logger } from '../utils/logger';
 
@@ -26,7 +27,9 @@ export interface CompanyHealth {
   sber_connected: boolean;
 }
 
-const QUEUE = "i.status = 'processed' AND i.approved_for_1c = 0 AND i.sent_at IS NULL AND i.duplicate_of IS NULL";
+// Очередь — как на странице «Очередь в 1С»: всё, что не ушло в 1С, включая
+// одобренные — если 1С не забирает, они стоят так же.
+const QUEUE = QUEUE_SQL;
 
 export async function listCompanyHealth(): Promise<CompanyHealth[]> {
   const db = getDb();

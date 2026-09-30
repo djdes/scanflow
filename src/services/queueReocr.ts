@@ -597,6 +597,27 @@ export interface ReocrDeps {
   recognizePage: (photoPath: string, rc: RecognizeContext) => Promise<{ text: string; parsed: ParsedInvoiceData }>;
   /** Многостраничная: сшить ответы страниц (как FileWatcher.reprocessInvoice). */
   mergePages: (combinedText: string, pageCount: number, rc: RecognizeContext) => Promise<ParsedInvoiceData>;
+  /** Подождать, пока распознаются новые загрузки: очередь им уступает (правило 21 — память). */
+  waitForIdle?: () => Promise<void>;
+}
+
+const IDLE_POLL_MS = 5_000;
+const IDLE_MAX_WAIT_MS = 10 * 60_000;
+
+/**
+ * Фоновая задача очереди идёт час и дольше, а новые загрузки распознаются тут же,
+ * в том же процессе: два распознавания разом приближают пик памяти к лимиту PM2
+ * (правило 21). Поэтому перед каждой накладной очередь ждёт, пока текущие
+ * распознавания закончатся (не дольше 10 минут — зависшую строку подметёт
+ * markStaleAsFailed).
+ */
+async function waitForRecognitionIdle(): Promise<void> {
+  const deadline = Date.now() + IDLE_MAX_WAIT_MS;
+  while (Date.now() < deadline) {
+    const busy = await invoiceRepo.countRecognizing(10).catch(() => 0);
+    if (busy === 0) return;
+    await new Promise(r => setTimeout(r, IDLE_POLL_MS));
+  }
 }
 
 export interface ReocrRunContext {
@@ -643,6 +664,7 @@ export const defaultReocrDeps: ReocrDeps = {
   loadCatalog: (ownerUserId) => onecNomenclatureRepo.listItems({ ownerUserId, excludeFolders: true }),
   recognizePage: recognizePageWithClaude,
   mergePages: mergePagesWithClaude,
+  waitForIdle: waitForRecognitionIdle,
 };
 
 /**
@@ -692,6 +714,7 @@ export async function reocrInvoice(invoiceId: number, ctx: ReocrRunContext, deps
       return { ...base, status: 'no_photo', error };
     }
 
+    if (deps.waitForIdle) await deps.waitForIdle();
     rowId = await queueRepo.startReocr({ ownerUserId: ctx.ownerUserId, invoiceId, startedBy: ctx.startedBy, model: ctx.model, pages: found.length });
     const catalogRows = ctx.llmMapperEnabled ? await deps.loadCatalog(ctx.ownerUserId) : null;
     const rc: RecognizeContext = {
