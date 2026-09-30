@@ -16,6 +16,7 @@ const EVENT_LABELS: Record<EventType, string> = {
   approved_for_1c:    'Утверждена для 1С',
   sent_to_1c:         'Отправлена в 1С',
   sber_payment_overdue: 'Счёт в Сбербанк не выставлен',
+  weekly_price_digest: 'Подорожания за неделю',
 };
 
 function escapeHtml(s: string): string {

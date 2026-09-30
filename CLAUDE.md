@@ -21,6 +21,7 @@ JPG photo → OCR (Google Vision → Claude API → Tesseract) → parser → no
 - **OCR mode (`analyzer_config.mode`):** `claude_api` in production — Claude SDK reads the image directly, one call. The legacy `hybrid` mode (Google Vision OCR → Claude text structuring) is still in code.
 - **Auth:** every API call needs `X-API-Key` header that maps to `users.api_key`. UI logs in via `POST /api/auth/login` (username + scrypt-hashed password) and stores the returned key in `localStorage`. There is no JWT and no session cookie.
 - **Notifications:** `events.emit()` fans every event out to **Telegram AND email** — both are live (a user with `users.email` set + SMTP configured really does get mail). Only the *digest* path (`digestWorker.ts`, `notification_events` table) is dead code. Every send passes a DB-backed hourly rate limit first (`src/notifications/rateLimit.ts`).
+  Сводка «Подорожания за неделю» (`src/notifications/priceDigest.ts`, крон по понедельникам) — только по отдельному переключателю `weekly_price_digest`: он в `OPT_IN_EVENT_TYPES` и не входит в набор нового пользователя (`DEFAULT_EVENT_TYPES`). Одна на компанию за ISO-неделю (`owner_digest_sends`, миграция 78), неделя — по часам БД.
 - **Logging:** Winston to `logs/`. `sendErrorEmail` to `MAIL_TO` is wired only for `uncaughtException` and disk space alerts.
 
 ## Key directories
@@ -204,6 +205,7 @@ First start with empty `users` table prints a one-time random admin password to 
 | `PATCH /api/golden/invoices/:id`, `/api/golden/runs*` | `X-API-Key` (прогон — admin) | эталоны |
 | `POST /api/invoices/:id/items`, `DELETE …/items/:itemId`, `POST …/items/vat-rate` | `X-API-Key` | добавить/удалить строку, НДС всем строкам (НДС шапки не трогают) |
 | `GET /api/users/companies` | `X-API-Key` + **admin** | обзор компаний: активность, очередь в 1С, сопоставления, Сбер |
+| `GET /api/analytics/suppliers`, `/prices?q=`, `/prices/:guid` (`?days=30\|90\|180\|365`) | `X-API-Key` | качество поставщиков и закупочные цены — только компания вызывающего; правки учитываются с миграций 64/67 (`tracking_since`) |
 
 Порядок монтирования в `server.ts` load-bearing: роутеры с собственной аутентификацией (`/api/dispatcher`, `/api/inbound/public`, `/api/onec/exchange`, `/api/onec/pair`) обязаны стоять ВЫШЕ `apiKeyAuth`-роутеров, иначе префиксный мидлвар вернёт им 401.
 

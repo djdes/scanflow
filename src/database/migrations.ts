@@ -2330,6 +2330,27 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 78,
+    name: 'owner_digest_sends — еженедельные сводки владельцу: одна на компанию за неделю',
+    // «Подорожания за неделю» (аналитика, п.11; src/notifications/priceDigest.ts).
+    // Строка ставится ДО отправки (INSERT IGNORE по первичному ключу) — повторный
+    // запуск крона (рестарт, второй процесс) сводку не повторит. period_key —
+    // ISO-неделя «2026-W40». Номера 74–77 заняты параллельными ветками.
+    detect: (exec) => hasTable(exec, 'owner_digest_sends'),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS owner_digest_sends (
+          owner_user_id  INT NOT NULL,
+          kind           VARCHAR(32) NOT NULL,
+          period_key     VARCHAR(16) NOT NULL,
+          items          INT NOT NULL DEFAULT 0,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (owner_user_id, kind, period_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

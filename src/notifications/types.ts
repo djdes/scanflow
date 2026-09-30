@@ -13,7 +13,8 @@ export type EventType =
   | 'invoice_edited'
   | 'approved_for_1c'
   | 'sent_to_1c'
-  | 'sber_payment_overdue';
+  | 'sber_payment_overdue'
+  | 'weekly_price_digest';
 
 export const ALL_EVENT_TYPES: readonly EventType[] = [
   'photo_uploaded',
@@ -25,7 +26,19 @@ export const ALL_EVENT_TYPES: readonly EventType[] = [
   'approved_for_1c',
   'sent_to_1c',
   'sber_payment_overdue',
+  'weekly_price_digest',
 ] as const;
+
+/**
+ * Включаются только самим человеком (переключатель в профиле): в набор по
+ * умолчанию для новых пользователей не входят, существующим не добавляются.
+ * weekly_price_digest — сводка «Подорожания за неделю» по понедельникам
+ * (src/notifications/priceDigest.ts); через emit() не ходит.
+ */
+export const OPT_IN_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>(['weekly_price_digest']);
+
+/** Набор уведомлений нового пользователя: всё, кроме opt-in. */
+export const DEFAULT_EVENT_TYPES: readonly EventType[] = ALL_EVENT_TYPES.filter(e => !OPT_IN_EVENT_TYPES.has(e));
 
 // Events that bypass digest mode and always send immediately.
 export const URGENT_EVENT_TYPES: ReadonlySet<EventType> = new Set([

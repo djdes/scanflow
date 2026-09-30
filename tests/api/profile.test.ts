@@ -115,6 +115,15 @@ describe('PATCH /api/profile (Telegram fields)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('accepts the opt-in weekly price digest toggle and rejects unknown events', async () => {
+    const ok = await request(makeApp()).patch('/api/profile')
+      .send({ notify_events: ['elevated_prices', 'weekly_price_digest'] });
+    expect(ok.status).toBe(200);
+    expect(memEvents).toEqual(['elevated_prices', 'weekly_price_digest']);
+    const bad = await request(makeApp()).patch('/api/profile').send({ notify_events: ['weekly_digest_typo'] });
+    expect(bad.status).toBe(400);
+  });
+
   it('allows clearing telegram fields with null', async () => {
     memTgChat = '111';
     memTgToken = VALID_TOKEN;

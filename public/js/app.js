@@ -126,7 +126,7 @@ const App = {
     // строки формы растягиваются на весь экран и хуже читаются.
     // Ширину даёт CSS-класс, а не расчёт от 100vw: 100vw включает полосу
     // прокрутки, и блок вылезал бы за экран, добавляя горизонтальный скролл.
-    const wideRoute = !hash || hash === '#/' || hash.startsWith('#/invoices') || hash === '#/queue';
+    const wideRoute = !hash || hash === '#/' || hash.startsWith('#/invoices') || hash === '#/queue' || hash.startsWith('#/analytics');
     document.getElementById('app-main')?.classList.toggle('main--wide', wideRoute);
     // Remove active tab
     document.querySelectorAll('nav a').forEach((a) => {
@@ -184,6 +184,16 @@ const App = {
       document.getElementById('view-queue').style.display = 'block';
       this.activateNavTab('queue');
       Queue.load();
+    } else if (hash.startsWith('#/analytics/quality')) {
+      // Аналитика (п.7): качество накладных по поставщикам.
+      document.getElementById('view-analytics-quality').style.display = 'block';
+      this.activateNavTab('analytics-quality');
+      Analytics.loadQuality();
+    } else if (hash.startsWith('#/analytics/prices')) {
+      // Аналитика (п.11): закупочные цены; позиция — #/analytics/prices/<guid>.
+      document.getElementById('view-analytics-prices').style.display = 'block';
+      this.activateNavTab('analytics-prices');
+      Analytics.loadPrices(hash);
     } else if (hash === '#/suppliers') {
       document.getElementById('view-suppliers').style.display = 'block';
       this.activateNavTab('suppliers');

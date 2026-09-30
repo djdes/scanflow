@@ -590,6 +590,57 @@
       <div id="new-items-waiting"></div>
     </section>
 
+    <!-- «Качество поставщиков» (аналитика, п.7): как часто накладные поставщика
+         приходится править. Разметку строит public/js/analytics.js. -->
+    <section id="view-analytics-quality">
+      <div class="section-header">
+        <div>
+          <h2>Качество поставщиков</h2>
+          <p class="section-subtitle">Как часто накладные каждого поставщика приходится исправлять руками. Сначала — поставщики, с накладными которых больше всего хлопот.</p>
+        </div>
+      </div>
+      <div class="an-toolbar">
+        <div class="an-period" role="group" aria-label="Период" data-an-period></div>
+        <div class="an-tools" id="an-quality-tools">
+          <div class="search-field an-search">
+            <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="search" id="an-quality-search" placeholder="Поставщик или ИНН" aria-label="Поиск поставщика" autocomplete="off" name="an-quality-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other">
+          </div>
+          <select id="an-quality-sort" aria-label="Порядок поставщиков">
+            <option value="worst">Сначала проблемные</option>
+            <option value="invoices">Больше накладных</option>
+            <option value="sum">Больше сумма</option>
+          </select>
+        </div>
+      </div>
+      <div id="an-quality-kpis" class="an-kpis"></div>
+      <div id="an-quality-note"></div>
+      <div id="an-quality-list"></div>
+      <div id="an-quality-help"></div>
+    </section>
+
+    <!-- «Закупочные цены» (аналитика, п.11): динамика цены позиции 1С, у кого
+         дешевле, подорожания. Позиция — #/analytics/prices/<guid>.
+         Разметку строит public/js/analytics.js. -->
+    <section id="view-analytics-prices">
+      <div class="section-header">
+        <div>
+          <h2>Закупочные цены</h2>
+          <p class="section-subtitle">Сколько стоит единица товара у поставщиков: как менялась цена, у кого дешевле и что подорожало. Цены — за единицу позиции 1С, по распознанным накладным.</p>
+        </div>
+      </div>
+      <div class="an-toolbar">
+        <div class="an-period" role="group" aria-label="Период" data-an-period></div>
+        <div class="an-tools">
+          <div class="search-field an-search">
+            <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="search" id="an-prices-search" placeholder="Позиция 1С" aria-label="Поиск позиции 1С" autocomplete="off" name="an-prices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other">
+          </div>
+        </div>
+      </div>
+      <div id="an-prices-body"></div>
+    </section>
+
     <!-- Integration activity log -->
     <section id="view-integrations-log">
       <div class="section-header">
@@ -954,6 +1005,18 @@
                 </label>
               </div>
 
+              <div class="event-row">
+                <span class="event-icon">📈</span>
+                <div class="event-info">
+                  <div class="event-name">Подорожания за неделю</div>
+                  <div class="event-desc">По понедельникам — какие позиции подорожали у поставщиков за прошлую неделю. Приходит, только если такие есть</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="evt-weekly_price_digest" data-event="weekly_price_digest">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
               <div class="event-row event-row--urgent">
                 <span class="event-icon">⏰</span>
                 <div class="event-info">
@@ -1167,6 +1230,7 @@
 <script src="/js/sber.js"></script>
 <script src="/js/suppliers.js"></script>
 <script src="/js/learning.js"></script>
+<script src="/js/analytics.js"></script>
 <script src="/js/onboarding.js"></script>
 <script src="/js/onboarding-hint.js"></script>
 </body>
