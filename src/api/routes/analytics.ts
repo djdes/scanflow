@@ -4,12 +4,15 @@ import { getSupplierQuality } from '../../services/analyticsQuality';
 import { getPriceItemDetail, getPriceOverview } from '../../services/analyticsPrices';
 
 /**
- * /api/analytics — страница «Аналитика». Монтируется за apiKeyAuth.
+ * /api/analytics — страницы «Качество поставщиков» и «Закупочные цены».
+ * Монтируется за apiKeyAuth.
  *
- *   GET /suppliers?days=90      качество накладных по поставщикам (п.7)
- *   GET /prices?days=90         закупочные цены по позициям 1С (п.11)
- *   GET /prices/:guid?days=90   одна позиция: закупки для графика, поставщики,
- *                               «у кого дешевле»
+ *   GET /suppliers?days=90          качество накладных по поставщикам (п.7)
+ *   GET /prices?days=90&q=…         закупочные цены по позициям 1С и
+ *                                   подорожания у поставщиков за период (п.11);
+ *                                   q — поиск по названию позиции
+ *   GET /prices/:guid?days=90       одна позиция: закупки для графика,
+ *                                   поставщики, «у кого дешевле»
  *
  * days — 30, 90, 180 или 365 (по умолчанию 90). Только чтение, и только данные
  * компании вызывающего: owner = req.user.id во всех запросах (правило 19 —
@@ -20,6 +23,7 @@ const router = Router();
 // GUID приходит из выгрузки 1С (обычно 36 символов). В SQL он идёт параметром;
 // здесь — только отсечь заведомый мусор.
 const GUID_RE = /^[^\s\u0000-\u001f]{1,64}$/;
+const MAX_Q = 100;
 
 function ownerOf(req: Request, res: Response): number | null {
   const id = req.user?.id;
@@ -51,7 +55,10 @@ router.get('/prices', async (req: Request, res: Response) => {
   if (owner == null) return;
   const days = periodOf(req, res);
   if (days == null) return;
-  res.json({ data: await getPriceOverview(owner, days) });
+  const rawQ = req.query.q;
+  if (rawQ !== undefined && typeof rawQ !== 'string') return res.status(400).json({ error: 'Поиск — одна строка' });
+  const q = (rawQ ?? '').trim().slice(0, MAX_Q);
+  res.json({ data: await getPriceOverview(owner, days, new Date(), q) });
 });
 
 // GET /api/analytics/prices/:guid

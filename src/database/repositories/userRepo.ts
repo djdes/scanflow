@@ -1,6 +1,6 @@
 import { getDb } from '../db';
 import type { NotifyConfig, NotifyMode, EventType } from '../../notifications/types';
-import { ALL_EVENT_TYPES } from '../../notifications/types';
+import { DEFAULT_EVENT_TYPES } from '../../notifications/types';
 
 export interface User {
   id: number;
@@ -41,9 +41,11 @@ export const userRepo = {
   }): Promise<number> {
     // notify_events is NOT NULL with no DEFAULT (migration 18 cross-DB fix
     // dropped the literal default for MySQL compat). Provide a seed value
-    // on INSERT so the row passes the constraint. Derive from ALL_EVENT_TYPES so
-    // a newly-added event type is on by default for new users automatically.
-    const defaultNotifyEvents = JSON.stringify([...ALL_EVENT_TYPES]);
+    // on INSERT so the row passes the constraint. Derive from the event list so
+    // a newly-added event type is on by default for new users automatically —
+    // except opt-in ones (OPT_IN_EVENT_TYPES: e.g. the weekly price digest),
+    // which only the user turns on.
+    const defaultNotifyEvents = JSON.stringify([...DEFAULT_EVENT_TYPES]);
     const result = await getDb()
       .prepare(
         `INSERT INTO users (username, password_hash, api_key, role, email, notify_events)

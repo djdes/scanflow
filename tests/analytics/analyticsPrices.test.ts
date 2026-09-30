@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Закупочные цены (п.11): группировка строк в закупки, сводки, «у кого дешевле»,
-// подорожания за неделю — чистые функции; SQL — только область компании.
+// подорожания за период и за неделю — чистые функции; SQL — только область
+// компании.
 const linesAll = vi.fn();
 const dirAll = vi.fn();
 const prepareMock = vi.fn((sql: string) => ({
@@ -15,6 +16,7 @@ import {
   buildPriceDetail,
   buildPriceOverview,
   buildSupplierDirectory,
+  findPeriodRises,
   findWeeklyRises,
   getPriceItemDetail,
   getPriceOverview,
@@ -22,13 +24,17 @@ import {
   groupPriceLines,
   loadPriceLines,
   loadSupplierDirectory,
+  normalizeQuery,
   summarizeItem,
+  type DigestWindow,
   type PriceLineRow,
   type SupplierDirectoryRow,
 } from '../../src/services/analyticsPrices';
 
-const NOW = new Date(Date.UTC(2026, 8, 29, 12, 0, 0)); // 2026-09-29
+const NOW = new Date(Date.UTC(2026, 8, 29, 12, 0, 0)); // 2026-09-29, вторник
 const day = (n: number): string => new Date(NOW.getTime() - n * 86_400_000).toISOString().slice(0, 10);
+/** Прошлая календарная неделя для NOW: пн 21.09 – пн 28.09 (не включая). */
+const WEEK: DigestWindow = { from: '2026-09-21', to: '2026-09-28' };
 
 const MEAT_INN = '7707083893';
 let nextItem = 1;
@@ -117,17 +123,50 @@ describe('buildSupplierDirectory', () => {
 });
 
 describe('groupPriceLines', () => {
-  it('самая частая единица, чужая единица и ошибки цены — отдельно', () => {
+  it('единица 1С, чужая единица и ошибки цены — отдельно', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
     const g = groupPriceLines(beefLines(), dir, day(90)).get('g-beef')!;
     expect(g.name).toBe('Говядина лопатка');
     expect(g.unit).toBe('кг');
+    expect(g.catalog_unit).toBe('кг');
+    expect(g.in_catalog_unit).toBe(true);
     expect(g.excluded).toEqual({ other_unit: 1, outliers: 1 });
     expect(g.purchases.map(p => p.price)).toEqual([500, 480, 520, 470, 475, 585]);
     expect(g.purchases.map(p => p.supplier_key)).toEqual([
       `inn:${MEAT_INN}`, 'name:петров', `inn:${MEAT_INN}`, 'name:петров', 'name:петров', `inn:${MEAT_INN}`,
     ]);
     expect(g.reference).toEqual({ median_price: 510, unit: 'кг', samples: 8 });
+  });
+
+  it('сравнение — в единице позиции 1С, даже если в накладных чаще другая', () => {
+    const dir = buildSupplierDirectory(DIR_ROWS);
+    const lines = [
+      line({ daysAgo: 30, onec_guid: 'g-bread', catalog_unit: 'кг', unit: 'шт', price: 40, quantity: 10, total: 400 }),
+      line({ daysAgo: 20, onec_guid: 'g-bread', catalog_unit: 'кг', unit: 'шт', price: 42, quantity: 10, total: 420 }),
+      line({ daysAgo: 10, onec_guid: 'g-bread', catalog_unit: 'кг', unit: 'шт', price: 44, quantity: 10, total: 440 }),
+      line({ daysAgo: 5, onec_guid: 'g-bread', catalog_unit: 'кг', unit: 'кг', price: 100, quantity: 4, total: 400 }),
+    ];
+    const g = groupPriceLines(lines, dir, day(90)).get('g-bread')!;
+    expect(g.unit).toBe('кг');
+    expect(g.in_catalog_unit).toBe(true);
+    expect(g.purchases.map(p => p.price)).toEqual([100]);
+    expect(g.excluded.other_unit).toBe(3);
+  });
+
+  it('в единице 1С закупок нет — самая частая единица накладных, с пометкой', () => {
+    const dir = buildSupplierDirectory(DIR_ROWS);
+    const lines = [
+      line({ daysAgo: 30, onec_guid: 'g-eggs', catalog_unit: 'кг', unit: 'шт', price: 12 }),
+      line({ daysAgo: 20, onec_guid: 'g-eggs', catalog_unit: 'кг', unit: 'шт', price: 13 }),
+      line({ daysAgo: 10, onec_guid: 'g-eggs', catalog_unit: 'кг', unit: 'упак', price: 120 }),
+    ];
+    const g = groupPriceLines(lines, dir, day(90)).get('g-eggs')!;
+    expect(g.unit).toBe('шт');
+    expect(g.catalog_unit).toBe('кг');
+    expect(g.in_catalog_unit).toBe(false);
+    expect(g.purchases).toHaveLength(2);
+    // «обычная цена» посчитана в кг — к штукам её не прикладываем
+    expect(g.reference).toBeNull();
   });
 
   it('несколько строк позиции в одной накладной — одна закупка по средневзвешенной цене', () => {
@@ -156,7 +195,7 @@ describe('summarizeItem', () => {
     const g = groupPriceLines(beefLines(), dir, day(90)).get('g-beef')!;
     const { summary: s, suppliers } = summarizeItem(g, dir, { now: NOW, periodDays: 90 });
     expect(s).toMatchObject({
-      guid: 'g-beef', name: 'Говядина лопатка', unit: 'кг',
+      guid: 'g-beef', name: 'Говядина лопатка', unit: 'кг', catalog_unit: 'кг', in_catalog_unit: true,
       purchases: 6, suppliers: 2,
       last_price: 585, last_date: day(5), last_supplier: 'Мясной двор (карточка)',
       prev_price: 475, last_change_pct: 23.2,
@@ -168,31 +207,86 @@ describe('summarizeItem', () => {
       saving: { rub: 1100, pct: 18.8, volume: 10, window_days: 30 },
       spark: [500, 480, 520, 470, 475, 585],
     });
-    expect(suppliers.map(x => [x.name, x.purchases, x.last_price, x.change_pct, x.recent_median, x.is_cheapest])).toEqual([
-      ['Мясной двор (карточка)', 3, 585, 12.5, 520, false],
-      ['ИП Петров', 3, 475, 1.1, 475, true],
+    expect(s.last_invoice_id).toBe(g.purchases[5].invoice_id);
+    expect(suppliers.map(x => [x.name, x.purchases, x.first_price, x.last_price, x.change_pct, x.period_change_pct, x.recent_median, x.is_cheapest])).toEqual([
+      ['Мясной двор (карточка)', 3, 500, 585, 12.5, 17, 520, false],
+      ['ИП Петров', 3, 480, 475, 1.1, -1, 475, true],
     ]);
   });
 
   it('один поставщик — сравнивать не с кем', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
     const g = groupPriceLines(milkLines(), dir, day(90)).get('g-milk')!;
-    const { summary } = summarizeItem(g, dir, { now: NOW, periodDays: 90 });
+    const { summary, suppliers } = summarizeItem(g, dir, { now: NOW, periodDays: 90 });
     expect(summary.cheapest).toBeNull();
     expect(summary.saving).toBeNull();
     expect(summary.period_change_pct).toBeNull();
     expect(summary.last_change_pct).toBeNull();
+    expect(suppliers[0].period_change_pct).toBeNull();
+  });
+});
+
+describe('findPeriodRises — подорожания у поставщика за период', () => {
+  it('первая закупка периода → последняя у того же поставщика; переплата — по следующим закупкам', () => {
+    const dir = buildSupplierDirectory(DIR_ROWS);
+    const groups = groupPriceLines(beefLines(), dir, day(90));
+    const rises = findPeriodRises(groups.values(), dir);
+    // Петров: 480 → 475 — подешевело; Мясной двор: 500 → 585
+    expect(rises).toHaveLength(1);
+    const g = groups.get('g-beef')!;
+    expect(rises[0]).toEqual({
+      guid: 'g-beef', name: 'Говядина лопатка', unit: 'кг',
+      supplier_key: `inn:${MEAT_INN}`, supplier: 'Мясной двор (карточка)',
+      from_price: 500, from_date: day(80), from_invoice_id: g.purchases[0].invoice_id, from_invoice_number: null,
+      to_price: 585, to_date: day(5), to_invoice_id: g.purchases[5].invoice_id, to_invoice_number: null,
+      change_pct: 17, purchases: 3,
+      // (520 − 500) × 10 + (585 − 500) × 10
+      extra_rub: 1050,
+    });
+  });
+
+  it('рост меньше порога — не подорожание; количество неизвестно — переплата null; порядок — по рублям', () => {
+    const dir = buildSupplierDirectory(DIR_ROWS);
+    const lines = [
+      line({ daysAgo: 60, onec_guid: 'g-a', price: 100, quantity: 1 }),
+      line({ daysAgo: 5, onec_guid: 'g-a', price: 104, quantity: 1 }),       // +4% — нет
+      line({ daysAgo: 60, onec_guid: 'g-b', price: 100, quantity: 1 }),
+      line({ daysAgo: 5, onec_guid: 'g-b', price: 150, quantity: 1 }),       // +50%, +50 ₽
+      line({ daysAgo: 60, onec_guid: 'g-c', price: 100, quantity: 100 }),
+      line({ daysAgo: 5, onec_guid: 'g-c', price: 110, quantity: 100 }),     // +10%, +1000 ₽
+      line({ daysAgo: 60, onec_guid: 'g-d', price: 100, quantity: null, total: null }),
+      line({ daysAgo: 5, onec_guid: 'g-d', price: 200, quantity: null, total: null }), // +100%, ₽ неизвестно
+    ];
+    const rises = findPeriodRises(groupPriceLines(lines, dir, day(90)).values(), dir);
+    expect(rises.map(r => [r.guid, r.change_pct, r.extra_rub])).toEqual([['g-c', 10, 1000], ['g-b', 50, 50], ['g-d', 100, null]]);
   });
 });
 
 describe('buildPriceOverview / buildPriceDetail', () => {
-  it('позиции по сумме закупок; итоги', () => {
+  it('позиции по сумме закупок; подорожания; итоги', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
     const o = buildPriceOverview([...beefLines(), ...milkLines()], dir, { now: NOW, periodDays: 90 });
     expect(o.items.map(i => i.guid)).toEqual(['g-beef', 'g-milk']);
+    expect(o.rises.map(r => [r.guid, r.supplier])).toEqual([['g-beef', 'Мясной двор (карточка)']]);
     expect(o.recent_days).toBe(30);
-    expect(o.totals).toEqual({ items: 2, purchases: 7, spend: 23705, rising: 0, saving_rub: 1100 });
+    expect(o.totals).toEqual({ items: 2, purchases: 7, spend: 23705, rising_items: 1, rises: 1, saving_rub: 1100 });
     expect(o.truncated).toBe(false);
+    expect(o.items_truncated).toBe(false);
+    expect(o.rises_truncated).toBe(false);
+  });
+
+  it('поиск по названию позиции — и в позициях, и в подорожаниях', () => {
+    const dir = buildSupplierDirectory(DIR_ROWS);
+    const rows = [...beefLines(), ...milkLines()];
+    const milk = buildPriceOverview(rows, dir, { now: NOW, periodDays: 90, q: '  МОЛОКО ' });
+    expect(milk.items.map(i => i.guid)).toEqual(['g-milk']);
+    expect(milk.rises).toEqual([]);
+    expect(milk.totals.items).toBe(1);
+    const beef = buildPriceOverview(rows, dir, { now: NOW, periodDays: 90, q: 'лопатка' });
+    expect(beef.items.map(i => i.guid)).toEqual(['g-beef']);
+    expect(beef.rises).toHaveLength(1);
+    expect(buildPriceOverview(rows, dir, { now: NOW, periodDays: 90, q: 'сыр' }).items).toEqual([]);
+    expect(normalizeQuery('  Ёлка   Зелёная ')).toBe('елка зеленая');
   });
 
   it('окно экономии не длиннее периода', () => {
@@ -209,6 +303,7 @@ describe('buildPriceOverview / buildPriceDetail', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
     const d = buildPriceDetail([...beefLines(), ...milkLines()], dir, 'g-beef', { now: NOW, periodDays: 90 })!;
     expect(d.item.guid).toBe('g-beef');
+    expect(d.recent_purchases).toBe(5);
     expect(d.points.map(p => [p.date, p.price])).toEqual([
       [day(80), 500], [day(60), 480], [day(50), 520], [day(20), 470], [day(10), 475], [day(5), 585],
     ]);
@@ -219,11 +314,11 @@ describe('buildPriceOverview / buildPriceDetail', () => {
   });
 });
 
-describe('findWeeklyRises', () => {
+describe('findWeeklyRises — неделя сводки по времени загрузки', () => {
   it('новая цена недели против прошлой закупки у того же поставщика', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
-    const groups = groupPriceLines(beefLines(), dir, day(97));
-    const rises = findWeeklyRises(groups, dir, NOW);
+    const groups = groupPriceLines(beefLines(), dir, day(111));
+    const rises = findWeeklyRises(groups, dir, WEEK);
     expect(rises).toEqual([{
       guid: 'g-beef', name: 'Говядина лопатка', unit: 'кг',
       supplier_key: `inn:${MEAT_INN}`, supplier: 'Мясной двор (карточка)',
@@ -232,32 +327,44 @@ describe('findWeeklyRises', () => {
     }]);
   });
 
+  it('загруженное после недели (понедельник сводки) — в следующую сводку; утро первого дня — в эту', () => {
+    const dir = buildSupplierDirectory(DIR_ROWS);
+    const lines = [
+      line({ daysAgo: 30, onec_guid: 'g-a', price: 100 }),
+      line({ daysAgo: 1, onec_guid: 'g-a', price: 150, created_at: '2026-09-28 06:00:00' }),
+      line({ daysAgo: 30, onec_guid: 'g-b', price: 100 }),
+      line({ daysAgo: 8, onec_guid: 'g-b', price: 120, created_at: '2026-09-21 00:05:00' }),
+    ];
+    const rises = findWeeklyRises(groupPriceLines(lines, dir, day(111)), dir, WEEK);
+    expect(rises.map(r => [r.guid, r.change_pct])).toEqual([['g-b', 20]]);
+  });
+
   it('подешевело или выросло меньше порога — не подорожание', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
     const lines = [
       line({ daysAgo: 30, price: 100 }),
       line({ daysAgo: 2, price: 104 }),
       line({ daysAgo: 30, onec_guid: 'g-2', price: 100 }),
-      line({ daysAgo: 1, onec_guid: 'g-2', price: 90 }),
+      line({ daysAgo: 2, onec_guid: 'g-2', price: 90 }),
     ];
-    expect(findWeeklyRises(groupPriceLines(lines, dir, day(97)), dir, NOW)).toEqual([]);
+    expect(findWeeklyRises(groupPriceLines(lines, dir, day(111)), dir, WEEK)).toEqual([]);
   });
 
   it('первая закупка у поставщика — сравнивать не с чем', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
     const lines = [line({ daysAgo: 2, price: 300 }), line({ daysAgo: 40, price: 100, ...PETROV })];
-    expect(findWeeklyRises(groupPriceLines(lines, dir, day(97)), dir, NOW)).toEqual([]);
+    expect(findWeeklyRises(groupPriceLines(lines, dir, day(111)), dir, WEEK)).toEqual([]);
   });
 
   it('сортировка — по рублям подорожания, затем по проценту', () => {
     const dir = buildSupplierDirectory(DIR_ROWS);
     const lines = [
       line({ daysAgo: 30, onec_guid: 'g-a', price: 100, quantity: 1 }),
-      line({ daysAgo: 1, onec_guid: 'g-a', price: 150, quantity: 1 }),   // +50%, +50 ₽
+      line({ daysAgo: 2, onec_guid: 'g-a', price: 150, quantity: 1 }),   // +50%, +50 ₽
       line({ daysAgo: 30, onec_guid: 'g-b', price: 100, quantity: 100 }),
-      line({ daysAgo: 1, onec_guid: 'g-b', price: 110, quantity: 100 }), // +10%, +1000 ₽
+      line({ daysAgo: 2, onec_guid: 'g-b', price: 110, quantity: 100 }), // +10%, +1000 ₽
     ];
-    const rises = findWeeklyRises(groupPriceLines(lines, dir, day(97)), dir, NOW);
+    const rises = findWeeklyRises(groupPriceLines(lines, dir, day(111)), dir, WEEK);
     expect(rises.map(r => [r.guid, r.change_pct, r.impact_rub])).toEqual([['g-b', 10, 1000], ['g-a', 50, 50]]);
   });
 });
@@ -293,8 +400,12 @@ describe('SQL — только компания вызывающего', () => {
     dirAll.mockResolvedValue(DIR_ROWS);
     const o = await getPriceOverview(5, 90, NOW);
     expect(o.period_days).toBe(90);
+    expect(o.q).toBe('');
     expect(o.items).toHaveLength(2);
     expect(linesAll).toHaveBeenCalledWith(5);
+    const found = await getPriceOverview(5, 90, NOW, 'Молоко');
+    expect(found.q).toBe('молоко');
+    expect(found.items.map(i => i.guid)).toEqual(['g-milk']);
 
     linesAll.mockResolvedValue(beefLines());
     const d = await getPriceItemDetail(5, 'g-beef', 90, NOW);
@@ -304,7 +415,9 @@ describe('SQL — только компания вызывающего', () => {
     expect(await getPriceItemDetail(5, 'g-beef', 90, NOW)).toBeNull();
 
     linesAll.mockResolvedValue(beefLines());
-    const rises = await getWeeklyPriceRises(5, NOW);
+    const rises = await getWeeklyPriceRises(5, WEEK);
     expect(rises.map(r => r.change_pct)).toEqual([12.5]);
+    // история до недели — 90 дней, плюс до двух недель назад и запас
+    expect(String(prepareMock.mock.calls.at(-2)?.[0] ?? '')).toMatch(/INTERVAL 111 DAY/);
   });
 });

@@ -81,6 +81,12 @@ export function dayMinus(now: Date, days: number): string {
   return isoDay(now.getTime() - days * DAY_MS);
 }
 
+/** «YYYY-MM-DD», сдвинутая на `days` дней (отрицательные — назад); не дата — как есть. */
+export function isoDayShift(iso: string, days: number): string {
+  const t = parseDbDateTime(iso);
+  return t == null ? iso : isoDay(t + days * DAY_MS);
+}
+
 /**
  * Дата закупки: дата документа, если она правдоподобна, иначе дата загрузки.
  * Дата документа — это когда купили, но OCR иногда ошибается годом (2025 вместо

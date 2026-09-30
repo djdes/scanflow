@@ -1,13 +1,15 @@
 /**
- * Аналитика, вкладка «Закупочные цены» (п.11): цена за единицу 1С по каждой
- * позиции каталога компании — динамика, сравнение поставщиков, «у кого
- * дешевле» и экономия при недавнем объёме, изменение к прошлой закупке.
+ * Аналитика, «Закупочные цены» (п.11): цена за единицу 1С по каждой позиции
+ * каталога компании — динамика, сравнение поставщиков, «у кого дешевле» и
+ * экономия при недавнем объёме, подорожания за период и за неделю.
  *
  * Источник — строки распознанных накладных компании (processed / sent_to_1c,
- * без дублей) с позицией 1С (onec_guid) и итоговыми (уже пересчитанными в
- * единицу 1С) price/unit. Не учитываются: строки с флагом пересчёта (qty_flag),
- * строки в «чужой» единице (у позиции берётся самая частая), явные ошибки цены
- * (в 5 раз дальше медианы — как у «обычной цены»).
+ * без дублей) с позицией 1С (onec_guid) и итоговыми, уже пересчитанными
+ * (правило 22: пересчёт только convertInvoiceLine от raw_*), price/unit.
+ * Сравниваются только закупки в одной единице: в единице позиции 1С, если такие
+ * закупки есть, иначе — в самой частой. Не учитываются: строки с флагом
+ * пересчёта (qty_flag), строки в другой единице, явные ошибки цены (в 5 раз
+ * дальше медианы — как у «обычной цены»).
  *
  * «Обычная цена» — готовая медиана из nomenclature_price_stat_cards (та же, что
  * подсвечивает цены в карточке накладной и шлёт elevated_prices) — здесь она не
@@ -24,7 +26,7 @@ import {
   dayMinus,
   dropPriceOutliers,
   effectiveDate,
-  parseDbDateTime,
+  isoDayShift,
   pctChange,
   periodChangePct,
   pickCheapest,
@@ -36,15 +38,17 @@ import {
 export const RECENT_PURCHASES = 5;
 /** Окно «недавнего объёма» для экономии, дней (не больше периода). */
 export const SAVING_WINDOW_DAYS = 30;
-/** Рост цены, с которого позиция считается подорожавшей, %. */
+/** Рост цены, с которого закупка считается подорожанием, %. */
 export const RISE_THRESHOLD_PCT = 5;
+/** Сколько дней истории до недели сводки берётся для «прошлой цены». */
+export const WEEKLY_LOOKBACK_DAYS = 90;
 
 const MAX_LINES = 20000;
 const MAX_ITEMS = 500;
+const MAX_RISES = 300;
 const MAX_POINTS = 400;
 const SPARK_POINTS = 12;
-const WEEKLY_LOOKBACK_DAYS = 90;
-const DAY_MS = 86_400_000;
+const MAX_QUERY_LEN = 100;
 
 /** Строка SQL: строка накладной с позицией 1С. */
 export interface PriceLineRow {
@@ -93,7 +97,7 @@ export interface PricePurchase {
   invoice_number: string | null;
   /** Дата закупки, YYYY-MM-DD (дата документа, если правдоподобна). */
   date: string;
-  /** Когда накладную загрузили (created_at). */
+  /** Когда накладную загрузили (created_at, часы БД). */
   uploaded_at: string;
   supplier_key: string;
   price: number;
@@ -110,7 +114,12 @@ export interface PriceReference {
 export interface PriceItemGroup {
   guid: string;
   name: string;
+  /** Единица, в которой сравниваются цены (каноническое написание). */
   unit: string;
+  /** Единица позиции в справочнике 1С; null — не выгружена. */
+  catalog_unit: string | null;
+  /** Цены — в единице позиции 1С (иначе в самой частой единице накладных). */
+  in_catalog_unit: boolean;
   reference: PriceReference | null;
   /** По дате закупки, старые первыми. */
   purchases: PricePurchase[];
@@ -122,13 +131,20 @@ export interface SupplierPriceStats {
   name: string;
   inn: string | null;
   purchases: number;
+  first_price: number;
+  first_date: string;
   last_price: number;
   last_date: string;
+  last_invoice_id: number;
   prev_price: number | null;
+  /** Последняя закупка к предыдущей у этого поставщика, %. */
   change_pct: number | null;
+  /** Последняя закупка к первой за период у этого поставщика, %. */
+  period_change_pct: number | null;
   min_price: number;
   max_price: number;
   median_price: number;
+  /** Медиана последних RECENT_PURCHASES закупок — по ней «у кого дешевле». */
   recent_median: number;
   qty: number;
   spend: number;
@@ -139,12 +155,15 @@ export interface PriceItemSummary {
   guid: string;
   name: string;
   unit: string;
+  catalog_unit: string | null;
+  in_catalog_unit: boolean;
   purchases: number;
   suppliers: number;
   last_price: number;
   last_date: string;
   last_supplier: string;
   last_supplier_key: string;
+  last_invoice_id: number;
   prev_price: number | null;
   last_change_pct: number | null;
   period_change_pct: number | null;
@@ -161,6 +180,27 @@ export interface PriceItemSummary {
   excluded: { other_unit: number; outliers: number };
 }
 
+/** Подорожание у поставщика за период: первая закупка периода → последняя. */
+export interface PeriodRise {
+  guid: string;
+  name: string;
+  unit: string;
+  supplier_key: string;
+  supplier: string;
+  from_price: number;
+  from_date: string;
+  from_invoice_id: number;
+  from_invoice_number: string | null;
+  to_price: number;
+  to_date: string;
+  to_invoice_id: number;
+  to_invoice_number: string | null;
+  change_pct: number;
+  purchases: number;
+  /** Переплата к цене первой закупки по всем следующим закупкам, ₽; null — количество неизвестно. */
+  extra_rub: number | null;
+}
+
 export interface WeeklyRise {
   guid: string;
   name: string;
@@ -174,6 +214,12 @@ export interface WeeklyRise {
   change_pct: number;
   qty: number | null;
   impact_rub: number | null;
+}
+
+/** Неделя сводки по часам БД: [from, to), даты YYYY-MM-DD (to — следующий понедельник). */
+export interface DigestWindow {
+  from: string;
+  to: string;
 }
 
 // ─── Поставщики ──────────────────────────────────────────────────────────────
@@ -272,7 +318,11 @@ export function groupPriceLines(
     const latest = lines.reduce((a, b) => (b._date > a._date || (b._date === a._date && b.created_at > a.created_at) ? b : a));
     const withUnit = lines.filter(l => l._unit);
     if (!withUnit.length) continue;
-    const unit = dominantUnit(withUnit.map(l => l._unit), unitKey(latest.catalog_unit), latest._unit);
+    // Сравнение — в единице позиции 1С, если в ней есть закупки (строки,
+    // пересчитанные в единицу 1С); иначе — в самой частой единице накладных.
+    const catalogUnit = unitKey(lines.find(l => l.catalog_unit && String(l.catalog_unit).trim())?.catalog_unit);
+    const inCatalogUnit = !!catalogUnit && withUnit.some(l => l._unit === catalogUnit);
+    const unit = inCatalogUnit ? catalogUnit : dominantUnit(withUnit.map(l => l._unit), catalogUnit, latest._unit);
     const same = withUnit.filter(l => l._unit === unit);
 
     const byInvoice = new Map<number, typeof same>();
@@ -312,6 +362,8 @@ export function groupPriceLines(
       guid,
       name: catalogName || latest.mapped_name?.trim() || guid,
       unit,
+      catalog_unit: catalogUnit || null,
+      in_catalog_unit: inCatalogUnit,
       reference,
       purchases: kept,
       excluded: { other_unit: lines.length - same.length, outliers: dropped },
@@ -330,17 +382,23 @@ function spendOf(p: PricePurchase): number {
 const r2 = (n: number): number => roundTo(n, 2) ?? 0;
 const r1 = (n: number | null): number | null => roundTo(n, 1);
 
+/** Закупки позиции по поставщикам, в хронологическом порядке. */
+function bySupplier(purchases: readonly PricePurchase[]): Map<string, PricePurchase[]> {
+  const m = new Map<string, PricePurchase[]>();
+  for (const p of purchases) {
+    const list = m.get(p.supplier_key) ?? [];
+    list.push(p);
+    m.set(p.supplier_key, list);
+  }
+  return m;
+}
+
 /** Показатели поставщиков позиции; самые частые — первыми. */
 export function supplierStats(group: PriceItemGroup, directory: SupplierDirectory): SupplierPriceStats[] {
-  const byKey = new Map<string, PricePurchase[]>();
-  for (const p of group.purchases) {
-    const list = byKey.get(p.supplier_key) ?? [];
-    list.push(p);
-    byKey.set(p.supplier_key, list);
-  }
   const stats: SupplierPriceStats[] = [];
-  for (const [key, list] of byKey) {
+  for (const [key, list] of bySupplier(group.purchases)) {
     const prices = list.map(p => p.price);
+    const first = list[0];
     const last = list[list.length - 1];
     const prev = list.length > 1 ? list[list.length - 2] : null;
     const ref = directory.get(key);
@@ -349,10 +407,14 @@ export function supplierStats(group: PriceItemGroup, directory: SupplierDirector
       name: ref.name,
       inn: ref.inn,
       purchases: list.length,
+      first_price: r2(first.price),
+      first_date: first.date,
       last_price: r2(last.price),
       last_date: last.date,
+      last_invoice_id: last.invoice_id,
       prev_price: prev ? r2(prev.price) : null,
       change_pct: r1(pctChange(prev?.price, last.price)),
+      period_change_pct: list.length > 1 ? r1(pctChange(first.price, last.price)) : null,
       min_price: r2(Math.min(...prices)),
       max_price: r2(Math.max(...prices)),
       median_price: r2(medianOf(prices) ?? last.price),
@@ -390,12 +452,15 @@ export function summarizeItem(
     guid: group.guid,
     name: group.name,
     unit: group.unit,
+    catalog_unit: group.catalog_unit,
+    in_catalog_unit: group.in_catalog_unit,
     purchases: ps.length,
     suppliers: suppliers.length,
     last_price: r2(last.price),
     last_date: last.date,
     last_supplier: directory.get(last.supplier_key).name,
     last_supplier_key: last.supplier_key,
+    last_invoice_id: last.invoice_id,
     prev_price: prev ? r2(prev.price) : null,
     last_change_pct: r1(pctChange(prev?.price, last.price)),
     period_change_pct: r1(periodChangePct(prices)),
@@ -416,38 +481,95 @@ export function summarizeItem(
   return { summary, suppliers };
 }
 
+/**
+ * Подорожания за период: по каждой паре «позиция + поставщик» с двумя и больше
+ * закупками — последняя закупка периода против первой. Рост от
+ * RISE_THRESHOLD_PCT. Сначала — где переплата в ₽ больше, затем по проценту.
+ */
+export function findPeriodRises(groups: Iterable<PriceItemGroup>, directory: SupplierDirectory): PeriodRise[] {
+  const rises: PeriodRise[] = [];
+  for (const group of groups) {
+    for (const [key, list] of bySupplier(group.purchases)) {
+      if (list.length < 2) continue;
+      const from = list[0];
+      const to = list[list.length - 1];
+      const pct = pctChange(from.price, to.price);
+      if (pct == null || pct < RISE_THRESHOLD_PCT) continue;
+      const after = list.slice(1).filter(p => p.qty != null);
+      rises.push({
+        guid: group.guid,
+        name: group.name,
+        unit: group.unit,
+        supplier_key: key,
+        supplier: directory.get(key).name,
+        from_price: r2(from.price),
+        from_date: from.date,
+        from_invoice_id: from.invoice_id,
+        from_invoice_number: from.invoice_number,
+        to_price: r2(to.price),
+        to_date: to.date,
+        to_invoice_id: to.invoice_id,
+        to_invoice_number: to.invoice_number,
+        change_pct: r1(pct) ?? 0,
+        purchases: list.length,
+        extra_rub: after.length ? r2(after.reduce((s, p) => s + (p.price - from.price) * (p.qty ?? 0), 0)) : null,
+      });
+    }
+  }
+  return rises.sort((a, b) => (b.extra_rub ?? -Infinity) - (a.extra_rub ?? -Infinity) || b.change_pct - a.change_pct);
+}
+
+/** Строка поиска: регистр, «ё», лишние пробелы не важны. */
+export function normalizeQuery(s: unknown): string {
+  return String(s ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim().slice(0, MAX_QUERY_LEN);
+}
+
 export interface PriceOverview {
   recent_days: number;
+  /** Строк за период больше предела выборки — самые старые не вошли. */
   truncated: boolean;
-  totals: { items: number; purchases: number; spend: number; rising: number; saving_rub: number };
+  /** Позиций больше, чем показано (показаны с наибольшей суммой закупок). */
+  items_truncated: boolean;
+  rises_truncated: boolean;
+  totals: { items: number; purchases: number; spend: number; rising_items: number; rises: number; saving_rub: number };
   items: PriceItemSummary[];
+  rises: PeriodRise[];
 }
 
 export function buildPriceOverview(
   rows: readonly PriceLineRow[],
   directory: SupplierDirectory,
-  opts: { now: Date; periodDays: number },
+  opts: { now: Date; periodDays: number; q?: string },
 ): PriceOverview {
   const groups = groupPriceLines(rows, directory, dayMinus(opts.now, opts.periodDays));
-  const items = [...groups.values()]
+  const needle = normalizeQuery(opts.q);
+  const matching = [...groups.values()].filter(g => !needle || normalizeQuery(g.name).includes(needle));
+  const items = matching
     .map(g => summarizeItem(g, directory, opts).summary)
     .sort((a, b) => b.spend - a.spend || a.name.localeCompare(b.name, 'ru'));
+  const rises = findPeriodRises(matching, directory);
   return {
     recent_days: Math.min(SAVING_WINDOW_DAYS, opts.periodDays),
-    truncated: rows.length >= MAX_LINES || items.length > MAX_ITEMS,
+    truncated: rows.length >= MAX_LINES,
+    items_truncated: items.length > MAX_ITEMS,
+    rises_truncated: rises.length > MAX_RISES,
     totals: {
       items: items.length,
       purchases: items.reduce((s, i) => s + i.purchases, 0),
       spend: r2(items.reduce((s, i) => s + i.spend, 0)),
-      rising: items.filter(i => (i.period_change_pct ?? 0) >= RISE_THRESHOLD_PCT).length,
+      rising_items: new Set(rises.map(r => r.guid)).size,
+      rises: rises.length,
       saving_rub: r2(items.reduce((s, i) => s + (i.saving?.rub ?? 0), 0)),
     },
     items: items.slice(0, MAX_ITEMS),
+    rises: rises.slice(0, MAX_RISES),
   };
 }
 
 export interface PriceItemDetail {
   recent_days: number;
+  recent_purchases: number;
+  truncated: boolean;
   item: PriceItemSummary;
   suppliers: SupplierPriceStats[];
   points: Array<{
@@ -475,6 +597,8 @@ export function buildPriceDetail(
   const pts = group.purchases.slice(-MAX_POINTS);
   return {
     recent_days: Math.min(SAVING_WINDOW_DAYS, opts.periodDays),
+    recent_purchases: RECENT_PURCHASES,
+    truncated: rows.length >= MAX_LINES,
     item: summary,
     suppliers,
     points: pts.map(p => ({
@@ -491,34 +615,30 @@ export function buildPriceDetail(
 }
 
 /**
- * Подорожания за неделю: по каждой паре «позиция + поставщик», у которой за
- * последние 7 дней загружены накладные, — самая поздняя новая цена против
- * последней закупки у того же поставщика, загруженной раньше. Рост от
- * RISE_THRESHOLD_PCT; сначала — где подорожание обошлось дороже всего в ₽.
+ * Подорожания за неделю сводки: по каждой паре «позиция + поставщик», у которой
+ * за неделю [from, to) (по времени загрузки, часы БД) загружены накладные, —
+ * самая поздняя новая цена против последней закупки у того же поставщика,
+ * загруженной до недели. Рост от RISE_THRESHOLD_PCT; сначала — где подорожание
+ * обошлось дороже всего в ₽. Даты загрузки — строки БД «YYYY-MM-DD HH:MM:SS»,
+ * сравниваются как строки с датами окна.
  */
 export function findWeeklyRises(
   groups: ReadonlyMap<string, PriceItemGroup>,
   directory: SupplierDirectory,
-  now: Date,
+  window: DigestWindow,
 ): WeeklyRise[] {
-  const weekStart = now.getTime() - 7 * DAY_MS;
-  const uploaded = (p: PricePurchase): number => parseDbDateTime(p.uploaded_at) ?? 0;
+  const inWeek = (p: PricePurchase): boolean => p.uploaded_at >= window.from && p.uploaded_at < window.to;
+  const beforeWeek = (p: PricePurchase): boolean => p.uploaded_at < window.from;
   const later = (a: PricePurchase, b: PricePurchase): PricePurchase =>
     (b.date > a.date || (b.date === a.date && b.invoice_id > a.invoice_id) ? b : a);
 
   const rises: WeeklyRise[] = [];
   for (const group of groups.values()) {
-    const bySupplier = new Map<string, PricePurchase[]>();
-    for (const p of group.purchases) {
-      const list = bySupplier.get(p.supplier_key) ?? [];
-      list.push(p);
-      bySupplier.set(p.supplier_key, list);
-    }
-    for (const [key, list] of bySupplier) {
-      const fresh = list.filter(p => uploaded(p) >= weekStart);
+    for (const [key, list] of bySupplier(group.purchases)) {
+      const fresh = list.filter(inWeek);
       if (!fresh.length) continue;
       const to = fresh.reduce(later);
-      const older = list.filter(p => uploaded(p) < weekStart && p.date <= to.date);
+      const older = list.filter(p => beforeWeek(p) && p.date <= to.date);
       if (!older.length) continue;
       const from = older.reduce(later);
       const pct = pctChange(from.price, to.price);
@@ -597,21 +717,29 @@ export async function loadSupplierDirectory(ownerUserId: number, sinceDays: numb
 // Запас к периоду по дате загрузки: дата закупки может быть на неделю позже неё.
 const SQL_SLACK_DAYS = 7;
 
-export async function getPriceOverview(ownerUserId: number, days: AnalyticsPeriod, now = new Date()): Promise<PriceOverview & {
+export async function getPriceOverview(
+  ownerUserId: number,
+  days: AnalyticsPeriod,
+  now = new Date(),
+  q?: string,
+): Promise<PriceOverview & {
   period_days: AnalyticsPeriod;
   generated_at: string;
   rise_threshold_pct: number;
+  q: string;
 }> {
   const since = days + SQL_SLACK_DAYS;
   const [rows, directory] = await Promise.all([
     loadPriceLines(ownerUserId, since),
     loadSupplierDirectory(ownerUserId, since),
   ]);
+  const query = normalizeQuery(q);
   return {
     period_days: days,
     generated_at: now.toISOString(),
     rise_threshold_pct: RISE_THRESHOLD_PCT,
-    ...buildPriceOverview(rows, directory, { now, periodDays: days }),
+    q: query,
+    ...buildPriceOverview(rows, directory, { now, periodDays: days, q: query }),
   };
 }
 
@@ -628,13 +756,16 @@ export async function getPriceItemDetail(ownerUserId: number, guid: string, days
   return detail ? { period_days: days, generated_at: now.toISOString(), ...detail } : null;
 }
 
-/** Подорожания за последние 7 дней для еженедельной сводки владельцу. */
-export async function getWeeklyPriceRises(ownerUserId: number, now = new Date()): Promise<WeeklyRise[]> {
-  const since = 7 + WEEKLY_LOOKBACK_DAYS;
+/**
+ * Подорожания за неделю сводки для владельца. Окно — не дальше двух недель
+ * назад (прошлая календарная неделя), история до неё — WEEKLY_LOOKBACK_DAYS.
+ */
+export async function getWeeklyPriceRises(ownerUserId: number, window: DigestWindow): Promise<WeeklyRise[]> {
+  const since = 14 + WEEKLY_LOOKBACK_DAYS + SQL_SLACK_DAYS;
   const [rows, directory] = await Promise.all([
-    loadPriceLines(ownerUserId, since + SQL_SLACK_DAYS),
-    loadSupplierDirectory(ownerUserId, since + SQL_SLACK_DAYS),
+    loadPriceLines(ownerUserId, since),
+    loadSupplierDirectory(ownerUserId, since),
   ]);
-  const groups = groupPriceLines(rows, directory, dayMinus(now, since));
-  return findWeeklyRises(groups, directory, now);
+  const groups = groupPriceLines(rows, directory, isoDayShift(window.from, -WEEKLY_LOOKBACK_DAYS));
+  return findWeeklyRises(groups, directory, window);
 }

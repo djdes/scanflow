@@ -71,8 +71,21 @@ describe('GET /api/analytics/prices', () => {
   it('сводка по позициям за выбранный период', async () => {
     const res = await request(app()).get('/api/analytics/prices?days=180');
     expect(res.status).toBe(200);
-    expect(overview).toHaveBeenCalledWith(2, 180);
+    expect(overview).toHaveBeenCalledWith(2, 180, expect.any(Date), '');
     expect(res.body.data).toEqual({ items: [], totals: {} });
+  });
+
+  it('поиск по позиции — строкой, обрезанной и не длиннее 100 символов', async () => {
+    await request(app()).get(`/api/analytics/prices?q=${encodeURIComponent('  молоко  ')}`);
+    expect(overview).toHaveBeenLastCalledWith(2, 90, expect.any(Date), 'молоко');
+    await request(app()).get(`/api/analytics/prices?q=${'я'.repeat(150)}`);
+    expect(String(overview.mock.lastCall?.[3]).length).toBe(100);
+  });
+
+  it('поиск не строкой → 400', async () => {
+    const res = await request(app()).get('/api/analytics/prices?q=a&q=b');
+    expect(res.status).toBe(400);
+    expect(overview).not.toHaveBeenCalled();
   });
 
   it('недопустимый период → 400', async () => {
