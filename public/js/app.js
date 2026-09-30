@@ -96,14 +96,18 @@ const App = {
 
   // Set .active on the nav link for `tab`. If the link lives inside a
   // .nav-group dropdown, also highlight the group's trigger so the user
-  // sees which dropdown is open.
+  // sees which dropdown is open — and the phone tab bar item that leads to
+  // the group's page («Накладные» for «Очередь в 1С» and the analytics pages).
   activateNavTab(tab) {
     const links = document.querySelectorAll(`nav a[data-tab="${tab}"]:not(.nav-group-trigger)`);
     links.forEach((link) => {
       link.classList.add('active');
       link.setAttribute('aria-current', 'page');
-      const group = link.closest('.nav-group');
-      if (group) group.querySelector('.nav-group-trigger')?.classList.add('active');
+      const trigger = link.closest('.nav-group')?.querySelector('.nav-group-trigger');
+      if (!trigger) return;
+      trigger.classList.add('active');
+      const home = trigger.getAttribute('href');
+      if (home) document.querySelectorAll(`.mobile-tabbar a[href="${home}"]`).forEach(a => a.classList.add('active'));
     });
   },
 
@@ -122,7 +126,7 @@ const App = {
     // строки формы растягиваются на весь экран и хуже читаются.
     // Ширину даёт CSS-класс, а не расчёт от 100vw: 100vw включает полосу
     // прокрутки, и блок вылезал бы за экран, добавляя горизонтальный скролл.
-    const wideRoute = !hash || hash === '#/' || hash.startsWith('#/invoices');
+    const wideRoute = !hash || hash === '#/' || hash.startsWith('#/invoices') || hash === '#/queue';
     document.getElementById('app-main')?.classList.toggle('main--wide', wideRoute);
     // Remove active tab
     document.querySelectorAll('nav a').forEach((a) => {
@@ -176,6 +180,10 @@ const App = {
       document.getElementById('view-new-items').style.display = 'block';
       this.activateNavTab('new-items');
       NewItems.load();
+    } else if (hash === '#/queue') {
+      document.getElementById('view-queue').style.display = 'block';
+      this.activateNavTab('queue');
+      Queue.load();
     } else if (hash === '#/suppliers') {
       document.getElementById('view-suppliers').style.display = 'block';
       this.activateNavTab('suppliers');
