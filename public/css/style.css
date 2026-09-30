@@ -4747,6 +4747,7 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
   .queue-table > tbody > tr.queue-panel-row > td { display: block; padding: 0; border: none; }
   .queue-reasons { max-width: none; }
   .queue-panel { padding: 12px; }
+}
 
 /* ===== Аналитика: «Качество поставщиков» и «Закупочные цены» (public/js/analytics.js) ===== */
 .an-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 16px; }
@@ -4905,6 +4906,7 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
   .an-spark-cell { width: auto; }
   .an-chart-card { padding: 12px 12px 10px; }
   .an-help { padding: 2px 14px 12px; }
+}
 
 /* ============================================================
    Вкладка «Документ»: накладная из XML (ЭДО) и PDF — не картинка
