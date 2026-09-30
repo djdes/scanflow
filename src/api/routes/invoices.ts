@@ -23,8 +23,7 @@ import { canonicalizeSupplierName, suppliersMatch } from '../../utils/invoiceNum
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
-import { mapItemsWithClaudeApi, CatalogEntry } from '../../ocr/claudeApiAnalyzer';
-import { coerceToOnec1cUnit } from '../../mapping/packTransform';
+import { llmRemapInvoice } from '../../services/llmRemap';
 import { emit as emitNotification } from '../../notifications/events';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { randomUUID } from 'node:crypto';
@@ -1134,6 +1133,10 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
 // "unmap this"). pack_size / unit_override from the LLM are applied only
 // for items whose guid actually changed or that were unmapped before — we
 // don't re-repack rows that already have correct numbers.
+//
+// Логика — в src/services/llmRemap.ts (ею же пользуется массовый подбор для
+// «Очереди в 1С», POST /api/queue/llm-map). С mapping_v2 выбор ИИ проходит те
+// же проверки, что при распознавании: подтверждённое правило, «не это», атрибуты.
 router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const includeAll = req.query.all === 'true' || req.query.all === '1';
@@ -1143,177 +1146,12 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     return;
   }
 
-  // Каталог и сопоставления пер-тенантные: работаем в области владельца
-  // накладной, а не действующего пользователя — так админ, правящий чужую
-  // накладную, всё равно видит каталог её компании.
-  const mappingOwnerId = invoice.owner_user_id ?? -1;
-
-  const items = await invoiceRepo.getItems(id);
-  const targets = includeAll ? items : items.filter(it => !it.onec_guid);
-  if (targets.length === 0) {
-    res.json({
-      data: {
-        id, requested: 0, matched: 0, changed: 0, repacked: 0, total: items.length,
-        message: includeAll ? 'В накладной нет товаров' : 'Нет несопоставленных товаров',
-      },
-    });
+  const outcome = await llmRemapInvoice(invoice, { includeAll, userId: req.user?.id ?? null });
+  if (!outcome.ok) {
+    res.status(outcome.status).json({ error: outcome.error });
     return;
   }
-
-  // Build the catalog snapshot ONCE — the same ordering is used both to
-  // build the prompt and to resolve catalog_idx back to a guid in the
-  // response.
-  const catalogRows = await onecNomenclatureRepo.listItems({ ownerUserId: mappingOwnerId, excludeFolders: true });
-  if (catalogRows.length === 0) {
-    res.status(400).json({ error: 'Справочник 1С пуст — нечего сопоставлять. Сначала выгрузите номенклатуру из 1С.' });
-    return;
-  }
-  const catalog: CatalogEntry[] = catalogRows.map(r => ({ guid: r.guid, name: r.name, unit: r.unit }));
-
-  const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
-  const apiKey = analyzerCfg.anthropic_api_key || config.anthropicApiKey;
-  if (!apiKey) {
-    res.status(500).json({ error: 'Anthropic API key not configured' });
-    return;
-  }
-
-  const result = await mapItemsWithClaudeApi(
-    targets.map(it => ({ key: String(it.id), name: it.original_name || '', unit: it.unit })),
-    catalog,
-    apiKey,
-    analyzerCfg.claude_model || 'claude-sonnet-5',
-  );
-
-  if (!result.success || !result.matched) {
-    res.status(502).json({ error: result.error || 'LLM mapping failed' });
-    return;
-  }
-
-  let matched = 0;   // items for which Claude returned a guid
-  let changed = 0;   // items whose guid actually changed vs DB
-  let repacked = 0;  // items on which we applied pack_size / unit_override
-  let coercedCount = 0;  // items whose unit was coerced to the 1C accounting unit
-  for (const it of targets) {
-    const hit = result.matched.get(String(it.id));
-    const wasUnmapped = !it.onec_guid;
-
-    // Path A: Claude returned a hit. Apply guid + maybe pack_size / unit_override.
-    if (hit) {
-      matched++;
-      const guidChanged = it.onec_guid !== hit.guid;
-      if (guidChanged) {
-        await invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
-        changed++;
-      }
-      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(hit.guid, mappingOwnerId))?.unit ?? null;
-
-      // Pack-transforms multiply qty — so we only run them when this row is
-      // either NEW (was unmapped) or the guid switched. Otherwise we'd double-
-      // count on every re-run.
-      const canRepack = wasUnmapped || guidChanged;
-
-      if ((await getEngineFlags()).units_v2) {
-        const fresh = await invoiceRepo.getItemById(it.id);
-        const llmPack = hit.pack_size && hit.pack_size > 0 && hit.unit_override
-          ? { size: hit.pack_size, unit: hit.unit_override } : null;
-        if (fresh && await reconvertStoredItem(fresh, invoice, { onecGuid: hit.guid, mappedName: hit.name, pack: llmPack, force: canRepack && fresh.conv_source != null && fresh.conv_source !== 'legacy_stored' })) {
-          repacked++;
-        }
-        continue;
-      }
-
-      if (canRepack) {
-        // Unified pack-transform path that mirrors fileWatcher. Priority for
-        // pack hints: LLM (when complete) → learned mapping → regex fallback
-        // via detectPackFromName. The regex fallback is what catches
-        // "Мука (50кг)" — without it, items that were originally unmapped
-        // and only got their guid via this LLM-remap call would never get
-        // their qty/unit corrected from "1 шт" to "50 кг".
-        const learnedMapping = await mappingRepo.getByScannedName(it.original_name || '', mappingOwnerId);
-        const llmGavePackHint = !!(hit.pack_size && hit.pack_size > 0 && hit.unit_override);
-        const hintedSize = llmGavePackHint ? hit.pack_size : (learnedMapping?.pack_size ?? null);
-        const hintedUnit = llmGavePackHint ? hit.unit_override : (learnedMapping?.pack_unit ?? null);
-
-        const resolved = resolveAndApplyPackTransform(
-          { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
-          it.original_name || '',
-          hintedSize,
-          hintedUnit,
-          hit.name,
-          onec1cUnit,
-        );
-
-        const r = resolved.item;
-        const beforeQty = it.quantity;
-        const beforeUnit = it.unit;
-        const beforePrice = it.price;
-        if (r.quantity !== beforeQty || r.unit !== beforeUnit || r.price !== beforePrice) {
-          await invoiceRepo.updateItemFields(it.id, {
-            quantity: r.quantity ?? null,
-            unit: r.unit ?? null,
-            price: r.price ?? null,
-          });
-          repacked++;
-        }
-
-        // Persist regex-detected pack back to the mapping (как watcher) —
-        // следующий llm-remap пойдёт по learned-mapping ветке, а не regex.
-        if (resolved.usedFallback && learnedMapping && resolved.packSize && resolved.packUnit) {
-          await mappingRepo.update(learnedMapping.id, mappingOwnerId, {
-            pack_size: resolved.packSize,
-            pack_unit: resolved.packUnit,
-          });
-        }
-      } else {
-        // Already-mapped, no guid change — coerce-only (idempotent). Even
-        // long-standing rows whose unit doesn't match the 1C accounting unit
-        // (e.g. stored as "л" while 1C tracks in "кг") get fixed here.
-        const coerced = coerceToOnec1cUnit(
-          { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
-          onec1cUnit,
-        );
-        if (coerced.unit !== it.unit || coerced.quantity !== it.quantity) {
-          await invoiceRepo.updateItemFields(it.id, coerced);
-          coercedCount++;
-        }
-      }
-      continue;
-    }
-
-    // Path B: Claude returned no hit. We can't re-map but we CAN still
-    // coerce the unit if the row was already mapped previously and is
-    // sitting in a non-1C unit (e.g. "л" while 1C tracks in "кг").
-    if (!wasUnmapped) {
-      const onec1cUnit = (await onecNomenclatureRepo.getByGuid(it.onec_guid as string, mappingOwnerId))?.unit ?? null;
-      const coerced = coerceToOnec1cUnit(
-        { quantity: it.quantity, unit: it.unit, price: it.price, total: it.total },
-        onec1cUnit,
-      );
-      if (coerced.unit !== it.unit || coerced.quantity !== it.quantity) {
-        await invoiceRepo.updateItemFields(it.id, coerced);
-        coercedCount++;
-      }
-    }
-  }
-
-  // Flags the invoice if Σ(items.total) drifts from invoice.total_sum.
-  await invoiceRepo.recalculateTotal(id);
-
-  logger.info('LLM-remap completed', {
-    id, requested: targets.length, matched, changed, repacked, coerced: coercedCount, all: includeAll,
-  });
-
-  res.json({
-    data: {
-      id,
-      requested: targets.length,
-      matched,
-      changed,
-      repacked,
-      coerced: coercedCount,
-      total: items.length,
-    },
-  });
+  res.json({ data: outcome.data });
 });
 
 // DELETE /api/invoices/:id — delete invoice, its items, and associated files
