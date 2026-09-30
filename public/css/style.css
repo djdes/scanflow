@@ -4603,3 +4603,55 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
 #view-sber form label:not(.switch-inline) { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
 #view-sber form label:not(.switch-inline) input { width: 100%; box-sizing: border-box; font-size: 14px; color: var(--text); padding: 8px 10px; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; background: var(--card, #fff); }
 #view-sber form label:not(.switch-inline) input:focus { outline: none; border-color: var(--primary, #2383e2); }
+
+/* ============================================================
+   Вкладка «Документ»: накладная из XML (ЭДО) и PDF — не картинка
+   ============================================================ */
+.xml-doc {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.xml-doc__icon {
+  flex: 0 0 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.xml-doc__icon--pdf { background: var(--error-soft); color: var(--error); }
+.xml-doc__body { flex: 1 1 auto; min-width: 0; }
+.xml-doc__title { font-weight: 600; color: var(--text); }
+.xml-doc__meta { margin-top: 2px; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.xml-doc__hint { margin-top: 8px; color: var(--text-tertiary); font-size: 12.5px; line-height: 1.45; }
+.xml-doc__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.xml-doc__file { color: var(--text-tertiary); font-size: 12px; font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; }
+.xml-doc__missing { color: var(--text-secondary); font-size: 13px; }
+.xml-doc__warnings {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.xml-doc__warnings ul { margin: 6px 0 0 18px; }
+.xml-doc__warnings li + li { margin-top: 3px; }
+.upload-history-file--xml {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 28%, transparent);
+  color: var(--primary);
+}
+@media (max-width: 640px) {
+  .xml-doc { padding: 12px; gap: 10px; }
+  .xml-doc__icon { flex-basis: 40px; height: 40px; font-size: 11px; }
+}

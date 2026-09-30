@@ -411,8 +411,19 @@ const App = {
     return '<span class="badge badge-confidence-low">Не найдено</span>';
   },
 
+  // Накладная из электронного документа ФНС (УПД/ТОРГ-12 в XML, src/xml):
+  // по движку, а пока он не записан — по имени файла.
+  isXmlInvoice(inv) {
+    if (!inv) return false;
+    if (String(inv.ocr_engine || '').startsWith('xml_')) return true;
+    return String(inv.file_name || '').split(',').some(f => /\.xml$/i.test(f.trim()));
+  },
+
   ocrEngineBadge(engine) {
     if (!engine) return '<span class="badge badge-new">—</span>';
+    if (engine.startsWith('xml_')) {
+      return '<span class="badge badge-processed" title="Электронный документ из ЭДО — без распознавания">XML из ЭДО</span>';
+    }
     const parts = [];
     const e = engine.toLowerCase();
     if (e.includes('google_vision')) parts.push('Google Vision');
