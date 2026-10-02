@@ -158,7 +158,8 @@
 .blog-card-meta b { color: var(--text); font-weight: 600; }
 
 @media (max-width: 920px) {
-  .blog-grid { grid-template-columns: 1fr; }
+  /* minmax(0, …): иначе карточка растягивается под самое длинное слово заголовка. */
+  .blog-grid { grid-template-columns: minmax(0, 1fr); }
   .blog-card--featured h3,
   .blog-card--full h3 { font-size: 24px; }
 }
@@ -221,6 +222,12 @@
   letter-spacing: -0.025em;
   margin-bottom: 24px;
   max-width: 820px;
+  overflow-wrap: break-word;
+}
+
+/* «Автоматическое», «Автозаполнение» в Unbounded при 32px шире экрана 360px. */
+@media (max-width: 420px) {
+  .article-hero h1 { font-size: clamp(24px, 8vw, 32px); }
 }
 
 .article-meta {
@@ -345,7 +352,11 @@
   line-height: 1.78;
   color: var(--text);
   max-width: 740px;
+  /* Длинные пути, URL и выражения 1С переносятся, а не уходят за край экрана. */
+  overflow-wrap: break-word;
 }
+
+.article-prose :not(pre) > code { overflow-wrap: anywhere; }
 
 .article-prose p { margin-bottom: 1.2em; }
 .article-prose p:last-child { margin-bottom: 0; }
@@ -823,6 +834,19 @@
   border-bottom: 1px solid var(--border);
 }
 .compare-mini-table tr:last-child td { border-bottom: none; }
+@media (max-width: 480px) {
+  .compare-mini-table { font-size: 13px; display: block; overflow-x: auto; }
+  .compare-mini-table th,
+  .compare-mini-table td { padding: 8px; }
+}
+
+/* На самых узких экранах (320–380px) длинные слова в заголовках карточек блога
+   («Автоматическое», «Многостраничные») не помещаются при 22–24px. */
+@media (max-width: 380px) {
+  .blog-card h3,
+  .blog-card--featured h3,
+  .blog-card--full h3 { font-size: 20px; }
+}
 .compare-mini-table thead th {
   background: var(--surface-tint);
   font-family: var(--mono);
