@@ -85,6 +85,7 @@ const Invoices = {
   async showList() {
     document.getElementById('invoices-list').style.display = 'block';
     document.getElementById('invoice-detail').style.display = 'none';
+    document.getElementById('view-invoices')?.classList.remove('is-detail');
     await Promise.all([this.loadStats(), this.loadTable()]);
   },
 
@@ -113,6 +114,7 @@ const Invoices = {
 
   async loadTable() {
     this._renderPeriod();
+    this._renderStatusChips();
     // Набор строк меняется — прежнее выделение больше не относится к этим строкам.
     this._selected.clear();
     this._renderBulkBar();
@@ -373,6 +375,9 @@ const Invoices = {
   setFilter(status) {
     this.currentStatus = (status && status !== 'all') ? status : null;
     this.offset = 0;
+    const sel = document.getElementById('filter-status');
+    if (sel) sel.value = this.currentStatus || '';
+    this._syncFilterReset();
     this.loadTable();
   },
 
@@ -445,6 +450,26 @@ const Invoices = {
     el.innerHTML = `<span class="period-filter__label">Период:</span>` + presets.map(p =>
       `<button type="button" class="period-btn${this.period === p.key ? ' active' : ''}" aria-pressed="${this.period === p.key ? 'true' : 'false'}" onclick="Invoices.setPeriod('${p.key}')">${p.label}</button>`
     ).join('');
+  },
+
+  // Статус — такие же чипсы, как период: выпадающий список в строке фильтров
+  // остаётся (он фильтрует колонку), но до него не надо долистывать таблицу.
+  _renderStatusChips() {
+    const el = document.getElementById('invoices-status-chips');
+    if (!el) return;
+    const presets = [
+      { key: '', label: 'Все' },
+      { key: 'new', label: 'Новые' },
+      { key: 'processed', label: 'Обработаны' },
+      { key: 'sent_to_1c', label: 'В 1С' },
+      { key: 'error', label: 'Ошибки' },
+    ];
+    const cur = this.currentStatus || '';
+    el.innerHTML = `<span class="period-filter__label">Статус:</span>` + presets.map(p =>
+      `<button type="button" class="period-btn${cur === p.key ? ' active' : ''}" aria-pressed="${cur === p.key ? 'true' : 'false'}" onclick="Invoices.setFilter('${p.key}')">${p.label}</button>`
+    ).join('');
+    const sel = document.getElementById('filter-status');
+    if (sel && sel.value !== cur) sel.value = cur;
   },
 
   // Set the upload-date range from a preset and reload from the server (offset
@@ -659,6 +684,7 @@ const Invoices = {
   // Единственное место, где решается, можно ли жать «Отправить в Сбербанк».
   // Зовётся и после переключения галочки, и после отрисовки блока Сбера.
   _syncSberGate() {
+    this._syncAttrProgress();
     const boxes = [...document.querySelectorAll('.attr-check input[data-attr]')];
     if (!boxes.length) return;
     const missing = boxes.filter(b => !b.checked)
@@ -737,9 +763,21 @@ const Invoices = {
   async showDetail(id) {
     document.getElementById('invoices-list').style.display = 'none';
     document.getElementById('invoice-detail').style.display = 'block';
+    // Заголовок списка («Накладные», поиск, «Загрузить») на карточке только мешает.
+    document.getElementById('view-invoices')?.classList.add('is-detail');
 
     this._currentInvoiceId = id;
     this._photosLoaded = false;
+    this._photoCache = null;
+    const dockBody = document.getElementById('invoice-photo-dock-body');
+    if (dockBody) {
+      dockBody.innerHTML = '';
+      delete dockBody.dataset.paintedFor;
+    }
+    const dock = document.getElementById('invoice-photo-dock');
+    if (dock) dock.dataset.photoZoom = '1';
+    document.getElementById('invoice-workspace')?.classList.remove('invoice-workspace--photo-tab');
+    this._bindCompareUi();
     this._markVisited(id);
     this._loadNeighbours(id);
 
@@ -749,6 +787,7 @@ const Invoices = {
     document.getElementById('invoice-tab-ocr').style.display = 'none';
     document.getElementById('invoice-tab-history').style.display = 'none';
     document.getElementById('invoice-tab-history').innerHTML = '';
+    document.getElementById('invoice-workspace')?.classList.remove('invoice-workspace--photo-tab');
     const tabBtns = document.querySelectorAll('#invoice-detail .tabs .tab-btn');
     tabBtns.forEach((b, i) => b.classList.toggle('active', i === 0));
 
@@ -768,54 +807,61 @@ const Invoices = {
       this._currentXml = isXml ? this._xmlMeta(data) : null;
       if (tabBtns[1]) tabBtns[1].textContent = isXml ? 'Документ' : 'Фото';
       if (tabBtns[2]) tabBtns[2].textContent = isXml ? 'Данные XML' : 'OCR-текст';
+      // Фото рядом со строками — на широком экране сразу, выбор запоминается.
+      this.setCompare(this._compareWanted(), false);
 
       // Header fields
       const header = document.getElementById('invoice-header-fields');
       header.innerHTML = `
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'number')}Номер</div>
-          <div class="field-value">${App.esc(data.invoice_number || '—')}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'date')}Дата</div>
-          <div class="field-value">${App.formatDate(data.invoice_date)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'supplier')}Поставщик</div>
-          <div class="field-value">${App.esc(data.supplier || '—')}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'total')}Сумма</div>
-          <div class="field-value">
-            ${App.formatMoney(data.total_sum)}
-            ${data.items_total_mismatch ? '<span class="badge badge-error" title="Сумма в документе расходилась с суммой позиций более чем на 1%. Значение пересчитано из товаров — проверьте глазами." style="margin-left:8px">⚠ требует проверки</span>' : ''}
+        <div class="invoice-facts">
+          <div class="invoice-field">
+            <div class="field-label">${this._attrCheckbox(data, 'number')}Номер</div>
+            <div class="field-value">${App.esc(data.invoice_number || '—')}</div>
+          </div>
+          <div class="invoice-field">
+            <div class="field-label">${this._attrCheckbox(data, 'date')}Дата</div>
+            <div class="field-value">${App.formatDate(data.invoice_date)}</div>
+          </div>
+          <div class="invoice-field">
+            <div class="field-label">${this._attrCheckbox(data, 'supplier')}Поставщик</div>
+            <div class="field-value">${App.esc(data.supplier || '—')}</div>
+          </div>
+          <div class="invoice-field invoice-field--money">
+            <div class="field-label">${this._attrCheckbox(data, 'total')}Сумма</div>
+            <div class="field-value">
+              ${App.formatMoney(data.total_sum)}
+              ${data.items_total_mismatch ? '<span class="badge badge-error" title="Сумма в документе расходилась с суммой позиций более чем на 1%. Значение пересчитано из товаров — проверьте глазами." style="margin-left:8px">⚠ требует проверки</span>' : ''}
+            </div>
+          </div>
+          <div class="invoice-field">
+            <div class="field-label">${this._attrCheckbox(data, 'vat')}В т.ч. НДС</div>
+            <div class="field-value">${data.vat_sum != null ? App.formatMoney(data.vat_sum) : '—'}</div>
+          </div>
+          <div class="invoice-field">
+            <div class="field-label">${this._attrCheckbox(data, 'vat_rate')}Ставка НДС</div>
+            <div class="field-value">${this._vatRatesText(data.items)}</div>
           </div>
         </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'vat')}В т.ч. НДС</div>
-          <div class="field-value">${data.vat_sum != null ? App.formatMoney(data.vat_sum) : '—'}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'vat_rate')}Ставка НДС</div>
-          <div class="field-value">${this._vatRatesText(data.items)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Статус</div>
-          <div class="field-value">${App.statusBadge(data.status)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Обработка</div>
-          <div class="field-value">${App.ocrEngineBadge(data.ocr_engine)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Файл</div>
-          <div class="field-value">${App.esc(data.file_name || '')}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Создан</div>
-          <div class="field-value">${App.formatDate(data.created_at)}</div>
+        <div class="invoice-meta">
+          <div class="invoice-field">
+            <div class="field-label">Статус</div>
+            <div class="field-value">${App.statusBadge(data.status)}</div>
+          </div>
+          <div class="invoice-field">
+            <div class="field-label">Обработка</div>
+            <div class="field-value">${App.ocrEngineBadge(data.ocr_engine)}</div>
+          </div>
+          <div class="invoice-field">
+            <div class="field-label">Файл</div>
+            <div class="field-value">${App.esc(data.file_name || '')}</div>
+          </div>
+          <div class="invoice-field">
+            <div class="field-label">Создан</div>
+            <div class="field-value">${App.formatDate(data.created_at)}</div>
+          </div>
         </div>
       `;
+      this._syncAttrProgress();
 
       // История tab — render for every invoice (incl. duplicates), before any
       // early-return. .catch keeps a rejection from masking showDetail success.
@@ -923,6 +969,9 @@ const Invoices = {
       }
 
       const unmappedCount = (data.items || []).filter(it => !it.onec_guid).length;
+      // На виду — то, что делают с каждой накладной. Редкое (перескан, LLM,
+      // эталон, удаление) уходит в «Ещё», иначе ряд кнопок занимает пол-экрана.
+      const more = [];
       if (data.status === 'processed') {
         if (data.approved_for_1c) {
           actionsHtml += `<div class="badge badge-sent" style="padding:8px 16px">✓ Ожидает загрузки в 1С</div>`;
@@ -944,32 +993,30 @@ const Invoices = {
       if (data.error_message) {
         actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${App.esc(data.error_message)}</div>`;
       }
-      // Remap buttons — two separate buttons, planshet-friendly
       if (unmappedCount > 0) {
         actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false, event)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
       }
       actionsHtml += `<button class="btn btn-outline" onclick="Invoices.editHeader(${data.id})" title="Редактировать реквизиты накладной">✎ Реквизиты</button>`;
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true, event)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
+      more.push(`<button type="button" class="action-more__item" onclick="Invoices.remap(${data.id}, true, event)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`);
       if ((data.items || []).some(it => it.onec_guid)) {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.confirmMappings(${data.id}, event)" title="Текущие позиции 1С всех строк станут подтверждёнными правилами — их больше не перебьёт выбор ИИ">✓ Подтвердить сопоставления</button>`;
+        more.push(`<button type="button" class="action-more__item" onclick="Invoices.confirmMappings(${data.id}, event)" title="Текущие позиции 1С всех строк станут подтверждёнными правилами — их больше не перебьёт выбор ИИ">Подтвердить сопоставления</button>`);
       }
       if (isXml) {
         // Электронный документ целиком: «пересканировать» = перечитать исходный
         // XML, а страниц к нему не бывает (сервер вернёт 409).
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event, true)" title="Заново разобрать исходный XML-файл и пересопоставить товары">🔄 Перечитать XML</button>`;
+        more.push(`<button type="button" class="action-more__item" onclick="Invoices.rescan(${data.id}, event, true)" title="Заново разобрать исходный XML-файл и пересопоставить товары">Перечитать XML</button>`);
       } else {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event)" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id}, event)" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
+        more.push(`<button type="button" class="action-more__item" onclick="Invoices.rescan(${data.id}, event)" title="Полный re-OCR + re-Claude + re-mapping исходного фото">Пересканировать фото</button>`);
+        more.push(`<button type="button" class="action-more__item" onclick="Invoices.addPages(${data.id}, event)" title="Дофоткать страницы — их позиции добавятся в эту накладную">Добавить страницы</button>`);
       }
-      // LLM button is always visible. When everything is already mapped it
-      // passes all=true so Claude can reconsider existing picks (catalog may
-      // have grown, or an old fuzzy match may be improvable).
+      // LLM stays reachable. When everything is already mapped it passes
+      // all=true so Claude can reconsider existing picks.
       const llmAll = unmappedCount === 0;
       const llmLabel = llmAll ? 'LLM: переделать всё' : 'LLM-маппинг';
       const llmTitle = llmAll
         ? 'Пересобрать все маппинги через Claude LLM (Anthropic API)'
         : 'Сопоставить несопоставленные товары через Claude LLM (Anthropic API)';
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id}, ${llmAll}, event)" title="${llmTitle}">${llmLabel}</button>`;
+      more.push(`<button type="button" class="action-more__item" onclick="Invoices.llmRemap(${data.id}, ${llmAll}, event)" title="${llmTitle}">${llmLabel}</button>`);
       // ⭐ Эталон (п.17 v2): проверенная накладная, по которой админ сверяет
       // распознавание после обновлений (Настройки → Эталонные накладные).
       // Фото эталона не удаляется через 90 дней. PATCH /api/golden/invoices/:id.
@@ -979,10 +1026,10 @@ const Invoices = {
       const goldenOn = Number(data.golden) === 1;
       // Эталон проверяет распознавание фото — у документа из XML его нет.
       if (!isXml || goldenOn) {
-        actionsHtml += `<button type="button" class="btn btn-outline" id="invoice-golden-btn" data-golden="${goldenOn ? 1 : 0}" title="${goldenTitle(goldenOn)}">${goldenOn ? '⭐ Эталон' : '☆ В эталоны'}</button>`;
+        more.push(`<button type="button" class="action-more__item" id="invoice-golden-btn" data-golden="${goldenOn ? 1 : 0}" title="${goldenTitle(goldenOn)}">${goldenOn ? '⭐ Эталон' : '☆ В эталоны'}</button>`);
       }
-      // Delete button (destructive, always visible, pushed to the right)
-      actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
+      more.push(`<button type="button" class="action-more__item action-more__item--danger" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`);
+      actionsHtml += this._moreMenu(more.join(''));
       actions.innerHTML = actionsHtml;
       const goldenBtn = document.getElementById('invoice-golden-btn');
       if (goldenBtn) {
@@ -2374,22 +2421,151 @@ const Invoices = {
 
     // Show selected tab
     document.getElementById('invoice-tab-' + tab).style.display = 'block';
+    // На вкладке «Фото» панель сверки прячем: то же изображение уже на всю ширину.
+    document.getElementById('invoice-workspace')?.classList.toggle('invoice-workspace--photo-tab', tab === 'photos');
 
     // Load photos on first switch
     if (tab === 'photos' && !this._photosLoaded) {
       this.loadPhotos();
+    } else if (tab !== 'photos') {
+      this._relayoutPhotos();
     }
   },
 
+  // ── Сверка с фото: снимок рядом со строками ──────────────────────────────
+  // Раньше фото жило на отдельной вкладке, и чтобы проверить строку, приходилось
+  // уходить с таблицы и терять место. Панель помнит выбор (sf_photo_compare).
+  _COMPARE_KEY: 'sf_photo_compare',
+
+  _compareWanted() {
+    try {
+      const v = localStorage.getItem(this._COMPARE_KEY);
+      if (v === '0') return false;
+      if (v === '1') return true;
+    } catch { /* нет хранилища — решаем по ширине окна */ }
+    return window.matchMedia('(min-width: 1100px)').matches;
+  },
+
+  _bindCompareUi() {
+    if (this._compareUiBound) return;
+    this._compareUiBound = true;
+    document.getElementById('invoice-compare-toggle')?.addEventListener('click', () => this.toggleCompare());
+    document.getElementById('invoice-compare-close')?.addEventListener('click', () => this.setCompare(false, true));
+    document.getElementById('invoice-photo-zoom-in')?.addEventListener('click', () => this.zoomDock(1));
+    document.getElementById('invoice-photo-zoom-out')?.addEventListener('click', () => this.zoomDock(-1));
+    document.addEventListener('click', (e) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      document.querySelectorAll('.action-more[open]').forEach((d) => {
+        if (!d.contains(t)) d.open = false;
+      });
+    });
+  },
+
+  toggleCompare() {
+    const dock = document.getElementById('invoice-photo-dock');
+    this.setCompare(!dock || dock.hidden, true);
+  },
+
+  setCompare(on, persist) {
+    const dock = document.getElementById('invoice-photo-dock');
+    const workspace = document.getElementById('invoice-workspace');
+    const btn = document.getElementById('invoice-compare-toggle');
+    if (!dock || !workspace) return;
+    const xml = !!this._currentXml;
+    dock.hidden = !on;
+    workspace.classList.toggle('invoice-workspace--compare', on);
+    // Рядом с фото таблице нужно чуть больше места, чем обычные 1600px.
+    document.getElementById('app-main')?.classList.toggle('main--compare', on);
+    if (btn) {
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.textContent = on
+        ? (xml ? 'Скрыть документ' : 'Скрыть фото')
+        : (xml ? 'Сверить с документом' : 'Сверить с фото');
+    }
+    if (persist) {
+      try { localStorage.setItem(this._COMPARE_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+    }
+    if (!on) {
+      this._relayoutPhotos();
+      return;
+    }
+    const label = document.getElementById('invoice-photo-zoom-label');
+    if (label) label.textContent = `${Math.round((Number(dock.dataset.photoZoom) || 1) * 100)}%`;
+    const body = document.getElementById('invoice-photo-dock-body');
+    const ready = body && body.dataset.paintedFor === String(this._currentInvoiceId) && body.childElementCount > 0;
+    const paint = ready ? Promise.resolve() : this._paintPhotos(body);
+    Promise.resolve(paint).then(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => this._relayoutPhotos()));
+    });
+  },
+
+  zoomDock(dir) {
+    const dock = document.getElementById('invoice-photo-dock');
+    if (!dock || dock.hidden) return;
+    const steps = [1, 1.35, 1.8, 2.4, 3.2];
+    const cur = Number(dock.dataset.photoZoom || 1);
+    let i = steps.findIndex((s) => Math.abs(s - cur) < 0.08);
+    if (i < 0) i = 0;
+    i = Math.max(0, Math.min(steps.length - 1, i + dir));
+    dock.dataset.photoZoom = String(steps[i]);
+    const label = document.getElementById('invoice-photo-zoom-label');
+    if (label) label.textContent = `${Math.round(steps[i] * 100)}%`;
+    dock.querySelectorAll('.photo-frame').forEach((f) => this._layoutPhoto(f));
+  },
+
+  _relayoutPhotos() {
+    document.querySelectorAll('#invoice-photos-container .photo-frame, #invoice-photo-dock-body .photo-frame')
+      .forEach((f) => this._layoutPhoto(f));
+  },
+
+  _syncAttrProgress() {
+    const prog = document.getElementById('invoice-attr-progress');
+    if (!prog) return;
+    const boxes = [...document.querySelectorAll('#invoice-header-fields .attr-check input[data-attr]')];
+    if (!boxes.length) { prog.hidden = true; return; }
+    const done = boxes.filter((b) => b.checked).length;
+    prog.hidden = false;
+    prog.textContent = `Сверено ${done} из ${boxes.length}`;
+    prog.classList.toggle('is-done', done === boxes.length);
+  },
+
+  _moreMenu(inner) {
+    if (!inner) return '';
+    return `<details class="action-more"><summary class="btn btn-outline">Ещё</summary><div class="action-more__menu">${inner}</div></details>`;
+  },
+
+  async _fetchPhotos(id) {
+    if (this._photoCache && this._photoCache.id === id) return this._photoCache.list;
+    const { data } = await App.apiJson(`/invoices/${id}/photos`);
+    const list = data || [];
+    if (this._currentInvoiceId === id) this._photoCache = { id, list };
+    return list;
+  },
+
   async loadPhotos() {
-    const container = document.getElementById('invoice-photos-container');
+    await this._paintPhotos(document.getElementById('invoice-photos-container'));
+    this._photosLoaded = true;
+  },
+
+  _syncDockChrome(hasImg) {
+    const zoom = document.getElementById('invoice-photo-zoom');
+    if (zoom) zoom.hidden = !hasImg;
+  },
+
+  async _paintPhotos(container) {
     const id = this._currentInvoiceId;
-    if (!id) return;
+    if (!container || !id) return;
+    const forDock = container.id === 'invoice-photo-dock-body';
 
     try {
-      const { data } = await App.apiJson(`/invoices/${id}/photos`);
+      const data = await this._fetchPhotos(id);
+      if (this._currentInvoiceId !== id || !container.isConnected) return;
       if (!data || data.length === 0) {
         container.innerHTML = '<div class="empty-state">Фото не найдены</div>';
+        container.dataset.paintedFor = String(id);
+        if (forDock) this._syncDockChrome(false);
         return;
       }
 
@@ -2425,22 +2601,30 @@ const Invoices = {
           </div>
         </div>`;
       }).join('');
+      container.dataset.paintedFor = String(id);
 
       // Габариты считаем только после загрузки: до неё naturalWidth = 0.
       container.querySelectorAll('.photo-frame img').forEach(img => {
         if (img.complete && img.naturalWidth) this._layoutPhoto(img.closest('.photo-frame'));
         else img.addEventListener('load', () => this._layoutPhoto(img.closest('.photo-frame')), { once: true });
       });
-      // Ширина карточки меняется при ресайзе и при сворачивании меню — пересчёт
-      // нужен, иначе повёрнутое фото перестанет попадать в контейнер.
+      // Ширина карточки меняется при ресайзе, сворачивании меню и открытии
+      // панели сверки — пересчёт нужен, иначе повёрнутое фото вылезет.
       if (!this._photoResizeBound) {
-        window.addEventListener('resize', () => {
-          document.querySelectorAll('#invoice-photos-container .photo-frame')
-            .forEach(f => this._layoutPhoto(f));
-        });
+        window.addEventListener('resize', () => this._relayoutPhotos());
         this._photoResizeBound = true;
       }
-      this._photosLoaded = true;
+      if (forDock) {
+        this._syncDockChrome(!!container.querySelector('img'));
+        const title = document.getElementById('invoice-photo-dock-title');
+        if (title) {
+          title.textContent = this._currentXml
+            ? 'Документ'
+            : (data.length > 1
+              ? `Фото · ${data.length} ${this._plural(data.length, 'лист', 'листа', 'листов')}`
+              : 'Фото накладной');
+        }
+      }
     } catch (e) {
       container.innerHTML = '<div class="empty-state">Ошибка загрузки фото</div>';
     }
@@ -2545,12 +2729,14 @@ const Invoices = {
   },
 
   rotatePhoto(invoiceId, page, delta) {
-    const frame = document.querySelector(`#invoice-photos-container .photo-block[data-page="${page}"] .photo-frame`);
-    if (!frame) return;
-    const deg = ((Number(frame.dataset.rot || 0) + delta) % 360 + 360) % 360;
-    frame.dataset.rot = String(deg);
+    const frames = document.querySelectorAll(`.photo-block[data-page="${page}"] .photo-frame`);
+    if (!frames.length) return;
+    const deg = ((Number(frames[0].dataset.rot || 0) + delta) % 360 + 360) % 360;
     this._savePhotoRotation(invoiceId, page, deg);
-    this._layoutPhoto(frame);
+    frames.forEach((frame) => {
+      frame.dataset.rot = String(deg);
+      this._layoutPhoto(frame);
+    });
   },
 
   /**
@@ -2571,7 +2757,12 @@ const Invoices = {
     const deg = ((Number(frame.dataset.rot || 0) % 360) + 360) % 360;
     const nw = img.naturalWidth;
     const nh = img.naturalHeight;
-    const avail = frame.parentElement ? frame.parentElement.clientWidth : nw;
+    // В панели сверки зум растягивает рамку шире окна — появляется прокрутка,
+    // и можно читать мелкий шрифт, не уходя с таблицы.
+    const dock = frame.closest('#invoice-photo-dock');
+    const zoom = dock ? (Number(dock.dataset.photoZoom) || 1) : 1;
+    if (dock) frame.style.width = zoom > 1 ? `${Math.round(zoom * 100)}%` : '100%';
+    const avail = frame.clientWidth || (frame.parentElement ? frame.parentElement.clientWidth : nw);
     const quarter = deg === 90 || deg === 270;
 
     // Ширина, которую займёт САМА картинка (до поворота).
