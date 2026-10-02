@@ -8,7 +8,7 @@
       "tags": ["ocr", "1c-unf"],
       "date": "2026-05-12",
       "readingMinutes": 6,
-      "ogImage": "/og/default.svg"
+      "ogImage": "/og/default.png"
     },
     {
       "slug": "ocr-nakladnyh-kak-rabotaet",
@@ -17,16 +17,16 @@
       "tags": ["ocr"],
       "date": "2026-05-11",
       "readingMinutes": 7,
-      "ogImage": "/og/default.svg"
+      "ogImage": "/og/default.png"
     },
     {
       "slug": "perevod-paper-zacenok-v-1c-unf",
-      "title": "От фото накладной до приходной в 1С:УНФ за 3 секунды",
+      "title": "От фото накладной до приходной в 1С:УНФ без ручного ввода",
       "description": "Полный пайплайн интеграции ScanFlow с 1С:УНФ — что забирает 1С по REST, как маппится номенклатура, как считается НДС по дате.",
       "tags": ["1c-unf", "ocr"],
       "date": "2026-05-11",
       "readingMinutes": 8,
-      "ogImage": "/og/default.svg"
+      "ogImage": "/og/default.png"
     },
     {
       "slug": "avto-platezhka-v-sberbiznes",
@@ -35,7 +35,7 @@
       "tags": ["sber"],
       "date": "2026-05-11",
       "readingMinutes": 9,
-      "ogImage": "/og/default.svg"
+      "ogImage": "/og/default.png"
     },
     {
       "slug": "torg-12-kak-pravilno-raspoznat",
@@ -44,7 +44,7 @@
       "tags": ["torg-12", "ocr"],
       "date": "2026-05-11",
       "readingMinutes": 6,
-      "ogImage": "/og/default.svg"
+      "ogImage": "/og/default.png"
     },
     {
       "slug": "dadata-i-kontragenty-po-inn",
@@ -53,7 +53,7 @@
       "tags": ["suppliers"],
       "date": "2026-05-11",
       "readingMinutes": 7,
-      "ogImage": "/og/default.svg"
+      "ogImage": "/og/default.png"
     },
     {
       "slug": "multi-page-nakladnye-sliyanie",
@@ -62,7 +62,7 @@
       "tags": ["multi-page", "ocr"],
       "date": "2026-05-11",
       "readingMinutes": 5,
-      "ogImage": "/og/default.svg"
+      "ogImage": "/og/default.png"
     }
   ]
 }

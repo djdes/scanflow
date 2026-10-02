@@ -5,22 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <title>ScanFlow — фото накладной → 1С:УНФ + СберБизнес автоматически</title>
-  <meta name="description" content="Хватит вводить накладные руками. Сфотографируй ТОРГ-12, УПД или счёт — получи готовую приходную в 1С:УНФ, черновик платёжки в СберБизнесе и Telegram-уведомление. Сейчас бесплатно во время беты.">
+  <meta name="description" content="Хватит вводить накладные руками. Сфотографируйте ТОРГ-12, УПД или счёт — получите готовую приходную в 1С:УНФ, черновик платёжки в СберБизнесе и уведомление в Telegram. Сейчас бесплатно во время беты.">
   <link rel="canonical" href="https://scanflow.ru/">
   <meta name="robots" content="index, follow">
 
   <meta property="og:type" content="website">
   <meta property="og:title" content="ScanFlow — фото накладной → 1С:УНФ + СберБизнес">
-  <meta property="og:description" content="Хватит вводить накладные руками. Сфотографируй — получи готовую приходную в 1С:УНФ, черновик платёжки в Сбере и Telegram. Бесплатно во время беты.">
+  <meta property="og:description" content="Хватит вводить накладные руками. Сфотографируйте — получите готовую приходную в 1С:УНФ, черновик платёжки в Сбере и уведомление в Telegram. Бесплатно во время беты.">
   <meta property="og:url" content="https://scanflow.ru/">
-  <meta property="og:image" content="https://scanflow.ru/og/default.svg">
+  <meta property="og:image" content="https://scanflow.ru/og/default.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta property="og:site_name" content="ScanFlow">
   <meta property="og:locale" content="ru_RU">
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="ScanFlow — фото накладной → 1С:УНФ + СберБизнес">
   <meta name="twitter:description" content="Хватит вводить накладные руками. AI распознаёт ТОРГ-12 / УПД / счёт → 1С:УНФ + Сбер + Telegram. Сейчас бесплатно во время беты.">
-  <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
+  <meta name="twitter:image" content="https://scanflow.ru/og/default.png">
 
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -29,7 +31,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@100..900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/landing.css">
   <link rel="stylesheet" href="/css/article.css">
 
@@ -39,7 +41,7 @@
     "@type": "Organization",
     "name": "ScanFlow",
     "url": "https://scanflow.ru/",
-    "logo": "https://scanflow.ru/og/default.svg",
+    "logo": "https://scanflow.ru/icon-512.png",
     "sameAs": []
   }
   </script>
@@ -70,11 +72,11 @@
   </script>
 
   <script>
-    // Theme follows local time-of-day: 07:00–19:00 → light, else → dark.
-    // Runs before <body> paints to avoid FOUC. /js/landing.js re-evaluates every 60s.
+    // Тема — как в системе пользователя (prefers-color-scheme). Выполняется до
+    // отрисовки <body>, чтобы не мигало; /js/landing.js следит за сменой темы.
     (function () {
-      var h = new Date().getHours();
-      document.documentElement.setAttribute('data-theme', (h >= 7 && h < 19) ? 'light' : 'dark');
+      var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     })();
   </script>
 </head>
@@ -82,8 +84,6 @@
 
   <a class="skip-link" href="#main-content">Перейти к содержимому</a>
 
-  <!-- Scan line ambient effect -->
-  <div class="scan-line" aria-hidden="true"></div>
   <div class="grain-overlay" aria-hidden="true"></div>
 
   <!-- ========== HEADER ========== -->
@@ -101,17 +101,12 @@
         <span class="logo-text">ScanFlow</span>
       </a>
       <nav class="main-nav" id="main-nav">
-        <a href="#features">Продукт</a>
+        <a href="#features">Возможности</a>
         <a href="#demo">Демо</a>
         <a href="#pricing">Тарифы</a>
         <a href="/blog">Блог</a>
       </nav>
       <div class="header-actions">
-        <a href="tel:" class="header-phone" aria-label="Позвонить">
-          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <path d="M3 4.5L5 3l2.5 4-1.8 1.5C7 11.5 8.5 13 11.5 14.3L13 12.5l4 2.5-1.5 2C9.5 17 3 10.5 3 4.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-          </svg>
-        </a>
         <a href="#" class="btn-ghost" id="btn-login-open" data-auth-state="out">Войти</a>
         <a href="#try" class="btn-primary-sm" data-auth-state="out">Попробовать</a>
         <a href="/app.html" class="btn-primary-sm btn-with-icon" data-auth-state="in" hidden>
@@ -153,8 +148,12 @@
         В реестре отечественного ПО
       </div>
       <h1 data-animate="fade-up" data-delay="1" class="hero-headline hero-headline--seo">
-        AI-распознавание <span class="gradient-text gradient-text--shimmer">накладных</span>
+        <span class="nowrap">AI-распознавание</span> <span class="gradient-text gradient-text--shimmer">накладных</span>
       </h1>
+      <p class="hero-lead" data-animate="fade-up" data-delay="2">
+        Сфотографируйте накладную — ScanFlow заполнит <strong>приходную в&nbsp;1С:УНФ</strong>
+        и&nbsp;подготовит <strong>черновик платёжки в&nbsp;СберБизнесе</strong>.
+      </p>
 
       <ol class="hero-steps" data-animate="fade-up" data-delay="2">
         <li class="hero-steps__item">
@@ -176,8 +175,8 @@
               <path d="M14 3l2.6 6 6.4 1.4-4.8 4.4 1.3 6.7L14 18.4 8.5 21.5 9.8 14.8 5 10.4l6.4-1.4L14 3z" fill="currentColor"/>
             </svg>
           </div>
-          <h3 class="hero-steps__title">AI-распознавание</h3>
-          <p class="hero-steps__text">Сравнение цен — алерт, если цена выше средней</p>
+          <h3 class="hero-steps__title">ИИ читает накладную</h3>
+          <p class="hero-steps__text">Номер, поставщик, товары и суммы — с проверкой арифметики</p>
         </li>
         <li class="hero-steps__item">
           <span class="hero-steps__num">3</span>
@@ -201,7 +200,7 @@
             </svg>
           </div>
           <h3 class="hero-steps__title">Документ в 1С</h3>
-          <p class="hero-steps__text">Приходная накладная в 1С:УНФ<span class="hero-steps__soon">+ IIKO скоро</span></p>
+          <p class="hero-steps__text">Приходная накладная в 1С:УНФ<span class="hero-steps__soon">iiko — скоро</span></p>
         </li>
       </ol>
 
@@ -222,7 +221,7 @@
         </form>
         <p class="hero-email-form__error" id="hero-email-error" role="alert" hidden></p>
         <a href="#try" class="btn-ghost hero-email-form__secondary">
-          Попробовать без регистрации
+          Посмотреть пример результата
         </a>
       </div>
       <ul class="hero-trust" data-animate="fade-up" data-delay="4">
@@ -236,7 +235,7 @@
         </li>
         <li>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Серверы и фото — в РФ
+          Фото храним на серверах в РФ
         </li>
       </ul>
     </div>
@@ -245,9 +244,9 @@
   <!-- ========== DEMO VIDEO ========== -->
   <section class="demo-video-section" id="demo">
     <div class="container">
-      <div class="section-label" data-animate="fade-up">Demo</div>
+      <div class="section-label" data-animate="fade-up">Демо</div>
       <h2 class="section-title" data-animate="fade-up" data-delay="1">
-        <span class="gradient-text">3 секунды</span> от фото до записи в 1С
+        От фото до готовой накладной — <span class="gradient-text">за полминуты</span>
       </h2>
       <div class="demo-video-wrap" data-animate="fade-up" data-delay="2">
         <video class="demo-video"
@@ -267,8 +266,8 @@
         4 типа документов — <span class="gradient-text">из коробки</span>
       </h2>
       <p class="section-sub" data-animate="fade-up" data-delay="2">
-        Фотографируйте с телефона или скидывайте сканы из почты — AI сам определит тип
-        и вытащит нужные поля. Любой формат: JPG, PNG, PDF, HEIC.
+        Фотографируйте с телефона или пересылайте сканы на почту — ScanFlow сам определит тип
+        документа и вытащит нужные поля. Форматы: JPG, PNG, PDF и XML-файлы УПД из ЭДО.
       </p>
 
       <div class="scan-tabs" data-animate="fade-up" data-delay="3">
@@ -315,8 +314,8 @@
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Номер накладной и дата</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Поставщик: наименование, ИНН, КПП, адрес</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Позиции: наименование, количество, цена, сумма, НДС</li>
-              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Кросс-проверка <code>qty × price = total</code> на каждой строке</li>
-              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Маппинг товаров с вашим каталогом 1С (LLM)</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Проверка «количество × цена = сумма» в каждой строке</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Подбор товаров из вашего каталога 1С</li>
             </ul>
             <div class="scan-fields__out">→ <strong>1С:УНФ:</strong> «Приходная накладная» с фото-вложением</div>
           </div>
@@ -344,7 +343,7 @@
             <ul>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Номер УПД, дата, статус («1» / «2»)</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Продавец + покупатель с реквизитами</li>
-              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Все позиции + ставки НДС (0/10/20%)</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Все позиции + ставки НДС (0, 10, 20 и 22%)</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Сумма НДС и сумма без НДС отдельно</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Дата приёма груза и подпись грузополучателя</li>
             </ul>
@@ -402,7 +401,7 @@
             <ul>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Номер счёт-фактуры и дата выписки</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Продавец + покупатель + грузоотправитель / получатель</li>
-              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Позиции с разделением ставок НДС (0/10/20%)</li>
+              <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Позиции с разделением ставок НДС (0, 10, 20 и 22%)</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Сумма НДС отдельно — для подачи к вычету</li>
               <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Подпись и расшифровка руководителя</li>
             </ul>
@@ -434,8 +433,8 @@
             </svg>
           </div>
           <div class="pf-node__body">
-            <strong>Фото</strong>
-            <small>JPG · PDF · до 20 MB</small>
+            <strong>Фото или файл</strong>
+            <small>JPG · PDF · XML · до 20 МБ</small>
           </div>
         </div>
 
@@ -447,8 +446,8 @@
             </svg>
           </div>
           <div class="pf-node__body">
-            <strong>Claude Sonnet 4.6</strong>
-            <small>OCR + парсинг + маппинг</small>
+            <strong>ИИ-распознавание</strong>
+            <small>чтение, проверка, подбор товаров</small>
           </div>
           <span class="pf-node__pulse"></span>
         </div>
@@ -493,10 +492,10 @@
             <div class="feature-icon feature-icon--blue">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 8v8m-4-4h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/></svg>
             </div>
-            <span class="bento-tag">закуп · авто</span>
+            <span class="bento-tag">Закупки</span>
           </div>
           <h3>Закупочные цены<br>обновляются сами</h3>
-          <p>Каждая накладная сравнивается с предыдущей поставкой. Видишь, как двигается цена у каждого поставщика — без таблиц в Excel.</p>
+          <p>Каждая накладная сравнивается с прошлыми поставками. Видно, как меняется цена у каждого поставщика, — без таблиц в Excel.</p>
           <div class="bento-visual" aria-hidden="true">
             <svg viewBox="0 0 240 80" preserveAspectRatio="none" class="sparkline">
               <defs>
@@ -519,17 +518,18 @@
           </div>
         </div>
 
-        <!-- Tile 2 (narrow) — Розничные цены -->
+        <!-- Tile 2 (narrow) — XML из ЭДО (src/xml): цифры из файла, без распознавания -->
         <div class="bento-tile" data-animate="fade-up" data-delay="1">
           <div class="bento-head">
             <div class="feature-icon feature-icon--green">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M4 12h16M12 4v16" stroke="currentColor" stroke-width="1.6"/></svg>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M6 3h8l5 5v12a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 13l-2 2 2 2M14.5 13l2 2-2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
+            <span class="bento-tag">ЭДО</span>
           </div>
-          <h3>Розница<br>по правилам</h3>
-          <p>Наценка, округление до .90, разные правила для категорий — всё считается по формуле сразу при импорте.</p>
+          <h3>УПД из ЭДО<br>читается точно</h3>
+          <p>Пришёл XML-файл УПД или счёт-фактуры? ScanFlow возьмёт цифры прямо из файла — точно как в документе, без фото и ошибок чтения.</p>
           <div class="bento-formula" aria-hidden="true">
-            <code>230 × 1.35 → 311 → <b>309.90</b></code>
+            <code>ON_NSCHFDOPPR_….xml → <b>14 строк</b></code>
           </div>
         </div>
 
@@ -578,10 +578,10 @@
                 <div class="feature-icon feature-icon--purple">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="11" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="6" y="6" width="11" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="9" y="9" width="11" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>
                 </div>
-                <span class="bento-tag">multi-page · авто</span>
+                <span class="bento-tag">Несколько страниц</span>
               </div>
               <h3>3 фото —<br><span class="gradient-text">1 накладная</span></h3>
-              <p>Снимай страницы по очереди, не парься с порядком. ScanFlow увидит одинаковый номер и поставщика — соберёт все позиции в одну приходную. ТОРГ-12 на 4 листа? Загрузишь как 4 фото, получишь один документ.</p>
+              <p>Снимайте страницы в любом порядке. ScanFlow увидит одинаковый номер и поставщика и соберёт все позиции в одну приходную. ТОРГ-12 на 4 листа — 4 фото, один документ.</p>
             </div>
           </div>
         </div>
@@ -594,10 +594,10 @@
                 <div class="feature-icon feature-icon--orange">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </div>
-                <span class="bento-tag">telegram · per-user</span>
+                <span class="bento-tag">Telegram</span>
               </div>
               <h3>Уведомления<br>в Telegram</h3>
-              <p>Свой bot, свой chat_id. Новая накладная, ошибка OCR, расхождение сумм — узнаёшь раньше, чем бухгалтер откроет 1С.</p>
+              <p>Новая накладная, ошибка распознавания, расхождение сумм — узнаете раньше, чем бухгалтер откроет 1С. По желанию — сводка подорожаний за неделю.</p>
             </div>
             <div class="bento-tg" aria-hidden="true">
               <div class="tg-bubble">
@@ -626,9 +626,9 @@
         Фото → распознали → отправили <span class="gradient-text">сами</span>
       </h2>
       <p class="section-sub" data-animate="fade-up" data-delay="2">
-        Так это выглядит в реальном кабинете: загрузили фото с телефона, через 3 секунды
-        видишь распознанную накладную, ещё через секунду она уже в 1С, платёжка в Сбере и
-        уведомление в Telegram.
+        Так это выглядит в кабинете: вы загружаете фото с телефона, примерно через полминуты
+        видите распознанную накладную, а дальше она уходит в 1С, платёжка ложится в черновики
+        Сбера и приходит уведомление в Telegram.
       </p>
 
       <div class="flow-track">
@@ -671,7 +671,7 @@
 
         <!-- Arrow 1→2 -->
         <div class="flow-arrow" aria-hidden="true">
-          <span class="flow-arrow__label">3 сек</span>
+          <span class="flow-arrow__label">≈ 30 сек</span>
           <svg width="48" height="20" viewBox="0 0 48 20" fill="none">
             <path d="M2 10h42m-6-6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -688,7 +688,7 @@
           <div class="flow-card__body">
             <div class="flow-card__step">
               <span class="flow-card__num">2</span>
-              <h3 class="flow-card__title">Распознали за 3&nbsp;сек</h3>
+              <h3 class="flow-card__title">Распознали за&nbsp;полминуты</h3>
             </div>
             <div class="flow-fields" aria-hidden="true">
               <div class="ff-row"><span class="ff-key">Номер</span><span class="ff-val">2841</span></div>
@@ -704,7 +704,7 @@
             </div>
             <div class="flow-card__status flow-card__status--ai">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.39 5.45L20 8.7l-4.18 3.83L17 18.5 12 15.77 7 18.5l1.18-5.97L4 8.7l5.61-1.25L12 2z" fill="currentColor"/></svg>
-              Claude Sonnet 4.6 · 14 позиций сопоставлены
+              14 позиций сопоставлены с 1С
             </div>
           </div>
         </article>
@@ -766,7 +766,7 @@
             </ul>
             <div class="flow-card__status flow-card__status--done">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Готово · твой ход — продать товар
+              Готово — товар можно продавать
             </div>
           </div>
         </article>
@@ -782,7 +782,7 @@
         Не оцифровка — <span class="gradient-text">настоящий ИИ</span>
       </h2>
       <p class="section-sub" data-animate="fade-up" data-delay="2">
-        Под капотом Claude Sonnet 4.6. Он понимает накладную как человек: восстанавливает смазанные названия,
+        ИИ понимает накладную как человек: восстанавливает смазанные названия,
         проверяет арифметику и сам пересчитывает упаковки в нужные вам единицы.
       </p>
 
@@ -869,23 +869,23 @@
           </div>
           <h3>Сопоставление с 1С</h3>
           <p>ИИ сразу подбирает позицию из вашего справочника номенклатуры — не нужно
-             руками мапить «Помилка Сетан Семам» на «Кальмар филе мороженый».</p>
+             руками сопоставлять «Помилка Сетан Семам» на «Кальмар филе мороженый».</p>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- ========== LLM MAPPING (interactive before/after) ========== -->
+  <!-- ========== ПОДБОР ТОВАРОВ (интерактивная демонстрация) ========== -->
   <section class="mapping-section" id="mapping">
     <div class="container">
-      <div class="section-label" data-animate="fade-up">LLM-маппинг</div>
+      <div class="section-label" data-animate="fade-up">Подбор товаров</div>
       <h2 class="section-title" data-animate="fade-up" data-delay="1">
         Один клик — <span class="gradient-text">и весь список встал на место</span>
       </h2>
       <p class="section-sub" data-animate="fade-up" data-delay="2">
         Поставщик прислал товары с длинными кодами, габаритами и упаковочными коэффициентами?
-        Не нужно заводить каждую позицию в справочник руками — нажмите «LLM-маппинг», и
-        нейросеть сама подберёт совпадения из вашего 1С-каталога.
+        Не нужно заводить каждую позицию в справочник руками: ИИ сам найдёт совпадения
+        в вашем каталоге 1С, а подтверждённые пары запомнит.
       </p>
 
       <div class="mapping-demo" data-animate="fade-up" data-delay="3" id="mapping-demo">
@@ -983,7 +983,7 @@
               <svg class="mapping-demo__cta-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 2l2.39 5.45L20 8.7l-4.18 3.83L17 18.5 12 15.77 7 18.5l1.18-5.97L4 8.7l5.61-1.25L12 2z" fill="currentColor"/>
               </svg>
-              <span class="mapping-demo__cta-label">LLM-маппинг</span>
+              <span class="mapping-demo__cta-label">Подобрать из 1С</span>
             </span>
             <span class="mapping-demo__cta-spinner" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -992,97 +992,56 @@
               </svg>
             </span>
           </button>
-          <div class="mapping-demo__meta">
-            <span class="mapping-demo__meta-time">≈ 0,8 сек</span>
-            <span class="mapping-demo__meta-sep">·</span>
-            <span class="mapping-demo__meta-model">Claude Haiku 4.5</span>
-          </div>
         </div>
       </div>
 
-      <!-- Model strip — модель меняется в Настройки → claude_model. -->
-      <div class="mapping-models" data-animate="fade-up" data-delay="4">
-        <div class="mapping-models__label">Один запрос делает всё — OCR + структурирование + маппинг. Модель выбираете в настройках.</div>
-        <ul class="mapping-models__list">
-          <li class="mapping-models__chip mapping-models__chip--accent">
-            <span class="mapping-models__chip-name">Claude Sonnet 4.6</span>
-            <span class="mapping-models__chip-note">по умолчанию · баланс точности и скорости</span>
-          </li>
-          <li class="mapping-models__chip">
-            <span class="mapping-models__chip-name">Claude Haiku 4.5 <span class="mapping-models__nano">«нано»</span></span>
-            <span class="mapping-models__chip-note">для больших объёмов · дешевле и быстрее</span>
-          </li>
-          <li class="mapping-models__chip mapping-models__chip--ocr">
-            <span class="mapping-models__chip-name">Google Vision + Tesseract</span>
-            <span class="mapping-models__chip-note">опциональный hybrid-режим без LLM</span>
-          </li>
-        </ul>
-      </div>
     </div>
   </section>
 
-  <!-- ========== TRY (upload) ========== -->
+  <!-- ========== ПРИМЕР РЕЗУЛЬТАТА ========== -->
   <section class="demo-section" id="try">
     <div class="container">
-      <div class="section-label" data-animate="fade-up">Попробуйте сейчас</div>
+      <div class="section-label" data-animate="fade-up">Пример результата</div>
       <h2 class="section-title" data-animate="fade-up" data-delay="1">
-        Загрузите тестовую накладную — <span class="gradient-text">бесплатно</span>
+        Так выглядит <span class="gradient-text">распознанная накладная</span>
       </h2>
       <p class="section-sub" data-animate="fade-up" data-delay="2">
-        Без регистрации. Одна бесплатная проверка, чтобы вы увидели как работает система.
+        Справа — результат по ТОРГ-12 №&nbsp;2841. Чтобы проверить на своей накладной, создайте аккаунт: в бете это бесплатно.
       </p>
 
       <div class="demo-layout" data-animate="fade-up" data-delay="3">
-        <!-- Upload area -->
+        <!-- Свою накладную распознаём только в кабинете: анонимного распознавания нет.
+             Файл, брошенный на панель, открывает регистрацию (landing.js). -->
         <div class="demo-upload">
           <div class="demo-dropzone" id="demo-dropzone">
-            <div class="dropzone-idle" id="dropzone-idle">
+            <div class="dropzone-idle">
               <div class="dropzone-icon">
-                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
                   <rect x="6" y="10" width="36" height="32" rx="4" stroke="currentColor" stroke-width="2" opacity="0.3"/>
                   <path d="M24 28V12m0 0l-7 7m7-7l7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </div>
-              <div class="dropzone-text">Перетащите фото накладной</div>
-              <div class="dropzone-or">или</div>
-              <button class="btn-upload" id="btn-upload">Выбрать файл</button>
-              <div class="dropzone-hint">JPG, PNG до 20 МБ</div>
+              <div class="dropzone-text">Проверьте на своей накладной</div>
+              <p class="dropzone-note">Создайте аккаунт и загрузите фото в кабинете — с телефона, с компьютера или пересылкой на почту.</p>
+              <a href="#auth" class="btn-upload" data-action="hero-register">Создать аккаунт</a>
+              <div class="dropzone-hint">JPG, PNG, PDF или XML из ЭДО · до 20 МБ</div>
             </div>
-            <div class="dropzone-processing" id="dropzone-processing" style="display:none">
-              <div class="scan-animation">
-                <div class="scan-doc">
-                  <div class="scan-doc-line"></div>
-                  <div class="scan-doc-line short"></div>
-                  <div class="scan-doc-line"></div>
-                  <div class="scan-doc-line medium"></div>
-                  <div class="scan-doc-line short"></div>
-                </div>
-                <div class="scan-beam"></div>
-              </div>
-              <div class="processing-text">Распознаём документ<span class="dots"></span></div>
-              <div class="processing-stage" id="processing-stage">OCR анализ</div>
-            </div>
-            <input type="file" id="demo-file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" style="display:none">
           </div>
         </div>
 
-        <!-- Result area -->
-        <div class="demo-result" id="demo-result">
-          <div class="result-empty" id="result-empty">
-            <div class="result-empty-icon">
-              <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-                <path d="M8 12a4 4 0 014-4h16a4 4 0 014 4v16a4 4 0 01-4 4H12a4 4 0 01-4-4V12z" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
-                <path d="M16 18h8M16 22h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
-              </svg>
-            </div>
-            <p>Здесь появится результат распознавания</p>
-          </div>
-          <div class="result-data" id="result-data" style="display:none">
+        <!-- Пример распознанной накладной (та же № 2841, что в блоках выше) -->
+        <div class="demo-result">
+          <div class="result-data is-sample">
             <div class="result-header">
-              <div class="result-badge">Распознано</div>
-              <div class="result-type" id="result-type"></div>
+              <div class="result-badge">Пример</div>
+              <div class="result-type">ТОРГ-12</div>
             </div>
-            <div class="result-fields" id="result-fields"></div>
+            <div class="result-fields">
+              <div class="result-field"><span class="result-field-label">Номер</span><span class="result-field-value">2841</span></div>
+              <div class="result-field"><span class="result-field-label">Дата</span><span class="result-field-value">30.01.2026</span></div>
+              <div class="result-field"><span class="result-field-label">Поставщик</span><span class="result-field-value">ИП Чихинов Г.А.</span></div>
+              <div class="result-field"><span class="result-field-label">ИНН</span><span class="result-field-value">504410008491</span></div>
+            </div>
             <div class="result-items-title">Товары</div>
             <div class="result-items-table">
               <table>
@@ -1094,49 +1053,33 @@
                     <th>Сумма</th>
                   </tr>
                 </thead>
-                <tbody id="result-items"></tbody>
+                <tbody>
+                  <tr><td>Баклажаны</td><td>12 кг</td><td>207,00 ₽</td><td>2 484,00 ₽</td></tr>
+                  <tr><td>Грибы шампиньоны</td><td>5 кг</td><td>180,00 ₽</td><td>900,00 ₽</td></tr>
+                  <tr><td>Картофель мини</td><td>13 кг</td><td>58,00 ₽</td><td>754,00 ₽</td></tr>
+                  <tr class="is-more"><td colspan="4">… ещё 11 позиций</td></tr>
+                </tbody>
               </table>
             </div>
-            <div class="result-total" id="result-total"></div>
-            <div class="result-cta">
-              <p>Понравилось? Зарегистрируйтесь — пока <strong>сервис в бете</strong>, всё бесплатно.</p>
-              <a href="#auth" class="btn-primary btn-sm">Создать аккаунт</a>
-            </div>
+            <div class="result-total"><span>Итого: <strong>22 893,00 ₽</strong></span></div>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ========== INTEGRATIONS MARQUEE ========== -->
-  <section class="integrations-section" aria-label="Поддерживаемые интеграции">
+  <!-- ========== ИНТЕГРАЦИИ ========== -->
+  <section class="integrations-section" aria-label="Интеграции">
     <div class="container">
       <div class="integrations-label" data-animate="fade-up">Работает с</div>
-    </div>
-    <div class="integrations">
-      <div class="integrations-track">
-        <span class="brand brand--1c"><b>1C</b><span>УНФ</span></span>
-        <span class="brand brand--sber">сбер<b>бизнес</b></span>
-        <span class="brand brand--alfa">Α<b>альфа</b></span>
-        <span class="brand brand--tochka">⬤ <b>точка</b></span>
-        <span class="brand brand--tinkoff"><b>T</b>·Бизнес</span>
-        <span class="brand brand--vtb">ВТБ <b>Бизнес</b></span>
-        <span class="brand brand--telegram"><b>◯</b> Telegram</span>
-        <span class="brand brand--claude"><b>✦</b> Claude API</span>
-        <span class="brand brand--gv"><b>G</b> Vision</span>
-        <span class="brand brand--dadata">DaData<b>.ru</b></span>
-        <!-- duplicate for seamless loop -->
-        <span class="brand brand--1c" aria-hidden="true"><b>1C</b><span>УНФ</span></span>
-        <span class="brand brand--sber" aria-hidden="true">сбер<b>бизнес</b></span>
-        <span class="brand brand--alfa" aria-hidden="true">Α<b>альфа</b></span>
-        <span class="brand brand--tochka" aria-hidden="true">⬤ <b>точка</b></span>
-        <span class="brand brand--tinkoff" aria-hidden="true"><b>T</b>·Бизнес</span>
-        <span class="brand brand--vtb" aria-hidden="true">ВТБ <b>Бизнес</b></span>
-        <span class="brand brand--telegram" aria-hidden="true"><b>◯</b> Telegram</span>
-        <span class="brand brand--claude" aria-hidden="true"><b>✦</b> Claude API</span>
-        <span class="brand brand--gv" aria-hidden="true"><b>G</b> Vision</span>
-        <span class="brand brand--dadata" aria-hidden="true">DaData<b>.ru</b></span>
-      </div>
+      <ul class="integrations-grid" data-animate="fade-up" data-delay="1">
+        <li class="int-item"><span class="int-kind">Выгрузка документов</span><span class="brand brand--1c"><b>1C</b><span>УНФ</span></span></li>
+        <li class="int-item"><span class="int-kind">Черновики платёжек</span><span class="brand brand--sber">сбер<b>бизнес</b></span></li>
+        <li class="int-item"><span class="int-kind">Уведомления</span><span class="brand brand--telegram"><b>◯</b> Telegram</span></li>
+        <li class="int-item"><span class="int-kind">Проверка по ИНН</span><span class="brand brand--dadata">DaData<b>.ru</b></span></li>
+        <li class="int-item"><span class="int-kind">Документы из ЭДО</span><span class="int-text">XML: УПД, <span class="nowrap">счёт-фактура</span></span></li>
+        <li class="int-item"><span class="int-kind">Банковские выписки</span><span class="int-text">CSV из любого банка</span></li>
+      </ul>
     </div>
   </section>
 
@@ -1197,7 +1140,7 @@
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><strong>1 000&nbsp;страниц</strong> в месяц</li>
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Всё из «Старт»</li>
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><strong>СберБизнес</strong> — черновики платёжек</li>
-            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>LLM-маппинг с каталогом 1С</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>ИИ-подбор товаров из каталога&nbsp;1С</li>
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Приоритетная поддержка в Telegram</li>
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>≈ 1 ₽ за страницу — дешевле 1С:РПД (3 ₽/стр)</li>
           </ul>
@@ -1246,7 +1189,7 @@
   <!-- ========== FAQ ========== -->
   <section class="faq-section" id="faq">
     <div class="container">
-      <div class="section-label" data-animate="fade-up">FAQ</div>
+      <div class="section-label" data-animate="fade-up">Вопросы и ответы</div>
       <h2 class="section-title" data-animate="fade-up" data-delay="1">
         Частые <span class="gradient-text">вопросы</span>
       </h2>
@@ -1258,17 +1201,17 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            Сейчас сервис в открытой бете — распознавание бесплатно, лимитов нет. Платные тарифы появятся когда мы выйдем из беты; мы заранее предупредим и сохраним бонусы для тестовых аккаунтов.
+            Сейчас сервис в открытой бете — распознавание бесплатно, лимитов нет. Платные тарифы появятся, когда мы выйдем из беты; мы заранее предупредим и сохраним бонусы для тестовых аккаунтов.
           </div>
         </details>
 
         <details class="faq-item" data-animate="fade-up" data-delay="2">
           <summary class="faq-question">
-            <span>Что если OCR ошибся? Кто проверяет суммы?</span>
+            <span>Что если распознавание ошиблось? Кто проверяет суммы?</span>
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            Каждая позиция проверяется кросс-валидацией: <code>qty × price ≈ total</code>. Если что-то не сходится, накладная подсвечивается флагом <code>items_total_mismatch</code> и не уходит в 1С автоматом — ждёт твоего ОК. По нашим данным эта проверка ловит ~30% OCR-ошибок до того, как ты их увидишь.
+            Каждая строка проверяется: количество × цена ≈ сумма. Если что-то не сходится, накладная помечается «требует проверки» и не уходит в 1С автоматически, пока вы её не посмотрите. По нашим данным эта проверка ловит около 30% ошибок распознавания до того, как вы их увидите.
           </div>
         </details>
 
@@ -1278,7 +1221,7 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            1С:Управление нашей фирмой (УНФ), любая редакция от 1.6. Ставится одна внешняя обработка <code>.epf</code> (скачаешь с лендинга после регистрации). 1С сама забирает одобренные накладные из ScanFlow по REST, создаёт «Приходную накладную» с товарами, контрагентом и фото.
+            1С:Управление нашей фирмой (УНФ), любая редакция от 1.6. Ставится одна внешняя обработка <code>.epf</code> — она скачивается в кабинете после регистрации. 1С сама забирает одобренные накладные из ScanFlow и создаёт «Приходную накладную» с товарами, контрагентом и фото.
           </div>
         </details>
 
@@ -1288,7 +1231,7 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            Создаём <b>черновик</b> платёжного поручения через СберБизнес API. Документ ложится в твоём СберБизнесе в раздел «Черновики» — ты подписываешь его токеном вручную. ЭП на стороне ScanFlow не делаем — деньги уходят только с твоей подписи.
+            Создаём <b>черновик</b> платёжного поручения через API СберБизнеса. Документ ложится в ваш СберБизнес в раздел «Черновики», а подписываете его вы, токеном. Электронную подпись ScanFlow не ставит — деньги уходят только с вашей подписью.
           </div>
         </details>
 
@@ -1298,7 +1241,7 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            Фото хранятся на серверах в РФ (хостинг scanflow.ru). К каждому документу в 1С автоматически прикрепляется оригинал фото. Через 90 дней неактуальные оригиналы удаляются с диска — остаётся распознанная структура в БД. Дамп MySQL делаем вручную через <code>mysqldump</code> перед апдейтами и по запросу клиента.
+            Фото хранятся на наших серверах в РФ. Распознаёт их внешняя ИИ-модель: изображение передаётся ей по защищённому соединению. К каждому документу в 1С автоматически прикрепляется оригинал фото. Фото накладной, которая ещё не ушла в 1С, не удаляется; после отправки оно хранится 90 дней, дальше остаётся распознанная структура. Базу копируем автоматически каждый день, копии храним 14 дней.
           </div>
         </details>
 
@@ -1308,7 +1251,7 @@
             <span class="faq-chevron" aria-hidden="true"></span>
           </summary>
           <div class="faq-answer">
-            Сейчас один аккаунт на инсталляцию: один логин, один API-ключ, свой Telegram-bot для уведомлений. Multi-user с ролями (админ / оператор / просмотр) и общей организацией — в дорожной карте, появится ближе к выходу из беты.
+            Сейчас у компании один аккаунт: один вход и свой Telegram-бот для уведомлений. Несколько пользователей с ролями (администратор, оператор, просмотр) — в планах, появятся ближе к выходу из беты.
           </div>
         </details>
       </div>
@@ -1355,7 +1298,7 @@
               </button>
               <button type="button" class="btn-outline btn-lg" id="auth-cta-login">Уже есть? Войти</button>
             </div>
-            <p class="auth-cta__small">Платные тарифы появятся когда выйдем из беты. Тестовые аккаунты получат бонусы.</p>
+            <p class="auth-cta__small">Платные тарифы появятся, когда выйдем из беты. Тестовые аккаунты получат бонусы.</p>
           </div>
 
           <!-- logged-in state — toggled by landing.js when localStorage.apiKey present -->
@@ -1528,24 +1471,27 @@
           </div>
           <span class="logo-text">ScanFlow</span>
         </a>
-        <p>Автоматизация документооборота для малого и среднего бизнеса</p>
+        <p>Распознавание накладных и выгрузка в 1С:УНФ для малого и среднего бизнеса.</p>
+        <a class="footer-mail" href="mailto:hi@scanflow.ru">hi@scanflow.ru</a>
       </div>
       <div class="footer-links">
         <div class="footer-col">
           <h4>Продукт</h4>
           <a href="#features">Возможности</a>
-          <a href="#demo">Демо</a>
           <a href="#pricing">Тарифы</a>
+          <a href="#faq">Вопросы и ответы</a>
+          <a href="/blog">Блог</a>
         </div>
         <div class="footer-col">
-          <h4>Интеграции</h4>
-          <a href="#">1С:УНФ</a>
-          <a href="#">Telegram</a>
-          <a href="#">Банки</a>
+          <h4>Как это устроено</h4>
+          <a href="/blog/perevod-paper-zacenok-v-1c-unf">Выгрузка в 1С:УНФ</a>
+          <a href="/blog/avto-platezhka-v-sberbiznes">Платёжки в СберБизнесе</a>
+          <a href="/blog/dadata-i-kontragenty-po-inn">Поставщики по ИНН</a>
+          <a href="/blog/multi-page-nakladnye-sliyanie">Многостраничные накладные</a>
         </div>
       </div>
       <div class="footer-bottom">
-        <span>&copy; 2026 ScanFlow. Все права защищены.</span>
+        <span>&copy; 2026 ScanFlow</span>
       </div>
     </div>
     <script type="application/ld+json">
@@ -1556,32 +1502,32 @@
         {
           "@type": "Question",
           "name": "Сколько стоит распознавание одной накладной?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Сейчас сервис в открытой бете — распознавание бесплатно, лимитов нет. Платные тарифы появятся когда мы выйдем из беты; мы заранее предупредим и сохраним бонусы для тестовых аккаунтов." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Сейчас сервис в открытой бете — распознавание бесплатно, лимитов нет. Платные тарифы появятся, когда мы выйдем из беты; мы заранее предупредим и сохраним бонусы для тестовых аккаунтов." }
         },
         {
           "@type": "Question",
-          "name": "Что если OCR ошибся? Кто проверяет суммы?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Каждая позиция проверяется кросс-валидацией qty × price ≈ total. Если что-то не сходится, накладная подсвечивается флагом items_total_mismatch и не уходит в 1С автоматом — ждёт твоего ОК. Эта проверка ловит ~30% OCR-ошибок до того, как ты их увидишь." }
+          "name": "Что если распознавание ошиблось? Кто проверяет суммы?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Каждая строка проверяется: количество × цена ≈ сумма. Если что-то не сходится, накладная помечается «требует проверки» и не уходит в 1С автоматически, пока вы её не посмотрите. По нашим данным эта проверка ловит около 30% ошибок распознавания до того, как вы их увидите." }
         },
         {
           "@type": "Question",
           "name": "Какой 1С нужен и что устанавливать?",
-          "acceptedAnswer": { "@type": "Answer", "text": "1С:Управление нашей фирмой (УНФ), любая редакция от 1.6. Ставится одна внешняя обработка .epf — скачаешь с лендинга после регистрации. 1С сама забирает одобренные накладные из ScanFlow по REST, создаёт «Приходную накладную» с товарами, контрагентом и фото." }
+          "acceptedAnswer": { "@type": "Answer", "text": "1С:Управление нашей фирмой (УНФ), любая редакция от 1.6. Ставится одна внешняя обработка .epf — она скачивается в кабинете после регистрации. 1С сама забирает одобренные накладные из ScanFlow и создаёт «Приходную накладную» с товарами, контрагентом и фото." }
         },
         {
           "@type": "Question",
           "name": "Как работает отправка в Сбер?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Создаём черновик платёжного поручения через СберБизнес API. Документ ложится в твоём СберБизнесе в раздел «Черновики» — ты подписываешь его токеном вручную. ЭП на стороне ScanFlow не делаем — деньги уходят только с твоей подписи." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Создаём черновик платёжного поручения через API СберБизнеса. Документ ложится в ваш СберБизнес в раздел «Черновики», а подписываете его вы, токеном. Электронную подпись ScanFlow не ставит — деньги уходят только с вашей подписью." }
         },
         {
           "@type": "Question",
           "name": "Куда уходят фото моих накладных?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Фото хранятся на серверах в РФ (хостинг scanflow.ru). К каждому документу в 1С автоматически прикрепляется оригинал фото. Через 90 дней неактуальные оригиналы удаляются с диска — остаётся распознанная структура в БД. Дамп MySQL делаем вручную через mysqldump перед апдейтами и по запросу клиента." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Фото хранятся на наших серверах в РФ. Распознаёт их внешняя ИИ-модель: изображение передаётся ей по защищённому соединению. К каждому документу в 1С автоматически прикрепляется оригинал фото. Фото накладной, которая ещё не ушла в 1С, не удаляется; после отправки оно хранится 90 дней, дальше остаётся распознанная структура. Базу копируем автоматически каждый день, копии храним 14 дней." }
         },
         {
           "@type": "Question",
           "name": "Можно ли своих сотрудников добавить?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Сейчас один аккаунт на инсталляцию: один логин, один API-ключ, свой Telegram-bot для уведомлений. Multi-user с ролями (админ / оператор / просмотр) и общей организацией — в дорожной карте, появится ближе к выходу из беты." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Сейчас у компании один аккаунт: один вход и свой Telegram-бот для уведомлений. Несколько пользователей с ролями (администратор, оператор, просмотр) — в планах, появятся ближе к выходу из беты." }
         }
       ]
     }

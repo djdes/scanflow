@@ -13,7 +13,9 @@
   <meta property="og:title" content="Автоматическая платёжка в СберБизнес из накладной">
   <meta property="og:description" content="mTLS, OAuth, purpose без ёлочек, Authorization без Bearer. Грабли из продакшена.">
   <meta property="og:url" content="https://scanflow.ru/blog/avto-platezhka-v-sberbiznes">
-  <meta property="og:image" content="https://scanflow.ru/og/default.svg">
+  <meta property="og:image" content="https://scanflow.ru/og/default.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta property="og:site_name" content="ScanFlow">
   <meta property="og:locale" content="ru_RU">
   <meta property="article:published_time" content="2026-05-11">
@@ -23,22 +25,22 @@
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Автоматическая платёжка в СберБизнес из накладной">
   <meta name="twitter:description" content="mTLS, OAuth, purpose без ёлочек, Authorization без Bearer. Грабли из продакшена.">
-  <meta name="twitter:image" content="https://scanflow.ru/og/default.svg">
+  <meta name="twitter:image" content="https://scanflow.ru/og/default.png">
 
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@100..900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/landing.css">
   <link rel="stylesheet" href="/css/article.css">
 
   <script>
-    // Theme follows local time-of-day: 07:00–19:00 → light, else → dark.
+    // Тема — как в системе пользователя (prefers-color-scheme), до отрисовки <body>.
     (function () {
-      var h = new Date().getHours();
-      document.documentElement.setAttribute('data-theme', (h >= 7 && h < 19) ? 'light' : 'dark');
+      var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     })();
   </script>
 
@@ -48,14 +50,14 @@
     "@type": "Article",
     "headline": "Автоматическое создание платёжки в СберБизнес из накладной",
     "description": "Гайд по СберБизнес API: mTLS, OAuth, формат purpose, особенность Authorization без Bearer-префикса. Реальные грабли из продакшена.",
-    "image": "https://scanflow.ru/og/default.svg",
+    "image": "https://scanflow.ru/og/default.png",
     "datePublished": "2026-05-11",
     "dateModified": "2026-05-11",
     "author": { "@type": "Organization", "name": "ScanFlow" },
     "publisher": {
       "@type": "Organization",
       "name": "ScanFlow",
-      "logo": { "@type": "ImageObject", "url": "https://scanflow.ru/og/default.svg" }
+      "logo": { "@type": "ImageObject", "url": "https://scanflow.ru/icon-512.png" }
     },
     "mainEntityOfPage": "https://scanflow.ru/blog/avto-platezhka-v-sberbiznes"
   }
@@ -118,7 +120,7 @@
       </nav>
       <div class="header-actions">
         <a href="/#auth" class="btn-ghost">Войти</a>
-        <a href="/#demo" class="btn-primary-sm">Попробовать</a>
+        <a href="/#try" class="btn-primary-sm">Попробовать</a>
       </div>
     </div>
   </header>
@@ -373,7 +375,7 @@ export function sanitizePurpose(s: string): string {
         <p>Сценарий «фото накладной → платёжка в банке» теперь закрыт от начала до конца: распознали, провели в 1С, отправили оплату. Осталось закрыть один важный вспомогательный сценарий — заведение карточки нового поставщика. Об этом — в следующей статье.</p>
 
         <ul>
-          <li><a href="/blog/perevod-paper-zacenok-v-1c-unf">От фото накладной до приходной в 1С:УНФ за 3 секунды</a> — предыдущая часть пайплайна: как накладная попадает в учётную систему.</li>
+          <li><a href="/blog/perevod-paper-zacenok-v-1c-unf">От фото накладной до приходной в 1С:УНФ без ручного ввода</a> — предыдущая часть пайплайна: как накладная попадает в учётную систему.</li>
           <li><a href="/blog/dadata-i-kontragenty-po-inn">Автозаполнение контрагентов по ИНН через DaData</a> — следующий шаг: когда поставщик новый, заводим его карточку одним кликом.</li>
         </ul>
 
@@ -409,7 +411,7 @@ export function sanitizePurpose(s: string): string {
           <div class="related-grid">
             <a class="blog-card" href="/blog/perevod-paper-zacenok-v-1c-unf">
               <div class="blog-card-tags"><span class="blog-card-tag">1С:УНФ</span></div>
-              <h3>От фото накладной до приходной в 1С:УНФ за 3 секунды</h3>
+              <h3>От фото накладной до приходной в 1С:УНФ без ручного ввода</h3>
               <p class="blog-card-desc">Полный пайплайн: REST-контракт, маппинг номенклатуры, НДС по дате. Без рекламы, с цифрами из продакшена.</p>
               <div class="blog-card-meta"><b>8 мин</b> · 11 мая 2026</div>
             </a>
@@ -426,8 +428,40 @@ export function sanitizePurpose(s: string): string {
   </main>
 
   <footer class="site-footer">
-    <div class="container">
-      <p>© 2026 ScanFlow · OCR накладных для российского бизнеса</p>
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="logo">
+          <div class="logo-icon">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none">
+              <rect x="3" y="3" width="34" height="34" rx="8" stroke="currentColor" stroke-width="2.5"/>
+              <line x1="11" y1="14" x2="29" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <line x1="11" y1="20" x2="25" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+            </svg>
+          </div>
+          <span class="logo-text">ScanFlow</span>
+        </a>
+        <p>Распознавание накладных и выгрузка в 1С:УНФ для малого и среднего бизнеса.</p>
+        <a class="footer-mail" href="mailto:hi@scanflow.ru">hi@scanflow.ru</a>
+      </div>
+      <div class="footer-links">
+        <div class="footer-col">
+          <h4>Продукт</h4>
+          <a href="/#features">Возможности</a>
+          <a href="/#pricing">Тарифы</a>
+          <a href="/#faq">Вопросы и ответы</a>
+          <a href="/blog">Блог</a>
+        </div>
+        <div class="footer-col">
+          <h4>Как это устроено</h4>
+          <a href="/blog/perevod-paper-zacenok-v-1c-unf">Выгрузка в 1С:УНФ</a>
+          <a href="/blog/avto-platezhka-v-sberbiznes">Платёжки в СберБизнесе</a>
+          <a href="/blog/dadata-i-kontragenty-po-inn">Поставщики по ИНН</a>
+          <a href="/blog/multi-page-nakladnye-sliyanie">Многостраничные накладные</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 ScanFlow</span>
+      </div>
     </div>
   </footer>
 

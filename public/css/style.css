@@ -26,7 +26,8 @@
   --shadow: 0 1px 3px rgba(15,15,15,0.06);
   --shadow-md: 0 4px 14px rgba(15,15,15,0.08);
   --shadow-lg: 0 14px 40px rgba(15,15,15,0.14);
-  --font: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  /* Onest — с кириллицей. В DM Sans её нет: русский текст рисовался системным шрифтом. */
+  --font: 'Onest', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
   --mono: 'JetBrains Mono', 'Consolas', monospace;
   --transition: 0.12s ease;
 

@@ -26,8 +26,10 @@
   --radius:      6px;
   --radius-lg:   8px;
   --radius-xl:   12px;
-  --font:        'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-display:'Unbounded', 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Onest — с кириллицей. Прежний Outfit её не содержал: русский текст рисовался
+     системным шрифтом, латиница и цифры — Outfit, в одной строке два шрифта. */
+  --font:        'Onest', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display:'Unbounded', 'Onest', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --mono:        'JetBrains Mono', 'Consolas', monospace;
   --transition:  0.12s ease;
   --shadow-glow: 0 1px 3px rgba(15,15,15,0.18), 0 14px 40px rgba(15,15,15,0.24);
@@ -102,27 +104,6 @@ body {
 }
 
 /* ========== Ambient Effects ========== */
-
-.scan-line {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--gradient);
-  opacity: 0;
-  z-index: 900;
-  pointer-events: none;
-  animation: scanLineMove 8s ease-in-out infinite;
-}
-
-@keyframes scanLineMove {
-  0%, 100% { top: -2px; opacity: 0; }
-  5% { opacity: 0.6; }
-  50% { top: 100vh; opacity: 0.3; }
-  95% { opacity: 0.6; }
-  100% { top: -2px; opacity: 0; }
-}
 
 .grain-overlay {
   position: fixed;
@@ -214,25 +195,6 @@ body {
   align-items: center;
   gap: 12px;
   margin-left: auto;
-}
-
-.header-phone {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  color: var(--text-dim);
-  border: 1px solid var(--border-lit);
-  transition: var(--transition);
-  text-decoration: none;
-}
-
-.header-phone:hover {
-  color: var(--accent-blue);
-  border-color: var(--accent-blue);
-  background: rgba(35,131,226,0.05);
 }
 
 /* Buttons */
@@ -341,6 +303,8 @@ body {
 }
 
 .btn-upload {
+  display: inline-block;
+  text-decoration: none;
   background: rgba(35,131,226,0.1);
   color: var(--accent-blue);
   font-family: var(--font);
@@ -543,16 +507,53 @@ body {
   50%      { translate: 0 -22px; }
 }
 
-@media (max-width: 720px) {
-  .paper { font-size: 10px; padding: 4px 8px; }
-  .paper--5, .paper--3 { display: none; }
+/* Подзаголовок, форма и шаги теперь выше — бумажки по бокам не должны на них наезжать. */
+.paper--3 { bottom: auto; top: 600px; left: 4%; }
+.paper--4 { bottom: auto; top: 560px; right: 4%; }
+
+@media (max-width: 1180px) {
+  /* На узких экранах боковым бумажкам не хватает места рядом с формой и шагами. */
+  .paper--3, .paper--4 { display: none; }
 }
 
+@media (max-width: 720px) {
+  /* На телефоне бумажки налезали на заголовок. */
+  .hero-papers { display: none; }
+}
+
+/* Колонка: значок → заголовок → подзаголовок → форма → плашки доверия → шаги.
+   Порядок задан через order, чтобы форма попадала в первый экран и на телефоне. */
 .hero-content {
   position: relative;
   text-align: center;
-  max-width: 880px;
+  max-width: 1080px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hero-content > .hero-badge { order: 0; }
+.hero-content > h1 { order: 1; }
+.hero-content > .hero-lead { order: 2; }
+.hero-content > .hero-cta { order: 3; }
+.hero-content > .hero-trust { order: 4; }
+.hero-content > .hero-steps { order: 5; }
+
+.nowrap { white-space: nowrap; }
+
+.hero-lead {
+  max-width: 660px;
+  margin: 0 auto 30px;
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  text-wrap: balance;
+}
+
+.hero-lead strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* Eyebrow — small mono status line above the badge */
@@ -629,7 +630,7 @@ body {
   font-size: clamp(36px, 5.5vw, 72px);
   line-height: 1.05;
   max-width: 980px;
-  margin: 0 auto 44px;
+  margin: 0 auto 22px;
   color: var(--text);
   font-weight: 800;
   letter-spacing: -0.03em;
@@ -667,7 +668,8 @@ body {
 .hero-steps {
   list-style: none;
   padding: 0;
-  margin: 0 auto 40px;
+  margin: 0 auto;
+  width: 100%;
   max-width: 1080px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -702,8 +704,10 @@ body {
 }
 
 .hero-steps__num::before {
-  content: 'STEP ';
+  content: 'Шаг ';
 }
+
+.hero-steps__num { text-transform: uppercase; }
 
 .hero-steps__icon {
   display: inline-flex;
@@ -767,7 +771,7 @@ body {
 .hero-trust {
   list-style: none;
   padding: 0;
-  margin: -32px auto 0;
+  margin: 0 auto 44px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -854,7 +858,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 64px;
+  width: 100%;
+  margin-bottom: 18px;
 }
 
 /* Hero inline email form — primary CTA above the secondary outline button */
@@ -909,7 +914,7 @@ body {
 .hero-email-form__secondary {
   display: inline-flex;
   align-items: center;
-  margin: 12px auto 0;
+  margin: 10px auto 0;
   font-size: 13px;
 }
 
@@ -1128,6 +1133,30 @@ body {
   box-shadow:
     inset 0 0 0 1px rgba(255,255,255,0.5),
     0 12px 28px rgba(0,0,0,0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Полоса сканера ходит по бумаге. transform, а не top — без перерисовки страницы. */
+.scan-mock__paper::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 64px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(35,131,226,0) 0%, rgba(35,131,226,0.10) 70%, rgba(35,131,226,0.42) 97%, rgba(35,131,226,0) 100%);
+  animation: mockScan 3.6s ease-in-out infinite alternate;
+}
+
+@keyframes mockScan {
+  from { transform: translateY(-64px); }
+  to   { transform: translateY(360px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-mock__paper::after { display: none; }
 }
 
 [data-theme="light"] .scan-mock__paper {
@@ -1182,18 +1211,20 @@ body {
   gap: 10px;
 }
 
+/* Галочка — абсолютом, текст — обычной строкой. При display:flex каждый кусок
+   текста (до <code>, сам <code>, после) становился отдельной колонкой. */
 .scan-fields li {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  position: relative;
+  padding-left: 24px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
 }
 
 .scan-fields li svg {
-  flex-shrink: 0;
-  margin-top: 4px;
+  position: absolute;
+  left: 0;
+  top: 4px;
   color: var(--accent-green);
 }
 
@@ -2490,6 +2521,7 @@ body {
 .ai-conversion__from {
   color: var(--text-dim);
   flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2768,94 +2800,6 @@ body {
   box-shadow: 0 0 0 1px rgba(68,131,97,0.35);
 }
 
-.mapping-demo__meta {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.mapping-demo__meta-sep { margin: 0 6px; opacity: 0.5; }
-
-.mapping-demo__meta-model { color: var(--accent-purple); font-weight: 500; }
-
-/* Model strip */
-.mapping-models {
-  margin: 48px auto 0;
-  max-width: 900px;
-  text-align: center;
-}
-
-.mapping-models__label {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin-bottom: 18px;
-  letter-spacing: 0.02em;
-}
-
-.mapping-models__list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-  list-style: none;
-  padding: 0;
-}
-
-.mapping-models__chip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  text-align: left;
-  transition: border-color var(--transition), transform var(--transition);
-}
-
-.mapping-models__chip:hover {
-  border-color: var(--border-lit);
-  transform: translateY(-2px);
-}
-
-.mapping-models__chip--accent {
-  border-color: rgba(35,131,226,0.30);
-  background: linear-gradient(180deg, rgba(35,131,226,0.06), var(--bg-card));
-}
-
-.mapping-models__chip--ocr {
-  background: var(--bg-surface);
-}
-
-.mapping-models__chip-name {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text);
-  letter-spacing: -0.01em;
-}
-
-.mapping-models__nano {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-family: var(--font);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  background: rgba(155,135,196,0.15);
-  color: var(--accent-purple);
-  border: 1px solid rgba(155,135,196,0.30);
-  vertical-align: middle;
-}
-
-.mapping-models__chip-note {
-  font-size: 12px;
-  color: var(--text-dim);
-  line-height: 1.45;
-}
-
 /* Light theme tweaks */
 [data-theme="light"] .mapping-demo__badge--hit {
   background: rgba(68,131,97,0.12);
@@ -2897,7 +2841,6 @@ body {
 
   .mapping-demo__footer { flex-direction: column; align-items: stretch; }
   .mapping-demo__cta { justify-content: center; }
-  .mapping-demo__meta { text-align: center; }
 }
 
 /* ========== Demo Section ========== */
@@ -2988,84 +2931,13 @@ body {
   margin-top: 12px;
 }
 
-/* Processing animation */
-
-.dropzone-processing {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 40px;
-}
-
-.scan-animation {
-  position: relative;
-  width: 120px;
-  height: 160px;
-  margin-bottom: 24px;
-}
-
-.scan-doc {
-  width: 100%;
-  height: 100%;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-lit);
-  border-radius: var(--radius);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.scan-doc-line {
-  height: 8px;
-  background: var(--surface-tint-strong);
-  border-radius: 4px;
-}
-
-.scan-doc-line.short { width: 60%; }
-.scan-doc-line.medium { width: 80%; }
-
-.scan-beam {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--gradient);
-  box-shadow: 0 0 20px var(--accent-blue-glow), 0 0 60px var(--accent-blue-glow);
-  border-radius: 2px;
-  animation: scanBeam 2s ease-in-out infinite;
-}
-
-@keyframes scanBeam {
-  0% { top: 0; opacity: 0.8; }
-  50% { top: calc(100% - 3px); opacity: 1; }
-  100% { top: 0; opacity: 0.8; }
-}
-
-.processing-text {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.dots::after {
-  content: '';
-  animation: dots 1.5s steps(3) infinite;
-}
-
-@keyframes dots {
-  0% { content: ''; }
-  33% { content: '.'; }
-  66% { content: '..'; }
-  100% { content: '...'; }
-}
-
-.processing-stage {
-  font-size: 12px;
-  font-family: var(--mono);
-  color: var(--accent-blue);
-  margin-top: 8px;
+.dropzone-note {
+  max-width: 300px;
+  margin: 0 auto 18px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  text-align: center;
 }
 
 /* Result area */
@@ -3075,24 +2947,6 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   overflow: hidden;
-}
-
-.result-empty {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-  color: var(--text-muted);
-}
-
-.result-empty-icon {
-  margin-bottom: 16px;
-}
-
-.result-empty p {
-  font-size: 14px;
 }
 
 .result-data {
@@ -3127,6 +2981,29 @@ body {
   font-size: 13px;
   font-family: var(--mono);
   color: var(--text-muted);
+}
+
+/* Пример, а не распознанный файл посетителя: плашка нейтральная. */
+.result-data.is-sample .result-badge {
+  color: var(--text-dim);
+  background: var(--surface-tint-strong);
+}
+
+.result-items-table tr.is-more td {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Суммы и количества не рвутся по пробелам («2 / 484,00 / ₽» на телефоне). */
+.demo-result .result-items-table th:not(:first-child),
+.demo-result .result-items-table td:not(:first-child) { white-space: nowrap; }
+
+@media (max-width: 480px) {
+  .demo-result .result-data { padding: 18px; }
+  .demo-result .result-items-table table { font-size: 12px; }
+  .demo-result .result-items-table th { font-size: 10px; letter-spacing: 0.3px; }
+  .demo-result .result-items-table th,
+  .demo-result .result-items-table td { padding: 8px 5px; }
 }
 
 .result-fields {
@@ -3251,7 +3128,12 @@ body {
   padding: 40px;
   position: relative;
   transition: var(--transition);
+  /* Колонка: список растягивается, кнопки трёх тарифов стоят на одной высоте. */
+  display: flex;
+  flex-direction: column;
 }
+
+.pricing-card .pricing-features { flex: 1 1 auto; }
 
 .pricing-card:hover {
   border-color: var(--border-lit);
@@ -3329,12 +3211,11 @@ body {
   margin-bottom: 32px;
 }
 
+/* Не flex: «<strong>50 страниц</strong> в месяц» разносило на две колонки. */
 .pricing-features li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  position: relative;
   font-size: 14px;
-  padding: 10px 0;
+  padding: 10px 0 10px 28px;
   border-bottom: 1px solid var(--border);
   color: var(--text-dim);
 }
@@ -3344,7 +3225,9 @@ body {
 }
 
 .pricing-features li svg {
-  flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  top: 13px;
   color: var(--accent-green);
 }
 
@@ -3394,7 +3277,6 @@ body {
   color: var(--text-muted);
   font-style: italic;
   opacity: 0.7;
-  padding-left: 24px;
 }
 
 /* Enterprise card — длинная карточка под основной сеткой */
@@ -3432,10 +3314,9 @@ body {
   flex-shrink: 0;
 }
 
+/* Не flex: на телефоне примечание рассыпалось на три узкие колонки. */
 .pricing-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  position: relative;
   max-width: 700px;
   margin: 0 auto;
   font-size: 13px;
@@ -3444,12 +3325,13 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 20px 20px 20px 48px;
 }
 
 .pricing-note svg {
-  flex-shrink: 0;
-  margin-top: 2px;
+  position: absolute;
+  left: 20px;
+  top: 23px;
   color: var(--accent-blue);
 }
 
@@ -3633,6 +3515,17 @@ body {
   color: var(--text-dim);
 }
 
+.footer-mail {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-lit);
+}
+
+.footer-mail:hover { color: var(--accent-blue); border-color: var(--accent-blue); }
+
 .footer-links {
   display: contents;
 }
@@ -3713,9 +3606,16 @@ body {
     gap: 16px;
   }
 
+  /* minmax(0, …): иначе колонка растягивается под самую длинную строку пересчёта
+     и карточки уходят за край экрана. */
   .ai-cards-row--featured,
   .ai-cards-row--small {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-conversion__from {
+    white-space: normal;
+    overflow: visible;
   }
 
   .ai-section {
@@ -3845,6 +3745,25 @@ body {
 
   .hero-sub {
     font-size: 16px;
+  }
+
+  /* «AI-распознавание» не переносится — размер считается так, чтобы слово
+     влезало в ширину экрана минус поля (11.8em — ширина слова в Unbounded 800). */
+  .hero h1.hero-headline--seo {
+    font-size: clamp(24px, calc((100vw - 32px) / 11.8), 72px);
+    margin-bottom: 14px;
+  }
+
+  .hero-lead {
+    font-size: 16px;
+    margin-bottom: 22px;
+  }
+
+  .hero-cta { margin-bottom: 14px; }
+
+  .hero-trust {
+    margin-bottom: 30px;
+    gap: 8px 18px;
   }
 
   .hero-cta {
@@ -4398,24 +4317,57 @@ body.login-open {
   margin-bottom: 28px;
 }
 
-.integrations {
-  position: relative;
-  overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent 0, black 8%, black 92%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, black 8%, black 92%, transparent 100%);
+/* Только то, что клиент реально подключает. Банков, кроме СберБизнеса, в коде нет,
+   а Claude и Google Vision — подрядчики сервиса, а не интеграции клиента. */
+.integrations-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto;
+  max-width: 1104px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.integrations-track {
-  display: inline-flex;
-  gap: 70px;
-  white-space: nowrap;
-  align-items: center;
-  animation: tickerScroll 50s linear infinite;
-  will-change: transform;
+.int-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px 16px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 
-.integrations:hover .integrations-track {
-  animation-play-state: paused;
+.int-kind {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.int-item .brand {
+  font-size: 17px;
+  opacity: 1;
+}
+
+.int-item .brand span { font-size: 11px; }
+
+.int-text {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+@media (max-width: 960px) {
+  .integrations-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .integrations-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .brand {
@@ -4449,21 +4401,9 @@ body.login-open {
 .brand--1c { color: var(--accent-orange); }
 .brand--1c b { color: var(--accent-orange); }
 .brand--sber b { color: #21a038; }
-.brand--alfa { color: #ef3124; }
-.brand--alfa b { color: #ef3124; }
-.brand--tochka { color: #6739ff; }
-.brand--tochka b { color: #6739ff; }
-.brand--tinkoff b { color: #ffdd2d; -webkit-text-stroke: 1px var(--text); }
-.brand--vtb b { color: #009fdf; }
 .brand--telegram b { color: #229ed9; }
-.brand--claude b { color: var(--accent-purple); }
-.brand--gv b { color: #4285f4; }
 .brand--dadata b { color: var(--accent-blue); }
 
-@media (max-width: 720px) {
-  .brand { font-size: 20px; }
-  .integrations-track { gap: 44px; }
-}
 
 /* ========== Demo Video (hero MP4) ========== */
 

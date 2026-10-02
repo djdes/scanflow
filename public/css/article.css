@@ -252,16 +252,20 @@
 @media (prefers-reduced-motion: reduce) { .read-progress { display: none; } }
 
 /* Two-column article body on desktop */
+/* padding-block, а не padding: иначе обнулялись боковые поля .container
+   и текст статьи на телефоне стоял вплотную к краям экрана. */
 .article-layout {
   display: grid;
   grid-template-columns: minmax(0, 740px) 220px;
   gap: 56px;
-  padding: 32px 0 80px;
+  padding-block: 32px 80px;
   align-items: flex-start;
 }
 
+/* minmax(0, 1fr), а не 1fr: иначе колонка растягивалась под блок кода (<pre>)
+   и на телефоне 6 из 7 статей были шире экрана — текст обрезался справа. */
 @media (max-width: 1100px) {
-  .article-layout { grid-template-columns: 1fr; gap: 0; }
+  .article-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .article-toc { display: none; }
   .article-toc-mobile { display: block; }
 }
@@ -549,6 +553,12 @@
 
 /* Decorative paper props on article hero (subtle, only 2) */
 .article-hero .hero-papers .paper { opacity: 0.35; }
+/* Бумажки — справа от заголовка, чтобы не заходить под буквы. */
+.article-hero .paper--1 { left: auto; right: 6%; top: 18%; }
+.article-hero .paper--3 { left: auto; right: 12%; top: auto; bottom: 16%; }
+@media (max-width: 1100px) {
+  .article-hero .hero-papers { display: none; }
+}
 [data-theme="light"] .article-hero .hero-papers .paper { opacity: 0.45; }
 
 /* Landing blog-preview section */

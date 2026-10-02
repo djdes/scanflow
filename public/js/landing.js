@@ -255,195 +255,29 @@
     window._pfResize = setTimeout(drawPipelineLines, 200);
   });
 
-  // ========== Demo Upload ==========
-
-  const dropzone = document.getElementById('demo-dropzone');
-  const fileInput = document.getElementById('demo-file-input');
-  const btnUpload = document.getElementById('btn-upload');
-  const idleState = document.getElementById('dropzone-idle');
-  const processingState = document.getElementById('dropzone-processing');
-  const stageText = document.getElementById('processing-stage');
-  const resultEmpty = document.getElementById('result-empty');
-  const resultData = document.getElementById('result-data');
-  const resultFields = document.getElementById('result-fields');
-  const resultItems = document.getElementById('result-items');
-  const resultTotal = document.getElementById('result-total');
-  const resultType = document.getElementById('result-type');
-
-  if (dropzone && fileInput) {
-    // Click to upload
-    btnUpload.addEventListener('click', (e) => {
-      e.stopPropagation();
-      fileInput.click();
+  // ========== Пример результата ==========
+  // Анонимного распознавания нет: /api/upload требует ключ. Раньше лендинг слал
+  // туда фото, получал 401 и показывал выдуманную накладную вместо загруженной.
+  // Теперь справа статичный пример, а файл, брошенный на панель, или клик по ней
+  // открывают регистрацию — свою накладную распознаём в кабинете.
+  const demoDropzone = document.getElementById('demo-dropzone');
+  if (demoDropzone) {
+    demoDropzone.addEventListener('click', (e) => {
+      if (e.target.closest('a')) return; // у ссылки «Создать аккаунт» свой обработчик
+      openLogin('register');
     });
-
-    dropzone.addEventListener('click', () => {
-      fileInput.click();
-    });
-
-    // Drag & drop
-    dropzone.addEventListener('dragover', (e) => {
+    demoDropzone.addEventListener('dragover', (e) => {
       e.preventDefault();
-      dropzone.classList.add('dragover');
+      demoDropzone.classList.add('dragover');
     });
-
-    dropzone.addEventListener('dragleave', () => {
-      dropzone.classList.remove('dragover');
+    demoDropzone.addEventListener('dragleave', () => {
+      demoDropzone.classList.remove('dragover');
     });
-
-    dropzone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropzone.classList.remove('dragover');
-      const files = e.dataTransfer.files;
-      if (files.length > 0) handleDemoUpload(files[0]);
+    demoDropzone.addEventListener('drop', (e) => {
+      e.preventDefault(); // иначе браузер откроет файл вместо страницы
+      demoDropzone.classList.remove('dragover');
+      openLogin('register');
     });
-
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files.length > 0) {
-        handleDemoUpload(fileInput.files[0]);
-      }
-    });
-  }
-
-  function handleDemoUpload(file) {
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/bmp', 'image/tiff', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      alert('Поддерживаются только изображения: JPG, PNG, BMP, TIFF, WEBP');
-      return;
-    }
-
-    if (file.size > 20 * 1024 * 1024) {
-      alert('Файл слишком большой. Максимум 20 МБ');
-      return;
-    }
-
-    // Show processing
-    idleState.style.display = 'none';
-    processingState.style.display = 'flex';
-    resultEmpty.style.display = 'flex';
-    resultData.style.display = 'none';
-
-    // Simulated processing stages
-    const stages = [
-      { text: 'Загрузка файла', delay: 500 },
-      { text: 'Google Vision OCR', delay: 1200 },
-      { text: 'Claude AI анализ', delay: 2000 },
-      { text: 'Извлечение данных', delay: 1000 },
-      { text: 'Готово!', delay: 500 },
-    ];
-
-    let delay = 0;
-    stages.forEach((stage) => {
-      delay += stage.delay;
-      setTimeout(() => {
-        stageText.textContent = stage.text;
-      }, delay);
-    });
-
-    // Try real API call or fall back to mock
-    const totalDelay = stages.reduce((s, st) => s + st.delay, 0);
-
-    // Attempt real upload to /api/upload (demo endpoint)
-    tryRealUpload(file).then((data) => {
-      setTimeout(() => showResult(data), Math.max(0, totalDelay - 2000));
-    }).catch(() => {
-      // Fallback to mock result
-      setTimeout(() => showResult(getMockResult(file.name)), totalDelay);
-    });
-  }
-
-  async function tryRealUpload(file) {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const resp = await fetch('/api/upload?demo=1', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!resp.ok) throw new Error('API unavailable');
-    return resp.json();
-  }
-
-  function getMockResult(fileName) {
-    return {
-      invoice_type: 'ТОРГ-12',
-      invoice_number: 'ТРГ-2026/0412',
-      invoice_date: '12.04.2026',
-      supplier: 'ООО "Продукт Плюс"',
-      supplier_inn: '7712345678',
-      items: [
-        { name: 'Молоко 3.2% 1л "Домик в деревне"', qty: 24, unit: 'шт', price: 89.90, total: 2157.60 },
-        { name: 'Хлеб белый нарезной', qty: 15, unit: 'шт', price: 52.00, total: 780.00 },
-        { name: 'Масло сливочное 82.5% 200г', qty: 10, unit: 'шт', price: 189.50, total: 1895.00 },
-        { name: 'Сметана 20% 400г', qty: 12, unit: 'шт', price: 78.00, total: 936.00 },
-      ],
-      total_sum: 5768.60,
-      vat_sum: 576.86,
-    };
-  }
-
-  function showResult(data) {
-    // Reset processing
-    idleState.style.display = 'flex';
-    processingState.style.display = 'none';
-    resultEmpty.style.display = 'none';
-    resultData.style.display = 'block';
-
-    resultType.textContent = data.invoice_type || 'Накладная';
-
-    // Fields
-    resultFields.innerHTML = '';
-    const fields = [
-      { label: 'Номер', value: data.invoice_number },
-      { label: 'Дата', value: data.invoice_date },
-      { label: 'Поставщик', value: data.supplier },
-      { label: 'ИНН', value: data.supplier_inn },
-    ];
-
-    fields.forEach((f) => {
-      if (!f.value) return;
-      const div = document.createElement('div');
-      div.className = 'result-field';
-      const label = document.createElement('span');
-      label.className = 'result-field-label';
-      label.textContent = f.label;
-      const value = document.createElement('span');
-      value.className = 'result-field-value';
-      value.textContent = String(f.value);
-      div.append(label, value);
-      resultFields.appendChild(div);
-    });
-
-    // Items
-    resultItems.innerHTML = '';
-    const items = data.items || [];
-    items.forEach((item) => {
-      const tr = document.createElement('tr');
-      const values = [
-        item.name || item.original_name || '—',
-        `${item.qty ?? item.quantity ?? ''} ${item.unit || ''}`.trim(),
-        `${formatNum(item.price)} ₽`,
-        `${formatNum(item.total)} ₽`,
-      ];
-      values.forEach((value) => {
-        const td = document.createElement('td');
-        td.textContent = String(value);
-        tr.appendChild(td);
-      });
-      resultItems.appendChild(tr);
-    });
-
-    // Total
-    const total = data.total_sum || items.reduce((s, i) => s + (i.total || 0), 0);
-    const vat = data.vat_sum;
-    resultTotal.innerHTML = `<span>Итого: <strong>${formatNum(total)} ₽</strong>${vat ? ` (НДС: ${formatNum(vat)} ₽)` : ''}</span>`;
-  }
-
-  function formatNum(n) {
-    if (n == null) return '—';
-    return Number(n).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   // ========== Auth Form ==========
@@ -963,23 +797,24 @@
     });
   }
 
-  // ========== Theme — pure time-of-day (07:00–19:00 light, else dark) ==========
-  // Anti-FOUC inline script in <head> sets the initial value. Re-check every 60s
-  // so a long-open tab flips at the 7am/7pm boundary without a reload.
-  (function setupAutoTheme() {
+  // ========== Theme — как в системе пользователя (prefers-color-scheme) ==========
+  // Начальное значение ставит inline-скрипт в <head> (без мигания). Здесь —
+  // реакция на смену темы в системе без перезагрузки. Раньше тема шла по часам
+  // (с 19:00 до 7:00 — тёмная для всех), независимо от настроек пользователя.
+  (function setupSystemTheme() {
     const root = document.documentElement;
+    const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     function apply() {
-      const h = new Date().getHours();
-      root.setAttribute('data-theme', (h >= 7 && h < 19) ? 'light' : 'dark');
+      root.setAttribute('data-theme', media && media.matches ? 'dark' : 'light');
     }
     apply();
-    setInterval(apply, 60 * 1000);
+    if (media && media.addEventListener) media.addEventListener('change', apply);
 
     // One-time cleanup: legacy 'sf-theme' localStorage key from the old toggle.
     try { localStorage.removeItem('sf-theme'); } catch (_) { /* ignore */ }
   })();
 
-  // ========== LLM Mapping Demo (interactive before/after) ==========
+  // ========== Подбор товаров (интерактивная демонстрация) ==========
 
   (function initMappingDemo() {
     const demo = document.getElementById('mapping-demo');
@@ -1003,7 +838,7 @@
       });
       counterEl.textContent = String(initiallyMatched);
       const label = cta.querySelector('.mapping-demo__cta-label');
-      if (label) label.textContent = 'LLM-маппинг';
+      if (label) label.textContent = 'Подобрать из 1С';
     }
 
     // Сохраняем исходное значение data-matched чтобы можно было сбросить демо после реплея.
@@ -1022,7 +857,7 @@
 
       demo.classList.add('is-running');
 
-      // Стадия 1: «обращение к LLM» — 700 мс показываем спиннер
+      // Стадия 1: «обращение к ИИ» — 700 мс показываем спиннер
       setTimeout(() => {
         demo.classList.remove('is-running');
         demo.classList.add('is-matched');
