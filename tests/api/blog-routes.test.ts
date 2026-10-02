@@ -56,10 +56,42 @@ describe('Blog routes', () => {
     expect(res.status).toBe(404);
   });
 
-  it('GET / still serves the landing (SPA fallback intact for non-blog paths)', async () => {
+  it('GET / serves the landing', async () => {
     const res = await request(app).get('/');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/html/);
+  });
+});
+
+describe('Unknown paths', () => {
+  // Раньше любой адрес отдавал главную с кодом 200: поисковики видели дубли
+  // главной, а /favicon.ico «существовал» как 100-КБ HTML.
+  it('GET /<unknown> returns a 404 HTML page, not the landing', async () => {
+    const res = await request(app).get('/privacy-xyz-unknown');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/html/);
+    expect(res.text).toContain('Страница не найдена');
+    expect(res.text).toContain('noindex');
+  });
+
+  it('GET /api/<unknown> returns JSON 404', async () => {
+    const res = await request(app).get('/api/definitely-unknown-route');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/json/);
+  });
+});
+
+describe('Site icons', () => {
+  it.each([
+    ['/favicon.ico', /icon/],
+    ['/icon.svg', /svg/],
+    ['/apple-touch-icon.png', /png/],
+    ['/site.webmanifest', /manifest|json/],
+    ['/og/default.png', /png/],
+  ])('GET %s is a real file', async (url, type) => {
+    const res = await request(app).get(url);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(type);
   });
 });
 

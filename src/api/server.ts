@@ -421,10 +421,17 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Explicit landing route — must serve the rendered (with blog preview) HTML.
   app.get('/', (_req, res) => res.type('html').send(getLandingHtml()));
 
-  // SPA fallback: serve index.html for unmatched GET requests (no injection;
-  // this is for hash-routed subpaths that the SPA handles client-side).
-  app.get('/{*splat}', (_req, res) => {
-    res.sendFile(path.join(publicDir, 'index.html'));
+  // Всё, что не нашлось выше, — честный 404. Кабинет и лендинг маршрутизируются
+  // через #hash, сервер этих путей не видит. Раньше здесь отдавалась главная
+  // с кодом 200: поисковики видели дубли главной на любом адресе, а /favicon.ico
+  // и прочие иконки «существовали» как HTML. Маршрут с параметром оставлен,
+  // чтобы мусорные URL сканеров по-прежнему давали 400 через terminalErrorHandler.
+  app.get('/{*splat}', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.status(404).sendFile(path.join(publicDir, '404.html'));
   });
 
   // Terminal error handler (must be the LAST app.use): multer → 413/400,
