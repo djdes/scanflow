@@ -153,6 +153,7 @@
       </div>
       <div id="invoices-list">
         <div class="invoices-toolbar">
+          <div class="period-filter" id="invoices-status-chips"></div>
           <div class="period-filter" id="invoices-period"></div>
         </div>
         <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
@@ -249,6 +250,22 @@
           </a>
           <div id="invoice-nav" class="invoice-nav"></div>
         </div>
+        <div id="invoice-workspace" class="invoice-workspace">
+          <aside id="invoice-photo-dock" class="invoice-photo-dock" hidden aria-label="Фото накладной для сверки">
+            <div class="invoice-photo-dock__bar">
+              <span id="invoice-photo-dock-title">Фото накладной</span>
+              <span class="invoice-photo-dock__tools">
+                <span id="invoice-photo-zoom" class="photo-zoom">
+                  <button type="button" class="btn btn-outline btn-sm" id="invoice-photo-zoom-out" title="Уменьшить" aria-label="Уменьшить фото">−</button>
+                  <span id="invoice-photo-zoom-label" class="photo-zoom__label">100%</span>
+                  <button type="button" class="btn btn-outline btn-sm" id="invoice-photo-zoom-in" title="Увеличить" aria-label="Увеличить фото">+</button>
+                </span>
+                <button type="button" class="btn btn-outline btn-sm" id="invoice-compare-close" aria-label="Скрыть фото" title="Скрыть фото">✕</button>
+              </span>
+            </div>
+            <div id="invoice-photo-dock-body"></div>
+          </aside>
+          <div class="invoice-workspace__main">
         <div class="card">
           <div class="invoice-header" id="invoice-header-fields"></div>
           <div class="invoice-actions" id="invoice-actions"></div>
@@ -257,11 +274,17 @@
         <div class="card" id="invoice-supplier-details" style="display:none">
           <h3 style="margin-bottom:12px">Реквизиты поставщика</h3>
         </div>
-        <div class="tabs" style="margin-bottom:0">
-          <button class="tab-btn active" onclick="Invoices.switchTab('items', this)">Товары</button>
-          <button class="tab-btn" onclick="Invoices.switchTab('photos', this)">Фото</button>
-          <button class="tab-btn" onclick="Invoices.switchTab('ocr', this)">OCR-текст</button>
-          <button class="tab-btn" onclick="Invoices.switchTab('history', this)">История</button>
+        <div class="invoice-tabs-row">
+          <div class="tabs" style="margin-bottom:0">
+            <button class="tab-btn active" onclick="Invoices.switchTab('items', this)">Товары</button>
+            <button class="tab-btn" onclick="Invoices.switchTab('photos', this)">Фото</button>
+            <button class="tab-btn" onclick="Invoices.switchTab('ocr', this)">OCR-текст</button>
+            <button class="tab-btn" onclick="Invoices.switchTab('history', this)">История</button>
+          </div>
+          <div class="invoice-tabs-row__tools">
+            <span id="invoice-attr-progress" class="attr-progress" hidden>Сверено 0 из 6</span>
+            <button type="button" class="btn btn-outline btn-sm" id="invoice-compare-toggle" aria-pressed="false">Сверить с фото</button>
+          </div>
         </div>
         <div id="invoice-sibling-banner" style="display:none"></div>
         <div class="card" id="invoice-tab-items">
@@ -296,6 +319,8 @@
           <div class="ocr-text" id="invoice-ocr-text"></div>
         </div>
         <div class="card" id="invoice-tab-history" style="display:none"></div>
+          </div>
+        </div>
       </div>
     </section>
 
