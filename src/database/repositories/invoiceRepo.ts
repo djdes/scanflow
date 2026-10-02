@@ -1438,9 +1438,16 @@ export const invoiceRepo = {
 
   /** Reassign every item from one invoice to another (multi-page merge). */
   async moveItemsToInvoice(fromInvoiceId: number, toInvoiceId: number): Promise<void> {
-    await getDb()
-      .prepare('UPDATE invoice_items SET invoice_id = ? WHERE invoice_id = ?')
-      .run(toInvoiceId, fromInvoiceId);
+    if (fromInvoiceId === toInvoiceId) return;
+    await getDb().transaction(async db => {
+      await db.prepare(`INSERT INTO invoice_source_regions
+        (invoice_id, filename, target_key, x, y, width, height, printed_text, origin)
+        SELECT ?, s.filename, s.target_key, s.x, s.y, s.width, s.height, s.printed_text, s.origin
+        FROM invoice_source_regions s WHERE s.invoice_id = ?
+        ON DUPLICATE KEY UPDATE invoice_source_regions.id = invoice_source_regions.id`).run(toInvoiceId, fromInvoiceId);
+      await db.prepare('DELETE FROM invoice_source_regions WHERE invoice_id = ?').run(fromInvoiceId);
+      await db.prepare('UPDATE invoice_items SET invoice_id = ? WHERE invoice_id = ?').run(toInvoiceId, fromInvoiceId);
+    });
   },
 
   /**

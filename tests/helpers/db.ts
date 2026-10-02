@@ -83,6 +83,7 @@ export async function resetDb(): Promise<mysql.Pool> {
     // на переиспользованные (после TRUNCATE users) id, загрязняя изоляционные тесты.
     'onec_pairing_codes',
     'onec_connections',
+    'invoice_source_regions',
     'invoice_items',
     'invoices',
     'mapping_supplier_usage',

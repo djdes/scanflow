@@ -5,6 +5,7 @@ import { userRepo } from '../../database/repositories/userRepo';
 // set custom headers. Keep the whitelist as tight as possible.
 const QUERY_KEY_WHITELIST = [
   /^\/api\/invoices\/\d+\/photos\/[^/]+$/,
+  /^\/api\/invoices\/\d+\/review\/image\/[^/]+$/,
 ];
 
 // Extend Express request with the authenticated user (so downstream routes

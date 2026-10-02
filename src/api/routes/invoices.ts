@@ -1,4 +1,5 @@
 import { isInvoiceListView } from '../../database/repositories/invoiceListWorkflow';
+import invoiceReviewRouter from './invoiceReview';
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -163,6 +164,7 @@ const addPagesUpload = multer({
 });
 
 const router = Router();
+router.use(invoiceReviewRouter);
 
 // ── Multi-tenant ownership guard ────────────────────────────────────────────
 // Runs for every :id / :invoiceId route below.

@@ -2372,6 +2372,25 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 80,
+    name: 'invoice_source_regions: source coordinates for review workspace',
+    detect: (exec) => hasTable(exec, 'invoice_source_regions'),
+    run: async (exec) => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS invoice_source_regions (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        invoice_id INT NOT NULL,
+        filename VARCHAR(512) NOT NULL,
+        target_key VARCHAR(80) NOT NULL,
+        x DOUBLE NOT NULL, y DOUBLE NOT NULL, width DOUBLE NOT NULL, height DOUBLE NOT NULL,
+        printed_text VARCHAR(500) NULL,
+        origin VARCHAR(16) NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_source_region (invoice_id, filename, target_key),
+        CONSTRAINT fk_source_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

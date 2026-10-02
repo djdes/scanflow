@@ -142,7 +142,7 @@
     <section id="view-invoices">
       <div class="section-header">
         <div><h1 class="section-h1">Накладные</h1><p class="invoice-list-lead">Обработка, проверка и оплата документов</p></div>
-        <a href="#/upload" class="btn btn-primary" id="btn-upload-from-list">＋ Загрузить накладную</a>
+        <div class="review-entry"><button type="button" class="btn btn-outline" onclick="InvoiceReview.start()">Проверить следующую →</button><a href="#/upload" class="btn btn-primary" id="btn-upload-from-list">＋ Загрузить накладную</a></div>
       </div>
       <div id="invoices-list">
         <div class="invoice-summary" id="invoices-summary" aria-label="Сводка по всем накладным компании"></div>
@@ -192,6 +192,9 @@
           </a>
           <div id="invoice-nav" class="invoice-nav"></div>
         </div>
+        <div id="invoice-decision" class="card review-decision" aria-live="polite"></div>
+        <div id="invoice-source-workspace" class="card" hidden></div>
+        <div id="invoice-comparison" class="card" hidden></div>
         <div class="card">
           <div class="invoice-header" id="invoice-header-fields"></div>
           <div class="invoice-actions" id="invoice-actions"></div>
@@ -1166,6 +1169,7 @@
 <script src="/js/app.js"></script>
 <script src="/js/invoice-photo-viewer.js"></script>
 <script src="/js/invoices.js"></script>
+<script src="/js/invoice-review.js"></script>
 <script src="/js/upload.js"></script>
 <script src="/js/mappings.js"></script>
 <script src="/js/newItems.js"></script>

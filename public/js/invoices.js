@@ -85,6 +85,7 @@ const Invoices = {
   },
 
   async showList() {
+    if (typeof InvoiceReview !== 'undefined') InvoiceReview.leave();
     InvoicePhotoViewer.close();
     this._currentInvoiceId = null;
     document.getElementById('invoices-list').style.display = 'block';
@@ -698,6 +699,7 @@ const Invoices = {
       if (box) box.checked = !!state[attr];
     });
     this._syncSberGate();
+    if (typeof InvoiceReview !== 'undefined') InvoiceReview.refresh();
   },
 
   // Единственное место, где решается, можно ли жать «Отправить в Сбербанк».
@@ -756,6 +758,7 @@ const Invoices = {
   },
 
   async showDetail(id) {
+    if (typeof InvoiceReview !== 'undefined') InvoiceReview.reset(id);
     document.getElementById('invoices-list').style.display = 'none';
     document.getElementById('invoice-detail').style.display = 'block';
 
@@ -911,6 +914,7 @@ const Invoices = {
           </div>
         `;
         actions.innerHTML = actionsHtml;
+        if (typeof InvoiceReview !== 'undefined') InvoiceReview.mount(data);
         // Items/Sber/1С блоки ниже не нужны для дубликата — выйти из rendering
         if (window.Sber) {
           // Спрятать Sber-секцию если она была от прошлого invoice
@@ -1122,6 +1126,7 @@ const Invoices = {
 
       // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
+      if (typeof InvoiceReview !== 'undefined') InvoiceReview.mount(data);
 
     } catch (e) {
       // Страница могла войти в другую накладную: уведомление «фото загружено»
