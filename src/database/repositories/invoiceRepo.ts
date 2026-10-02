@@ -1,3 +1,4 @@
+import { INVOICE_VIEW_SQL, REVIEW_REASON_SQL, FAILED_PAYMENT_SQL, type InvoiceListView } from './invoiceListWorkflow';
 import { getDb } from '../db';
 import {
   normalizeInvoiceNumber,
@@ -123,7 +124,8 @@ export interface ListFilters {
   sumFrom?: number;
   sumTo?: number;
   /** 'paid' — есть платёж в Сбере или отметка «оплачено вне сервиса»; 'unpaid' — ни того, ни другого. */
-  sber?: 'paid' | 'unpaid';
+  sber?: 'paid' | 'unpaid' | 'settled' | 'draft' | 'missing' | 'failed';
+  view?: InvoiceListView;
 }
 
 export interface Invoice {
@@ -185,6 +187,7 @@ export interface Invoice {
   // Derived (not a column): 1 when this invoice matches the Sber-overdue
   // predicate. Present only on rows returned by queries that SELECT it (getAll,
   // getById). Used to highlight the row in the UI.
+  review_reason?: string | null;
   sber_overdue?: number;
   // Derived alongside sber_overdue so the UI displays the configured threshold
   // instead of assuming the default value.
@@ -306,6 +309,52 @@ function ownerScope(ownerUserId: number | null | undefined): { sql: string; para
   return ownerUserId != null ? { sql: '\n       AND owner_user_id = ?', params: [ownerUserId] } : { sql: '', params: [] };
 }
 
+function invoiceListWhere(status?: string, ownerUserId?: number, opts?: ListFilters) {
+    const conds: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (status) { conds.push('status = :status'); params.status = status; }
+    if (ownerUserId != null) { conds.push('owner_user_id = :ownerUserId'); params.ownerUserId = ownerUserId; }
+    const q = opts?.q?.trim();
+    if (q) {
+      conds.push('(invoice_number LIKE :q OR supplier LIKE :q OR supplier_inn LIKE :q)');
+      params.q = `%${q}%`;
+    }
+    // created_at is "YYYY-MM-DD HH:MM:SS" (dateStrings); string-compare against a
+    // YYYY-MM-DD bound works. `to` is the EXCLUSIVE upper bound (next day).
+    if (opts?.from) { conds.push('created_at >= :from'); params.from = opts.from; }
+    if (opts?.to) { conds.push('created_at < :to'); params.to = opts.to; }
+
+    // ── Пер-колоночные фильтры списка накладных ──────────────────────────────
+    // Отдельно от общего `q`: тот ищет сразу по номеру/поставщику/ИНН, а эти
+    // сужают конкретный столбец и комбинируются через AND.
+    const number = opts?.number?.trim();
+    if (number) { conds.push('invoice_number LIKE :number'); params.number = `%${number}%`; }
+    const supplier = opts?.supplier?.trim();
+    if (supplier) { conds.push('supplier LIKE :supplier'); params.supplier = `%${supplier}%`; }
+    if (opts?.sumFrom != null) { conds.push('total_sum >= :sumFrom'); params.sumFrom = opts.sumFrom; }
+    if (opts?.sumTo != null) { conds.push('total_sum <= :sumTo'); params.sumTo = opts.sumTo; }
+    // «Оплачено» = есть неотменённый платёж в Сбере ЛИБО отмечено «оплачено вне
+    // сервиса». Предикат про sber_payments намеренно повторяет тот, что внутри
+    // sberOverduePredicate (status <> 'failed'): неудавшийся платёж оплатой не
+    // считается, иначе накладная выпадала бы и из фильтра, и из overdue-выборки.
+    if (opts?.sber === 'paid' || opts?.sber === 'unpaid') {
+      const hasPayment = `(invoices.paid_externally = 1 OR EXISTS (
+        SELECT 1 FROM sber_payments sp WHERE sp.invoice_id = invoices.id AND sp.status <> 'failed'
+      ))`;
+      conds.push(opts.sber === 'paid' ? hasPayment : `NOT ${hasPayment}`);
+    }
+    if (opts?.view) conds.push(INVOICE_VIEW_SQL[opts.view]);
+    const paymentFilters: Record<string, string> = {
+      settled: `(invoices.paid_externally = 1 OR EXISTS (SELECT 1 FROM sber_payments sp WHERE sp.invoice_id = invoices.id AND sp.status = 'created' AND sp.bank_status = 'IMPLEMENTED'))`,
+      draft: `invoices.paid_externally = 0 AND EXISTS (SELECT 1 FROM sber_payments sp WHERE sp.invoice_id = invoices.id AND sp.status = 'created' AND (sp.bank_status IS NULL OR sp.bank_status IN ('CREATED', 'PARTSIGNED')))`,
+      missing: INVOICE_VIEW_SQL.payment,
+      failed: FAILED_PAYMENT_SQL,
+    };
+    if (opts?.sber && paymentFilters[opts.sber]) conds.push(paymentFilters[opts.sber]);
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    return { where, params };
+}
+
 export const invoiceRepo = {
   async create(data: CreateInvoiceData): Promise<Invoice> {
     const db = getDb();
@@ -374,47 +423,32 @@ export const invoiceRepo = {
     // Inline the integers after a safe Math.floor/clamp so it's not a literal injection.
     const lim = Math.max(1, Math.min(500, Math.floor(limit)));
     const off = Math.max(0, Math.floor(offset));
-    const conds: string[] = [];
-    const params: Record<string, unknown> = {};
-    if (status) { conds.push('status = :status'); params.status = status; }
-    if (ownerUserId != null) { conds.push('owner_user_id = :ownerUserId'); params.ownerUserId = ownerUserId; }
-    const q = opts?.q?.trim();
-    if (q) {
-      conds.push('(invoice_number LIKE :q OR supplier LIKE :q OR supplier_inn LIKE :q)');
-      params.q = `%${q}%`;
-    }
-    // created_at is "YYYY-MM-DD HH:MM:SS" (dateStrings); string-compare against a
-    // YYYY-MM-DD bound works. `to` is the EXCLUSIVE upper bound (next day).
-    if (opts?.from) { conds.push('created_at >= :from'); params.from = opts.from; }
-    if (opts?.to) { conds.push('created_at < :to'); params.to = opts.to; }
-
-    // ── Пер-колоночные фильтры списка накладных ──────────────────────────────
-    // Отдельно от общего `q`: тот ищет сразу по номеру/поставщику/ИНН, а эти
-    // сужают конкретный столбец и комбинируются через AND.
-    const number = opts?.number?.trim();
-    if (number) { conds.push('invoice_number LIKE :number'); params.number = `%${number}%`; }
-    const supplier = opts?.supplier?.trim();
-    if (supplier) { conds.push('supplier LIKE :supplier'); params.supplier = `%${supplier}%`; }
-    if (opts?.sumFrom != null) { conds.push('total_sum >= :sumFrom'); params.sumFrom = opts.sumFrom; }
-    if (opts?.sumTo != null) { conds.push('total_sum <= :sumTo'); params.sumTo = opts.sumTo; }
-    // «Оплачено» = есть неотменённый платёж в Сбере ЛИБО отмечено «оплачено вне
-    // сервиса». Предикат про sber_payments намеренно повторяет тот, что внутри
-    // sberOverduePredicate (status <> 'failed'): неудавшийся платёж оплатой не
-    // считается, иначе накладная выпадала бы и из фильтра, и из overdue-выборки.
-    if (opts?.sber === 'paid' || opts?.sber === 'unpaid') {
-      const hasPayment = `(invoices.paid_externally = 1 OR EXISTS (
-        SELECT 1 FROM sber_payments sp WHERE sp.invoice_id = invoices.id AND sp.status <> 'failed'
-      ))`;
-      conds.push(opts.sber === 'paid' ? hasPayment : `NOT ${hasPayment}`);
-    }
-    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const { where, params } = invoiceListWhere(status, ownerUserId, opts);
     return getDb()
       .prepare(
-        `SELECT *, ${sberOverduePredicate(SBER_OVERDUE_DAYS)} AS sber_overdue,
+        `SELECT *, (${REVIEW_REASON_SQL}) AS review_reason, ${sberOverduePredicate(SBER_OVERDUE_DAYS)} AS sber_overdue,
                 ${SBER_OVERDUE_DAYS} AS sber_overdue_days
-         FROM invoices ${where} ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`
+         FROM invoices ${where} ORDER BY created_at DESC, id DESC LIMIT ${lim} OFFSET ${off}`
       )
       .all<Invoice>(params);
+  },
+
+  async countList(status?: string, ownerUserId?: number, opts?: ListFilters): Promise<number> {
+    const { where, params } = invoiceListWhere(status, ownerUserId, opts);
+    const row = await getDb().prepare(`SELECT COUNT(*) AS count FROM invoices ${where}`).get<{ count: number }>(params);
+    return Number(row?.count || 0);
+  },
+
+  async workflowStats(ownerUserId?: number) {
+    const { where, params } = invoiceListWhere(undefined, ownerUserId);
+    const row = await getDb().prepare(`SELECT
+      COALESCE(SUM(${INVOICE_VIEW_SQL.attention}), 0) AS attention,
+      COALESCE(SUM(${INVOICE_VIEW_SQL.ready}), 0) AS ready,
+      COALESCE(SUM(${INVOICE_VIEW_SQL.queue}), 0) AS queue,
+      COALESCE(SUM(${INVOICE_VIEW_SQL.payment}), 0) AS payment,
+      COALESCE(SUM(CASE WHEN ${INVOICE_VIEW_SQL.payment} THEN total_sum ELSE 0 END), 0) AS paymentSum
+      FROM invoices ${where}`).get<Record<string, number>>(params);
+    return Object.fromEntries(Object.entries(row || {}).map(([key, value]) => [key, Number(value)]));
   },
 
   // Payable invoices past the Sber-overdue threshold that we haven't alerted on

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>ScanFlow — варианты рабочего места</title>
+<link rel="stylesheet" href="invoice-workspace-options.css">
+</head>
+<body>
+<header><a class="brand" href="/app.html#/invoices">▤ ScanFlow</a><span>Развитие рабочего кабинета</span><a href="invoices-2026-10-02.html">Первый макет ↗</a></header>
+<main>
+  <div class="intro"><div><span class="eyebrow">ВИЗУАЛЬНЫЕ ВАРИАНТЫ / 02.10.2026</span><h1>Проверять документы быстрее</h1><p>Один документ — от фото и сверки до отправки в 1С и оплаты.</p></div><a class="button primary" href="/app.html#/invoices">Открыть кабинет →</a></div>
+  <p class="demo-note">Здесь демонстрационные данные. Вкладка «Внедрено» показывает сделанные изменения; остальные — интерактивные предложения дальнейшего развития.</p>
+  <div class="options" role="group" aria-label="Варианты улучшений">
+    <button class="option active" data-mode="live"><span class="level done">Внедрено</span><strong>Список и просмотр фото</strong><small>Статусы, фильтры, масштаб, поворот и фото рядом</small></button>
+    <button class="option" data-mode="photo"><span class="level medium">Средняя сложность</span><strong>Сверка шапки с фото</strong><small>Реквизиты и контроль оплаты на одном экране</small></button>
+    <button class="option" data-mode="review"><span class="level large">Большая сложность</span><strong>Проверка по строкам</strong><small>Подсветка источника, исправления и очередь проблем</small></button>
+    <button class="option" data-mode="batch"><span class="level large">Большая сложность</span><strong>Работа команды и пакетов</strong><small>Ответственные, согласование, история и отправка</small></button>
+  </div>
+
+  <section id="live" class="mode active">
+    <div class="section-title"><h2>Сделано в текущем интерфейсе</h2><span class="level done">Рабочая реализация</span></div>
+    <div class="delivered"><article><b>Управляемый список</b><p>Сводка по компании, серверные быстрые фильтры, причины замечаний, чёткие статусы 1С и платежей. На телефоне — карточки документов.</p></article><article><b>Удобный просмотр фото</b><p>Полноэкранный просмотр, увеличение двумя пальцами, перемещение, переключение листов и запоминание поворота. Фото рядом с товарами.</p></article></div>
+    <div class="screens"><figure><figcaption>Обновлённый список · демонстрационные накладные</figcaption><a href="invoices-2026-10-02/implemented-list-desktop.png"><img src="invoices-2026-10-02/implemented-list-desktop.png" alt="Реализованный список накладных"></a></figure><figure><figcaption>Фото на весь экран · нажмите для увеличения</figcaption><a href="invoices-2026-10-02/implemented-photo-viewer.png"><img src="invoices-2026-10-02/implemented-photo-viewer.png" alt="Реализованный полноэкранный просмотр фото"></a></figure></div>
+  </section>
+
+  <section id="photo" class="mode">
+    <div class="section-title"><h2>Фото + реквизиты без переключения вкладок</h2><span class="level medium">Интерактивный прототип</span></div>
+    <div class="prototype photo-prototype">
+      <div class="prototype-head"><div><b>РН-1048 · ООО «Молочная ферма»</b><small>Сверка перед созданием платежа</small></div><span class="pill amber" id="header-status">Проверено 4 из 6</span></div>
+      <div class="photo-check-layout">
+        <div class="document-area"><div class="document-tools"><span>Лист 1 из 2</span><button class="button small" data-zoom="photo">Увеличить</button><button class="button small" data-rotate="photo">↻ Повернуть</button></div><div class="paper-scroll"><img id="photo-paper" class="paper" src="invoices-2026-10-02/sample-invoice.svg" alt="Демонстрационная товарная накладная"></div><div class="document-foot"><b>1</b><span>2</span><small>Подписи · Все листы одного документа</small></div></div>
+        <aside class="verification"><span class="eyebrow">ПРОВЕРЬТЕ ПО ДОКУМЕНТУ</span><h3>Реквизиты для оплаты</h3><p>Отмечайте только то, что сверили с оригиналом.</p>
+          <label class="verify-field"><input type="checkbox" checked><span><small>Номер</small><b>РН-1048</b></span><span class="checked-label">Сверено</span></label>
+          <label class="verify-field"><input type="checkbox" checked><span><small>Дата</small><b>02.10.2026</b></span><span class="checked-label">Сверено</span></label>
+          <label class="verify-field"><input type="checkbox" checked><span><small>Поставщик</small><b>ООО «Молочная ферма»</b></span><span class="checked-label">Сверено</span></label>
+          <label class="verify-field pending"><input type="checkbox"><span><small>Сумма</small><b>28 560,00 ₽</b></span><span class="checked-label">Сверить</span></label>
+          <label class="verify-field pending"><input type="checkbox"><span><small>В том числе НДС</small><b>2 596,36 ₽</b></span><span class="checked-label">Сверить</span></label>
+          <label class="verify-field"><input type="checkbox" checked><span><small>Ставка НДС</small><b>10%</b></span><span class="checked-label">Сверено</span></label>
+          <div class="alert"><b>Следующее действие</b><p id="verify-hint">Сверьте сумму и НДС, чтобы создать черновик платежа.</p></div>
+          <button id="demo-payment" class="button primary full" disabled>Создать черновик в Сбер</button><small class="safe-note">В прототипе платёж не создаётся</small>
+        </aside>
+      </div>
+    </div>
+    <div class="why"><article><h3>Что даёт</h3><p>Бухгалтер видит фото, значения и оставшиеся проверки одновременно. Готовность к оплате понятна до нажатия кнопки.</p></article><article><h3>Что потребуется</h3><p>Боковая панель существующих отметок сверки, сохранение позиции и масштаба каждого листа, просмотр PDF внутри кабинета. На телефоне — переключатель «Фото / Реквизиты» с сохранением позиции.</p></article></div>
+  </section>
+
+  <section id="review" class="mode">
+    <div class="section-title"><h2>Рабочее место проверки накладной</h2><span class="level large">Интерактивный прототип</span></div>
+    <div class="prototype">
+      <div class="prototype-head"><div><b>Проверка РН-1048</b><small>В очереди ещё 7 документов · изменения сначала сохраняются, затем разрешается отправка</small></div><span class="pill amber" id="review-status">2 замечания</span></div>
+      <div class="review-layout">
+        <aside class="problem-list"><span class="eyebrow">ПРИОРИТЕТ ПРОВЕРКИ</span><button class="problem active" data-row="2"><span class="problem-icon">!</span><b>Цена в строке 3</b><small>Цена × количество ≠ сумма</small></button><button class="problem" data-row="4"><span class="problem-icon">↑</span><b>Цена в строке 5</b><small>Дороже обычной поставки</small></button><button class="problem" data-row="0"><span class="problem-icon good">✓</span><b>Остальные строки</b><small>Сверены и сопоставлены</small></button><div class="queue-note"><b>Шаг 2 из 3</b><small>Реквизиты → Товары → Отправка</small><div class="progress-track"><i></i></div></div></aside>
+        <div class="document-area review-photo"><div class="document-tools"><span>Оригинал · лист 1</span><button class="button small" data-zoom="review">Увеличить</button></div><div class="paper-scroll"><div class="paper-overlay"><img id="review-paper" class="paper" src="invoices-2026-10-02/sample-invoice.svg" alt="Демонстрационная накладная с выделением строки"><div id="row-highlight" class="row-highlight" aria-label="Выбранная строка на оригинале"></div></div></div><div class="document-foot"><small>Выберите строку справа — место на оригинале подсветится</small></div></div>
+        <div class="review-data"><div class="data-heading"><span class="eyebrow">ДАННЫЕ ДЛЯ 1С</span><h3>Товары <span class="muted">6</span></h3></div><div class="line-table"><table><thead><tr><th>Товар</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>
+          <tr data-row="0"><td>Молоко 3,2% 1 л<small>Молоко питьевое 1 л · 1С</small></td><td>60</td><td>95,00</td><td>5 700</td></tr>
+          <tr data-row="1"><td>Сметана 20% 400 г<small>Сметана 20% · 1С</small></td><td>24</td><td>110,00</td><td>2 640</td></tr>
+          <tr data-row="2" class="selected warning-row"><td>Творог 9% 200 г<small>Творог фасованный · 1С</small></td><td>48</td><td><b class="red-text" id="wrong-price">57,00</b></td><td>3 600</td></tr>
+          <tr data-row="3"><td>Масло сливочное 180 г<small>Масло 82,5% · 1С</small></td><td>36</td><td>145,00</td><td>5 220</td></tr>
+          <tr data-row="4"><td>Сыр Российский, кг<small class="amber-text">Цена выросла на 18%</small></td><td>12</td><td>650,00</td><td>7 800</td></tr>
+          <tr data-row="5"><td>Йогурт 150 г<small>Йогурт натуральный · 1С</small></td><td>60</td><td>60,00</td><td>3 600</td></tr>
+        </tbody></table></div><div class="correction"><span class="pill amber" id="selected-issue">Строка 3 · расхождение</span><h3 id="correction-title">На фото цена 75,00 ₽</h3><p id="correction-text">В распознанных данных — 57,00 ₽. Сумма строки 3 600 ₽ соответствует цене 75 ₽ при количестве 48.</p><button class="button primary" id="apply-correction">Исправить на 75,00 ₽</button><button class="button" id="mark-reviewed">Строку сверил</button></div><div class="audit-preview"><span>↶</span><small id="review-history">После исправления здесь появится запись с прежним значением и возможностью отмены.</small></div></div>
+      </div><div class="prototype-footer"><span id="review-footer">Замечания проверяются перед отправкой</span><button class="button" id="undo-correction" disabled>Отменить исправление</button><button class="button primary" id="next-demo-document">Следующая накладная →</button></div>
+    </div>
+    <div class="why"><article><h3>Что даёт</h3><p>Клик по замечанию показывает конкретную строку. Правки сохраняются с историей, а проверяющий видит цену, количество, единицу и соответствие номенклатуре 1С вместе с оригиналом.</p></article><article><h3>Что потребуется</h3><p>Координаты строк из OCR, их привязка после поворота и склейки листов, очередь нерешённых замечаний, контроль устаревших правок и восстановление предыдущих значений. Здесь подсветка демонстрируется на подготовленном листе.</p></article></div>
+  </section>
+
+  <section id="batch" class="mode">
+    <div class="section-title"><h2>Пакетная сверка и согласование</h2><span class="level large">Интерактивный прототип</span></div>
+    <div class="batch-metrics"><article><span>На проверке</span><b>8</b><small>2 требуют решения</small></article><article><span>На согласовании</span><b>3</b><small>Ожидают руководителя</small></article><article><span>Готовы к загрузке</span><b>12</b><small>Можно отправить пакетом</small></article><article><span>Отправлены в 1С</span><b>24</b><small>За сегодняшний день</small></article></div>
+    <div class="prototype batch-layout"><aside class="batch-sidebar"><span class="eyebrow">МОЯ ОЧЕРЕДЬ</span><h3>Проверка документов</h3><button class="batch-doc active" data-document="0"><span class="pill amber">Расхождение</span><b>РН-1048 · Молочная ферма</b><small>28 560 ₽ · 2 листа</small></button><button class="batch-doc" data-document="1"><span class="pill blue">Проверяет Анна</span><b>УПД-871 · Рыбный порт</b><small>42 750 ₽ · 3 листа</small></button><button class="batch-doc" data-document="2"><span class="pill green">Сверено</span><b>ТН-392 · Овощной мир</b><small>18 320 ₽ · 1 лист</small></button><div class="queue-note"><b>Поставщик → Проверка → Решение</b><small>Фильтры по ответственному, сроку и причине остановки</small></div></aside><div class="batch-main"><div class="prototype-head"><div><b id="batch-doc-name">РН-1048 · Молочная ферма</b><small>Ответственный: вы · Загрузил кладовщик сегодня в 10:32</small></div><span class="pill amber" id="batch-stage">Требует решения</span></div><div class="stage-line"><b>✓ Загружено</b><b>✓ Распознано</b><b class="amber-text">● Проверка</b><span>○ Согласование</span><span>○ 1С / Оплата</span></div><div class="batch-detail"><div class="batch-document"><img src="invoices-2026-10-02/sample-invoice.svg" alt="Пример документа в пакетной проверке"></div><div><div class="alert"><b id="batch-issue">Сумма требует проверки</b><p id="batch-description">Проверьте оригинал и товары до передачи на согласование. Документ не должен уйти в оплату с нерешённым замечанием.</p></div><h3>Контроль документа</h3><ul class="checklist"><li>✓ Поставщик и ИНН подтверждены</li><li>✓ Номенклатура сопоставлена</li><li id="batch-check-total">○ Итог проверяется</li><li>○ Оплата требует согласования</li></ul><h3>История работы</h3><div class="timeline"><p><b>10:32</b> Кладовщик загрузил два листа</p><p><b>10:33</b> Накладная распознана</p><p><b>10:35</b> Бухгалтер начал проверку</p><p id="batch-history"><b>Сейчас</b> Ожидает вашего решения</p></div></div></div><div class="prototype-footer"><button class="button" id="return-demo-document">Вернуть на уточнение</button><button class="button primary" id="approve-demo-document">Передать на согласование</button></div></div></div>
+    <div class="why"><article><h3>Что даёт</h3><p>Кладовщик загружает, бухгалтер сверяет, руководитель согласует. Видно, кто работает с документом, почему он остановился и что уже сделано. Готовые документы отправляются пакетом с отчётом по каждому.</p></article><article><h3>Что потребуется</h3><p>Роли и права, блокировка одновременных правок, назначение ответственных, задания согласования, уведомления и контроль сроков. Статусы 1С и банка должны приходить отдельно от решения сотрудника.</p></article></div>
+  </section>
+
+  <section class="roadmap"><h2>Как развивать дальше</h2><div class="delivered"><article><b>Средняя сложность</b><p>Просмотр PDF без выхода из карточки; миниатюры фото прямо в списке; сохранение масштаба листа; фильтр «непрочитанные»; сохранённые наборы фильтров; удобная сверка шапки на телефоне.</p></article><article><b>Большая сложность</b><p>Подсветка источника каждой строки; отдельная очередь несопоставленных товаров; сравнение с предыдущей поставкой; управление многостраничным документом; совместная сверка и согласование; журнал действий с возвратом правок.</p></article></div><p class="recommendation">Рекомендую следующим этапом сверку реквизитов рядом с фото и встроенный PDF. Затем — проверку строк с привязкой к оригиналу. Командное согласование полезнее после появления нескольких сотрудников в одной компании.</p></section>
+</main><div class="toast" id="demo-toast" role="status"></div>
+<script src="invoice-workspace-options.js"></script>
+</body>
+</html>

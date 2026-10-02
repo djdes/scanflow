@@ -1,3 +1,4 @@
+import { isInvoiceListView } from '../../database/repositories/invoiceListWorkflow';
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -255,6 +256,7 @@ router.get('/stats', async (req: Request, res: Response) => {
 
   res.json({
     data: {
+      workflow: await invoiceRepo.workflowStats(uid),
       byStatus,
       total: totalRow?.count ?? 0,
       unreadCount: unreadRow?.count ?? 0,
@@ -302,15 +304,20 @@ router.get('/', async (req: Request, res: Response) => {
   const supplier = str(req.query.supplier);
   const sumFrom = num(req.query.sum_from);
   const sumTo = num(req.query.sum_to);
-  const sber = req.query.sber === 'paid' || req.query.sber === 'unpaid' ? req.query.sber : undefined;
+  const sberValues = ['paid', 'unpaid', 'settled', 'draft', 'missing', 'failed'] as const;
+  const sber = sberValues.find(value => value === req.query.sber);
+  const view = isInvoiceListView(req.query.view) ? req.query.view : undefined;
 
   const rawInvoices = await invoiceRepo.getAll(status, limit, offset, ownerScopeFor(req), {
-    q, from, to, number, supplier, sumFrom, sumTo, sber,
+    q, from, to, number, supplier, sumFrom, sumTo, sber, view,
   });
   const enriched = await Promise.all(rawInvoices.map(enrichInvoiceWithSupplier));
   const withSber = await attachSberStatus(enriched);
   const invoices = await attachElevatedPriceCount(withSber);
-  res.json({ data: invoices, count: invoices.length });
+  const total = await invoiceRepo.countList(status, ownerScopeFor(req), {
+    q, from, to, number, supplier, sumFrom, sumTo, sber, view,
+  });
+  res.json({ data: invoices, count: invoices.length, total });
 });
 
 // GET /api/invoices/pending?limit=100&offset=0 — invoices ready for 1C.

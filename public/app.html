@@ -141,106 +141,44 @@
     <!-- Invoices Section -->
     <section id="view-invoices">
       <div class="section-header">
-        <h1 class="section-h1">Накладные</h1>
-        <div class="section-tools">
-          <div class="search-field">
-            <svg class="search-field__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="search" id="invoices-search" placeholder="Поиск: номер, поставщик, ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" name="invoices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')" aria-keyshortcuts="/" title="Нажмите / для быстрого поиска">
-            <kbd class="search-field__shortcut" aria-hidden="true">/</kbd>
-          </div>
-          <a href="#/upload" class="btn btn-primary btn-sm" id="btn-upload-from-list">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-            Загрузить
-          </a>
-        </div>
+        <div><h1 class="section-h1">Накладные</h1><p class="invoice-list-lead">Обработка, проверка и оплата документов</p></div>
+        <a href="#/upload" class="btn btn-primary" id="btn-upload-from-list">＋ Загрузить накладную</a>
       </div>
       <div id="invoices-list">
-        <div class="invoices-toolbar">
-          <div class="period-filter" id="invoices-period"></div>
+        <div class="invoice-summary" id="invoices-summary" aria-label="Сводка по всем накладным компании"></div>
+        <div class="invoice-list-workspace">
+          <div class="invoice-view-tabs" id="invoice-view-tabs" aria-label="Быстрые фильтры накладных"></div>
+          <div class="invoices-toolbar">
+            <div class="search-field">
+              <input type="search" id="invoices-search" placeholder="Номер, поставщик или ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" name="invoices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')" aria-label="Поиск накладных" aria-keyshortcuts="/">
+              <kbd class="search-field__shortcut" aria-hidden="true">/</kbd>
+            </div>
+            <div class="period-filter" id="invoices-period"></div>
+            <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры</button>
+            <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
+          </div>
+          <div class="invoice-filter-panel" id="invoice-filters" hidden>
+            <label>Номер<input type="text" class="filter-input" id="filter-number" placeholder="Номер документа" oninput="Invoices.setColumnFilter('number', this.value)"></label>
+            <label>Поставщик<input type="text" class="filter-input" id="filter-supplier" placeholder="Название" oninput="Invoices.setColumnFilter('supplier', this.value)"></label>
+            <label>Загружено с<input type="date" class="filter-input" id="filter-date-from" onchange="Invoices.setColumnFilter('dateFrom', this.value)"></label>
+            <label>Загружено по<input type="date" class="filter-input" id="filter-date-to" onchange="Invoices.setColumnFilter('dateTo', this.value)"></label>
+            <label>Сумма от<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-from" oninput="Invoices.setColumnFilter('sumFrom', this.value)"></label>
+            <label>Сумма до<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" oninput="Invoices.setColumnFilter('sumTo', this.value)"></label>
+            <label>Обработка<select class="filter-input" id="filter-status" onchange="Invoices.setColumnFilter('status', this.value)"><option value="">Все</option><option value="new">Новая</option><option value="processed">Распознана</option><option value="sent_to_1c">В 1С</option><option value="error">Ошибка</option></select></label>
+            <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">Черновик в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option></select></label>
+          </div>
+          <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
+          <div class="table-wrap">
+            <table class="invoices-table">
+              <thead><tr>
+                <th class="col-check"><input type="checkbox" id="invoices-select-all" onchange="Invoices.toggleSelectAll(this.checked)" aria-label="Выбрать все накладные на странице"></th>
+                <th>Документ</th><th>Поставщик / замечания</th><th style="text-align:right">Сумма, ₽</th><th>Обработка</th><th>Платёж</th><th style="text-align:right">Действие</th>
+              </tr></thead>
+              <tbody id="invoices-tbody"></tbody>
+            </table>
+          </div>
+          <div class="invoice-list-footer"><span id="invoices-results" aria-live="polite"></span><div class="pagination" id="invoices-pagination"></div></div>
         </div>
-        <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
-        <div class="table-wrap">
-          <table class="invoices-table">
-            <thead>
-              <tr>
-                <th class="col-check"><input type="checkbox" id="invoices-select-all" onchange="Invoices.toggleSelectAll(this.checked)" title="Выбрать все на странице" aria-label="Выбрать все"></th>
-                <th class="col-id">ID</th>
-                <th>Номер</th>
-                <th>Дата</th>
-                <th>Поставщик</th>
-                <th style="text-align:right">Сумма</th>
-                <th title="Позиции дороже обычного более чем на 10%" style="text-align:center">Цены&nbsp;↑</th>
-                <th>Статус</th>
-                <th title="Платёжное поручение в Сбер.Бизнес" style="text-align:center">Сбер</th>
-                <th></th>
-              </tr>
-              <!-- Строка пер-колоночных фильтров. Порядок ячеек обязан совпадать
-                   с шапкой выше. Текстовые поля дебаунсятся, select'ы и даты
-                   применяются сразу; всё уходит на сервер и фильтрует по ВСЕЙ
-                   базе, а не по загруженной странице. -->
-              <tr class="filter-row" id="invoices-filter-row">
-                <td></td>
-                <td></td>
-                <td><input type="text" class="filter-input" id="filter-number" placeholder="номер"
-                           oninput="Invoices.setColumnFilter('number', this.value)" aria-label="Фильтр по номеру"
-                           autocomplete="off" name="filter-number-nofill" data-lpignore="true" data-1p-ignore
-                           data-form-type="other" readonly onfocus="this.removeAttribute('readonly')"></td>
-                <td class="filter-cell-date">
-                  <!-- У input[type=date] нет текстового автозаполнения, поэтому
-                       только autocomplete: приём с readonly здесь применять
-                       нельзя — он ломает открытие календаря по первому клику. -->
-                  <input type="date" class="filter-input" id="filter-date-from" title="Дата с"
-                         onchange="Invoices.setColumnFilter('dateFrom', this.value)" aria-label="Дата с"
-                         autocomplete="off" name="filter-date-from-nofill" data-lpignore="true" data-1p-ignore>
-                  <input type="date" class="filter-input" id="filter-date-to" title="Дата по"
-                         onchange="Invoices.setColumnFilter('dateTo', this.value)" aria-label="Дата по"
-                         autocomplete="off" name="filter-date-to-nofill" data-lpignore="true" data-1p-ignore>
-                </td>
-                <td><input type="text" class="filter-input" id="filter-supplier" placeholder="поставщик"
-                           oninput="Invoices.setColumnFilter('supplier', this.value)" aria-label="Фильтр по поставщику"
-                           autocomplete="off" name="filter-supplier-nofill" data-lpignore="true" data-1p-ignore
-                           data-form-type="other" readonly onfocus="this.removeAttribute('readonly')"></td>
-                <td class="filter-cell-sum">
-                  <input type="text" inputmode="decimal" class="filter-input" id="filter-sum-from" placeholder="от"
-                         oninput="Invoices.setColumnFilter('sumFrom', this.value)" aria-label="Сумма от"
-                         autocomplete="off" name="filter-sum-from-nofill" data-lpignore="true" data-1p-ignore
-                         data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
-                  <input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" placeholder="до"
-                         oninput="Invoices.setColumnFilter('sumTo', this.value)" aria-label="Сумма до"
-                         autocomplete="off" name="filter-sum-to-nofill" data-lpignore="true" data-1p-ignore
-                         data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
-                </td>
-                <td></td>
-                <td>
-                  <select class="filter-input" id="filter-status"
-                          onchange="Invoices.setColumnFilter('status', this.value)" aria-label="Фильтр по статусу">
-                    <option value="">Все</option>
-                    <option value="new">Новая</option>
-                    <option value="processed">Обработан</option>
-                    <option value="sent_to_1c">Отправлен</option>
-                    <option value="error">Ошибка</option>
-                  </select>
-                </td>
-                <td>
-                  <select class="filter-input" id="filter-sber"
-                          onchange="Invoices.setColumnFilter('sber', this.value)" aria-label="Фильтр по оплате">
-                    <option value="">Все</option>
-                    <option value="paid">Оплачено</option>
-                    <option value="unpaid">Не оплачено</option>
-                  </select>
-                </td>
-                <td style="text-align:right">
-                  <button type="button" class="filter-reset" id="filter-reset" hidden
-                          onclick="Invoices.resetColumnFilters()" title="Сбросить фильтры">Сбросить</button>
-                </td>
-              </tr>
-            </thead>
-            <tbody id="invoices-tbody"></tbody>
-          </table>
-        </div>
-        <div class="pagination" id="invoices-pagination"></div>
         <div id="invoices-stats" class="stats-bar"></div>
       </div>
 
@@ -262,6 +200,7 @@
         <div class="card" id="invoice-supplier-details" style="display:none">
           <h3 style="margin-bottom:12px">Реквизиты поставщика</h3>
         </div>
+        <div class="invoice-review-tools"><button type="button" class="btn btn-outline btn-sm" id="invoice-review-toggle" aria-pressed="false" onclick="Invoices.toggleReviewPhotos()">Фото рядом с товарами</button><span>Откройте фото на весь экран, чтобы увеличить и сверить реквизиты</span></div>
         <div class="tabs" style="margin-bottom:0">
           <button class="tab-btn active" onclick="Invoices.switchTab('items', this)">Товары</button>
           <button class="tab-btn" onclick="Invoices.switchTab('photos', this)">Фото</button>
@@ -269,6 +208,7 @@
           <button class="tab-btn" onclick="Invoices.switchTab('history', this)">История</button>
         </div>
         <div id="invoice-sibling-banner" style="display:none"></div>
+        <div id="invoice-review-workspace">
         <div class="card" id="invoice-tab-items">
           <div id="invoice-price-warning"></div>
           <div class="table-wrap">
@@ -296,6 +236,7 @@
           <div id="invoice-photos-container">
             <div class="empty-state">Загрузка фото...</div>
           </div>
+        </div>
         </div>
         <div class="card" id="invoice-tab-ocr" style="display:none">
           <div class="ocr-text" id="invoice-ocr-text"></div>
@@ -1223,6 +1164,7 @@
 <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
 <script src="/js/onecCatalog.js"></script>
 <script src="/js/app.js"></script>
+<script src="/js/invoice-photo-viewer.js"></script>
 <script src="/js/invoices.js"></script>
 <script src="/js/upload.js"></script>
 <script src="/js/mappings.js"></script>

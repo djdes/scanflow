@@ -1,6 +1,8 @@
 /* global App, Invoices */
 const Invoices = {
   currentStatus: null,
+  currentView: 'all',
+  _listRequest: 0,
   offset: 0,
   limit: 50,
   search: '',
@@ -83,41 +85,86 @@ const Invoices = {
   },
 
   async showList() {
+    InvoicePhotoViewer.close();
+    this._currentInvoiceId = null;
     document.getElementById('invoices-list').style.display = 'block';
     document.getElementById('invoice-detail').style.display = 'none';
-    await Promise.all([this.loadStats(), this.loadTable()]);
+    await this.loadTable();
   },
 
   async loadStats() {
+    const request = this._statsRequest = (this._statsRequest || 0) + 1;
     try {
       const { data } = await App.apiJson('/invoices/stats');
+      if (request !== this._statsRequest) return;
+      this._stats = data;
+      this._renderSummary();
       const container = document.getElementById('invoices-stats');
-      const counts = {};
-      (data.byStatus || []).forEach(s => { counts[s.status] = s.count; });
-      const sber = data.sberUnsent || { count: 0, totalSum: 0 };
-
-      const parts = [];
-      const unread = data.unreadCount || 0;
-      if (unread > 0) parts.push(`Не прочитанных ${unread}`);
-      const errors = counts.error || 0;
-      if (errors > 0) parts.push(`Ошибки ${errors}`);
-      const unpaidSum = Math.round(Number(sber.totalSum));
-      if (unpaidSum > 0) parts.push(`Не оплачено ${unpaidSum.toLocaleString('ru-RU')} руб`);
-
-      container.textContent = parts.join(' / ');
-      container.style.display = parts.length > 0 ? '' : 'none';
+      container.textContent = data.unreadCount ? `Непрочитанных: ${data.unreadCount} · Сводка показывает все накладные компании` : 'Сводка показывает все накладные компании';
     } catch (e) {
       console.error('Failed to load stats', e);
     }
   },
 
+  _renderSummary() {
+    const data = this._stats || {};
+    const w = data.workflow || {};
+    const cards = [
+      ['attention', 'Требуют внимания', 'Проверка реквизитов, товаров и ошибок', 'warning'],
+      ['ready', 'Готовы к отправке', 'Без замечаний в списке', 'success'],
+      ['queue', 'В очереди 1С', 'Ожидают загрузки', 'primary'],
+      ['payment', 'Без платёжки в Сбер', `На сумму ${App.formatMoney(w.paymentSum || 0)} ₽`, 'neutral'],
+    ];
+    document.getElementById('invoices-summary').innerHTML = cards.map(([key, label, hint, tone]) => `
+      <button type="button" class="invoice-summary-card invoice-summary-card--${tone}" aria-pressed="${this.currentView === key}" onclick="Invoices.setView('${key}')">
+        <span>${label}</span><strong>${w[key] ?? '—'}</strong><small>${hint}</small>
+      </button>`).join('');
+    const tabs = [['all', 'Все накладные', data.total], ...cards.slice(0, 3).map(c => [c[0], c[1], w[c[0]]]), ['payment', 'Без платёжки', w.payment]];
+    document.getElementById('invoice-view-tabs').innerHTML = tabs.map(([key, label, count]) => `
+      <button type="button" class="invoice-view-tab${this.currentView === key ? ' active' : ''}" aria-pressed="${this.currentView === key}" onclick="Invoices.setView('${key}')">${label} <span>${count ?? '—'}</span></button>`).join('');
+  },
+
+  setView(view) {
+    if (!['all', 'attention', 'ready', 'queue', 'payment'].includes(view)) return;
+    this.currentView = view;
+    this.currentStatus = null;
+    this.colFilters.sber = '';
+    ['filter-status', 'filter-sber'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    this.offset = 0;
+    clearTimeout(this._searchTimer);
+    clearTimeout(this._filterTimer);
+    this._syncFilterReset();
+    this._renderSummary();
+    this.loadTable();
+  },
+
+  toggleFilters() {
+    const panel = document.getElementById('invoice-filters');
+    panel.hidden = !panel.hidden;
+    document.getElementById('invoice-filter-toggle').setAttribute('aria-expanded', String(!panel.hidden));
+  },
+
+  _reviewText(inv) {
+    const reasons = { error: 'Ошибка распознавания — откройте документ', duplicate: 'Возможный дубликат', total: 'Сумма расходилась с товарами — сверьте с фото', header: 'Не заполнены обязательные реквизиты', items: 'Нет распознанных товаров', quantity: 'Проверьте количество и единицы', mapping: 'Есть товары без сопоставления с 1С', supplier: 'Поставщик подобран по названию — проверьте ИНН' };
+    return reasons[inv.review_reason] || '';
+  },
+
+  _rowAction(inv) {
+    if (inv.review_reason) return `<button type="button" class="btn btn-outline btn-sm" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Проверить</button>`;
+    if (inv.status === 'processed' && !inv.approved_for_1c) return `<button type="button" class="btn btn-primary btn-sm" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
+    return `<button type="button" class="btn btn-outline btn-sm" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Открыть</button>`;
+  },
+
   async loadTable() {
+    const request = ++this._listRequest;
+    this.loadStats();
     this._renderPeriod();
     // Набор строк меняется — прежнее выделение больше не относится к этим строкам.
     this._selected.clear();
     this._renderBulkBar();
 
     let url = `/invoices?limit=${this.limit}&offset=${this.offset}`;
+    if (this.currentView !== 'all') url += `&view=${this.currentView}`;
     if (this.currentStatus) url += `&status=${this.currentStatus}`;
     if (this.search) url += `&q=${encodeURIComponent(this.search)}`;
     if (this.dateFrom) url += `&from=${this.dateFrom}`;
@@ -130,22 +177,26 @@ const Invoices = {
     if (f.sber) url += `&sber=${encodeURIComponent(f.sber)}`;
 
     // Show skeleton rows while real data is loading — feels instant
-    App.skeletonRows('invoices-tbody', ['w-24', 'w-24', 'w-40', 'w-40', 'w-60', 'w-40', 'w-24', 'w-40', 'w-24', 'w-24'], 6);
+    App.skeletonRows('invoices-tbody', ['w-24', 'w-40', 'w-60', 'w-40', 'w-40', 'w-24', 'w-24'], 6);
 
     try {
-      const { data } = await App.apiJson(url);
+      const { data, total } = await App.apiJson(url);
+      if (request !== this._listRequest) return;
+      const resultTotal = Number(total ?? data?.length ?? 0);
+      document.getElementById('invoices-results').textContent = `Показано ${data?.length ? this.offset + 1 : 0}–${this.offset + (data?.length || 0)} из ${resultTotal}`;
+      document.getElementById('invoices-pagination').innerHTML = '';
       // Запоминаем строки: панель массовых действий должна знать, у каких из
       // выделенных накладных закрыт чек-лист сверки (флаги приходят в списке).
       this._rowsById = new Map((data || []).map(r => [r.id, r]));
       const tbody = document.getElementById('invoices-tbody');
 
       if (!data || data.length === 0) {
-        const filtered = this.search || this._anyColumnFilter();
-        tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
+        const filtered = this.search || this._anyColumnFilter() || this.currentView !== 'all';
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
           <div class="empty-icon">&#128196;</div>
           <div>${filtered
             ? 'Ничего не найдено — измените поиск, период или фильтр.'
-            : 'Накладных пока нет. Загрузите фото или положите в папку data/inbox/'}</div>
+            : 'Накладных пока нет. Загрузите фото, PDF или XML документа'}</div>
         </div></td></tr>`;
         return;
       }
@@ -163,41 +214,28 @@ const Invoices = {
           _lastDay = day;
           rowsHtml.push(`
         <tr class="date-group-row" data-day="${day}">
-          <td colspan="10">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
+          <td colspan="7">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
         </tr>`);
         }
-        const overdueDays = Number(inv.sber_overdue_days) || 14;
-        const _visited = this.isVisited(inv.id);
+        const review = this._reviewText(inv);
+        const priceCount = Number(inv.elevated_price_count) || 0;
         rowsHtml.push(`
-        <tr class="clickable${inv.sber_overdue ? ' sber-overdue' : ''}${!inv.read_at ? ' unread' : ''}${_visited ? ' inv-visited' : ''}" data-day="${day}"
-            ${inv.sber_overdue ? `style="box-shadow:inset 3px 0 0 #f59e0b" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней"` : ''}
-            onclick="Invoices.openInvoice(${inv.id})">
-          <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" ${this._selected.has(inv.id) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${inv.id}"></td>
-          <td class="col-id" data-label="ID">${inv.id}</td>
-          <td data-label="Номер">${App.esc(inv.invoice_number || '—')}${inv.duplicate_of ? ` <span class="dup-badge" title="Дубликат накладной #${inv.duplicate_of}${inv.duplicate_score ? `, вероятность ${Math.round(inv.duplicate_score * 100)}%` : ''}">🔁 #${inv.duplicate_of}</span>` : ''}</td>
-          <td data-label="Дата">${App.formatDate(inv.invoice_date)}</td>
-          <td data-label="Поставщик">${App.esc(inv.supplier || '—')}</td>
-          <td style="text-align:right" data-label="Сумма">${App.formatMoney(inv.total_sum)}${inv.items_total_mismatch ? ' <span title="Сумма расходилась с суммой позиций" style="color:#dc2626">⚠</span>' : ''}${Invoices._vatLine(inv)}</td>
-          <td style="text-align:center" data-label="Цены ↑">${this._elevatedCell(inv)}</td>
-          <td data-label="Статус">${this._statusCell(inv)}</td>
-          <td style="text-align:center" data-label="Сбер">${this._sberCell(inv)}</td>
-          <td style="text-align:right;white-space:nowrap" class="cell-action">
-            ${inv.status === 'processed' && !inv.approved_for_1c
-              ? `<button class="btn btn-primary btn-sm" style="margin-right:4px" title="Отправить в 1С"
-                    onclick="Invoices.sendTo1C(${inv.id}, event, true)">&rarr; 1С</button>`
-              : `<button class="btn btn-primary btn-sm" style="margin-right:4px;visibility:hidden" tabindex="-1" aria-hidden="true" disabled>&rarr; 1С</button>`}
-            <button class="btn-icon-gear" title="Действия"
-                    aria-label="Действия для накладной ${inv.id}"
-                    onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">&#9881;</button>
-          </td>
-        </tr>`);
+          <tr class="clickable${inv.review_reason ? ' invoice-needs-review' : ''}${!inv.read_at ? ' unread' : ''}${this.isVisited(inv.id) ? ' inv-visited' : ''}" data-day="${day}" onclick="Invoices.openInvoice(${inv.id})">
+            <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${App.esc(inv.invoice_number || inv.id)}"></td>
+            <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small>${App.formatDate(inv.invoice_date)} · #${inv.id}</small>${inv.duplicate_of ? `<a href="#/invoices/${inv.duplicate_of}" onclick="event.stopPropagation()" class="invoice-duplicate-link">Дубликат #${inv.duplicate_of}</a>` : ''}</div></td>
+            <td data-label="Поставщик"><div class="invoice-cell-stack"><span>${App.esc(inv.supplier || 'Не указан')}</span>${priceCount ? `<small class="invoice-price-note">${priceCount} ${this._plural(priceCount, 'позиция', 'позиции', 'позиций')} дороже обычного &gt;10%</small>` : ''}</div></td>
+            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${this._vatLine(inv)}</div></td>
+            <td data-label="Обработка"><div class="invoice-cell-stack">${this._statusCell(inv)}${review ? `<small class="invoice-review-reason">${App.esc(review)}</small>` : ''}</div></td>
+            <td data-label="Платёж"><div class="invoice-cell-stack">${this._sberCell(inv)}</div></td>
+            <td class="cell-action">${this._rowAction(inv)}<button type="button" class="btn-icon-gear" aria-label="Другие действия для накладной ${inv.id}" title="Другие действия" onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">•••</button></td>
+          </tr>`);
       }
       tbody.innerHTML = rowsHtml.join('');
       this._syncSelectAll(); // выбор сброшен в начале loadTable — привести шапку в тон
 
       // Pagination
       const pagination = document.getElementById('invoices-pagination');
-      if (data.length >= this.limit) {
+      if (this.offset + data.length < resultTotal) {
         pagination.innerHTML = `
           ${this.offset > 0 ? `<button class="btn btn-outline btn-sm" onclick="Invoices.prevPage()">&larr; Назад</button>` : ''}
           <button class="btn btn-outline btn-sm" onclick="Invoices.nextPage()">Далее &rarr;</button>
@@ -218,6 +256,8 @@ const Invoices = {
         requestAnimationFrame(() => window.scrollTo(0, y));
       }
     } catch (e) {
+      if (request !== this._listRequest) return;
+      document.getElementById('invoices-tbody').innerHTML = '<tr><td colspan="7"><div class="empty-state">Не удалось загрузить накладные. <button class="btn btn-outline btn-sm" onclick="Invoices.loadTable()">Повторить</button></div></td></tr>';
       console.error('Failed to load invoices', e);
       App.notify('Ошибка загрузки накладных', 'error');
     }
@@ -526,7 +566,7 @@ const Invoices = {
   _anyColumnFilter() {
     const f = this.colFilters;
     return !!(f.number || f.supplier || f.sumFrom || f.sumTo || f.sber
-      || this.currentStatus || this.dateFrom || this.dateTo);
+      || this.currentStatus || this.dateFrom || this.dateTo || this.currentView !== 'all');
   },
 
   // Кнопка «Сбросить» появляется, только когда что-то реально выбрано.
@@ -536,6 +576,8 @@ const Invoices = {
   },
 
   resetColumnFilters() {
+    this.currentView = 'all';
+    this._renderSummary();
     this.colFilters = { number: '', supplier: '', sumFrom: '', sumTo: '', sber: '' };
     this.currentStatus = null;
     this.dateFrom = null;
@@ -573,9 +615,11 @@ const Invoices = {
   // pickup shows a distinct «Ожидает 1С» badge (full text in the tooltip) instead
   // of the plain «Обработан» — mirrors the detail page's "Ожидает загрузки в 1С".
   _statusCell(inv) {
-    if (inv.status === 'processed' && inv.approved_for_1c) {
-      return '<span class="badge badge-sent" title="Ожидает загрузки в 1С">Ожидает 1С</span>';
-    }
+    if (inv.status === 'error') return '<span class="badge badge-error">Ошибка</span>';
+    if (inv.review_reason) return '<span class="badge badge-review">Требует проверки</span>' + (inv.approved_for_1c ? '<small>Разрешена загрузка в 1С</small>' : '');
+    if (inv.status === 'processed' && inv.approved_for_1c) return '<span class="badge badge-sent">Ожидает 1С</span>';
+    if (inv.status === 'processed') return '<span class="badge badge-processed">Готова к отправке</span>';
+    if (inv.status === 'sent_to_1c') return '<span class="badge badge-complete">В 1С</span>';
     return App.statusBadge(inv.status);
   },
 
@@ -699,39 +743,16 @@ const Invoices = {
   // exists for this invoice (created/failed/pending), so the user can spot at
   // a glance which invoices have already been pushed to the bank.
   _sberCell(inv) {
+    if (inv.paid_externally) return '<span class="badge badge-complete">Оплачено вне сервиса</span>';
     const status = inv.sber_payment_status;
-    // «Оплачено вне сервиса» — приоритетнее всего: такую накладную не платят через
-    // Сбер, она исключена из overdue/бэклога на бэкенде, показываем нейтральный бейдж.
-    if (inv.paid_externally) {
-      return '<span style="color:#64748b;white-space:nowrap" title="Оплачено вне сервиса — платёж в Сбер не нужен">💵 Сами</span>';
-    }
-    // Overdue takes precedence: a payable invoice with no (non-failed) Sber
-    // payment past the threshold. The server-side sber_overdue flag already
-    // encodes "payable AND old AND no created/pending payment".
-    if (inv.sber_overdue) {
-      const overdueDays = Number(inv.sber_overdue_days) || 14;
-      return `<span style="color:#d97706;font-weight:600;white-space:nowrap" title="Счёт в Сбербанк не выставлен более ${overdueDays} дней">⏰ ${overdueDays}д+</span>`;
-    }
-    if (!status) return '<span style="color:#cbd5e1" title="Платёж в Сбер.Бизнес не создан">—</span>';
-    const num = inv.sber_payment_number ? ` №${App.esc(inv.sber_payment_number)}` : '';
+    if (status === 'created' && inv.sber_bank_kind === 'paid') return '<span class="badge badge-processed">Оплачено</span><small>Исполнено банком</small>';
+    if (status === 'failed' || inv.sber_bank_kind === 'failed') return `<span class="badge badge-error">Ошибка платежа</span><small>${App.esc(inv.sber_bank_label || 'Откройте документ')}</small>`;
+    if (status === 'pending') return '<span class="badge badge-review">Создаётся</span>';
     if (status === 'created') {
-      // Банковский статус платёжки (опрос раз в 30 минут): оплачено / отклонено / в работе.
-      if (inv.sber_bank_kind === 'paid') {
-        return `<span class="sber-cell-paid" title="Платёжка${num} исполнена банком">₽ ✓</span>`;
-      }
-      if (inv.sber_bank_kind === 'failed') {
-        return `<span class="sber-cell-failed" title="${App.esc(inv.sber_bank_label || 'Отклонена банком')}${num}">✕</span>`;
-      }
-      const bank = inv.sber_bank_label ? ` — ${App.esc(inv.sber_bank_label)}` : '';
-      return `<span style="color:#16a34a;font-size:18px" title="Черновик создан в Сбер.Бизнес${num}${bank}">✓</span>`;
+      const draft = !inv.sber_bank_kind || inv.sber_bank_kind === 'draft' || inv.sber_bank_kind === 'unknown';
+      return `<span class="badge badge-sent">${draft ? 'Черновик' : 'В работе банка'}</span><small>${App.esc(inv.sber_bank_label || 'Создан в СберБизнес')}</small>`;
     }
-    if (status === 'failed') {
-      return `<span style="color:#dc2626;font-size:16px" title="Ошибка отправки${num} — открой накладную чтобы увидеть детали">⚠</span>`;
-    }
-    if (status === 'pending') {
-      return `<span style="color:#f59e0b;font-size:16px" title="Отправка в процессе…">⏳</span>`;
-    }
-    return `<span style="color:#94a3b8" title="Статус: ${App.esc(status)}">●</span>`;
+    return `<span class="badge badge-complete">Не создан</span>${inv.sber_overdue ? `<small class="invoice-review-reason">Без платёжки более ${Number(inv.sber_overdue_days) || 14} дней</small>` : ''}`;
   },
 
   async showDetail(id) {
@@ -740,6 +761,11 @@ const Invoices = {
 
     this._currentInvoiceId = id;
     this._photosLoaded = false;
+    this._photoFiles = [];
+    this._reviewPhotos = false;
+    document.getElementById('invoice-review-workspace').classList.remove('invoice-review-split');
+    document.getElementById('invoice-review-toggle').setAttribute('aria-pressed', 'false');
+    InvoicePhotoViewer.close();
     this._markVisited(id);
     this._loadNeighbours(id);
 
@@ -756,6 +782,7 @@ const Invoices = {
 
     try {
       const { data } = await App.apiJson(`/invoices/${id}`);
+      if (id !== this._currentInvoiceId) return;
       if (!data) {
         App.notify('Накладная не найдена', 'error');
         App.navigate('#/invoices');
@@ -766,6 +793,8 @@ const Invoices = {
       // «OCR-текст» — разобранные из него данные.
       const isXml = App.isXmlInvoice(data);
       this._currentXml = isXml ? this._xmlMeta(data) : null;
+      this._photoTitle = `Накладная ${data.invoice_number || '#' + data.id}`;
+      document.getElementById('invoice-review-toggle').textContent = isXml ? 'Документ рядом с товарами' : 'Фото рядом с товарами';
       if (tabBtns[1]) tabBtns[1].textContent = isXml ? 'Документ' : 'Фото';
       if (tabBtns[2]) tabBtns[2].textContent = isXml ? 'Данные XML' : 'OCR-текст';
 
@@ -2361,6 +2390,23 @@ const Invoices = {
     }
   },
 
+  toggleReviewPhotos() {
+    this._reviewPhotos = !this._reviewPhotos;
+    document.getElementById('invoice-review-workspace').classList.toggle('invoice-review-split', this._reviewPhotos);
+    document.getElementById('invoice-review-toggle').setAttribute('aria-pressed', String(this._reviewPhotos));
+    const itemBtn = document.querySelector('#invoice-detail .tabs .tab-btn');
+    this.switchTab('items', itemBtn);
+    if (this._reviewPhotos && !this._photosLoaded) this.loadPhotos();
+    requestAnimationFrame(() => document.querySelectorAll('#invoice-photos-container .photo-frame').forEach(f => this._layoutPhoto(f)));
+  },
+
+  openPhotoViewer(page) {
+    const images = (this._photoFiles || []).map((p, index) => ({ ...p, page: index }))
+      .filter(p => p.exists !== false && (p.kind || this._fileKind(p.filename)) === 'image')
+      .map(p => ({ src: this._fileUrl(p), page: p.page, name: p.filename, rotation: this._getPhotoRotation(this._currentInvoiceId, p.page) }));
+    InvoicePhotoViewer.open(images, page, this._photoTitle, (pageIndex, delta) => this.rotatePhoto(this._currentInvoiceId, pageIndex, delta));
+  },
+
   switchTab(tab, btn) {
     // Hide all tabs
     document.getElementById('invoice-tab-items').style.display = 'none';
@@ -2374,6 +2420,9 @@ const Invoices = {
 
     // Show selected tab
     document.getElementById('invoice-tab-' + tab).style.display = 'block';
+    document.getElementById('invoice-review-workspace').classList.toggle('invoice-review-split', tab === 'items' && this._reviewPhotos);
+    if (tab === 'items' && this._reviewPhotos) document.getElementById('invoice-tab-photos').style.display = 'block';
+    requestAnimationFrame(() => document.querySelectorAll('#invoice-photos-container .photo-frame').forEach(f => this._layoutPhoto(f)));
 
     // Load photos on first switch
     if (tab === 'photos' && !this._photosLoaded) {
@@ -2388,6 +2437,8 @@ const Invoices = {
 
     try {
       const { data } = await App.apiJson(`/invoices/${id}/photos`);
+      if (id !== this._currentInvoiceId) return;
+      this._photoFiles = data || [];
       if (!data || data.length === 0) {
         container.innerHTML = '<div class="empty-state">Фото не найдены</div>';
         return;
@@ -2411,6 +2462,7 @@ const Invoices = {
           <div class="photo-toolbar">
             <span class="photo-caption">Лист ${i + 1}: ${safeName}</span>
             <span class="photo-rotate-controls">
+              <button type="button" class="btn btn-outline btn-sm" onclick="Invoices.openPhotoViewer(${i})" aria-label="Открыть лист ${i + 1} на весь экран">На весь экран</button>
               <button type="button" class="btn btn-outline btn-sm" title="Повернуть влево (90°)"
                       aria-label="Повернуть лист ${i + 1} влево"
                       onclick="Invoices.rotatePhoto(${id}, ${i}, -90)">↺</button>
@@ -2419,7 +2471,7 @@ const Invoices = {
                       onclick="Invoices.rotatePhoto(${id}, ${i}, 90)">↻</button>
             </span>
           </div>
-          <div class="photo-frame" data-rot="${deg}">
+          <div class="photo-frame" data-rot="${deg}" role="button" tabindex="0" aria-label="Увеличить лист ${i + 1}" onclick="Invoices.openPhotoViewer(${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();Invoices.openPhotoViewer(${i})}">
             <img src="${safeUrl}?key=${encodeURIComponent(App.apiKey)}" alt="${safeName}"
                  onerror="this.closest('.photo-frame').outerHTML='<div class=\\'empty-state\\'>Файл не найден на диске</div>'">
           </div>
@@ -2442,7 +2494,8 @@ const Invoices = {
       }
       this._photosLoaded = true;
     } catch (e) {
-      container.innerHTML = '<div class="empty-state">Ошибка загрузки фото</div>';
+      if (id !== this._currentInvoiceId) return;
+      container.innerHTML = '<div class="empty-state">Ошибка загрузки фото. <button class="btn btn-outline btn-sm" onclick="Invoices.loadPhotos()">Повторить</button></div>';
     }
   },
 

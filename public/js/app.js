@@ -112,6 +112,7 @@ const App = {
   },
 
   route() {
+    if (typeof InvoicePhotoViewer !== 'undefined') InvoicePhotoViewer.close();
     const hash = window.location.hash || '#/invoices';
     // Close the mobile nav drawer on every navigation.
     const navEl = document.querySelector('header nav');
