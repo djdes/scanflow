@@ -103,6 +103,9 @@ export async function resetDb(): Promise<mysql.Pool> {
     'webhook_config',
     'webhook_config_cards',
     'analyzer_config',
+    // Подключение подписки ChatGPT (миграция 82) — одна строка на платформу.
+    'chatgpt_connection',
+    'chatgpt_device_login',
     'integration_sync_state',
     'integration_sync_state_cards',
     'api_requests_log',

@@ -449,10 +449,11 @@ const App = {
     if (e.includes('google_vision')) parts.push('Google Vision');
     if (e.includes('tesseract')) parts.push('Tesseract');
     if (e.includes('claude_api')) parts.push('API');
+    else if (e.includes('gpt_api')) parts.push('GPT');
     else if (e.includes('claude_analyzer') || e === 'claude_cli') parts.push('MAX');
     const isMultipage = e.includes('multipage');
     const label = parts.join(' + ') + (isMultipage ? ' (multi)' : '');
-    const cls = e.includes('claude_api') ? 'badge-sent' : e.includes('claude_analyzer') ? 'badge-processed' : 'badge-processing';
+    const cls = (e.includes('claude_api') || e.includes('gpt_api')) ? 'badge-sent' : e.includes('claude_analyzer') ? 'badge-processed' : 'badge-processing';
     return `<span class="badge ${cls}" title="${this.esc(engine)}">${this.esc(label)}</span>`;
   }
 };

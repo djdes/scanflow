@@ -2,6 +2,7 @@ import { OcrEngine, OcrResult } from './types';
 import { GoogleVisionEngine } from './googleVision';
 import { TesseractEngine } from './tesseract';
 import { analyzeImageWithVerification, analyzeMultipleImagesWithVerification, analyzeMultiPageTextWithVerification, CatalogEntry } from './claudeApiAnalyzer';
+import { isGptModel, visionModelFor } from './gptVision';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
 import { buildSupplierMemory } from '../learning/supplierMemory';
@@ -69,8 +70,10 @@ export class OcrManager {
    */
   private async detectTextRotation(imagePath: string): Promise<0 | 90 | 180 | 270> {
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
-    if (!apiKey) return 0;
+    // В режиме gpt поворот определяет та же GPT, иначе — Claude (нужен ключ Anthropic).
+    const { modelId, apiKey } = visionModelFor(analyzerConfig);
+    const gpt = isGptModel(modelId);
+    if (!gpt && !apiKey) return 0;
 
     try {
       // Four rotated previews — Haiku compares them side-by-side. This works
@@ -87,11 +90,11 @@ export class OcrManager {
         return buf.toString('base64');
       }));
 
-      const { detectOrientationWithClaude } = await import('./claudeApiAnalyzer');
-      const rotation = await detectOrientationWithClaude(
-        previews as [string, string, string, string],
-        apiKey,
-      );
+      const { detectOrientationWithClaude, detectOrientationWithGpt } = await import('./claudeApiAnalyzer');
+      const variants = previews as [string, string, string, string];
+      const rotation = gpt
+        ? await detectOrientationWithGpt(variants, modelId)
+        : await detectOrientationWithClaude(variants, apiKey);
       logger.info('Orientation detected', { imagePath, rotation });
       return rotation;
     } catch (err) {
@@ -280,10 +283,11 @@ export class OcrManager {
    */
   async recognizeMultiPageWithClaudeApi(imagePaths: string[], ownerUserId: number): Promise<OcrResult> {
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
-    const modelId = analyzerConfig.claude_model;
+    const { modelId, apiKey } = visionModelFor(analyzerConfig, {
+      pdf: imagePaths.some(p => path.extname(p).toLowerCase() === '.pdf'),
+    });
 
-    if (!apiKey) {
+    if (!apiKey && !isGptModel(modelId)) {
       throw new Error('Anthropic API key not configured. Set it in Settings.');
     }
 
@@ -302,12 +306,12 @@ export class OcrManager {
     if (result.success && result.data) {
       return {
         text: result.rawText || JSON.stringify(result.data, null, 2),
-        engine: 'claude_api_multipage',
+        engine: isGptModel(modelId) ? 'gpt_api_multipage' : 'claude_api_multipage',
         structured: result.data,
       };
     }
 
-    throw new Error(result.error || 'Claude API multi-page analysis failed');
+    throw new Error(result.error || 'Multi-page image analysis failed');
   }
 
   /**
@@ -318,10 +322,9 @@ export class OcrManager {
    */
   async analyzeMultiPageText(combinedOcrText: string, pageCount: number, ownerUserId: number): Promise<OcrResult> {
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
-    const modelId = analyzerConfig.claude_model;
+    const { modelId, apiKey } = visionModelFor(analyzerConfig);
 
-    if (!apiKey) {
+    if (!apiKey && !isGptModel(modelId)) {
       throw new Error('Anthropic API key not configured.');
     }
 
@@ -331,11 +334,11 @@ export class OcrManager {
 
     if (result.success && result.data) {
       // Honest engine tag: only include "google_vision" if we're actually
-      // in hybrid mode. In claude_api mode Google Vision was never called,
-      // the combined text is just the previous pages' Claude JSON outputs.
-      const engine = analyzerConfig.mode === 'claude_api'
-        ? 'claude_api_multipage'
-        : 'google_vision+claude_api_multipage';
+      // in hybrid mode. In claude_api / gpt mode Google Vision was never called,
+      // the combined text is just the previous pages' JSON outputs.
+      const engine = isGptModel(modelId) ? 'gpt_api_multipage'
+        : analyzerConfig.mode === 'claude_api' ? 'claude_api_multipage'
+          : 'google_vision+claude_api_multipage';
       return {
         text: combinedOcrText,
         engine,
@@ -353,10 +356,10 @@ export class OcrManager {
    */
   async recognizeWithClaudeApi(imagePath: string, ownerUserId: number): Promise<OcrResult> {
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
-    const modelId = analyzerConfig.claude_model;
+    // Режим gpt: фото читает GPT через шлюз ProjectsFlow; PDF — всё равно Claude.
+    const { modelId, apiKey } = visionModelFor(analyzerConfig, { pdf: path.extname(imagePath).toLowerCase() === '.pdf' });
 
-    if (!apiKey) {
+    if (!apiKey && !isGptModel(modelId)) {
       throw new Error('Anthropic API key not configured. Set it in Settings.');
     }
 
@@ -374,12 +377,12 @@ export class OcrManager {
       if (result.success && result.data) {
         return {
           text: result.rawText || JSON.stringify(result.data, null, 2),
-          engine: 'claude_api',
+          engine: isGptModel(modelId) ? 'gpt_api' : 'claude_api',
           structured: result.data,
         };
       }
 
-      throw new Error(result.error || 'Claude API analysis failed');
+      throw new Error(result.error || 'Image analysis failed');
     } finally {
       if (processedPath !== imagePath) {
         try { fs.unlinkSync(processedPath); } catch { /* ignore */ }

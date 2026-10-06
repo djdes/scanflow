@@ -17,6 +17,7 @@ import mappingsRouter, { setMapper } from './routes/mappings';
 import uploadRouter, { setFileWatcher } from './routes/upload';
 import webhookRouter from './routes/webhook';
 import settingsRouter from './routes/settings';
+import chatgptRouter from './routes/chatgpt';
 import debugRouter from './routes/debug';
 import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes/nomenclature';
 import dispatcherRouter, { setMapper as setDispatcherMapper } from './routes/dispatcher';
@@ -262,6 +263,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // platform-global and have no non-admin UI callers — admin only.
   app.use('/api/webhook', apiKeyAuth, requireAdmin, webhookRouter);
   app.use('/api/settings', apiKeyAuth, settingsRouter);
+  // Своё подключение подписки ChatGPT (режим распознавания gpt) — платформенный конфиг, только admin.
+  app.use('/api/chatgpt', apiKeyAuth, requireAdmin, chatgptRouter);
   app.use('/api/debug', apiKeyAuth, requireAdmin, debugRouter);
   app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);
   app.use('/api/profile', apiKeyAuth, profileRouter);

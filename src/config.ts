@@ -27,6 +27,9 @@ export const config = {
   useClaudeAnalyzer: envBool('USE_CLAUDE_ANALYZER', false),
   anthropicApiKey: envStr('ANTHROPIC_API_KEY', ''),
   anthropicProxyUrl: envStr('ANTHROPIC_PROXY_URL', ''),
+  // Прокси для OpenAI (auth.openai.com, chatgpt.com) — режим распознавания gpt.
+  // Пусто — используется ANTHROPIC_PROXY_URL (src/chatgpt/deviceAuth.ts).
+  openaiProxyUrl: envStr('OPENAI_PROXY_URL', ''),
 
   // Paths
   inboxDir: path.resolve(envStr('INBOX_DIR', './data/inbox')),

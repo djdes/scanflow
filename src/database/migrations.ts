@@ -2391,6 +2391,63 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    version: 81,
+    name: 'analyzer_config.gpt_model — модель для режима распознавания gpt (шлюз ProjectsFlow)',
+    // NULL — модель по умолчанию из кода (DEFAULT_GPT_MODEL в src/ocr/gptVision.ts).
+    detect: (exec) => hasColumn(exec, 'analyzer_config', 'gpt_model'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'analyzer_config', 'gpt_model'))) {
+        await exec.query(`ALTER TABLE analyzer_config ADD COLUMN gpt_model VARCHAR(64) NULL`);
+      }
+    },
+  },
+  {
+    version: 82,
+    name: 'chatgpt_connection + chatgpt_device_login — своё подключение подписки ChatGPT по коду',
+    // Одно подключение на платформу (id = 1), как analyzer_config. Токены — зашифрованы
+    // (sealSecret, purpose 'chatgpt-oauth'). Времена, по которым принимаются решения
+    // (срок access-токена, лимит, срок кода), — BIGINT мс эпохи: база прода живёт по МСК,
+    // а DATETIME без зоны уже путал сроки токенов Сбера (правило 29).
+    // version — оптимистичная блокировка: refresh-токен одноразовый, два обновления
+    // подряд выбили бы сессию.
+    detect: async (exec) => (await hasTable(exec, 'chatgpt_connection')) && (await hasTable(exec, 'chatgpt_device_login')),
+    run: async (exec) => {
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS chatgpt_connection (
+          id                  TINYINT       NOT NULL PRIMARY KEY,
+          status              VARCHAR(32)   NOT NULL DEFAULT 'active',
+          account_id          VARCHAR(128)  NULL,
+          account_email       VARCHAR(255)  NULL,
+          plan_type           VARCHAR(64)   NULL,
+          access_token        TEXT          NOT NULL,
+          refresh_token       TEXT          NULL,
+          id_token            TEXT          NULL,
+          access_expires_ms   BIGINT        NULL,
+          last_refresh_ms     BIGINT        NULL,
+          rate_limited_until_ms BIGINT      NULL,
+          last_used_ms        BIGINT        NULL,
+          last_error          VARCHAR(500)  NULL,
+          version             INT UNSIGNED  NOT NULL DEFAULT 0,
+          created_by          INT           NULL,
+          created_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      await exec.query(`
+        CREATE TABLE IF NOT EXISTS chatgpt_device_login (
+          id                TINYINT       NOT NULL PRIMARY KEY,
+          user_code         VARCHAR(32)   NOT NULL,
+          device_auth_id    VARCHAR(255)  NOT NULL,
+          verification_url  VARCHAR(255)  NOT NULL,
+          interval_sec      INT           NOT NULL DEFAULT 5,
+          expires_ms        BIGINT        NOT NULL,
+          created_by        INT           NULL,
+          created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

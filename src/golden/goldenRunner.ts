@@ -22,8 +22,9 @@
  *     с причиной 'multipage': в проде страницы распознаются по отдельности и
  *     потом сшиваются (склейка зависит от порядка загрузки и времени), честно
  *     воспроизвести это без записи в БД нельзя;
- *   - всегда путь claude_api (фото → Claude), даже если в настройках выбран
- *     hybrid/диспетчер: это режим продакшена, его и меряем.
+ *   - всегда путь «фото → модель» (claude_api), даже если в настройках выбран
+ *     hybrid/диспетчер: это режим продакшена, его и меряем. В режиме gpt фото
+ *     читает GPT через шлюз ProjectsFlow — так эталоны сравнивают Claude и GPT.
  */
 import fs from 'fs';
 import path from 'path';
@@ -33,6 +34,7 @@ import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { goldenRepo } from '../database/repositories/goldenRepo';
 import { OcrManager } from '../ocr/ocrManager';
 import { analyzeImageWithVerification } from '../ocr/claudeApiAnalyzer';
+import { isGptModel, visionModelFor } from '../ocr/gptVision';
 import { buildSupplierMemory } from '../learning/supplierMemory';
 import type { ParsedInvoiceData } from '../ocr/types';
 import { compareGolden, truthFromInvoice, type GoldenCompareResult } from './compare';
@@ -124,7 +126,7 @@ async function recognizeWithCurrentModel(photoPath: string, ctx: GoldenRecognize
   try {
     const result = await analyzeImageWithVerification(prepared, ctx.apiKey, ctx.model, undefined, ctx.memory);
     if (!result.success || !result.data) {
-      throw new Error(result.error || 'Claude API analysis failed');
+      throw new Error(result.error || 'Image analysis failed');
     }
     return result.data;
   } finally {
@@ -311,11 +313,12 @@ export async function startGoldenRun(
   let ctx: GoldenRecognizeContext;
   try {
     const cfg = await invoiceRepo.getAnalyzerConfig();
-    const apiKey = cfg.anthropic_api_key || config.anthropicApiKey;
-    if (!apiKey) {
+    // Меряем ту модель, что читает фото в бою: в режиме gpt — GPT через шлюз ProjectsFlow.
+    const { modelId, apiKey } = visionModelFor(cfg);
+    if (!apiKey && !isGptModel(modelId)) {
       throw new GoldenRunConfigError('Не задан API-ключ Anthropic — прогон эталонов распознаёт фото через Anthropic API');
     }
-    ctx = { apiKey, model: cfg.claude_model, memory: await buildSupplierMemory(opts.ownerUserId) };
+    ctx = { apiKey, model: modelId, memory: await buildSupplierMemory(opts.ownerUserId) };
     runId = await goldenRepo.createRun({
       ownerUserId: opts.ownerUserId,
       startedBy: opts.startedBy,

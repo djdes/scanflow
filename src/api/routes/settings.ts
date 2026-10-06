@@ -4,6 +4,8 @@ import { logger } from '../../utils/logger';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { requireAdmin } from '../middleware/auth';
 import { getEngineFlags, setEngineFlags, ENGINE_FLAGS, ENGINE_FLAG_INFO } from '../../services/engineFlags';
+import { chatgptConnectionRepo } from '../../database/repositories/chatgptConnectionRepo';
+import { DEFAULT_GPT_MODEL, isGptModel } from '../../ocr/gptVision';
 
 const router = Router();
 
@@ -26,6 +28,7 @@ router.get('/analyzer', async (req: Request, res: Response) => {
         projectsflow_token: isAdmin ? config.projectsflow_token : null,
         projectsflow_project_id: config.projectsflow_project_id,
         claude_model: config.claude_model,
+        gpt_model: config.gpt_model || DEFAULT_GPT_MODEL,
         llm_mapper_enabled: config.llm_mapper_enabled,
         auto_send_1c: config.auto_send_1c,
         auto_send_sber: config.auto_send_sber,
@@ -41,19 +44,43 @@ router.get('/analyzer', async (req: Request, res: Response) => {
 // platform-global OCR/integration config, not per-tenant).
 router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const { mode, anthropic_api_key, projectsflow_token, projectsflow_project_id, claude_model, llm_mapper_enabled, auto_send_1c, auto_send_sber, dadata_api_key } = req.body;
+    const { mode, anthropic_api_key, projectsflow_token, projectsflow_project_id, claude_model, gpt_model, llm_mapper_enabled, auto_send_1c, auto_send_sber, dadata_api_key } = req.body;
     // Only persist a non-empty key; omitting it (or sending blank) leaves the
     // stored key untouched so a routine save doesn't wipe it.
     const dadataKey = (typeof dadata_api_key === 'string' && dadata_api_key.trim()) ? dadata_api_key.trim() : undefined;
 
-    if (!mode || !['hybrid', 'claude_api', 'dispatcher'].includes(mode)) {
-      res.status(400).json({ error: 'Invalid mode. Must be "hybrid", "claude_api" or "dispatcher"' });
+    if (!mode || !['hybrid', 'claude_api', 'gpt', 'dispatcher'].includes(mode)) {
+      res.status(400).json({ error: 'Invalid mode. Must be "hybrid", "claude_api", "gpt" or "dispatcher"' });
+      return;
+    }
+    // Имя модели уходит в запрос к ChatGPT — только «gpt-…» из безопасных символов.
+    const gptModel = (typeof gpt_model === 'string' && gpt_model.trim()) ? gpt_model.trim() : undefined;
+    if (gptModel !== undefined && !isGptModel(gptModel)) {
+      res.status(400).json({ error: 'Модель GPT должна называться «gpt-…» (латиница, цифры, точка, дефис)' });
       return;
     }
 
     const llmFlag = typeof llm_mapper_enabled === 'boolean' ? llm_mapper_enabled : undefined;
     const auto1c = typeof auto_send_1c === 'boolean' ? auto_send_1c : undefined;
     const autoSber = typeof auto_send_sber === 'boolean' ? auto_send_sber : undefined;
+
+    // Snapshot the auto-send flags BEFORE the update so we only log an integration
+    // event when one actually flips (OCR mode / key / mapper changes are not
+    // integration actions and are not logged).
+    const beforeCfg = await invoiceRepo.getAnalyzerConfig();
+
+    // Включить режим gpt можно только при подключённой подписке ChatGPT — иначе читать нечем.
+    // Проверяется лишь при переключении: сохранение автоотправки в уже включённом режиме
+    // не должно падать из-за того, что подключению нужен повторный вход.
+    if (mode === 'gpt' && beforeCfg.mode !== 'gpt') {
+      const chatgpt = await chatgptConnectionRepo.get();
+      if (!chatgpt || chatgpt.status !== 'active') {
+        res.status(400).json({ error: chatgpt
+          ? 'Подключение ChatGPT требует повторного входа по коду — войдите заново и сохраните режим'
+          : 'Сначала подключите ChatGPT: «Подключение ChatGPT» → «Войти по коду»' });
+        return;
+      }
+    }
 
     // Validate dispatcher mode prerequisites (token + project_id) — present
     // either in this request or already in DB.
@@ -69,20 +96,15 @@ router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
       }
     }
 
-    // Snapshot the auto-send flags BEFORE the update so we only log an integration
-    // event when one actually flips (OCR mode / key / mapper changes are not
-    // integration actions and are not logged).
-    const beforeCfg = await invoiceRepo.getAnalyzerConfig();
-
     if (mode === 'claude_api' && !anthropic_api_key) {
       const current = await invoiceRepo.getAnalyzerConfig();
       if (!current.anthropic_api_key) {
         res.status(400).json({ error: 'Anthropic API key is required for Claude API mode' });
         return;
       }
-      await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id, dadataKey);
+      await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id, dadataKey, gptModel);
     } else {
-      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id, dadataKey);
+      await invoiceRepo.updateAnalyzerConfig(mode, anthropic_api_key, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id, dadataKey, gptModel);
     }
 
     if (auto1c !== undefined && auto1c !== beforeCfg.auto_send_1c) {
@@ -94,7 +116,7 @@ router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
         summary: `Авто-отправка в Сбербанк ${autoSber ? 'включена' : 'выключена'}` });
     }
 
-    logger.info('Analyzer config updated', { mode, llmMapperEnabled: llmFlag, autoSend1c: auto1c, autoSendSber: autoSber });
+    logger.info('Analyzer config updated', { mode, gptModel, llmMapperEnabled: llmFlag, autoSend1c: auto1c, autoSendSber: autoSber });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

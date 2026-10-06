@@ -14,6 +14,7 @@ import type { MappingResult } from '../mapping/nomenclatureMapper';
 import { evaluateInvoiceQuality } from '../automation/qualityGate';
 import type { ParsedInvoiceData, ParsedInvoiceItem } from '../ocr/types';
 import { mapItemsWithClaudeApi } from '../ocr/claudeApiAnalyzer';
+import { isVisionLlmMode } from '../ocr/gptVision';
 import { FnsXmlError, isXmlFileName, isXmlInvoice, readFnsXmlInvoice } from '../xml';
 import { sendErrorEmail } from '../utils/mailer';
 import { canonicalizeSupplierName } from '../utils/invoiceNumber';
@@ -416,7 +417,7 @@ export class FileWatcher {
     // mode='claude_api', давая 0.00 сумм.
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     const recognizeOne = (fp: string) =>
-      analyzerConfig.mode === 'claude_api' ? this.ocrManager.recognizeWithClaudeApi(fp, mappingOwnerId)
+      isVisionLlmMode(analyzerConfig.mode) ? this.ocrManager.recognizeWithClaudeApi(fp, mappingOwnerId)
         : config.useClaudeAnalyzer ? this.ocrManager.recognizeHybrid(fp, mappingOwnerId, true)
           : this.ocrManager.recognize(fp);
 
@@ -605,7 +606,7 @@ export class FileWatcher {
     // OCR — respect analyzer_config.mode (как в processFile/reprocessInvoice).
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
     let ocrResult;
-    if (analyzerConfig.mode === 'claude_api') {
+    if (isVisionLlmMode(analyzerConfig.mode)) {
       ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
     } else if (config.useClaudeAnalyzer) {
       ocrResult = await this.ocrManager.recognizeHybrid(filePath, mappingOwnerId, true);
@@ -795,11 +796,11 @@ export class FileWatcher {
       } else if (forceEngine) {
         ocrResult = await this.ocrManager.recognizeWithEngine(filePath, forceEngine);
       } else {
-        // Check analyzer mode from DB config. Known values: 'claude_api', 'hybrid'.
+        // Check analyzer mode from DB config. Known values: 'claude_api', 'gpt', 'hybrid', 'dispatcher'.
         // Anything else is a misconfig — log loudly and fall back to hybrid so
         // we never silently downgrade to regex parsing without visibility.
         const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-        const KNOWN_MODES = ['claude_api', 'hybrid', 'dispatcher'] as const;
+        const KNOWN_MODES = ['claude_api', 'gpt', 'hybrid', 'dispatcher'] as const;
         if (!KNOWN_MODES.includes(analyzerConfig.mode as typeof KNOWN_MODES[number])) {
           logger.error('Unknown analyzer_config.mode — falling back to hybrid', {
             mode: analyzerConfig.mode,
@@ -832,8 +833,8 @@ export class FileWatcher {
           return invoice.id; // status stays 'ocr_processing'; callback handler completes it
         }
 
-        if (analyzerConfig.mode === 'claude_api') {
-          // Claude API mode: send image directly to Anthropic API
+        if (isVisionLlmMode(analyzerConfig.mode)) {
+          // claude_api / gpt: фото сразу читает модель (Anthropic API или GPT через шлюз ProjectsFlow)
           ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
         } else if (config.useClaudeAnalyzer) {
           // Hybrid mode: Google Vision OCR + Claude API text analyzer

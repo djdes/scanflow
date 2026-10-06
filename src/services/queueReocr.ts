@@ -11,6 +11,7 @@ import { makeSupplierKey } from '../database/repositories/supplierMappingRepo';
 import { logEdit } from '../database/repositories/editLogRepo';
 import { OcrManager } from '../ocr/ocrManager';
 import { analyzeImageWithVerification, analyzeMultiPageTextWithVerification, type CatalogEntry } from '../ocr/claudeApiAnalyzer';
+import { isGptModel, visionModelFor } from '../ocr/gptVision';
 import type { ParsedInvoiceData } from '../ocr/types';
 import { buildSupplierMemory } from '../learning/supplierMemory';
 import type { MappingResult, NomenclatureMapper } from '../mapping/nomenclatureMapper';
@@ -643,7 +644,7 @@ async function recognizePageWithClaude(photoPath: string, rc: RecognizeContext):
   const prepared = await ocrManager().preprocessImage(photoPath);
   try {
     const result = await analyzeImageWithVerification(prepared, rc.apiKey, rc.model, rc.catalog, rc.memory);
-    if (!result.success || !result.data) throw new Error(result.error || 'Claude API analysis failed');
+    if (!result.success || !result.data) throw new Error(result.error || 'Image analysis failed');
     return { text: result.rawText || JSON.stringify(result.data, null, 2), parsed: result.data };
   } finally {
     if (prepared !== photoPath) {
@@ -789,8 +790,9 @@ export async function startQueueReocr(
 ): Promise<{ job: QueueJobView; planned: number }> {
   assertQueueJobFree(opts.ownerUserId);
   const cfg = await invoiceRepo.getAnalyzerConfig();
-  const apiKey = cfg.anthropic_api_key || config.anthropicApiKey;
-  if (!apiKey) throw new QueueStartError(400, 'Не задан API-ключ Anthropic — перераспознавание идёт через Anthropic API');
+  // Та же модель, что читает фото в бою: в режиме gpt — GPT через шлюз ProjectsFlow.
+  const { modelId, apiKey } = visionModelFor(cfg);
+  if (!apiKey && !isGptModel(modelId)) throw new QueueStartError(400, 'Не задан API-ключ Anthropic — перераспознавание идёт через Anthropic API');
   const selected = opts.invoiceIds != null;
   const ids = await queueRepo.queueIds(opts.ownerUserId, selected
     ? { ids: opts.invoiceIds }
@@ -808,7 +810,7 @@ export async function startQueueReocr(
     ownerUserId: opts.ownerUserId,
     startedBy: opts.startedBy,
     apiKey,
-    model: cfg.claude_model,
+    model: modelId,
     memory,
     llmMapperEnabled: cfg.llm_mapper_enabled,
     mapper: opts.mapper,
@@ -818,7 +820,7 @@ export async function startQueueReocr(
     ownerUserId: opts.ownerUserId,
     startedBy: opts.startedBy,
     invoiceIds: ids,
-    meta: { model: cfg.claude_model },
+    meta: { model: modelId },
     worker: (invoiceId) => reocrInvoice(invoiceId, ctx, deps),
   });
   return { job: viewQueueJob(job), planned: ids.length };

@@ -33,6 +33,14 @@ const Settings = {
         if (data.claude_model) {
           document.getElementById('settings-claude-model').value = data.claude_model;
         }
+        const gptSelect = document.getElementById('settings-gpt-model');
+        if (gptSelect && data.gpt_model) {
+          // Модель, которой нет в списке (задана через API), всё равно показываем.
+          if (![...gptSelect.options].some(o => o.value === data.gpt_model)) {
+            gptSelect.add(new Option(data.gpt_model, data.gpt_model));
+          }
+          gptSelect.value = data.gpt_model;
+        }
         const llmCb = document.getElementById('settings-llm-mapper');
         if (llmCb) llmCb.checked = !!data.llm_mapper_enabled;
         const dadataStatus = document.getElementById('dadata-key-status');
@@ -41,6 +49,7 @@ const Settings = {
           dadataStatus.style.color = data.has_dadata_key ? 'var(--green)' : 'var(--text-muted, #888)';
         }
         Settings._refreshModeVisibility();
+        Settings.chatgptRefresh();
       }
       this.loaded = true;
     } catch (e) {
@@ -242,12 +251,14 @@ const Settings = {
   async save() {
     const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value || 'claude_api';
     const claudeModel = document.getElementById('settings-claude-model').value;
+    const gptModel = document.getElementById('settings-gpt-model')?.value;
     const llmCb = document.getElementById('settings-llm-mapper');
     const body = {
       mode,
       claude_model: claudeModel,
       llm_mapper_enabled: llmCb ? llmCb.checked : true,
     };
+    if (gptModel) body.gpt_model = gptModel;
     const apiKeyInput = document.getElementById('settings-api-key');
     if (apiKeyInput.value.trim()) {
       body.anthropic_api_key = apiKeyInput.value.trim();
@@ -305,9 +316,10 @@ const Settings = {
     if (btn) btn.textContent = reveal ? 'Скрыть' : 'Показать';
   },
 
-  // Show/hide API-key block (only for claude_api), PF-token block (only for dispatcher),
-  // and Claude model dropdown (irrelevant in dispatcher — model is decided by the
-  // Claude Code session running the dispatcher, not by ScanFlow config).
+  // Show/hide API-key block (not for dispatcher), PF-token/project blocks (only dispatcher),
+  // ChatGPT connection + GPT model (only gpt) and Claude model dropdown (irrelevant in
+  // dispatcher — model is decided by the Claude Code session running the dispatcher, not by
+  // ScanFlow config; in gpt mode Claude still reads PDFs).
   _refreshModeVisibility() {
     const mode = document.querySelector('input[name="analyzer-mode"]:checked')?.value || 'claude_api';
     const apiGroup = document.getElementById('api-key-group');
@@ -316,8 +328,143 @@ const Settings = {
     if (pfGroup)  pfGroup.style.display  = (mode === 'dispatcher') ? '' : 'none';
     const pfProjectGroup = document.getElementById('pf-project-group');
     if (pfProjectGroup) pfProjectGroup.style.display = (mode === 'dispatcher') ? '' : 'none';
+    for (const id of ['chatgpt-group', 'gpt-model-group']) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = (mode === 'gpt') ? '' : 'none';
+    }
     const modelGroup = document.getElementById('settings-claude-model')?.closest('.form-group');
     if (modelGroup) modelGroup.style.display = (mode === 'dispatcher') ? 'none' : '';
+  },
+
+  // ── Подключение ChatGPT (режим gpt): вход по коду, как у `codex login --device-auth` ──
+  _chatgptPollTimer: null,
+  _chatgptLoginExpires: 0,
+
+  async chatgptRefresh() {
+    const statusEl = document.getElementById('chatgpt-status');
+    if (!statusEl) return;
+    try {
+      const { data } = await App.apiJson('/chatgpt');
+      this._chatgptRender(data);
+      if (data.pending_login) this._chatgptShowLogin(data.pending_login);
+    } catch (e) {
+      statusEl.textContent = e.status === 403
+        ? 'Подключение настраивает администратор'
+        : 'Не удалось получить статус: ' + e.message;
+    }
+  },
+
+  _chatgptRender(d) {
+    const fmt = iso => (iso ? new Date(iso).toLocaleString('ru-RU') : '—');
+    let text;
+    let color;
+    if (!d.connected) {
+      text = 'Не подключено.';
+      color = 'var(--text-secondary)';
+    } else if (d.status === 'reauth_required') {
+      text = 'Нужен повторный вход по коду' + (d.last_error ? `: ${d.last_error}` : '.');
+      color = 'var(--error)';
+    } else {
+      text = `Подключено: ${d.account_email || 'аккаунт ChatGPT'}${d.plan_type ? ` (${d.plan_type})` : ''}. `
+        + `Токен действует до ${fmt(d.access_expires_at)}, последний запрос — ${fmt(d.last_used_at)}.`;
+      if (d.rate_limited_until) text += ` Лимит подписки исчерпан до ${fmt(d.rate_limited_until)}.`;
+      else if (d.last_error) text += ` Последняя ошибка: ${d.last_error}`;
+      color = (d.rate_limited_until || d.last_error) ? 'var(--warning)' : 'var(--success)';
+    }
+    if (!d.proxy_configured) text += ' Прокси для OpenAI не задан (OPENAI_PROXY_URL): из России вход и запросы могут не пройти.';
+    const statusEl = document.getElementById('chatgpt-status');
+    statusEl.textContent = text;
+    statusEl.style.color = color;
+    document.getElementById('chatgpt-login-btn').textContent = d.connected ? 'Войти заново' : 'Войти по коду';
+    document.getElementById('chatgpt-test-btn').style.display = d.connected ? '' : 'none';
+    document.getElementById('chatgpt-disconnect-btn').style.display = d.connected ? '' : 'none';
+  },
+
+  _chatgptShowLogin(login) {
+    const box = document.getElementById('chatgpt-login');
+    const url = App.esc(login.verification_url);
+    box.style.display = '';
+    box.innerHTML = `Откройте <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>, войдите в ChatGPT `
+      + `и введите код <strong style="font-size:18px;letter-spacing:2px">${App.esc(login.user_code)}</strong>. `
+      + `Код действует до ${new Date(login.expires_at).toLocaleTimeString('ru-RU')}. `
+      + '<button type="button" class="btn btn-outline" onclick="Settings.chatgptCancel()">Отменить</button>';
+    this._chatgptLoginExpires = new Date(login.expires_at).getTime();
+    this._chatgptSchedulePoll(login.interval_sec || 5);
+  },
+
+  _chatgptHideLogin() {
+    clearTimeout(this._chatgptPollTimer);
+    const box = document.getElementById('chatgpt-login');
+    box.style.display = 'none';
+    box.innerHTML = '';
+  },
+
+  _chatgptSchedulePoll(intervalSec) {
+    clearTimeout(this._chatgptPollTimer);
+    if (Date.now() > this._chatgptLoginExpires) {
+      this._chatgptHideLogin();
+      App.notify('Код истёк — начните вход заново', 'error');
+      return;
+    }
+    this._chatgptPollTimer = setTimeout(() => this._chatgptPoll(intervalSec), intervalSec * 1000);
+  },
+
+  async _chatgptPoll(intervalSec) {
+    try {
+      const { data } = await App.apiJson('/chatgpt/login/poll', { method: 'POST' });
+      if (data.result === 'pending') { this._chatgptSchedulePoll(intervalSec); return; }
+      this._chatgptHideLogin();
+      if (data.result === 'connected') {
+        App.notify('ChatGPT подключён', 'success');
+        this._chatgptRender(data);
+      } else if (data.result === 'expired') {
+        App.notify('Код истёк — начните вход заново', 'error');
+      }
+    } catch {
+      // Сбой сети или OpenAI — пробуем дальше, пока код жив.
+      this._chatgptSchedulePoll(intervalSec);
+    }
+  },
+
+  async chatgptLogin() {
+    try {
+      const { data } = await App.apiJson('/chatgpt/login', { method: 'POST' });
+      this._chatgptShowLogin(data.pending_login);
+    } catch (e) {
+      App.notify('Не удалось начать вход: ' + e.message, 'error');
+    }
+  },
+
+  async chatgptCancel() {
+    this._chatgptHideLogin();
+    try { await App.apiJson('/chatgpt/login', { method: 'DELETE' }); } catch { /* код и так истечёт */ }
+  },
+
+  async chatgptDisconnect() {
+    if (!confirm('Отключить ChatGPT? Режим GPT не сможет распознавать, пока не войдёте снова.')) return;
+    try {
+      await App.apiJson('/chatgpt', { method: 'DELETE' });
+      App.notify('ChatGPT отключён', 'success');
+      this.chatgptRefresh();
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  async chatgptTest() {
+    const btn = document.getElementById('chatgpt-test-btn');
+    btn.disabled = true;
+    try {
+      const model = document.getElementById('settings-gpt-model')?.value;
+      const { data } = await App.apiJson('/chatgpt/test', { method: 'POST', body: { model } });
+      if (data.ok) App.notify(`Связь есть: ${data.model}, ответ за ${(data.latencyMs / 1000).toFixed(1)} с`, 'success');
+      else App.notify('Проверка не прошла: ' + data.error, 'error');
+      this.chatgptRefresh();
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
   },
 
   async saveAutoSend() {
