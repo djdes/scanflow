@@ -5,7 +5,7 @@ import { locateGoldenPhoto } from '../golden/goldenRunner';
 import { bankStatusKind, bankStatusLabel } from '../sber/payments';
 import { logger } from '../utils/logger';
 import { enrichInvoiceWithSupplier } from './enrichSupplier';
-import { getEngineFlags } from './engineFlags';
+import { companyAllKg } from './companyUnits';
 import {
   invoiceFiles,
   isInQueue,
@@ -218,14 +218,14 @@ export function summarizeQueue(rows: QueueListRow[]): QueueListSummary {
 
 /** GET /api/queue — вся очередь компании. */
 export async function loadQueueList(ownerUserId: number): Promise<QueueList> {
-  const [invoices, lines, pendingKeys, reocr, flags] = await Promise.all([
+  const [invoices, lines, pendingKeys, reocr, allKg] = await Promise.all([
     queueRepo.listQueueInvoices(ownerUserId),
     queueRepo.queueLines(ownerUserId),
     queueRepo.pendingNewItemKeys(ownerUserId),
     queueRepo.latestReocrByInvoice(ownerUserId),
-    getEngineFlags(),
+    companyAllKg(ownerUserId),
   ]);
-  const opts: RiskOptions = { allKg: flags.all_kg };
+  const opts: RiskOptions = { allKg };
   const byInvoice = new Map<number, QueueLineRow[]>();
   for (const l of lines) {
     const list = byInvoice.get(Number(l.invoice_id));
@@ -281,15 +281,15 @@ type InvoiceWithOnec = Invoice & { onec_status?: string | null; onec_error?: str
 
 /** GET /api/queue/:id — накладная владельца: замечания по строкам и сравнение перераспознавания. */
 export async function loadQueueCard(ownerUserId: number, inv: InvoiceWithOnec): Promise<QueueCard> {
-  const [lines, pendingKeys, row, gate, supplier, flags] = await Promise.all([
+  const [lines, pendingKeys, row, gate, supplier, allKg] = await Promise.all([
     queueRepo.invoiceLines(ownerUserId, inv.id),
     queueRepo.pendingNewItemKeys(ownerUserId),
     queueRepo.latestReocr(ownerUserId, inv.id),
     gateReasons(inv.id),
     displaySupplier(inv),
-    getEngineFlags(),
+    companyAllKg(ownerUserId),
   ]);
-  const opts: RiskOptions = { allKg: flags.all_kg };
+  const opts: RiskOptions = { allKg };
   const summary = summarizeLines(lines, pendingKeys, opts);
   const reasons = queueReasons({
     gate, supplier_inn: inv.supplier_inn, onec_status: inv.onec_status ?? null, onec_error: inv.onec_error ?? null,

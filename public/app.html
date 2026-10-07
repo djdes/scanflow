@@ -765,6 +765,19 @@
             <p class="field-hint">Нажмите «Получить код», затем в обработке 1С:УНФ вставьте его в поле «Код подключения» и нажмите «Подключить». Код действует ~15 минут.</p>
             <button type="button" id="profile-onec-btn" class="btn btn-primary">Получить код</button>
             <div id="profile-onec-code" class="onec-pairing-code" hidden></div>
+            <div class="event-list">
+              <div class="event-row">
+                <span class="event-icon">⚖️</span>
+                <div class="event-info">
+                  <div class="event-name">Всё в килограммах</div>
+                  <div class="event-desc" id="profile-units-desc">Каждая строка — в кг: вес из названия, литры = кг, яйца по категории. Штучную позицию 1С при загрузке переведёт на кг. Выключено — количество в единицах позиции вашей 1С.</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="profile-units-all-kg">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <div class="card profile-card">

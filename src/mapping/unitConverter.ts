@@ -69,6 +69,13 @@ export interface PackInfo {
   perCase: number | null;
   /** perPack взят из «N×мера» / «мера×N» (штучная фасовка), а не из логистики. */
   countTimesMeasure: boolean;
+  /** Мера из «N×мера» — вес одной штуки внутри упаковки. */
+  countMeasure: Measure | null;
+  /**
+   * Рядом с «N×мера» напечатан вес всей упаковки, и он равен N × мера
+   * («16*60г 960г», «12*130г 1,56кг»): единица накладной — упаковка.
+   */
+  packTotal: Measure | null;
 }
 
 /**
@@ -107,15 +114,17 @@ const MU = '(кг|гр|г|мл|л)';
 const normMU = (u: string): MeasureUnit => (u === 'гр' ? 'г' : u) as MeasureUnit;
 
 export function parsePack(name: string): PackInfo {
-  const out: PackInfo = { measures: [], ranges: [], perPack: null, perCase: null, countTimesMeasure: false };
+  const out: PackInfo = { measures: [], ranges: [], perPack: null, perCase: null, countTimesMeasure: false, countMeasure: null, packTotal: null };
   let s = ` ${(name || '').toLowerCase().replace(/ё/g, 'е')} `;
   s = s.replace(/(\d),(\d)/g, '$1.$2')
     .replace(/(\d)[зz](?=\d)/g, '$13').replace(/(^|[^а-яa-z])з(?=[.]?\d)/g, '$13');
-  const setPack = (n: number, fromCountMeasure = false) => {
+  const setPack = (n: number, fromCountMeasure = false): boolean => {
     if (out.perPack == null && isFinite(n) && n >= 2 && n <= 100000) {
       out.perPack = n;
       out.countTimesMeasure = fromCountMeasure;
+      return true;
     }
+    return false;
   };
 
   // Диапазоны «4-5кг», «300-500г» — переменный вес/калибр, НЕ вес упаковки.
@@ -136,14 +145,16 @@ export function parsePack(name: string): PackInfo {
   });
   // «мера × N»: «240г*24».
   s = s.replace(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${MU}\\s*[*xх×]\\s*(\\d+)(?![\\d.])`, 'g'), (_m, v: string, u: string, n: string) => {
-    out.measures.push({ value: Number(v), unit: normMU(u), kind: 'nominal' });
-    setPack(Number(n), true);
+    const meas: Measure = { value: Number(v), unit: normMU(u), kind: 'nominal' };
+    out.measures.push(meas);
+    if (setPack(Number(n), true)) out.countMeasure = meas;
     return ' ';
   });
   // «N × мера»: «10х1кг», «500*5г», «20*14г».
   s = s.replace(new RegExp(`(^|[^\\d.])(\\d+)\\s*[*xх×]\\s*(\\d+(?:\\.\\d+)?)\\s*${MU}(?![а-яa-z])`, 'g'), (_m, pre: string, n: string, v: string, u: string) => {
-    out.measures.push({ value: Number(v), unit: normMU(u), kind: 'nominal' });
-    setPack(Number(n), true);
+    const meas: Measure = { value: Number(v), unit: normMU(u), kind: 'nominal' };
+    out.measures.push(meas);
+    if (setPack(Number(n), true)) out.countMeasure = meas;
     return `${pre} `;
   });
   // «1/12» — 12 штук в коробе.
@@ -166,6 +177,12 @@ export function parsePack(name: string): PackInfo {
   // «360шт», «(10 шт)» — штук в упаковке, если ничего точнее не нашлось.
   const pcs = s.match(/(\d+)\s*(?:шт|штук)(?![а-яa-z])/);
   if (pcs) setPack(Number(pcs[1]));
+  const cm = out.countMeasure;
+  if (cm && out.perPack) {
+    const want = out.perPack * cm.value * MEASURE_TO_BASE[cm.unit];
+    out.packTotal = out.measures.find(x => x !== cm && MEASURE_CLS[x.unit] === MEASURE_CLS[cm.unit]
+      && Math.abs(x.value * MEASURE_TO_BASE[x.unit] - want) <= 0.03 * want) ?? null;
+  }
   return out;
 }
 
@@ -272,7 +289,10 @@ export function convertLine(input: ConvertInput): ConvertResult {
       : container ? pack.measures.filter(m => MEASURE_CLS[m.unit] === 'mass') : pack.measures;
     const same = usable.filter(m => MEASURE_CLS[m.unit] === target.cls);
     const ordered = [...same.filter(m => m.kind === 'nominal'), ...same.filter(m => m.kind === 'net'), ...same.filter(m => m.kind === 'drained')];
-    let m = ordered[0] ?? null;
+    // Вес всей упаковки рядом с «N×мера» — для штуки (не короба) он и есть вес единицы.
+    const packTotal = !from.isCase && eggGrams == null && !container && pack.packTotal
+      && MEASURE_CLS[pack.packTotal.unit] === target.cls ? pack.packTotal : null;
+    let m = packTotal ?? ordered[0] ?? null;
     let densityNote = '';
     if (!m) {
       const cross = usable.find(x => MEASURE_CLS[x.unit] !== target.cls);
@@ -285,6 +305,12 @@ export function convertLine(input: ConvertInput): ConvertResult {
       if (from.isCase && packCount) {
         cands.push({ factor: packCount * perUnit, source: 'name_count', note: `${fmt(q)} ${fromLabel} × ${fmt(packCount)} × ${perLabel} = ${fmt(q * packCount * perUnit)} ${toLabel}${densityNote}` });
         cands.push({ factor: perUnit, source: 'name', note: `${fmt(q)} ${fromLabel} × ${perLabel} = ${fmt(q * perUnit)} ${toLabel}${densityNote}` });
+      } else if (packTotal && pack.countMeasure && pack.perPack) {
+        const cm = pack.countMeasure;
+        cands.push({ factor: perUnit, source: 'name', note: `${fmt(q)} ${fromLabel} × ${perLabel} (${fmt(pack.perPack)} × ${fmt(cm.value)} ${cm.unit}) = ${fmt(q * perUnit)} ${toLabel}` });
+        // Запасной вариант: «шт» — одна штука внутри упаковки (выбирается только проверкой цены).
+        const piece = (cm.value * MEASURE_TO_BASE[cm.unit]) / target.toBase;
+        cands.push({ factor: piece, source: 'name', note: `${fmt(q)} ${fromLabel} × ${fmt(cm.value)} ${cm.unit} = ${fmt(q * piece)} ${toLabel}` });
       } else {
         cands.push({ factor: perUnit, source: 'name', note: `${fmt(q)} ${fromLabel} × ${perLabel} = ${fmt(q * perUnit)} ${toLabel}${densityNote}` });
         // «500*5г» за 1 шт — возможно, это коробка: запасной кандидат для проверки ценой.

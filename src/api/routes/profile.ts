@@ -7,6 +7,8 @@ import {
 } from '../../notifications/telegram/chatIds';
 import { ALL_NOTIFY_MODES, ALL_EVENT_TYPES, type NotifyMode, type EventType } from '../../notifications/types';
 import { logger } from '../../utils/logger';
+import { getEngineFlags } from '../../services/engineFlags';
+import { getCompanyAllKgSetting, setCompanyAllKg } from '../../services/companyUnits';
 
 const router = Router();
 
@@ -35,13 +37,16 @@ router.get('/', async (req: Request, res: Response) => {
       notify_events: cfg.notify_events,
       telegram_chat_id: tg?.chat_id ?? null,
       telegram_bot_token_set: !!tg?.bot_token,
+      // «Всё в кг» — настройка компании; units_all_kg_platform — общий выключатель админа.
+      units_all_kg: await getCompanyAllKgSetting(req.user.id),
+      units_all_kg_platform: (await getEngineFlags()).all_kg,
     },
   });
 });
 
 router.patch('/', async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const { email, notify_mode, notify_events, telegram_chat_id, telegram_bot_token } = req.body ?? {};
+  const { email, notify_mode, notify_events, telegram_chat_id, telegram_bot_token, units_all_kg } = req.body ?? {};
 
   const userUpdate: Record<string, unknown> = {};
   const tgUpdate: { chat_id?: string | null; bot_token?: string | null } = {};
@@ -94,10 +99,13 @@ router.patch('/', async (req: Request, res: Response) => {
     tgUpdate.bot_token = telegram_bot_token;
   }
 
+  if (units_all_kg !== undefined && typeof units_all_kg !== 'boolean') {
+    res.status(400).json({ error: 'units_all_kg must be boolean' }); return;
+  }
   const hasUserUpdates = Object.keys(userUpdate).length > 0;
   const hasTgUpdates = Object.keys(tgUpdate).length > 0;
 
-  if (!hasUserUpdates && !hasTgUpdates) {
+  if (!hasUserUpdates && !hasTgUpdates && units_all_kg === undefined) {
     res.status(400).json({ error: 'No fields to update' }); return;
   }
 
@@ -106,6 +114,10 @@ router.patch('/', async (req: Request, res: Response) => {
   }
   if (hasTgUpdates) {
     await userRepo.setTelegramConfig(req.user.id, tgUpdate);
+  }
+  if (typeof units_all_kg === 'boolean') {
+    await setCompanyAllKg(req.user.id, units_all_kg);
+    logger.info('Company units setting changed', { userId: req.user.id, units_all_kg });
   }
 
   // Return fresh state (same shape as GET)
@@ -119,6 +131,8 @@ router.patch('/', async (req: Request, res: Response) => {
       smtp_configured: smtpConfigured(),
       telegram_chat_id: tg?.chat_id ?? null,
       telegram_bot_token_set: !!tg?.bot_token,
+      units_all_kg: await getCompanyAllKgSetting(req.user.id),
+      units_all_kg_platform: (await getEngineFlags()).all_kg,
     },
   });
 });

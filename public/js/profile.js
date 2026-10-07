@@ -48,7 +48,29 @@
       });
 
       renderStatus(!!data.telegram_chat_id && tokenSetOnServer);
+      this.renderUnits(data);
       this.loadOnecStatus();
+    },
+
+    // «Всё в килограммах» — настройка компании; сохраняется сразу, без кнопки «Сохранить».
+    renderUnits(data) {
+      const cb = document.getElementById('profile-units-all-kg');
+      if (!cb) return;
+      cb.checked = !!data.units_all_kg;
+      cb.disabled = data.units_all_kg_platform === false;
+      const desc = document.getElementById('profile-units-desc');
+      if (desc && data.units_all_kg_platform === false) desc.textContent = 'Выключено для всей платформы в настройках администратора — количество в единицах позиции 1С.';
+      if (cb.dataset.bound) return;
+      cb.dataset.bound = '1';
+      cb.addEventListener('change', async () => {
+        try {
+          await App.apiJson('/profile', { method: 'PATCH', body: { units_all_kg: cb.checked } });
+          App.notify(cb.checked ? 'Новые строки — в килограммах' : 'Новые строки — в единицах вашей 1С', 'success');
+        } catch (err) {
+          cb.checked = !cb.checked;
+          App.notify('Не удалось сохранить: ' + (err.message || err), 'error');
+        }
+      });
     },
 
     collect() {

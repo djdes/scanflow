@@ -7,6 +7,7 @@ import { mappingRepo } from '../database/repositories/mappingRepo';
 import type { ItemConversionColumns } from '../database/repositories/invoiceRepo';
 import { getReferencePrice } from '../pricing/priceStats';
 import { getEngineFlags } from './engineFlags';
+import { companyAllKg } from './companyUnits';
 import { logger } from '../utils/logger';
 
 /**
@@ -19,9 +20,10 @@ import { logger } from '../utils/logger';
  * units_v2 = off → прежний resolveAndApplyPackTransform (поведение до v2), но
  * значения «как в накладной» всё равно сохраняются — к ним можно вернуться.
  *
- * all_kg = on (решение владельца 2026-10-07) → единица строки всегда «кг», а не
- * единица позиции 1С: вес из названия, литры = кг, яйца по категории. Медиана цены
- * позиции сравнивается, только если позиция 1С тоже ведётся в кг.
+ * «Всё в кг» (флаг all_kg И настройка компании users.units_all_kg, companyAllKg) →
+ * единица строки всегда «кг», а не единица позиции 1С: вес из названия, литры = кг,
+ * яйца по категории. Медиана цены позиции сравнивается, только если позиция 1С тоже
+ * ведётся в кг. Компания без этой настройки считает в единицах своей 1С.
  */
 export interface LineConversionArgs {
   ownerUserId: number | null;
@@ -85,7 +87,8 @@ export async function convertInvoiceLine(a: LineConversionArgs): Promise<LineCon
 
   const nameKey = itemNameKey(a.name);
   const rawUnitCanon = canonUnit(raw.unit)?.unit ?? null;
-  const targetUnit = flags.all_kg ? 'кг' : onecUnit;
+  const allKg = await companyAllKg(a.ownerUserId);
+  const targetUnit = allKg ? 'кг' : onecUnit;
   const rule = a.ownerUserId != null
     ? await itemUnitRuleRepo.find(a.ownerUserId, a.supplierKey, nameKey, rawUnitCanon).catch(() => null)
     : null;
@@ -95,7 +98,7 @@ export async function convertInvoiceLine(a: LineConversionArgs): Promise<LineCon
   const legacyPack = a.mapping?.pack_size && a.mapping.pack_unit ? { size: a.mapping.pack_size, unit: a.mapping.pack_unit } : null;
 
   const r = convertLine({
-    raw, name: a.name, onecUnit: targetUnit, onecName: onec?.name ?? null, forcedTarget: flags.all_kg,
+    raw, name: a.name, onecUnit: targetUnit, onecName: onec?.name ?? null, forcedTarget: allKg,
     rule: rule ? { factor: rule.factor, targetUnit: rule.target_unit, source: rule.source } : null,
     legacyPack, llmPackHint: a.llmPackHint ?? null, medianPrice: median,
   });

@@ -2448,6 +2448,20 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 83,
+    name: 'users.units_all_kg — «всё в кг» как настройка компании, а не платформы',
+    // У каждой компании своя база 1С (2026-10-07: основная — всё в кг, «Я Так Ем» —
+    // как в своей 1С). По умолчанию 0 — единицы своей 1С; админская компания, для
+    // которой правило и принималось, получает 1 при первом применении.
+    detect: (exec) => hasColumn(exec, 'users', 'units_all_kg'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'users', 'units_all_kg'))) {
+        await exec.query(`ALTER TABLE users ADD COLUMN units_all_kg TINYINT(1) NOT NULL DEFAULT 0`);
+        await exec.query(`UPDATE users SET units_all_kg = 1 WHERE role = 'admin'`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

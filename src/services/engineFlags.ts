@@ -15,7 +15,8 @@ export const ENGINE_FLAGS: EngineFlag[] = ['units_v2', 'all_kg', 'price_guard', 
 
 export const ENGINE_FLAG_DEFAULTS: Record<EngineFlag, boolean> = {
   units_v2: true,
-  // Решение владельца 2026-10-07: в 1С всё в килограммах (яйца — по весу категории).
+  // «Всё в кг» — общий выключатель; само правило включает компания в профиле
+  // (users.units_all_kg, src/services/companyUnits.ts).
   all_kg: true,
   price_guard: true,
   mapping_v2: true,
@@ -32,7 +33,7 @@ export const ENGINE_FLAG_INFO: Record<EngineFlag, { title: string; hint: string 
   },
   all_kg: {
     title: 'Всё в килограммах',
-    hint: 'Каждая строка — в кг: вес из названия, литры = кг, яйца по категории. Нет веса — строка ждёт ввода.',
+    hint: 'Разрешить компаниям правило «каждая строка — в кг» (включается в Профиле компании). Выключено — у всех единицы своей 1С.',
   },
   price_guard: {
     title: 'Проверка цены',

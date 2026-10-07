@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Позиция 1С ведётся в штуках (яйца), а правило «всё в кг» включено.
 const flags = { units_v2: true, all_kg: true, price_guard: true, mapping_v2: true, ocr_memory: true, batch_notify: true, learning: true, row_pairing: true };
 vi.mock('../../src/services/engineFlags', () => ({ getEngineFlags: vi.fn(async () => ({ ...flags })) }));
+// Настройка компании: «всё в кг» включено у этой компании, пока не сказано иное.
+const company = { allKg: true };
+vi.mock('../../src/services/companyUnits', () => ({ companyAllKg: vi.fn(async () => flags.all_kg && company.allKg) }));
 vi.mock('../../src/database/repositories/itemUnitRuleRepo', () => ({ itemUnitRuleRepo: { find: vi.fn(async () => null), touch: vi.fn(async () => {}) } }));
 vi.mock('../../src/database/repositories/onecNomenclatureRepo', () => ({
   onecNomenclatureRepo: { getByGuid: vi.fn(async () => ({ guid: 'g-egg', name: 'Яйцо Куриное', unit: 'шт' })) },
@@ -19,7 +22,7 @@ const eggs = {
 };
 
 describe('convertInvoiceLine — «всё в кг»', () => {
-  beforeEach(() => { vi.clearAllMocks(); flags.all_kg = true; });
+  beforeEach(() => { vi.clearAllMocks(); flags.all_kg = true; company.allKg = true; });
 
   it('позиция 1С в штуках → строка всё равно в кг; медиана цены за штуку не сравнивается', async () => {
     const r = await convertInvoiceLine(eggs);
@@ -31,6 +34,12 @@ describe('convertInvoiceLine — «всё в кг»', () => {
   it('строка без позиции 1С — тоже в кг', async () => {
     const r = await convertInvoiceLine({ ...eggs, onecGuid: null });
     expect(r).toMatchObject({ quantity: 59.4, unit: 'кг' });
+  });
+
+  it('компания считает в единицах своей 1С («Я Так Ем») — яйца остаются штуками', async () => {
+    company.allKg = false;
+    const r = await convertInvoiceLine(eggs);
+    expect(r).toMatchObject({ quantity: 1080, unit: 'шт' });
   });
 
   it('флаг выключен → прежнее поведение: единица позиции 1С (шт)', async () => {

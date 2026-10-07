@@ -51,6 +51,7 @@ import { logEdit, editLogRepo } from '../../database/repositories/editLogRepo';
 import { isValidInn } from '../../utils/inn';
 import { reconvertStoredItem } from '../../services/itemReconvert';
 import { getEngineFlags } from '../../services/engineFlags';
+import { companyAllKg } from '../../services/companyUnits';
 import { itemUnitRuleRepo } from '../../database/repositories/itemUnitRuleRepo';
 import { itemNameKey } from '../../mapping/nameKey';
 import { rejectionRepo } from '../../database/repositories/rejectionRepo';
@@ -492,7 +493,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
   // В какую единицу считается строка: «Всё в кг» — всегда кг (штучную позицию
   // обработка 1С при загрузке переведёт на кг), иначе — единица позиции 1С.
-  const allKg = (await getEngineFlags()).all_kg;
+  const allKg = await companyAllKg(raw.owner_user_id);
   enriched.items = enriched.items.map((it: any) => ({ ...it, target_unit: allKg ? 'кг' : it.onec_unit ?? null }));
 
   (enriched as typeof enriched & { possible_siblings: unknown }).possible_siblings =
@@ -1742,7 +1743,7 @@ router.post('/:invoiceId/items/:itemId/unit-rule', async (req: Request, res: Res
   const onecUnit = ctx.item.onec_guid
     ? (await onecNomenclatureRepo.getByGuid(ctx.item.onec_guid, ctx.invoice.owner_user_id))?.unit ?? null
     : null;
-  const target = (await getEngineFlags()).all_kg
+  const target = (await companyAllKg(ctx.invoice.owner_user_id))
     ? canonUnit('кг')
     : canonUnit(typeof body.target_unit === 'string' ? body.target_unit : onecUnit);
   if (!target) return res.status(400).json({ error: 'Не известна единица 1С для строки — сначала сопоставьте позицию' });
