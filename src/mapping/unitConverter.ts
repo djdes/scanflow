@@ -85,6 +85,24 @@ export function isContainerProduct(name: string): boolean {
   return words.slice(0, 2).some(w => CONTAINER_HEAD.test(w));
 }
 
+/**
+ * Вес одного куриного яйца по категории (решение владельца 2026-10-07): С3 — 35 г,
+ * С2 — 45 г, С1 — 55 г, СО — 65 г, СВ — 75 г; диетические Д3…ДВ — так же. Чтение фото
+ * путает буквы с цифрами и латиницей: «С0», «CO», «CB» — те же категории. Перепелиные
+ * яйца не трогаем: для них веса нет. null — не яйцо или категория не найдена.
+ */
+const EGG_CATEGORY_GRAMS: Record<string, number> = { '3': 35, '2': 45, '1': 55, '0': 65, 'о': 65, 'в': 75 };
+export function eggPieceGrams(name: string): number | null {
+  const s = ` ${(name || '').toLowerCase().replace(/ё/g, 'е')} `;
+  if (!/яйц/.test(s) || /перепел/.test(s)) return null;
+  // Сначала цифровые категории (С1, С-2, Д0): буквенные «со»/«св» могут быть и предлогом.
+  const m = s.match(/[^а-яa-z0-9]([сcд])[\s-]?([0-3])(?![а-яa-z0-9])/)
+    ?? s.match(/[^а-яa-z0-9]([сcд])[\s-]?([оoвb])(?![а-яa-z0-9])/);
+  if (!m) return null;
+  const key = m[2] === 'o' ? 'о' : m[2] === 'b' ? 'в' : m[2];
+  return EGG_CATEGORY_GRAMS[key] ?? null;
+}
+
 const MU = '(кг|гр|г|мл|л)';
 const normMU = (u: string): MeasureUnit => (u === 'гр' ? 'г' : u) as MeasureUnit;
 
@@ -164,6 +182,11 @@ export interface ConvertInput {
   legacyPack?: { size: number; unit: string } | null;
   llmPackHint?: number | null;
   medianPrice?: number | null;
+  /**
+   * Единицу задало правило «всё в кг» (флаг all_kg), а не позиция 1С: если вес
+   * единицы не найти, строка помечается «нужен вес», а не «единица не как в 1С».
+   */
+  forcedTarget?: boolean;
 }
 
 export interface ConvertResult {
@@ -242,7 +265,11 @@ export function convertLine(input: ConvertInput): ConvertResult {
     // бутылка, мешок…) объём — это вместимость, а не содержимое: «Контейнер
     // 500мл» × 500 шт — не 250 кг. Массу тары (фасовка «1400гр») оставляем.
     const container = isContainerProduct(name);
-    const usable = container ? pack.measures.filter(m => MEASURE_CLS[m.unit] === 'mass') : pack.measures;
+    // Яйца — вес штуки по категории (С1 = 55 г …), прочие меры названия не нужны.
+    const eggGrams = target.cls === 'mass' ? eggPieceGrams(name) : null;
+    const usable: Measure[] = eggGrams != null
+      ? [{ value: eggGrams, unit: 'г', kind: 'nominal' }]
+      : container ? pack.measures.filter(m => MEASURE_CLS[m.unit] === 'mass') : pack.measures;
     const same = usable.filter(m => MEASURE_CLS[m.unit] === target.cls);
     const ordered = [...same.filter(m => m.kind === 'nominal'), ...same.filter(m => m.kind === 'net'), ...same.filter(m => m.kind === 'drained')];
     let m = ordered[0] ?? null;
@@ -253,7 +280,7 @@ export function convertLine(input: ConvertInput): ConvertResult {
     }
     if (m) {
       const perUnit = (m.value * MEASURE_TO_BASE[m.unit]) / target.toBase;
-      const perLabel = `${fmt(m.value)} ${m.unit}`;
+      const perLabel = `${fmt(m.value)} ${m.unit}${eggGrams != null ? ' (вес яйца по категории)' : ''}`;
       const packCount = from.isCase ? (pack.perPack ?? (input.llmPackHint && input.llmPackHint > 1 ? input.llmPackHint : null)) : null;
       if (from.isCase && packCount) {
         cands.push({ factor: packCount * perUnit, source: 'name_count', note: `${fmt(q)} ${fromLabel} × ${fmt(packCount)} × ${perLabel} = ${fmt(q * packCount * perUnit)} ${toLabel}${densityNote}` });
@@ -261,7 +288,8 @@ export function convertLine(input: ConvertInput): ConvertResult {
       } else {
         cands.push({ factor: perUnit, source: 'name', note: `${fmt(q)} ${fromLabel} × ${perLabel} = ${fmt(q * perUnit)} ${toLabel}${densityNote}` });
         // «500*5г» за 1 шт — возможно, это коробка: запасной кандидат для проверки ценой.
-        if (pack.perPack && pack.countTimesMeasure) {
+        // Так же у яиц: «Яйцо С1 360шт» количеством 1 — это лоток, а не одно яйцо.
+        if (pack.perPack && (pack.countTimesMeasure || eggGrams != null)) {
           cands.push({ factor: pack.perPack * perUnit, source: 'name_count', note: `${fmt(q)} ${fromLabel} × ${fmt(pack.perPack)} × ${perLabel} = ${fmt(q * pack.perPack * perUnit)} ${toLabel}${densityNote}` });
         }
       }
@@ -276,7 +304,9 @@ export function convertLine(input: ConvertInput): ConvertResult {
     if (!cands.length) {
       noConversion = pack.ranges.length
         ? { flag: 'needs_weight', note: `вес упаковки плавающий (${pack.ranges.map(r => `${fmt(r.low)}–${fmt(r.high)} ${r.unit}`).join(', ')}) — укажите фактический вес в ${toLabel}` }
-        : { flag: 'unit_mismatch', note: `в 1С учёт в «${outUnit}», в накладной — «${raw.unit ?? 'шт'}», а вес единицы в названии не найден` };
+        : input.forcedTarget
+          ? { flag: 'needs_weight', note: `вес единицы в названии не найден — укажите вес в ${toLabel} (кнопка «Запомнить» сохранит его для поставщика)` }
+          : { flag: 'unit_mismatch', note: `в 1С учёт в «${outUnit}», в накладной — «${raw.unit ?? 'шт'}», а вес единицы в названии не найден` };
     }
   } else if (from.cls === 'count' && target.cls === 'count') {
     if (from.isCase && !target.isCase) {

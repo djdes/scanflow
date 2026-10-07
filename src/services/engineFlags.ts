@@ -9,12 +9,14 @@ import { logger } from '../utils/logger';
  * выключает движок в «Настройки → Движки v2», и следующая накладная идёт
  * старым путём. Хранится в analyzer_config.engine_flags (JSON в TEXT).
  */
-export type EngineFlag = 'units_v2' | 'price_guard' | 'mapping_v2' | 'ocr_memory' | 'batch_notify' | 'learning' | 'row_pairing';
+export type EngineFlag = 'units_v2' | 'all_kg' | 'price_guard' | 'mapping_v2' | 'ocr_memory' | 'batch_notify' | 'learning' | 'row_pairing';
 
-export const ENGINE_FLAGS: EngineFlag[] = ['units_v2', 'price_guard', 'mapping_v2', 'ocr_memory', 'batch_notify', 'learning', 'row_pairing'];
+export const ENGINE_FLAGS: EngineFlag[] = ['units_v2', 'all_kg', 'price_guard', 'mapping_v2', 'ocr_memory', 'batch_notify', 'learning', 'row_pairing'];
 
 export const ENGINE_FLAG_DEFAULTS: Record<EngineFlag, boolean> = {
   units_v2: true,
+  // Решение владельца 2026-10-07: в 1С всё в килограммах (яйца — по весу категории).
+  all_kg: true,
   price_guard: true,
   mapping_v2: true,
   ocr_memory: true,
@@ -27,6 +29,10 @@ export const ENGINE_FLAG_INFO: Record<EngineFlag, { title: string; hint: string 
   units_v2: {
     title: 'Пересчёт единиц',
     hint: 'Количество для 1С считается от напечатанного: вес из названия, упаковки, правила поставщика.',
+  },
+  all_kg: {
+    title: 'Всё в килограммах',
+    hint: 'Каждая строка — в кг: вес из названия, литры = кг, яйца по категории. Нет веса — строка ждёт ввода.',
   },
   price_guard: {
     title: 'Проверка цены',

@@ -18,6 +18,10 @@ import { logger } from '../utils/logger';
  *
  * units_v2 = off → прежний resolveAndApplyPackTransform (поведение до v2), но
  * значения «как в накладной» всё равно сохраняются — к ним можно вернуться.
+ *
+ * all_kg = on (решение владельца 2026-10-07) → единица строки всегда «кг», а не
+ * единица позиции 1С: вес из названия, литры = кг, яйца по категории. Медиана цены
+ * позиции сравнивается, только если позиция 1С тоже ведётся в кг.
  */
 export interface LineConversionArgs {
   ownerUserId: number | null;
@@ -81,14 +85,17 @@ export async function convertInvoiceLine(a: LineConversionArgs): Promise<LineCon
 
   const nameKey = itemNameKey(a.name);
   const rawUnitCanon = canonUnit(raw.unit)?.unit ?? null;
+  const targetUnit = flags.all_kg ? 'кг' : onecUnit;
   const rule = a.ownerUserId != null
     ? await itemUnitRuleRepo.find(a.ownerUserId, a.supplierKey, nameKey, rawUnitCanon).catch(() => null)
     : null;
-  const median = flags.price_guard ? await getReferencePrice(a.onecGuid, a.ownerUserId, onecUnit) : null;
+  // История цен позиции — в единице 1С: с другой единицей строки сравнивать нельзя.
+  const sameUnitAsOnec = !!onecUnit && canonUnit(onecUnit)?.unit === canonUnit(targetUnit)?.unit;
+  const median = flags.price_guard && sameUnitAsOnec ? await getReferencePrice(a.onecGuid, a.ownerUserId, onecUnit) : null;
   const legacyPack = a.mapping?.pack_size && a.mapping.pack_unit ? { size: a.mapping.pack_size, unit: a.mapping.pack_unit } : null;
 
   const r = convertLine({
-    raw, name: a.name, onecUnit, onecName: onec?.name ?? null,
+    raw, name: a.name, onecUnit: targetUnit, onecName: onec?.name ?? null, forcedTarget: flags.all_kg,
     rule: rule ? { factor: rule.factor, targetUnit: rule.target_unit, source: rule.source } : null,
     legacyPack, llmPackHint: a.llmPackHint ?? null, medianPrice: median,
   });
