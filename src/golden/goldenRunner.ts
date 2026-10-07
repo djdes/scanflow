@@ -34,7 +34,9 @@ import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { goldenRepo } from '../database/repositories/goldenRepo';
 import { OcrManager } from '../ocr/ocrManager';
 import { analyzeImageWithVerification } from '../ocr/claudeApiAnalyzer';
-import { isGptModel, visionModelFor } from '../ocr/gptVision';
+import { isPdfPath, pdfToImages } from '../ocr/pdfPages';
+import { aiTargetFromConfig } from '../ai/engine';
+import type { AiTarget } from '../ai/types';
 import { buildSupplierMemory } from '../learning/supplierMemory';
 import type { ParsedInvoiceData } from '../ocr/types';
 import { compareGolden, truthFromInvoice, type GoldenCompareResult } from './compare';
@@ -79,7 +81,8 @@ export interface GoldenRunSummary {
 }
 
 export interface GoldenRecognizeContext {
-  apiKey: string;
+  /** Модель из настроек на момент запуска — весь прогон меряет одну и ту же. */
+  target: AiTarget;
   model: string;
   /** Памятка по поставщикам (п.16) — та же, что уходит в боевой промпт. */
   memory?: string;
@@ -120,11 +123,25 @@ function ocrManager(): OcrManager {
   return sharedOcr;
 }
 
-/** Production-путь claude_api (OcrManager.recognizeWithClaudeApi), но без каталога 1С (памятка поставщиков — как в бою). */
+/** Боевой путь (OcrManager.recognizeWithClaudeApi), но без каталога 1С (памятка поставщиков — как в бою). */
 async function recognizeWithCurrentModel(photoPath: string, ctx: GoldenRecognizeContext): Promise<ParsedInvoiceData> {
-  const prepared = await ocrManager().preprocessImage(photoPath);
+  if (isPdfPath(photoPath)) {
+    // PDF — картинкой страницы; эталоны пока только одностраничные.
+    const pdf = await pdfToImages(photoPath, { maxPages: 1 });
+    try {
+      if (pdf.totalPages > 1) throw new Error('Многостраничный PDF — эталоны пока только одностраничные');
+      return await recognizePrepared(pdf.paths[0], ctx, false);
+    } finally {
+      pdf.cleanup();
+    }
+  }
+  return recognizePrepared(photoPath, ctx, true);
+}
+
+async function recognizePrepared(photoPath: string, ctx: GoldenRecognizeContext, detectRotation: boolean): Promise<ParsedInvoiceData> {
+  const prepared = await ocrManager().preprocessImage(photoPath, { target: ctx.target, detectRotation });
   try {
-    const result = await analyzeImageWithVerification(prepared, ctx.apiKey, ctx.model, undefined, ctx.memory);
+    const result = await analyzeImageWithVerification(prepared, ctx.target, undefined, ctx.memory);
     if (!result.success || !result.data) {
       throw new Error(result.error || 'Image analysis failed');
     }
@@ -313,12 +330,12 @@ export async function startGoldenRun(
   let ctx: GoldenRecognizeContext;
   try {
     const cfg = await invoiceRepo.getAnalyzerConfig();
-    // Меряем ту модель, что читает фото в бою: в режиме gpt — GPT через шлюз ProjectsFlow.
-    const { modelId, apiKey } = visionModelFor(cfg);
-    if (!apiKey && !isGptModel(modelId)) {
-      throw new GoldenRunConfigError('Не задан API-ключ Anthropic — прогон эталонов распознаёт фото через Anthropic API');
+    // Меряем ту модель, что читает фото в бою (ИИ-шлюз): в режиме gpt — GPT по подписке.
+    const target = aiTargetFromConfig(cfg);
+    if (target.engine === 'claude' && !target.apiKey) {
+      throw new GoldenRunConfigError('Не задан ключ Anthropic — включён режим Claude');
     }
-    ctx = { apiKey, model: modelId, memory: await buildSupplierMemory(opts.ownerUserId) };
+    ctx = { target, model: target.model, memory: await buildSupplierMemory(opts.ownerUserId) };
     runId = await goldenRepo.createRun({
       ownerUserId: opts.ownerUserId,
       startedBy: opts.startedBy,

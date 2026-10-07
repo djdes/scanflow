@@ -13,7 +13,8 @@ import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositor
 import type { MappingResult } from '../mapping/nomenclatureMapper';
 import { evaluateInvoiceQuality } from '../automation/qualityGate';
 import type { ParsedInvoiceData, ParsedInvoiceItem } from '../ocr/types';
-import { mapItemsWithClaudeApi } from '../ocr/claudeApiAnalyzer';
+import { mapItemsWithAi } from '../ocr/claudeApiAnalyzer';
+import { aiTargetFromConfig } from '../ai/engine';
 import { isVisionLlmMode } from '../ocr/gptVision';
 import { FnsXmlError, isXmlFileName, isXmlInvoice, readFnsXmlInvoice } from '../xml';
 import { sendErrorEmail } from '../utils/mailer';
@@ -1797,15 +1798,15 @@ export class FileWatcher {
     }
     try {
       const cfg = await invoiceRepo.getAnalyzerConfig();
-      const apiKey = cfg.anthropic_api_key || config.anthropicApiKey;
-      if (!cfg.llm_mapper_enabled || !apiKey) return picks;
+      if (!cfg.llm_mapper_enabled) return picks;
+      // Модель из настроек (ИИ-шлюз); недоступна — catch ниже, подбор правилами.
+      const target = aiTargetFromConfig(cfg);
       const catalog = await onecNomenclatureRepo.listItems({ ownerUserId, excludeFolders: true });
       if (catalog.length === 0) return picks;
-      const result = await mapItemsWithClaudeApi(
+      const result = await mapItemsWithAi(
         named,
         catalog.map(r => ({ guid: r.guid, name: r.name, unit: r.unit })),
-        apiKey,
-        cfg.claude_model || 'claude-sonnet-5',
+        target,
       );
       if (!result.success || !result.matched) {
         logger.warn('XML invoice: LLM mapping failed, using rules and fuzzy match', { error: result.error });

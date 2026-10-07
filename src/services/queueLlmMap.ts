@@ -1,5 +1,5 @@
-import { config } from '../config';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
+import { aiTargetFromConfig } from '../ai/engine';
 import { queueRepo } from '../database/repositories/queueRepo';
 import type { CatalogEntry } from '../ocr/claudeApiAnalyzer';
 import { llmRemapInvoice, loadLlmCatalog, EMPTY_CATALOG_ERROR } from './llmRemap';
@@ -53,9 +53,9 @@ export async function startQueueLlmMap(opts: {
   invoiceIds?: number[] | null;
 }): Promise<{ job: QueueJobView; planned: number }> {
   assertQueueJobFree(opts.ownerUserId);
-  const cfg = await invoiceRepo.getAnalyzerConfig();
-  const apiKey = cfg.anthropic_api_key || config.anthropicApiKey;
-  if (!apiKey) throw new QueueStartError(400, 'Не задан API-ключ Anthropic — подбор идёт через Anthropic API');
+  // Модель из настроек (ИИ-шлюз): в режиме gpt — GPT по подписке.
+  const target = aiTargetFromConfig(await invoiceRepo.getAnalyzerConfig());
+  if (target.engine === 'claude' && !target.apiKey) throw new QueueStartError(400, 'Не задан ключ Anthropic — включён режим Claude');
   const catalog = await loadLlmCatalog(opts.ownerUserId);
   if (!catalog.length) throw new QueueStartError(400, EMPTY_CATALOG_ERROR);
   const ids = await queueRepo.queueIds(opts.ownerUserId, { ids: opts.invoiceIds ?? null, onlyWithUnmapped: true });
@@ -70,7 +70,7 @@ export async function startQueueLlmMap(opts: {
     ownerUserId: opts.ownerUserId,
     startedBy: opts.startedBy,
     invoiceIds: ids,
-    meta: { model: cfg.claude_model, catalog_size: catalog.length },
+    meta: { model: target.model, catalog_size: catalog.length },
     worker: (invoiceId) => llmMapQueueInvoice(invoiceId, ctx),
   });
   return { job: viewQueueJob(job), planned: ids.length };

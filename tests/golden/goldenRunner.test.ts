@@ -67,7 +67,8 @@ import {
 
 const repo = vi.mocked(invoiceRepo);
 const golden = vi.mocked(goldenRepo);
-const ctx = { apiKey: 'sk-test', model: 'claude-sonnet-5' };
+const ctx = { target: { engine: 'claude' as const, model: 'claude-sonnet-5', apiKey: 'sk-test' }, model: 'claude-sonnet-5' };
+const GPT_TARGET = { engine: 'gpt', model: 'gpt-6.1-sol', apiKey: null };
 
 function invoice(id: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -124,7 +125,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   repo.getById.mockImplementation(async (id: number) => invoice(id) as never);
   repo.getItems.mockResolvedValue(truthItems as never);
-  repo.getAnalyzerConfig.mockResolvedValue({ anthropic_api_key: 'sk-db', claude_model: 'claude-sonnet-5' } as never);
+  // Основной режим — GPT по подписке (ИИ-шлюз).
+  repo.getAnalyzerConfig.mockResolvedValue({ mode: 'gpt', gpt_model: 'gpt-6.1-sol', anthropic_api_key: null, claude_model: 'claude-sonnet-5' } as never);
   golden.createRun.mockResolvedValue(42);
   golden.saveProgress.mockResolvedValue();
   golden.finishRun.mockResolvedValue();
@@ -262,9 +264,9 @@ describe('startGoldenRun — запуск из API', () => {
     const recognize = vi.fn(async () => { await gate; return reading(); });
 
     const started = await startGoldenRun({ ownerUserId: 1, startedBy: 1, invoiceIds: [1] }, deps({ recognize }));
-    expect(started).toEqual({ runId: 42, model: 'claude-sonnet-5' });
+    expect(started).toEqual({ runId: 42, model: 'gpt-6.1-sol' });
     expect(golden.createRun).toHaveBeenCalledWith(expect.objectContaining({
-      ownerUserId: 1, startedBy: 1, model: 'claude-sonnet-5',
+      ownerUserId: 1, startedBy: 1, model: 'gpt-6.1-sol',
     }));
     expect(activeGoldenRunId()).toBe(42);
     expect(golden.finishRun).not.toHaveBeenCalled(); // распознавание ещё висит
@@ -277,19 +279,19 @@ describe('startGoldenRun — запуск из API', () => {
     expect(golden.finishRun).toHaveBeenCalledWith(42, 'done', expect.anything(), expect.anything());
   });
 
-  it('модель и ключ — из analyzer_config, один раз на прогон', async () => {
+  it('модель — из analyzer_config (GPT), один раз на прогон', async () => {
     const recognize = vi.fn(async () => reading());
     await startGoldenRun({ ownerUserId: 1, startedBy: 1, invoiceIds: [1, 2] }, deps({ recognize }));
     await vi.waitFor(() => expect(activeGoldenRunId()).toBeNull());
     expect(recognize).toHaveBeenCalledTimes(2);
     for (const call of recognize.mock.calls) {
-      expect(call[1]).toEqual({ apiKey: 'sk-db', model: 'claude-sonnet-5', memory: 'ПАМЯТКА' });
+      expect(call[1]).toEqual({ target: GPT_TARGET, model: 'gpt-6.1-sol', memory: 'ПАМЯТКА' });
     }
     expect(repo.getAnalyzerConfig).toHaveBeenCalledTimes(1);
   });
 
-  it('нет API-ключа → GoldenRunConfigError, прогон не создаётся, замок снят', async () => {
-    repo.getAnalyzerConfig.mockResolvedValue({ anthropic_api_key: null, claude_model: 'claude-sonnet-5' } as never);
+  it('режим Claude без ключа → GoldenRunConfigError, прогон не создаётся, замок снят', async () => {
+    repo.getAnalyzerConfig.mockResolvedValue({ mode: 'claude_api', anthropic_api_key: null, claude_model: 'claude-sonnet-5' } as never);
     await expect(startGoldenRun({ ownerUserId: 1, startedBy: 1, invoiceIds: [1] }, deps()))
       .rejects.toBeInstanceOf(GoldenRunConfigError);
     expect(golden.createRun).not.toHaveBeenCalled();
@@ -382,11 +384,11 @@ describe('production-путь распознавания (по умолчани�
     const r = await evaluateGoldenInvoice(1, ctx);
 
     expect(r.status).toBe('ok');
-    expect(ocr.preprocessImage).toHaveBeenCalledWith(path.join(cfg.processedDir, 'photo-1.jpg'));
+    expect(ocr.preprocessImage).toHaveBeenCalledWith(path.join(cfg.processedDir, 'photo-1.jpg'), { target: ctx.target, detectRotation: true });
     expect(ocr.analyze).toHaveBeenCalledTimes(1);
-    // (картинка, ключ, модель, каталог, памятка) — каталог 1С не передаётся,
+    // (картинка, модель, каталог, памятка) — каталог 1С не передаётся,
     // памятка — из контекста прогона (в этом ctx её нет).
-    expect(ocr.analyze.mock.calls[0]).toEqual([tmp, 'sk-test', 'claude-sonnet-5', undefined, undefined]);
+    expect(ocr.analyze.mock.calls[0]).toEqual([tmp, ctx.target, undefined, undefined]);
     expect(fs.existsSync(tmp)).toBe(false);
   });
 

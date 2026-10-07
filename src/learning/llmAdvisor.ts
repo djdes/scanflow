@@ -1,9 +1,10 @@
-import { createClient } from '../ocr/claudeApiAnalyzer';
+import { aiStructured } from '../ai/gateway';
+import type { AiTarget } from '../ai/types';
 import { logger } from '../utils/logger';
 import type { FlaggedLine } from './ruleMiner';
 
 /**
- * Подсказки Claude для строк, которые детерминированный разбор не объяснил
+ * Подсказки модели (ИИ-шлюз) для строк, которые детерминированный разбор не объяснил
  * (пакет v2, п.15): «сколько единиц 1С в одной единице накладной?». Ответ —
  * лишь ПРЕДЛОЖЕНИЕ; правило появится, только если человек его примет.
  * Не больше 30 строк за раз; ошибки не бросаются.
@@ -78,25 +79,30 @@ export const ADVICE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export async function adviseWithLlm(lines: FlaggedLine[], apiKey: string, model: string): Promise<LlmAdvice[]> {
-  if (!lines.length || !apiKey) return [];
+/**
+ * Ошибки не бросаются: недоступная модель (лимит подписки, нужен вход) — ночь без
+ * советов ИИ, правила из детерминированного разбора создаются как обычно.
+ */
+export async function adviseWithLlm(lines: FlaggedLine[], target: AiTarget): Promise<LlmAdvice[]> {
+  if (!lines.length) return [];
   const batch = lines.slice(0, 30);
   try {
-    const client = createClient(apiKey);
-    // Модель размышляет по умолчанию, и размышления тратят тот же max_tokens:
-    // при 2500 весь бюджет уходил на них, и текста ответа не оставалось.
-    // Поэтому — adaptive thinking с низким усилием, запас по токенам и
-    // structured outputs (ответ — всегда валидный JSON по схеме).
-    const resp = await client.messages.create({
-      model,
-      max_tokens: 12000,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: ADVICE_SCHEMA as unknown as Record<string, unknown> } },
-      messages: [{ role: 'user', content: buildAdvicePrompt(batch) }],
-    }, { signal: AbortSignal.timeout(180_000) });
-    const text = resp.content.map(c => (c.type === 'text' ? c.text : '')).join('');
-    if (!text) logger.warn('learning: LLM advice without text', { stop: resp.stop_reason });
-    return parseAdvice(text).filter(a => batch.some(l => l.id === a.id));
+    // Модель размышляет, и размышления тратят тот же потолок вывода: при 2500
+    // весь бюджет уходил на них. Поэтому — низкое усилие, запас по токенам и
+    // ответ по схеме (всегда валидный JSON).
+    const resp = await aiStructured({
+      target,
+      label: 'learning advice',
+      content: buildAdvicePrompt(batch),
+      schema: ADVICE_SCHEMA as unknown as Record<string, unknown>,
+      schemaName: 'advice',
+      effort: 'low',
+      maxOutputTokens: 12000,
+      timeoutMs: 180_000,
+      retries: 0,
+    });
+    if (!resp.text) logger.warn('learning: LLM advice without text', { truncated: resp.truncated });
+    return parseAdvice(resp.text).filter(a => batch.some(l => l.id === a.id));
   } catch (err) {
     logger.warn('learning: LLM advice failed', { error: (err as Error).message });
     return [];

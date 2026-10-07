@@ -2,12 +2,12 @@ import { invoiceRepo, type Invoice } from '../database/repositories/invoiceRepo'
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
 import { logEdit } from '../database/repositories/editLogRepo';
-import { mapItemsWithClaudeApi, type CatalogEntry, type LlmMapHit } from '../ocr/claudeApiAnalyzer';
+import { mapItemsWithAi, type CatalogEntry, type LlmMapHit } from '../ocr/claudeApiAnalyzer';
+import { resolveAiTarget } from '../ai/engine';
 import { resolveAndApplyPackTransform, coerceToOnec1cUnit } from '../mapping/packTransform';
 import { reconvertStoredItem } from './itemReconvert';
 import { getEngineFlags } from './engineFlags';
 import { checkLlmPick } from './llmPickGuard';
-import { config } from '../config';
 import { logger } from '../utils/logger';
 
 /**
@@ -73,7 +73,7 @@ export interface LlmRemapOptions {
 }
 
 export const EMPTY_CATALOG_ERROR = 'Справочник 1С пуст — нечего сопоставлять. Сначала выгрузите номенклатуру из 1С.';
-export const NO_API_KEY_ERROR = 'Anthropic API key not configured';
+export const NO_API_KEY_ERROR = 'Не задан ключ Anthropic — включён режим Claude';
 
 /** Каталог компании для запроса к Claude (без групп). */
 export async function loadLlmCatalog(ownerUserId: number): Promise<CatalogEntry[]> {
@@ -112,17 +112,17 @@ export async function llmRemapInvoice(invoice: Invoice, opts: LlmRemapOptions): 
     return { ok: false, status: 400, error: EMPTY_CATALOG_ERROR };
   }
 
-  const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
-  const apiKey = analyzerCfg.anthropic_api_key || config.anthropicApiKey;
-  if (!apiKey) {
+  // Модель из настроек (ИИ-шлюз). Недоступность модели (AiUnavailableError)
+  // пробрасывается: маршрут отвечает 503, задача очереди встаёт на паузу.
+  const target = await resolveAiTarget();
+  if (target.engine === 'claude' && !target.apiKey) {
     return { ok: false, status: 500, error: NO_API_KEY_ERROR };
   }
 
-  const result = await mapItemsWithClaudeApi(
+  const result = await mapItemsWithAi(
     targets.map(it => ({ key: String(it.id), name: it.original_name || '', unit: it.unit })),
     catalog,
-    apiKey,
-    analyzerCfg.claude_model || 'claude-sonnet-5',
+    target,
   );
 
   if (!result.success || !result.matched) {

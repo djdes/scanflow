@@ -1,3 +1,4 @@
+import { AiUnavailableError } from '../../src/ai/errors';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // «LLM-маппинг» накладной, вынесенный из POST /api/invoices/:id/llm-remap.
@@ -39,7 +40,7 @@ vi.mock('../../src/database/repositories/rejectionRepo', () => ({
   rejectionRepo: { guidsFor: vi.fn() },
 }));
 vi.mock('../../src/database/repositories/editLogRepo', () => ({ logEdit: vi.fn() }));
-vi.mock('../../src/ocr/claudeApiAnalyzer', () => ({ mapItemsWithClaudeApi: h.mapItems }));
+vi.mock('../../src/ocr/claudeApiAnalyzer', () => ({ mapItemsWithAi: h.mapItems }));
 vi.mock('../../src/services/itemReconvert', () => ({ reconvertStoredItem: vi.fn() }));
 vi.mock('../../src/services/engineFlags', () => ({ getEngineFlags: vi.fn(async () => h.flags) }));
 
@@ -81,7 +82,7 @@ function hit(guid: string, extra: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   h.flags = { units_v2: false, mapping_v2: true };
-  repo.getAnalyzerConfig.mockResolvedValue({ anthropic_api_key: 'sk-db', claude_model: 'claude-sonnet-5' } as never);
+  repo.getAnalyzerConfig.mockResolvedValue({ mode: 'gpt', gpt_model: 'gpt-6.1-sol', anthropic_api_key: null, claude_model: 'claude-sonnet-5' } as never);
   onec.listItems.mockResolvedValue(CATALOG.map(c => ({ ...c, code: null, full_name: null, parent_guid: null, is_folder: 0, is_weighted: 0, synced_at: '' })) as never);
   onec.getByGuid.mockImplementation(async (guid: string) => {
     const c = CATALOG.find(x => x.guid === guid);
@@ -104,16 +105,20 @@ describe('ответы — как у прежнего маршрута', () => {
     expect(h.mapItems).not.toHaveBeenCalled();
   });
 
-  it('пустой каталог → 400, нет ключа → 500, ошибка Claude → 502', async () => {
+  it('пустой каталог → 400, режим Claude без ключа → 500, ошибка модели → 502, модель недоступна — исключение', async () => {
     repo.getItems.mockResolvedValue([item(1)] as never);
     onec.listItems.mockResolvedValueOnce([] as never);
     expect(await llmRemapInvoice(INVOICE, { includeAll: false })).toEqual({ ok: false, status: 400, error: EMPTY_CATALOG_ERROR });
 
-    repo.getAnalyzerConfig.mockResolvedValueOnce({ anthropic_api_key: null, claude_model: 'm' } as never);
+    repo.getAnalyzerConfig.mockResolvedValueOnce({ mode: 'claude_api', anthropic_api_key: null, claude_model: 'm' } as never);
     expect(await llmRemapInvoice(INVOICE, { includeAll: false })).toEqual({ ok: false, status: 500, error: NO_API_KEY_ERROR });
 
-    h.mapItems.mockResolvedValueOnce({ success: false, error: 'Claude API error: timeout' });
-    expect(await llmRemapInvoice(INVOICE, { includeAll: false })).toEqual({ ok: false, status: 502, error: 'Claude API error: timeout' });
+    h.mapItems.mockResolvedValueOnce({ success: false, error: 'AI mapper error: timeout' });
+    expect(await llmRemapInvoice(INVOICE, { includeAll: false })).toEqual({ ok: false, status: 502, error: 'AI mapper error: timeout' });
+
+    // Недоступность модели пробрасывается: маршрут ответит 503, задача очереди встанет на паузу.
+    h.mapItems.mockRejectedValueOnce(new AiUnavailableError('rate_limited', null));
+    await expect(llmRemapInvoice(INVOICE, { includeAll: false })).rejects.toBeInstanceOf(AiUnavailableError);
   });
 
   it('сопоставление несопоставленных: в запрос — только строки без позиции, каталог — компании владельца', async () => {

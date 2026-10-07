@@ -359,7 +359,7 @@ function deps(p: Partial<ReocrDeps> = {}): ReocrDeps {
 }
 
 function ctx(p: Partial<ReocrRunContext> = {}): ReocrRunContext {
-  return { ownerUserId: 1, startedBy: 1, apiKey: 'sk', model: 'claude-sonnet-5', memory: 'ПАМЯТКА', llmMapperEnabled: true, mapper: mapperStub(), ...p };
+  return { ownerUserId: 1, startedBy: 1, target: { engine: 'gpt' as const, model: 'gpt-6.1-sol', apiKey: null }, memory: 'ПАМЯТКА', llmMapperEnabled: true, mapper: mapperStub(), ...p };
 }
 
 function expectNoInvoiceWrites(): void {
@@ -384,9 +384,9 @@ describe('reocrInvoice', () => {
     expect(r).toMatchObject({ invoice_id: 10, status: 'done' });
     const rc = vi.mocked(d.recognizePage).mock.calls[0][1];
     expect(vi.mocked(d.recognizePage).mock.calls[0][0]).toBe('/photos/photo-10.jpg');
-    expect(rc).toMatchObject({ apiKey: 'sk', model: 'claude-sonnet-5', memory: 'ПАМЯТКА' });
+    expect(rc).toMatchObject({ target: { engine: 'gpt', model: 'gpt-6.1-sol' }, memory: 'ПАМЯТКА' });
     expect(rc.catalog.map(c => c.guid)).toEqual(['g-milk1', 'g-milk2', 'g-bread']);
-    expect(qrepo.startReocr).toHaveBeenCalledWith({ ownerUserId: 1, invoiceId: 10, startedBy: 1, model: 'claude-sonnet-5', pages: 1 });
+    expect(qrepo.startReocr).toHaveBeenCalledWith({ ownerUserId: 1, invoiceId: 10, startedBy: 1, model: 'gpt-6.1-sol', pages: 1 });
     const [rowId, finished] = qrepo.finishReocr.mock.calls[0];
     expect(rowId).toBe(77);
     expect(finished.status).toBe('done');
@@ -475,7 +475,7 @@ describe('reocrInvoice', () => {
 
 describe('startQueueReocr', () => {
   beforeEach(() => {
-    repo.getAnalyzerConfig.mockResolvedValue({ anthropic_api_key: 'sk-db', claude_model: 'claude-sonnet-5', llm_mapper_enabled: true } as never);
+    repo.getAnalyzerConfig.mockResolvedValue({ mode: 'gpt', gpt_model: 'gpt-6.1-sol', anthropic_api_key: null, claude_model: 'claude-sonnet-5', llm_mapper_enabled: true } as never);
     repo.getById.mockImplementation(async (id: number) => invoice({ id, file_name: `photo-${id}.jpg` }) as never);
     repo.getItems.mockResolvedValue([] as never);
     qrepo.queueIds.mockResolvedValue([10, 11, 12]);
@@ -484,7 +484,7 @@ describe('startQueueReocr', () => {
     qrepo.finishReocr.mockResolvedValue();
   });
 
-  it('строго по одной накладной; модель, ключ и памятка — один раз на прогон', async () => {
+  it('строго по одной накладной; модель и памятка — один раз на прогон', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
     const d = deps({
@@ -521,8 +521,8 @@ describe('startQueueReocr', () => {
     await vi.waitFor(() => expect(activeQueueJob()).toBeNull());
   });
 
-  it('нет API-ключа → 400; нечего перераспознавать → 400 с понятной причиной; сервер занят → 409-ошибка', async () => {
-    repo.getAnalyzerConfig.mockResolvedValueOnce({ anthropic_api_key: null, claude_model: 'm', llm_mapper_enabled: true } as never);
+  it('режим Claude без ключа → 400; нечего перераспознавать → 400 с понятной причиной; сервер занят → 409-ошибка', async () => {
+    repo.getAnalyzerConfig.mockResolvedValueOnce({ mode: 'claude_api', anthropic_api_key: null, claude_model: 'm', llm_mapper_enabled: true } as never);
     await expect(startQueueReocr({ ownerUserId: 1, startedBy: 1, mapper: mapperStub() }, deps())).rejects.toBeInstanceOf(QueueStartError);
 
     qrepo.queueIds.mockResolvedValueOnce([]);

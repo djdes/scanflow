@@ -1,7 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
-import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import { ParsedInvoiceData } from './types';
 import { logger } from '../utils/logger';
 import { config } from '../config';
@@ -26,56 +24,14 @@ export interface CatalogEntry {
   unit?: string | null;
 }
 
-// Per-call Claude API timeouts. На structured outputs + adaptive thinking (effort
+// Таймауты одной попытки вызова модели. На structured outputs + adaptive thinking (effort
 // medium) плотная страница ТОРГ-12 на 20 позиций читается ~120-180с (Sonnet 5
 // думает над каждой строкой), а редкая огромная — дольше. 120с убивали такие
 // страницы посреди чтения → подняли single до 240с. Multi-page (image OR text)
 // тоже 240с. Worst-case = timeout × 3 попытки + backoff; фон, пользователь видит
 // только статус, не блокирующий ответ.
-const CLAUDE_API_TIMEOUT_SINGLE_MS = 240_000;
-const CLAUDE_API_TIMEOUT_MULTIPAGE_MS = 240_000;
-
-// Total retries = 2 (3 attempts). Backoff: 1s, 2s.
-const CLAUDE_API_MAX_RETRIES = 2;
-
-/**
- * Wrap a Claude API call with retry + exponential backoff.
- * - Retries on 5xx and 429 (rate limit)
- * - Does NOT retry on 4xx auth/bad-request errors (they're not transient)
- * - Each attempt gets its own timeout signal
- *
- * `timeoutMs` defaults to single-page; pass CLAUDE_API_TIMEOUT_MULTIPAGE_MS
- * for multi-page invoice analysis.
- */
-async function withRetry<T>(
-  fn: (signal: AbortSignal) => Promise<T>,
-  label: string,
-  timeoutMs: number = CLAUDE_API_TIMEOUT_SINGLE_MS,
-): Promise<T> {
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt <= CLAUDE_API_MAX_RETRIES; attempt++) {
-    try {
-      const signal = AbortSignal.timeout(timeoutMs);
-      return await fn(signal);
-    } catch (e) {
-      lastError = e as Error;
-      const status = (e as { status?: number }).status;
-      // Don't retry on 4xx except 429 — those are client errors
-      if (status && status >= 400 && status < 500 && status !== 429) {
-        throw e;
-      }
-      if (attempt < CLAUDE_API_MAX_RETRIES) {
-        const backoffMs = 1000 * Math.pow(2, attempt);
-        logger.warn(`${label}: attempt ${attempt + 1} failed, retrying in ${backoffMs}ms`, {
-          error: (e as Error).message,
-          status,
-        });
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
-      }
-    }
-  }
-  throw lastError ?? new Error(`${label}: unknown failure`);
-}
+const TIMEOUT_SINGLE_MS = 240_000;
+const TIMEOUT_MULTIPAGE_MS = 240_000;
 
 /**
  * Build the prompt. When `catalog` is provided, Claude is asked to map each
@@ -268,36 +224,6 @@ ${lines}`;
 // Back-compat export: empty-catalog version used where LLM-mapper is off.
 const CLAUDE_API_PROMPT = buildPrompt();
 
-import { jsonrepair } from 'jsonrepair';
-
-/**
- * Clean JSON string from common LLM artifacts: trailing commas, comments, etc.
- */
-function cleanJsonString(raw: string): string {
-  return raw
-    .replace(/,\s*([}\]])/g, '$1')       // trailing commas
-    .replace(/\/\/[^\n]*/g, '')           // single-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '');    // multi-line comments
-}
-
-// NB: safeParseClaudeJson удалён — на claude_api-пути JSON гарантирован
-// output_config.format (см. normalizeStructuredResponse ниже). cleanJsonString
-// оставлен: им ещё пользуется mapItemsWithClaudeApi (mapping-only вызов).
-
-export function createClient(apiKey: string): Anthropic {
-  const proxyUrl = config.anthropicProxyUrl;
-  if (proxyUrl) {
-    logger.info('Claude API: using HTTP proxy', { proxy: proxyUrl.replace(/\/\/.*@/, '//*:*@') });
-    const dispatcher = new ProxyAgent(proxyUrl);
-    const proxiedFetch: typeof globalThis.fetch = (url, init) =>
-      undiciFetch(url as any, { ...init as any, dispatcher }) as any;
-    // maxRetries:0 — withRetry() is the sole retry layer (see below). Leaving the
-    // SDK default (2) would compound multiplicatively to ~9 calls per analysis.
-    return new Anthropic({ apiKey, fetch: proxiedFetch, maxRetries: 0 });
-  }
-  return new Anthropic({ apiKey, maxRetries: 0 });
-}
-
 function getMediaType(imagePath: string): 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' {
   const ext = path.extname(imagePath).toLowerCase();
   const map: Record<string, 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'> = {
@@ -317,7 +243,7 @@ function getMediaType(imagePath: string): 'image/jpeg' | 'image/png' | 'image/we
  * preprocessor outputs JPEG on success (sniffed via FF D8 magic) and falls back
  * to the original bytes on any failure, so the media type stays correct.
  */
-async function encodeImageForApi(imagePath: string): Promise<{ data: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }> {
+async function encodeImageForApi(imagePath: string): Promise<{ data: string; mediaType: AiImageType }> {
   const raw = await fs.promises.readFile(imagePath);
   const pre = await preprocessInvoiceImage(raw);
   const isJpeg = pre.length > 2 && pre[0] === 0xFF && pre[1] === 0xD8;
@@ -325,18 +251,34 @@ async function encodeImageForApi(imagePath: string): Promise<{ data: string; med
 }
 
 // ============================================================================
-//  Structured-output путь (Sonnet 5): system-инструкции + prompt caching +
-//  гарантированный JSON через output_config.format + adaptive thinking.
+//  Structured-output путь: system-инструкции + гарантированный JSON по схеме.
+//  Вызов модели — через ИИ-шлюз (src/ai/gateway.ts): GPT по подписке ChatGPT,
+//  Claude — только в режиме claude_api.
 //  См. docs/superpowers/specs/2026-07-09-ocr-accuracy-improvement-design.md
 // ============================================================================
 
 import { validateParsedInvoice, ValidationIssue } from './invoiceValidator';
 import { repairRowPairing, NumberRow } from './rowPairing';
 import { getEngineFlags } from '../services/engineFlags';
-import { isGptModel, gptRespond, toGptContent } from './gptVision';
+import { aiStructured, aiText } from '../ai/gateway';
+import { AiUnavailableError } from '../ai/errors';
+import type { AiImageType, AiInput, AiTarget } from '../ai/types';
 
-/** Подпись в журналах и ошибках: чем читали — Claude API или GPT через шлюз ProjectsFlow. */
-const modelTag = (modelId: string) => (isGptModel(modelId) ? 'GPT' : 'Claude API');
+/** Подпись в журналах и ошибках: чем читали — GPT или Claude API. */
+const modelTag = (target: AiTarget) => (target.engine === 'gpt' ? 'GPT' : 'Claude API');
+
+/** Картинка страницы для запроса: предобработка + base64. */
+async function imageInput(imagePath: string): Promise<AiInput> {
+  const { data, mediaType } = await encodeImageForApi(imagePath);
+  return { type: 'image', mediaType, data };
+}
+
+/** PDF сюда не доходит: его страницы заранее превращаются в картинки (src/ocr/pdfPages.ts). */
+function assertNotPdf(filePath: string): void {
+  if (path.extname(filePath).toLowerCase() === '.pdf') {
+    throw new Error('PDF сначала превращается в картинки страниц (pdfToImages)');
+  }
+}
 
 // max_tokens под adaptive thinking: размышления тратят тот же бюджет, поэтому
 // заметно больше прежних 4096/8192. Одиночная — non-streaming (16k безопасно
@@ -353,7 +295,7 @@ const STRUCTURED_MAX_TOKENS_MULTI = 32000;
 // с первого раза на тех же накладных), а max_tokens=32k + streaming снимают
 // прежнюю проблему обрезки/таймаута. Латентность ~2-3 мин на плотную страницу
 // приемлема для фоновой обработки. Вынесено в константу.
-const STRUCTURED_EFFORT: 'low' | 'medium' | 'high' | 'max' = 'medium';
+const STRUCTURED_EFFORT: 'low' | 'medium' | 'high' = 'medium';
 
 /**
  * Статичные доменные инструкции. Переезжают в `system` с cache_control, поэтому
@@ -460,8 +402,9 @@ const INVOICE_INSTRUCTIONS = `Ты эксперт по русским товар
   • Вес/объём/упаковку в названии сохраняй дословно. Если есть упаковочная подсказка
     ("1/12", "*48", "×100", "/72", "10/216") — ОСТАВЬ её в name КАК ЕСТЬ и верни число
     штук в упаковке в pack_size (для "*48" → 48, "1/12" → 12; для диапазона "9-12" → pack_size: null).
-    Пример: "Горбуша нат. 245г*48 ГОСТ (Вяземский РК)" → name "Горбуша натуральная 245г*48", pack_size 48.
-  • Бренды/производителя/артикул из name убирай.
+    Пример: "Горбуша нат. 245г*48 ГОСТ (Вяземский РК)" → name "Горбуша нат. 245г*48 ГОСТ (Вяземский РК)", pack_size 48.
+  • Название переписывай как напечатано — с брендом, производителем и артикулом: по нему
+    находятся сохранённые сопоставления с 1С.
   • Если фрагмент названия нечитаем — НЕ выдумывай, перепиши только читаемую часть.
 
 ================================================================
@@ -497,22 +440,16 @@ ${lines}`;
 }
 
 /**
- * Собирает массив system-блоков с cache_control. Блок 1 — инструкции, блок 2 —
- * каталог (если LLM-маппер включён), блок 3 — памятка по поставщикам (если
- * есть). Порядок фиксирован → кэш стабилен.
+ * Блоки инструкций: 1 — инструкции, 2 — каталог (если включён подбор позиций 1С),
+ * 3 — памятка по поставщикам (если есть). Порядок фиксирован: у Claude каждый блок
+ * кэшируется отдельно (шлюз ставит cache_control), у GPT блоки склеиваются.
  */
-export function buildSystemBlocks(catalog?: CatalogEntry[], memory?: string): Anthropic.TextBlockParam[] {
-  const blocks: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: INVOICE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-  ];
-  if (catalog && catalog.length > 0) {
-    blocks.push({ type: 'text', text: buildCatalogSystemText(catalog), cache_control: { type: 'ephemeral' } });
-  }
+export function buildSystemBlocks(catalog?: CatalogEntry[], memory?: string): string[] {
+  const blocks = [INVOICE_INSTRUCTIONS];
+  if (catalog && catalog.length > 0) blocks.push(buildCatalogSystemText(catalog));
   // Памятка по поставщикам (пакет v2, п.16) — последним блоком: она меняется
   // чаще каталога, и её обновление не сбивает кэш инструкций и каталога.
-  if (memory && memory.trim()) {
-    blocks.push({ type: 'text', text: memory, cache_control: { type: 'ephemeral' } });
-  }
+  if (memory && memory.trim()) blocks.push(memory);
   return blocks;
 }
 
@@ -611,82 +548,35 @@ function normalizeStructuredResponse(text: string, label: string): ParsedInvoice
 }
 
 interface StructuredCallParams {
-  /** Ключ Anthropic; для модели GPT не нужен (она идёт через шлюз ProjectsFlow). */
-  apiKey: string;
-  modelId: string;
-  system: Anthropic.TextBlockParam[];
-  userContent: Anthropic.MessageParam['content'];
+  target: AiTarget;
+  system: string[];
+  content: AiInput[] | string;
   withCatalogIdx: boolean;
-  multipage: boolean;
   label: string;
   timeoutMs: number;
 }
 
-/** Текст JSON-ответа по схеме: от Claude (Anthropic API) или от GPT (шлюз ProjectsFlow). */
-async function requestStructuredText(p: StructuredCallParams, schema: Record<string, unknown>): Promise<string | null> {
-  if (isGptModel(p.modelId)) {
-    const response = await withRetry(signal => gptRespond({
-      model: p.modelId,
-      // Блоки system у GPT — одна инструкция; кэширования по блокам там нет.
-      instructions: p.system.map(b => b.text).join('\n\n'),
-      content: toGptContent(p.userContent),
-      schema: { name: 'invoice', schema },
-      effort: STRUCTURED_EFFORT === 'max' ? 'high' : STRUCTURED_EFFORT,
-      signal,
-      label: p.label,
-    }), p.label, p.timeoutMs);
-    return response.text.trim();
-  }
-
-  const client = createClient(p.apiKey);
-  const baseParams = {
-    model: p.modelId,
-    // Всегда 32k: на effort medium adaptive thinking на плотной странице легко
-    // съедает 16k (thinking + JSON) и обрезает ответ. Запас снимает риск.
-    max_tokens: STRUCTURED_MAX_TOKENS_MULTI,
-    thinking: { type: 'adaptive' as const },
-    system: p.system,
-    output_config: { effort: STRUCTURED_EFFORT, format: { type: 'json_schema' as const, schema } },
-    messages: [{ role: 'user' as const, content: p.userContent }],
-  };
-  // Всегда streaming: SDK требует его при больших max_tokens (иначе HTTP-таймаут),
-  // и он же даёт «живой» прогресс. finalMessage() собирает полный ответ.
-  const response = await withRetry(async (signal) => {
-    const stream = client.messages.stream(baseParams, { signal });
-    return await stream.finalMessage();
-  }, p.label, p.timeoutMs);
-
-  if (response.stop_reason === 'max_tokens') {
-    logger.warn(`${p.label}: stop_reason=max_tokens — ответ обрезан`, {
-      maxTokens: baseParams.max_tokens,
-    });
-  }
-
-  // Usage/cache telemetry — подтверждает, что prompt caching работает
-  // (cache_read_input_tokens > 0 на повторных вызовах) и виден расход output.
-  const u = response.usage;
-  logger.info(`${p.label}: usage`, {
-    input: u.input_tokens,
-    cacheRead: u.cache_read_input_tokens ?? 0,
-    cacheWrite: u.cache_creation_input_tokens ?? 0,
-    output: u.output_tokens,
-  });
-
-  const textBlock = response.content.find(b => b.type === 'text');
-  return textBlock && textBlock.type === 'text' ? textBlock.text.trim() : null;
-}
-
 /**
- * Единственная точка обращения к модели на structured-output пути. Собирает запрос
- * (system + schema + размышления), гоняет через withRetry, извлекает и
- * нормализует JSON. Никогда не бросает на ошибках API — возвращает {success:false}.
+ * Единственная точка обращения к модели на structured-output пути: запрос через
+ * шлюз, разбор и нормализация JSON. Ошибки ответа — {success:false}; недоступность
+ * модели (AiUnavailableError) пробрасывается: накладная будет ждать, а не падать.
  */
 async function callStructured(p: StructuredCallParams): Promise<ApiAnalyzerResult> {
   const schema = buildInvoiceSchema(p.withCatalogIdx);
-  const who = modelTag(p.modelId);
+  const who = modelTag(p.target);
   try {
-    const text = await requestStructuredText(p, schema);
-    if (text == null) {
+    const { text } = await aiStructured({
+      target: p.target,
+      label: p.label,
+      system: p.system,
+      content: p.content,
+      schema,
+      schemaName: 'invoice',
+      effort: STRUCTURED_EFFORT,
+      maxOutputTokens: STRUCTURED_MAX_TOKENS_MULTI,
+      timeoutMs: p.timeoutMs,
+    });
+    if (!text) {
       return { success: false, error: `${who}: no text in response` };
     }
     const parsed = normalizeStructuredResponse(text, p.label);
@@ -700,6 +590,7 @@ async function callStructured(p: StructuredCallParams): Promise<ApiAnalyzerResul
     });
     return { success: true, data: parsed, rawText: text };
   } catch (err) {
+    if (err instanceof AiUnavailableError) throw err;
     const msg = (err as Error).message;
     logger.error(`${p.label}: error`, { error: msg });
     return { success: false, error: `${who} error: ${msg}` };
@@ -743,44 +634,29 @@ const NUMBER_ROWS_SCHEMA = {
   },
 };
 
-async function readNumberRows(imagePaths: string[], apiKey: string, modelId: string): Promise<NumberRow[] | null> {
-  const gpt = isGptModel(modelId);
-  if ((!gpt && !apiKey) || !imagePaths.length || imagePaths.some(p => path.extname(p).toLowerCase() === '.pdf')) return null;
-  const label = `${modelTag(modelId)} number rows`;
+async function readNumberRows(imagePaths: string[], target: AiTarget): Promise<NumberRow[] | null> {
+  if (!imagePaths.length || imagePaths.some(p => path.extname(p).toLowerCase() === '.pdf')) return null;
+  const label = `${modelTag(target)} number rows`;
   try {
-    const content: Anthropic.ContentBlockParam[] = [];
-    for (const imagePath of imagePaths) {
-      const { data, mediaType } = await encodeImageForApi(imagePath);
-      content.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data } });
-    }
+    const content: AiInput[] = [];
+    for (const imagePath of imagePaths) content.push(await imageInput(imagePath));
     const intro = imagePaths.length > 1
       ? `Фото — страницы ОДНОГО документа по порядку. Перепиши ТОЛЬКО числовую часть таблицы товаров: для каждой строки сверху вниз, страница за страницей, одним списком — количество, единицу и сумму строки. `
       : `На фото — счёт или накладная с таблицей товаров. Перепиши ТОЛЬКО числовую часть таблицы: для каждой строки сверху вниз — количество, единицу и сумму строки. `;
     content.push({ type: 'text', text: intro + NUMBER_ROWS_RULES });
-    let text: string;
-    if (gpt) {
-      const response = await gptRespond({
-        model: modelId,
-        instructions: 'Ты переписываешь числа из таблицы товаров на фото накладной — строго как напечатано.',
-        content: toGptContent(content),
-        schema: { name: 'number_rows', schema: NUMBER_ROWS_SCHEMA },
-        effort: 'low',
-        signal: AbortSignal.timeout(NUMBER_ROWS_TIMEOUT_MS),
-        label,
-      });
-      text = response.text;
-    } else {
-      const client = createClient(apiKey);
-      const response = await client.messages.stream({
-        model: modelId,
-        max_tokens: 8000,
-        thinking: { type: 'disabled' },
-        output_config: { format: { type: 'json_schema', schema: NUMBER_ROWS_SCHEMA } },
-        messages: [{ role: 'user', content }],
-      }, { signal: AbortSignal.timeout(NUMBER_ROWS_TIMEOUT_MS) }).finalMessage();
-      logger.info(`${label}: usage`, { input: response.usage.input_tokens, output: response.usage.output_tokens });
-      text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? '';
-    }
+    const { text } = await aiStructured({
+      target,
+      label,
+      system: ['Ты переписываешь числа из таблицы товаров на фото накладной — строго как напечатано.'],
+      content,
+      schema: NUMBER_ROWS_SCHEMA,
+      schemaName: 'number_rows',
+      effort: 'low',
+      thinking: 'disabled',
+      maxOutputTokens: 8000,
+      timeoutMs: NUMBER_ROWS_TIMEOUT_MS,
+      retries: 0,
+    });
     const parsed = JSON.parse(text || '{}') as { number_rows?: unknown };
     if (!Array.isArray(parsed.number_rows)) return null;
     const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -796,10 +672,10 @@ async function readNumberRows(imagePaths: string[], apiKey: string, modelId: str
 }
 
 /** Отдельное чтение чисел — только при включённом флаге row_pairing. */
-async function startNumberRows(imagePaths: string[], apiKey: string, modelId: string): Promise<NumberRow[] | null> {
+async function startNumberRows(imagePaths: string[], target: AiTarget): Promise<NumberRow[] | null> {
   const flags = await getEngineFlags().catch(() => null);
   if (!flags?.row_pairing) return null;
-  return readNumberRows(imagePaths, apiKey, modelId);
+  return readNumberRows(imagePaths, target);
 }
 
 /**
@@ -858,7 +734,15 @@ async function verifyAndRepair(
   });
 
   const prevJson = primary.rawText ?? JSON.stringify(primary.data);
-  const repaired = await repair(prevJson, issues);
+  let repaired: ApiAnalyzerResult;
+  try {
+    repaired = await repair(prevJson, issues);
+  } catch (err) {
+    // Модель пропала между чтением и до-чтением: первое чтение уже есть — берём его.
+    if (!(err instanceof AiUnavailableError)) throw err;
+    logger.warn(`${label}: repair skipped — model unavailable`, { error: err.message });
+    return primary;
+  }
   if (!repaired.success || !repaired.data) {
     logger.warn(`${label}: repair call failed, keeping original`, { error: repaired.error });
     return primary;
@@ -896,25 +780,18 @@ function buildMultiPageTextUserContent(combinedOcrText: string, pageCount: numbe
 
 async function analyzeMultiPageTextCore(
   combinedOcrText: string,
-  apiKey: string,
+  target: AiTarget,
   pageCount: number,
-  modelId: string,
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
-  const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
-  if (!apiKey && !isGptModel(modelId)) {
-    return { result: { success: false, error: 'Anthropic API key not configured' }, repair: failRepair };
-  }
-  const tag = modelTag(modelId);
-
-  logger.info(`${tag} Analyzer: starting multi-page TEXT analysis`, { textLength: combinedOcrText.length, pageCount, catalogSize: catalog?.length ?? 0, model: modelId });
+  const tag = modelTag(target);
+  logger.info(`${tag} Analyzer: starting multi-page TEXT analysis`, { textLength: combinedOcrText.length, pageCount, catalogSize: catalog?.length ?? 0, model: target.model });
 
   const system = buildSystemBlocks(catalog, memory);
   const withCatalogIdx = !!(catalog && catalog.length);
   const call = (content: string, label: string) => callStructured({
-    apiKey, modelId, system, userContent: content, withCatalogIdx,
-    multipage: true, label, timeoutMs: CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
+    target, system, content, withCatalogIdx, label, timeoutMs: TIMEOUT_MULTIPAGE_MS,
   });
 
   const result = await call(buildMultiPageTextUserContent(combinedOcrText, pageCount), `${tag} multi-page text`);
@@ -927,49 +804,42 @@ async function analyzeMultiPageTextCore(
 
 export async function analyzeMultiPageTextWithClaudeApi(
   combinedOcrText: string,
-  apiKey: string,
+  target: AiTarget,
   pageCount: number,
-  modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog, memory);
+  const { result } = await analyzeMultiPageTextCore(combinedOcrText, target, pageCount, catalog, memory);
   return result;
 }
 
 /** Как analyzeMultiPageTextWithClaudeApi, но с серверной валидацией + одним до-чтением. */
 export async function analyzeMultiPageTextWithVerification(
   combinedOcrText: string,
-  apiKey: string,
+  target: AiTarget,
   pageCount: number,
-  modelId: string = 'claude-sonnet-5',
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result, repair } = await analyzeMultiPageTextCore(combinedOcrText, apiKey, pageCount, modelId, catalog, memory);
-  return verifyAndRepair(`${modelTag(modelId)} multi-page text`, result, repair);
+  const { result, repair } = await analyzeMultiPageTextCore(combinedOcrText, target, pageCount, catalog, memory);
+  return verifyAndRepair(`${modelTag(target)} multi-page text`, result, repair);
 }
 
 async function analyzeMultipleImagesCore(
   imagePaths: string[],
-  apiKey: string,
-  modelId: string,
+  target: AiTarget,
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
-  const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
-  if (!apiKey && !isGptModel(modelId)) {
-    return { result: { success: false, error: 'Anthropic API key not configured' }, repair: failRepair };
-  }
-  const tag = modelTag(modelId);
+  const failRepair: RepairFn = async () => ({ success: false, error: 'image encode failed' });
+  const tag = modelTag(target);
+  logger.info(`${tag} Analyzer: starting multi-page analysis`, { pages: imagePaths.length, catalogSize: catalog?.length ?? 0, model: target.model });
 
-  logger.info(`${tag} Analyzer: starting multi-page analysis`, { pages: imagePaths.length, catalogSize: catalog?.length ?? 0, model: modelId });
-
-  const imageBlocks: Anthropic.ImageBlockParam[] = [];
+  const images: AiInput[] = [];
   try {
     for (const imagePath of imagePaths) {
-      const { data, mediaType } = await encodeImageForApi(imagePath);
-      imageBlocks.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data } });
+      assertNotPdf(imagePath);
+      images.push(await imageInput(imagePath));
     }
   } catch (err) {
     const msg = (err as Error).message;
@@ -980,9 +850,8 @@ async function analyzeMultipleImagesCore(
   const system = buildSystemBlocks(catalog, memory);
   const withCatalogIdx = !!(catalog && catalog.length);
   const call = (extraText: string, label: string) => callStructured({
-    apiKey, modelId, system,
-    userContent: [...imageBlocks, { type: 'text', text: extraText }],
-    withCatalogIdx, multipage: true, label, timeoutMs: CLAUDE_API_TIMEOUT_MULTIPAGE_MS,
+    target, system, content: [...images, { type: 'text', text: extraText }],
+    withCatalogIdx, label, timeoutMs: TIMEOUT_MULTIPAGE_MS,
   });
 
   const task = `Это многостраничная накладная (${imagePaths.length} страниц). Объедини товары со ВСЕХ страниц `
@@ -995,57 +864,47 @@ async function analyzeMultipleImagesCore(
 
 export async function analyzeMultipleImagesWithClaudeApi(
   imagePaths: string[],
-  apiKey: string,
-  modelId: string = 'claude-sonnet-5',
+  target: AiTarget,
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog, memory);
+  const { result } = await analyzeMultipleImagesCore(imagePaths, target, catalog, memory);
   return result;
 }
 
 /** Как analyzeMultipleImagesWithClaudeApi, но с серверной валидацией + одним до-чтением. */
 export async function analyzeMultipleImagesWithVerification(
   imagePaths: string[],
-  apiKey: string,
-  modelId: string = 'claude-sonnet-5',
+  target: AiTarget,
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const rows = startNumberRows(imagePaths, apiKey, modelId);
-  const { result, repair } = await analyzeMultipleImagesCore(imagePaths, apiKey, modelId, catalog, memory);
-  const paired = await applyRowPairing(`${modelTag(modelId)} multi-image`, result, rows);
-  return verifyAndRepair(`${modelTag(modelId)} multi-image`, paired, repair);
+  const rows = startNumberRows(imagePaths, target);
+  const { result, repair } = await analyzeMultipleImagesCore(imagePaths, target, catalog, memory);
+  const paired = await applyRowPairing(`${modelTag(target)} multi-image`, result, rows);
+  return verifyAndRepair(`${modelTag(target)} multi-image`, paired, repair);
 }
 
 /**
- * Ask Claude Haiku how many degrees CLOCKWISE the given image should be
- * rotated for the document inside it to be upright. Used by ocrManager to
- * normalise photo orientation before the main OCR call — sideways pictures
- * cause heavy hallucination on Sonnet/Opus vision.
+ * Определение поворота: модели показывают четыре варианта одной фотографии
+ * (0°, 90°, 180°, 270°) и спрашивают, где текст читается нормально. Сравнить
+ * варианты надёжнее, чем просить «на сколько градусов повёрнуто».
  *
- * Returns one of 0, 90, 180, 270. On any error, returns 0 (no rotation).
- */
-/**
- * Detect orientation by showing Sonnet all four rotations side-by-side and
- * asking which one is upright. More reliable than "how many degrees" because
- * the model can compare variants visually instead of doing mental rotation.
+ * previewsBase64: [rot0, rot90, rot180, rot270] — уже повёрнутые JPEG.
+ * Возвращает, на сколько градусов ПО ЧАСОВОЙ повернуть исходник.
  *
- * previewBuffers: [rot0, rot90, rot180, rot270] — all already rotated, JPEG.
- * Returns how many degrees CLOCKWISE the ORIGINAL needs to be rotated.
- *
- * Таймаут держим коротким (не сидеть на накладной минутами), но делаем 2 попытки:
- * разовый транзиентный таймаут = чтение повёрнутой фотки боком = каскад ошибок,
- * поэтому один ретрай окупается. После двух неудач возвращаем 0 (без поворота).
+ * Таймаут короткий, но попыток две: разовый сбой = чтение фото боком = каскад
+ * ошибок. После двух неудач — 0 (без поворота). Недоступность модели
+ * пробрасывается: основное чтение всё равно упадёт на ней же.
  */
 const ORIENT_TIMEOUT_MS = 40_000;
 const ORIENT_MAX_ATTEMPTS = 2;
 
-function orientationContent(previewsBase64: [string, string, string, string]): Anthropic.ContentBlockParam[] {
+function orientationContent(previewsBase64: [string, string, string, string]): AiInput[] {
   return [
-    ...previewsBase64.flatMap((data, i): Anthropic.ContentBlockParam[] => [
+    ...previewsBase64.flatMap((data, i): AiInput[] => [
       { type: 'text', text: `Вариант ${i + 1}:` },
-      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } },
+      { type: 'image', mediaType: 'image/jpeg', data },
     ]),
     {
       type: 'text',
@@ -1062,66 +921,35 @@ function rotationFromAnswer(text: string): 0 | 90 | 180 | 270 | null {
   return rotations[parseInt(match[1], 10) - 1];
 }
 
-export async function detectOrientationWithClaude(
+export async function detectOrientation(
   previewsBase64: [string, string, string, string],
-  apiKey: string,
+  target: AiTarget,
 ): Promise<0 | 90 | 180 | 270> {
-  const client = createClient(apiKey);
   const content = orientationContent(previewsBase64);
-  // Две попытки: разовый таймаут этого вызова роняет ориентацию в 0 (без
-  // поворота), а на повёрнутой фотке это = боковое чтение → каскад ошибок
-  // (перепутанные строки, поставщик вместо покупателя). Ретрай гасит транзиент.
+  const label = `${modelTag(target)} orientation`;
   for (let attempt = 1; attempt <= ORIENT_MAX_ATTEMPTS; attempt++) {
     try {
-      const signal = AbortSignal.timeout(ORIENT_TIMEOUT_MS);
-      const response = await client.messages.create({
-        // Модель зашита, а не берётся из настроек: это служебный вызов на
-        // 10 токенов вывода, и он должен работать одинаково независимо от того,
-        // какую модель выбрали для распознавания.
-        model: 'claude-sonnet-5',
-        max_tokens: 10,
-        messages: [{ role: 'user', content }],
-      }, { signal });
-      const textBlock = response.content.find(b => b.type === 'text');
-      if (!textBlock || textBlock.type !== 'text') return 0;
-      const rotation = rotationFromAnswer(textBlock.text);
-      if (rotation == null) {
-        logger.warn('Orientation: unparseable response', { text: textBlock.text.slice(0, 50) });
-        return 0;
-      }
-      return rotation;
-    } catch (err) {
-      logger.warn(`Claude orientation detection error (attempt ${attempt}/${ORIENT_MAX_ATTEMPTS})`, { error: (err as Error).message });
-      // Последняя попытка исчерпана — вернём 0 ниже (без поворота).
-    }
-  }
-  return 0;
-}
-
-/** То же сравнение четырёх вариантов поворота — моделью GPT (режим анализатора `gpt`). */
-export async function detectOrientationWithGpt(
-  previewsBase64: [string, string, string, string],
-  model: string,
-): Promise<0 | 90 | 180 | 270> {
-  const content = toGptContent(orientationContent(previewsBase64), 'low');
-  for (let attempt = 1; attempt <= ORIENT_MAX_ATTEMPTS; attempt++) {
-    try {
-      const response = await gptRespond({
-        model,
-        instructions: 'Ты определяешь, как повёрнута фотография документа.',
+      const { text } = await aiText({
+        target,
+        label,
+        system: ['Ты определяешь, как повёрнута фотография документа.'],
         content,
         effort: 'low',
-        signal: AbortSignal.timeout(ORIENT_TIMEOUT_MS),
-        label: 'GPT orientation',
+        imageDetail: 'low',
+        thinking: 'default',
+        maxOutputTokens: 10,
+        timeoutMs: ORIENT_TIMEOUT_MS,
+        retries: 0,
       });
-      const rotation = rotationFromAnswer(response.text);
+      const rotation = rotationFromAnswer(text);
       if (rotation == null) {
-        logger.warn('Orientation: unparseable response', { text: response.text.slice(0, 50) });
+        logger.warn('Orientation: unparseable response', { text: text.slice(0, 50) });
         return 0;
       }
       return rotation;
     } catch (err) {
-      logger.warn(`GPT orientation detection error (attempt ${attempt}/${ORIENT_MAX_ATTEMPTS})`, { error: (err as Error).message });
+      if (err instanceof AiUnavailableError) throw err;
+      logger.warn(`${label} error (attempt ${attempt}/${ORIENT_MAX_ATTEMPTS})`, { error: (err as Error).message });
     }
   }
   return 0;
@@ -1129,28 +957,18 @@ export async function detectOrientationWithGpt(
 
 async function analyzeImageCore(
   imagePath: string,
-  apiKey: string,
-  modelId: string,
+  target: AiTarget,
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<{ result: ApiAnalyzerResult; repair: RepairFn }> {
-  const failRepair: RepairFn = async () => ({ success: false, error: 'Anthropic API key not configured' });
-  if (!apiKey && !isGptModel(modelId)) {
-    return { result: { success: false, error: 'Anthropic API key not configured' }, repair: failRepair };
-  }
-  const tag = modelTag(modelId);
+  const failRepair: RepairFn = async () => ({ success: false, error: 'image encode failed' });
+  const tag = modelTag(target);
+  logger.info(`${tag} Analyzer: starting image analysis`, { imagePath, catalogSize: catalog?.length ?? 0, model: target.model });
 
-  logger.info(`${tag} Analyzer: starting image analysis`, { imagePath, catalogSize: catalog?.length ?? 0, model: modelId });
-
-  let documentBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam;
+  let image: AiInput;
   try {
-    if (path.extname(imagePath).toLowerCase() === '.pdf') {
-      const data = fs.readFileSync(imagePath).toString('base64');
-      documentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } };
-    } else {
-      const { data, mediaType } = await encodeImageForApi(imagePath);
-      documentBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
-    }
+    assertNotPdf(imagePath);
+    image = await imageInput(imagePath);
   } catch (err) {
     const msg = (err as Error).message;
     logger.error(`${tag} Analyzer: image encode error`, { error: msg });
@@ -1160,9 +978,8 @@ async function analyzeImageCore(
   const system = buildSystemBlocks(catalog, memory);
   const withCatalogIdx = !!(catalog && catalog.length);
   const call = (extraText: string, label: string) => callStructured({
-    apiKey, modelId, system,
-    userContent: [documentBlock, { type: 'text', text: extraText }],
-    withCatalogIdx, multipage: false, label, timeoutMs: CLAUDE_API_TIMEOUT_SINGLE_MS,
+    target, system, content: [image, { type: 'text', text: extraText }],
+    withCatalogIdx, label, timeoutMs: TIMEOUT_SINGLE_MS,
   });
 
   const result = await call('Проанализируй эту накладную или счёт и верни данные по JSON-схеме.', `${tag} single document`);
@@ -1172,27 +989,25 @@ async function analyzeImageCore(
 
 export async function analyzeImageWithClaudeApi(
   imagePath: string,
-  apiKey: string,
-  modelId: string = 'claude-sonnet-5',
+  target: AiTarget,
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const { result } = await analyzeImageCore(imagePath, apiKey, modelId, catalog, memory);
+  const { result } = await analyzeImageCore(imagePath, target, catalog, memory);
   return result;
 }
 
 /** Как analyzeImageWithClaudeApi, но с серверной валидацией + одним до-чтением. */
 export async function analyzeImageWithVerification(
   imagePath: string,
-  apiKey: string,
-  modelId: string = 'claude-sonnet-5',
+  target: AiTarget,
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
-  const rows = startNumberRows([imagePath], apiKey, modelId);
-  const { result, repair } = await analyzeImageCore(imagePath, apiKey, modelId, catalog, memory);
-  const paired = await applyRowPairing(`${modelTag(modelId)} single image`, result, rows);
-  return verifyAndRepair(`${modelTag(modelId)} single image`, paired, repair);
+  const rows = startNumberRows([imagePath], target);
+  const { result, repair } = await analyzeImageCore(imagePath, target, catalog, memory);
+  const paired = await applyRowPairing(`${modelTag(target)} single image`, result, rows);
+  return verifyAndRepair(`${modelTag(target)} single image`, paired, repair);
 }
 
 /**
@@ -1212,18 +1027,43 @@ export interface LlmMapHit {
   unit_override: string | null;
 }
 
-export async function mapItemsWithClaudeApi(
+/** Ответ подбора позиций — строго по схеме (у GPT строгий режим, у Claude output_config.format). */
+const MAP_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['matches'],
+  properties: {
+    matches: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['key', 'catalog_idx', 'pack_size', 'unit_override'],
+        properties: {
+          key: { type: 'string' },
+          catalog_idx: { type: ['integer', 'null'] },
+          pack_size: { type: ['number', 'null'] },
+          unit_override: { type: ['string', 'null'] },
+        },
+      },
+    },
+  },
+};
+
+/**
+ * Недоступность модели (AiUnavailableError) пробрасывается — вызывающий решает:
+ * задача очереди встаёт на паузу, XML-накладная сопоставляется правилами.
+ */
+export async function mapItemsWithAi(
   items: Array<{ key: string; name: string; unit?: string | null }>,
   catalog: CatalogEntry[],
-  apiKey: string,
-  modelId: string = 'claude-sonnet-5',
+  target: AiTarget,
 ): Promise<{
   success: boolean;
   matched?: Map<string, LlmMapHit>;
   error?: string;
   rawText?: string;
 }> {
-  if (!apiKey) return { success: false, error: 'Anthropic API key not configured' };
   if (!items.length) return { success: true, matched: new Map() };
   if (!catalog.length) return { success: false, error: 'Catalog is empty' };
 
@@ -1287,8 +1127,8 @@ export async function mapItemsWithClaudeApi(
   (число + единица в скобках, или "Nшт/упак").
   Если scan unit уже совпадает с 1С-единицей — pack_size ДОЛЖЕН быть null.
 
-ФОРМАТ ОТВЕТА (строго этот JSON, без markdown, без комментариев):
-{"matches":[{"key":"...","catalog_idx":число_или_null,"pack_size":число_или_null,"unit_override":"шт"или_null},...]}
+ФОРМАТ ОТВЕТА: для КАЖДОГО товара — элемент matches с его key, catalog_idx (номер или null),
+pack_size (число или null) и unit_override ("шт", "кг", "л" или null).
 
 ТОВАРЫ ДЛЯ СОПОСТАВЛЕНИЯ (формат "key: название — единица"):
 ${itemLines}
@@ -1298,55 +1138,36 @@ ${itemLines}
 ================================================================
 ${catalogLines}`;
 
-  logger.info('Claude API Mapper: start', {
+  logger.info('AI Mapper: start', {
     itemsCount: items.length,
     catalogSize: catalog.length,
     promptBytes: prompt.length,
+    model: target.model,
   });
 
   try {
-    const client = createClient(apiKey);
-    // claude-sonnet-5 размышляет, и размышления тратят тот же max_tokens: при
-    // прежних 4096 ответ на большой пачке мог прийти без текста (правило 28) —
-    // тогда подбор ИИ молча уступал нечёткому. Как у распознавания: явные
-    // adaptive-размышления, запас токенов, streaming (его требует SDK при больших лимитах).
-    const response = await withRetry(
-      async (signal) => client.messages.stream({
-        model: modelId,
-        max_tokens: 16000,
-        thinking: { type: 'adaptive' },
-        output_config: { effort: STRUCTURED_EFFORT },
-        messages: [{ role: 'user', content: prompt }],
-      }, { signal }).finalMessage(),
-      'Claude API mapper',
-    );
-    if (response.stop_reason === 'max_tokens') {
-      logger.warn('Claude API Mapper: stop_reason=max_tokens — ответ обрезан', { itemsCount: items.length });
+    // Размышления тратят тот же потолок вывода (правило 28): запас 16000 и
+    // adaptive-размышления, как у распознавания.
+    const response = await aiStructured({
+      target,
+      label: 'AI mapper',
+      content: prompt,
+      schema: MAP_SCHEMA,
+      schemaName: 'matches',
+      effort: STRUCTURED_EFFORT,
+      maxOutputTokens: 16000,
+    });
+    if (response.truncated) {
+      logger.warn('AI Mapper: ответ обрезан потолком вывода', { itemsCount: items.length });
     }
-    logger.info('Claude API Mapper: usage', { input: response.usage.input_tokens, output: response.usage.output_tokens });
-
-    const textBlock = response.content.find(b => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
-      return { success: false, error: 'Claude API: no text in response' };
-    }
-    const text = textBlock.text.trim();
-
-    // Reuse the same lenient JSON pipeline as the OCR analyzer.
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) {
-      logger.warn('Claude API Mapper: no JSON object found', { sample: text.slice(0, 200) });
-      return { success: false, error: 'no JSON in response', rawText: text };
-    }
+    const text = response.text;
+    if (!text) return { success: false, error: 'AI mapper: no text in response' };
     let parsed: { matches?: Array<{ key: string; catalog_idx: number | null; pack_size?: number | null; unit_override?: string | null }> };
     try {
-      parsed = JSON.parse(cleanJsonString(match[0]));
-    } catch {
-      try {
-        parsed = JSON.parse(jsonrepair(cleanJsonString(match[0])));
-      } catch (err2) {
-        logger.warn('Claude API Mapper: JSON repair failed', { error: (err2 as Error).message });
-        return { success: false, error: 'json parse failed', rawText: text };
-      }
+      parsed = JSON.parse(text);
+    } catch (err) {
+      logger.warn('AI Mapper: JSON parse failed', { error: (err as Error).message, sample: text.slice(0, 200) });
+      return { success: false, error: 'json parse failed', rawText: text };
     }
 
     const matched = new Map<string, LlmMapHit>();
@@ -1372,15 +1193,16 @@ ${catalogLines}`;
       });
     }
 
-    logger.info('Claude API Mapper: done', {
+    logger.info('AI Mapper: done', {
       requested: items.length,
       matched: matched.size,
     });
 
     return { success: true, matched, rawText: text };
   } catch (err) {
+    if (err instanceof AiUnavailableError) throw err;
     const msg = (err as Error).message;
-    logger.error('Claude API Mapper: error', { error: msg });
-    return { success: false, error: `Claude API error: ${msg}` };
+    logger.error('AI Mapper: error', { error: msg });
+    return { success: false, error: `AI mapper error: ${msg}` };
   }
 }

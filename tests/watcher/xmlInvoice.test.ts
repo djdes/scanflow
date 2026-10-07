@@ -47,7 +47,7 @@ vi.mock('../../src/database/repositories/mappingRepo', () => ({
 }));
 vi.mock('../../src/database/repositories/onecNomenclatureRepo', () => ({ onecNomenclatureRepo: { listItems: vi.fn(), getByGuid: vi.fn() } }));
 vi.mock('../../src/automation/qualityGate', () => ({ evaluateInvoiceQuality: vi.fn() }));
-vi.mock('../../src/ocr/claudeApiAnalyzer', () => ({ mapItemsWithClaudeApi: vi.fn() }));
+vi.mock('../../src/ocr/claudeApiAnalyzer', () => ({ mapItemsWithAi: vi.fn() }));
 vi.mock('../../src/utils/mailer', () => ({ sendErrorEmail: vi.fn(async () => {}) }));
 vi.mock('../../src/services/resolveSupplierName', () => ({
   resolveSupplierName: vi.fn(async (raw: string | null | undefined) => (raw ? `canon:${raw}` : undefined)),
@@ -87,7 +87,7 @@ import { invoiceRepo } from '../../src/database/repositories/invoiceRepo';
 import { mappingRepo } from '../../src/database/repositories/mappingRepo';
 import { onecNomenclatureRepo } from '../../src/database/repositories/onecNomenclatureRepo';
 import { evaluateInvoiceQuality } from '../../src/automation/qualityGate';
-import { mapItemsWithClaudeApi } from '../../src/ocr/claudeApiAnalyzer';
+import { mapItemsWithAi } from '../../src/ocr/claudeApiAnalyzer';
 import { sendErrorEmail } from '../../src/utils/mailer';
 import { linkApprovedSupplier } from '../../src/services/supplierMatch';
 import { snapshotRepo } from '../../src/database/repositories/snapshotRepo';
@@ -223,7 +223,7 @@ describe('FileWatcher.processFile — УПД в XML', () => {
       { guid: 'g-milk', name: 'Молоко 3,2% 1л', unit: 'шт' },
       { guid: 'g-cheese', name: 'Сыр Российский', unit: 'кг' },
     ] as never);
-    vi.mocked(mapItemsWithClaudeApi).mockResolvedValue({
+    vi.mocked(mapItemsWithAi).mockResolvedValue({
       success: true,
       matched: new Map([['0', { catalog_idx: 1, guid: 'g-milk', name: 'Молоко 3,2% 1л', pack_size: null, unit_override: null }]]),
     });
@@ -232,12 +232,13 @@ describe('FileWatcher.processFile — УПД в XML', () => {
 
     await watcher().processFile(inbox, name, undefined, { source: 'email', ownerUserId: 5 });
 
-    expect(mapItemsWithClaudeApi).toHaveBeenCalledTimes(1);
-    const [items, catalog, apiKey] = vi.mocked(mapItemsWithClaudeApi).mock.calls[0];
+    expect(mapItemsWithAi).toHaveBeenCalledTimes(1);
+    const [items, catalog, target] = vi.mocked(mapItemsWithAi).mock.calls[0];
     expect(items.map(i => i.key)).toEqual(['0', '1', '2', '3']);
     expect(items[1]).toEqual({ key: '1', name: 'Сыр "Российский" 50%', unit: 'кг' });
     expect(catalog).toHaveLength(2);
-    expect(apiKey).toBe('sk-test');
+    // Режим claude_api в этом тесте → Claude с ключом из настроек (ИИ-шлюз).
+    expect(target).toEqual({ engine: 'claude', model: 'claude-sonnet-5', apiKey: 'sk-test' });
     expect(repo.addItem.mock.calls[0][0]).toMatchObject({ onec_guid: 'g-milk', mapped_name: 'Молоко 3,2% 1л', mapping_confidence: 1 });
     expect(mappingRepo.upsertLearned).toHaveBeenCalledWith(expect.objectContaining({ onec_guid: 'g-milk', source: 'llm' }), 5);
     expect(mapper.map).toHaveBeenCalledTimes(3);   // строки 2–4
@@ -246,7 +247,7 @@ describe('FileWatcher.processFile — УПД в XML', () => {
   it('сбой запроса сопоставления — не ошибка накладной, остаётся обычный подбор', async () => {
     repo.getAnalyzerConfig.mockResolvedValue(analyzerConfig({ llm_mapper_enabled: true, anthropic_api_key: 'sk-test' }) as never);
     vi.mocked(onecNomenclatureRepo.listItems).mockResolvedValue([{ guid: 'g', name: 'X', unit: 'шт' }] as never);
-    vi.mocked(mapItemsWithClaudeApi).mockRejectedValue(new Error('529 overloaded'));
+    vi.mocked(mapItemsWithAi).mockRejectedValue(new Error('529 overloaded'));
     const name = `upload-${uniq}.xml`;
     const inbox = put('torg12_551_win1251.xml', config.inboxDir, name);
 

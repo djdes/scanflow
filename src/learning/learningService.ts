@@ -9,7 +9,7 @@ import { canonUnit } from '../mapping/unitConverter';
 import { getReferencePrice } from '../pricing/priceStats';
 import { reconvertStoredItem } from '../services/itemReconvert';
 import { getEngineFlags } from '../services/engineFlags';
-import { config } from '../config';
+import { aiTargetFromConfig } from '../ai/engine';
 import { logger } from '../utils/logger';
 import { mineFromEdits, mineFromPriceOutliers, isPlainFactor, type QtyEdit, type FlaggedLine, type UnitRuleProposal } from './ruleMiner';
 import { adviseWithLlm } from './llmAdvisor';
@@ -86,15 +86,15 @@ export async function runLearning(ownerUserId: number, opts: { useLlm?: boolean 
     const proposals: UnitRuleProposal[] = [...mineFromEdits(qtyEdits), ...mineFromPriceOutliers(lines)];
     res.mined = proposals.length;
 
-    // 4) Claude — для неразобранных строк с позицией 1С (не «нужен вес» — там решает фактический вес).
+    // 4) ИИ — для неразобранных строк с позицией 1С (не «нужен вес» — там решает фактический вес).
     if (opts.useLlm) {
       const covered = new Set(proposals.map(p => `${p.supplier_key}|${p.name_key}`));
       const todo = lines.filter(l => l.onec_unit && l.flag !== 'needs_weight' && !covered.has(`${l.supplier_key}|${itemNameKey(l.name)}`));
       if (todo.length) {
-        const cfg = await invoiceRepo.getAnalyzerConfig();
-        const apiKey = cfg.anthropic_api_key || config.anthropicApiKey;
-        if (apiKey) {
-          const advice = await adviseWithLlm(todo, apiKey, cfg.claude_model || 'claude-sonnet-5');
+        // Модель из настроек (ИИ-шлюз); у Claude без ключа советов нет.
+        const target = aiTargetFromConfig(await invoiceRepo.getAnalyzerConfig());
+        if (target.engine === 'gpt' || target.apiKey) {
+          const advice = await adviseWithLlm(todo, target);
           for (const a of advice.filter(x => x.confidence >= 0.7 && isPlainFactor(x.factor))) {
             const l = todo.find(x => x.id === a.id);
             if (!l || !l.onec_unit) continue;

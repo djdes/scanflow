@@ -41,6 +41,7 @@ import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from 
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
+import { aiEngineState } from '../ai/engine';
 
 export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMapper): express.Express {
   const app = express();
@@ -159,7 +160,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   setOnecMapper(mapper);
 
   // Health check (no auth) — runs real probes against the DB, credentials
-  // file, anthropic key, and inbox queue depth. Returns 503 if any critical
+  // file, AI engine (informational), and inbox queue depth. Returns 503 if any critical
   // check fails. Used by uptime monitoring.
   app.get('/health', async (_req, res) => {
     const checks: Record<string, { ok: boolean; detail?: string }> = {};
@@ -192,11 +193,20 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
       // Not fatal — claude_api mode doesn't need Google
     }
 
-    // Anthropic key present
-    checks.anthropic_api_key = config.anthropicApiKey
-      ? { ok: true }
-      : { ok: false, detail: 'ANTHROPIC_API_KEY not set in env' };
-    if (!config.anthropicApiKey) allOk = false;
+    // ИИ-движок. Только для сведения: лимит подписки ChatGPT или повторный вход
+    // не должны делать /health «degraded» — выкладка ждёт "status":"ok" (deploy.yml),
+    // а накладные на это время просто ждут (waiting_ai).
+    try {
+      const state = await aiEngineState();
+      checks.ai_engine = { ok: state.available, detail: `${state.engine}: ${state.available ? 'ready' : state.reason}` };
+      // Ключ Anthropic нужен только в режиме claude_api (аккаунта Claude сейчас нет).
+      if (state.engine === 'claude') {
+        checks.anthropic_api_key = state.available ? { ok: true } : { ok: false, detail: 'ANTHROPIC_API_KEY not set' };
+        if (!state.available) allOk = false;
+      }
+    } catch (e) {
+      checks.ai_engine = { ok: false, detail: (e as Error).message };
+    }
 
     // Inbox queue depth (alert if stuck — files not being processed)
     try {

@@ -1,8 +1,11 @@
 import { OcrEngine, OcrResult } from './types';
 import { GoogleVisionEngine } from './googleVision';
 import { TesseractEngine } from './tesseract';
-import { analyzeImageWithVerification, analyzeMultipleImagesWithVerification, analyzeMultiPageTextWithVerification, CatalogEntry } from './claudeApiAnalyzer';
-import { isGptModel, visionModelFor } from './gptVision';
+import { analyzeImageWithVerification, analyzeMultipleImagesWithVerification, analyzeMultiPageTextWithVerification, detectOrientation, CatalogEntry } from './claudeApiAnalyzer';
+import { isPdfPath, pdfToImages } from './pdfPages';
+import { resolveAiTarget } from '../ai/engine';
+import { AiUnavailableError } from '../ai/errors';
+import type { AiTarget } from '../ai/types';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
 import { buildSupplierMemory } from '../learning/supplierMemory';
@@ -14,18 +17,25 @@ import fs from 'fs';
 import os from 'os';
 
 /**
- * Fetch catalog entries to feed to the Claude prompt when LLM-mapper is on.
+ * Fetch catalog entries to feed to the model prompt when LLM-mapper is on.
  * Excludes folders. Returns an empty array if the feature is disabled in
  * analyzer_config, so callers can blindly pass the result to the API layer.
  */
 async function getCatalogForPrompt(ownerUserId: number): Promise<CatalogEntry[]> {
   const cfg = await invoiceRepo.getAnalyzerConfig();
   if (!cfg.llm_mapper_enabled) return [];
-  // Каталог пер-тенантный: в подсказку Claude уходит справочник только этой
+  // Каталог пер-тенантный: в подсказку модели уходит справочник только этой
   // компании, иначе модель сопоставила бы позиции с чужой номенклатурой.
   const rows = await onecNomenclatureRepo.listItems({ ownerUserId, excludeFolders: true });
   return rows.map(r => ({ guid: r.guid, name: r.name, unit: r.unit }));
 }
+
+/** Метка движка в invoices.ocr_engine: gpt_api / claude_api (+ _multipage). */
+function engineTag(target: AiTarget, suffix = ''): string {
+  return `${target.engine === 'gpt' ? 'gpt_api' : 'claude_api'}${suffix}`;
+}
+
+const PAGE_SEPARATOR = '\n\n--- СТРАНИЦА ---\n\n';
 
 const ENGINE_MAP: Record<string, () => OcrEngine> = {
   google_vision: () => new GoogleVisionEngine(),
@@ -56,29 +66,13 @@ export class OcrManager {
   }
 
   /**
-   * Ask Claude Haiku which way the document is rotated in this image.
-   * Returns one of 0, 90, 180, 270 — how many degrees the image needs to be
-   * rotated CLOCKWISE to bring the document upright.
-   *
-   * Why Claude and not Tesseract OSD: tesseract.js 7 doesn't ship the legacy
-   * traineddata OSD needs, and the ergonomics of bundling it are poor on a
-   * Node server. A single Haiku vision call on a 400px preview costs about
-   * $0.001 and returns in 1-2s — negligible vs the savings when the image
-   * is correctly oriented before the main OCR.
-   *
-   * Returns 0 on any error (never block OCR on orientation detection).
+   * На сколько градусов ПО ЧАСОВОЙ повернуть фото, чтобы документ стоял прямо:
+   * 0, 90, 180 или 270. Модель сравнивает четыре повёрнутых превью (claudeApiAnalyzer
+   * detectOrientation) — дёшево, а фото боком модели читают с грубыми ошибками.
+   * Любой сбой — 0 (не повод не распознавать); недоступность модели пробрасывается.
    */
-  private async detectTextRotation(imagePath: string): Promise<0 | 90 | 180 | 270> {
-    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    // В режиме gpt поворот определяет та же GPT, иначе — Claude (нужен ключ Anthropic).
-    const { modelId, apiKey } = visionModelFor(analyzerConfig);
-    const gpt = isGptModel(modelId);
-    if (!gpt && !apiKey) return 0;
-
+  private async detectTextRotation(imagePath: string, target: AiTarget): Promise<0 | 90 | 180 | 270> {
     try {
-      // Four rotated previews — Haiku compares them side-by-side. This works
-      // more reliably than asking "how many degrees" because the model sees
-      // all variants literally and picks the upright one.
       const rotations: [0, 90, 180, 270] = [0, 90, 180, 270];
       const previews = await Promise.all(rotations.map(async (r) => {
         let pipeline = sharp(imagePath).rotate(); // EXIF first
@@ -89,15 +83,11 @@ export class OcrManager {
           .toBuffer();
         return buf.toString('base64');
       }));
-
-      const { detectOrientationWithClaude, detectOrientationWithGpt } = await import('./claudeApiAnalyzer');
-      const variants = previews as [string, string, string, string];
-      const rotation = gpt
-        ? await detectOrientationWithGpt(variants, modelId)
-        : await detectOrientationWithClaude(variants, apiKey);
+      const rotation = await detectOrientation(previews as [string, string, string, string], target);
       logger.info('Orientation detected', { imagePath, rotation });
       return rotation;
     } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
       logger.warn('Orientation detection failed, keeping as-is', {
         error: (err as Error).message,
       });
@@ -105,17 +95,23 @@ export class OcrManager {
     }
   }
 
-  async preprocessImage(imagePath: string): Promise<string> {
+  /**
+   * EXIF-поворот, поворот по модели (кроме страниц PDF — они уже стоят прямо),
+   * ограничение размера, резкость. Возвращает путь к временному файлу.
+   */
+  async preprocessImage(imagePath: string, opts: { detectRotation?: boolean; target?: AiTarget } = {}): Promise<string> {
     const ext = path.extname(imagePath).toLowerCase();
     if (!['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'].includes(ext)) {
       logger.warn('Unsupported image format, skipping preprocessing', { ext });
       return imagePath;
     }
 
-    const tmpPath = path.join(os.tmpdir(), `ocr_${Date.now()}${ext}`);
+    const tmpPath = path.join(os.tmpdir(), `ocr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
 
     // Detect rotation first. Falls back to 0 on any error.
-    const rotation = await this.detectTextRotation(imagePath);
+    const rotation = opts.detectRotation === false
+      ? 0
+      : await this.detectTextRotation(imagePath, opts.target ?? await resolveAiTarget());
 
     try {
       let pipeline = sharp(imagePath).rotate(); // EXIF-based auto-rotate
@@ -228,74 +224,52 @@ export class OcrManager {
   }
 
   /**
-   * Гибридное распознавание: OCR (Google Vision) + структуризация (Claude CLI)
-   *
-   * Использует MAX подписку Claude Code для интеллектуального парсинга.
-   * Если Claude CLI недоступен или возвращает ошибку — fallback на regex-парсер.
-   *
-   * @param imagePath - путь к изображению
-   * @param useClaudeAnalyzer - использовать Claude для структуризации (default: true)
+   * Гибридное распознавание (скрытый режим hybrid): текст даёт цепочка OCR
+   * (Google Vision), структурирует его модель через ИИ-шлюз — та же, что и везде.
+   * Если модель вернула ошибку — сырой текст уходит в regex-парсер.
    */
   async recognizeHybrid(imagePath: string, ownerUserId: number, useClaudeAnalyzer = true): Promise<OcrResult> {
     // Step 1: Get raw text via Google Vision (or fallback chain)
     const ocrResult = await this.recognize(imagePath);
 
     if (!useClaudeAnalyzer) {
-      logger.info('Hybrid OCR: Claude analyzer disabled, using raw result');
+      logger.info('Hybrid OCR: text analyzer disabled, using raw result');
       return ocrResult;
     }
 
-    // Step 2: Send OCR text to Anthropic API for intelligent structuring
-    logger.info('Hybrid OCR: sending text to Anthropic API', { textLength: ocrResult.text.length });
-
-    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    const apiKey = analyzerConfig.anthropic_api_key || config.anthropicApiKey;
-    const modelId = analyzerConfig.claude_model;
-
-    if (apiKey) {
-      const catalog = await getCatalogForPrompt(ownerUserId);
-      const memory = await buildSupplierMemory(ownerUserId);
-      const apiResult = await analyzeMultiPageTextWithVerification(ocrResult.text, apiKey, 1, modelId, catalog, memory);
-      if (apiResult.success && apiResult.data) {
-        logger.info('Hybrid OCR: Anthropic API text analyzer succeeded', {
-          itemsCount: apiResult.data.items?.length ?? 0,
-          invoiceNumber: apiResult.data.invoice_number,
-        });
-        return {
-          text: ocrResult.text,
-          engine: `${ocrResult.engine}+claude_api_text`,
-          confidence: ocrResult.confidence,
-          words: ocrResult.words,
-          structured: apiResult.data,
-        };
-      }
-      logger.warn('Hybrid OCR: Anthropic API failed', { error: apiResult.error });
+    logger.info('Hybrid OCR: sending text to the model', { textLength: ocrResult.text.length });
+    const target = await resolveAiTarget();
+    const catalog = await getCatalogForPrompt(ownerUserId);
+    const memory = await buildSupplierMemory(ownerUserId);
+    const apiResult = await analyzeMultiPageTextWithVerification(ocrResult.text, target, 1, catalog, memory);
+    if (apiResult.success && apiResult.data) {
+      logger.info('Hybrid OCR: text analyzer succeeded', {
+        itemsCount: apiResult.data.items?.length ?? 0,
+        invoiceNumber: apiResult.data.invoice_number,
+      });
+      return {
+        text: ocrResult.text,
+        engine: `${ocrResult.engine}+${engineTag(target)}_text`,
+        confidence: ocrResult.confidence,
+        words: ocrResult.words,
+        structured: apiResult.data,
+      };
     }
-
+    logger.warn('Hybrid OCR: text analyzer failed, using raw result', { error: apiResult.error });
     // Fallback: return raw OCR result (will be processed by regex parser)
-    logger.warn('Hybrid OCR: analyzer failed, using raw result');
     return ocrResult;
   }
 
   /**
-   * Claude API mode для многостраничных накладных:
-   * отправляет ВСЕ страницы в один запрос Anthropic API.
+   * Все страницы фото — в одном запросе к модели.
    */
   async recognizeMultiPageWithClaudeApi(imagePaths: string[], ownerUserId: number): Promise<OcrResult> {
-    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    const { modelId, apiKey } = visionModelFor(analyzerConfig, {
-      pdf: imagePaths.some(p => path.extname(p).toLowerCase() === '.pdf'),
-    });
-
-    if (!apiKey && !isGptModel(modelId)) {
-      throw new Error('Anthropic API key not configured. Set it in Settings.');
-    }
-
+    const target = await resolveAiTarget();
     // Preprocess every page — each can have its own rotation.
-    const processedPaths = await Promise.all(imagePaths.map(p => this.preprocessImage(p)));
+    const processedPaths = await Promise.all(imagePaths.map(p => this.preprocessImage(p, { target })));
     const catalog = await getCatalogForPrompt(ownerUserId);
     const memory = await buildSupplierMemory(ownerUserId);
-    const result = await analyzeMultipleImagesWithVerification(processedPaths, apiKey, modelId, catalog, memory);
+    const result = await analyzeMultipleImagesWithVerification(processedPaths, target, catalog, memory);
     // Clean up temp files
     for (const pp of processedPaths) {
       if (!imagePaths.includes(pp)) {
@@ -306,7 +280,7 @@ export class OcrManager {
     if (result.success && result.data) {
       return {
         text: result.rawText || JSON.stringify(result.data, null, 2),
-        engine: isGptModel(modelId) ? 'gpt_api_multipage' : 'claude_api_multipage',
+        engine: engineTag(target, '_multipage'),
         structured: result.data,
       };
     }
@@ -315,30 +289,21 @@ export class OcrManager {
   }
 
   /**
-   * Текстовый анализ объединённого OCR-текста нескольких страниц.
-   * Источник текста зависит от режима (hybrid → Google Vision OCR,
-   * claude_api → JSON-ответы Claude с предыдущих страниц). В обоих случаях
-   * Claude получает уже-текст и собирает из него единый structured-ответ.
+   * Склейка нескольких страниц по их уже прочитанному тексту (JSON-ответам модели
+   * или, в режиме hybrid, тексту Google Vision) в единый structured-ответ.
    */
   async analyzeMultiPageText(combinedOcrText: string, pageCount: number, ownerUserId: number): Promise<OcrResult> {
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    const { modelId, apiKey } = visionModelFor(analyzerConfig);
-
-    if (!apiKey && !isGptModel(modelId)) {
-      throw new Error('Anthropic API key not configured.');
-    }
-
+    const target = await resolveAiTarget();
     const catalog = await getCatalogForPrompt(ownerUserId);
     const memory = await buildSupplierMemory(ownerUserId);
-    const result = await analyzeMultiPageTextWithVerification(combinedOcrText, apiKey, pageCount, modelId, catalog, memory);
+    const result = await analyzeMultiPageTextWithVerification(combinedOcrText, target, pageCount, catalog, memory);
 
     if (result.success && result.data) {
-      // Honest engine tag: only include "google_vision" if we're actually
-      // in hybrid mode. In claude_api / gpt mode Google Vision was never called,
-      // the combined text is just the previous pages' JSON outputs.
-      const engine = isGptModel(modelId) ? 'gpt_api_multipage'
-        : analyzerConfig.mode === 'claude_api' ? 'claude_api_multipage'
-          : 'google_vision+claude_api_multipage';
+      // Honest engine tag: only include "google_vision" if we're actually in hybrid mode.
+      const engine = analyzerConfig.mode === 'hybrid'
+        ? `google_vision+${engineTag(target, '_multipage')}`
+        : engineTag(target, '_multipage');
       return {
         text: combinedOcrText,
         engine,
@@ -350,34 +315,28 @@ export class OcrManager {
   }
 
   /**
-   * Claude API mode: отправляет изображение напрямую в Anthropic API.
-   * Claude сам делает OCR + структуризацию в одном запросе.
-   * Google Vision не используется.
+   * Режимы gpt / claude_api: фото читает модель (через ИИ-шлюз) сразу в структуру.
+   * PDF сначала превращается в картинки страниц.
    */
   async recognizeWithClaudeApi(imagePath: string, ownerUserId: number): Promise<OcrResult> {
-    const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
-    // Режим gpt: фото читает GPT через шлюз ProjectsFlow; PDF — всё равно Claude.
-    const { modelId, apiKey } = visionModelFor(analyzerConfig, { pdf: path.extname(imagePath).toLowerCase() === '.pdf' });
-
-    if (!apiKey && !isGptModel(modelId)) {
-      throw new Error('Anthropic API key not configured. Set it in Settings.');
-    }
+    const target = await resolveAiTarget();
+    if (isPdfPath(imagePath)) return this.recognizePdf(imagePath, ownerUserId, target);
 
     // Preprocess: auto-rotate based on EXIF + detected text orientation,
-    // upscale-cap to 2400x3200, sharpen, normalise. Claude vision models
+    // upscale-cap to 2400x3200, sharpen, normalise. Vision models
     // hallucinate heavily on sideways text, so this one step often matters
     // more than any prompt change.
-    const processedPath = await this.preprocessImage(imagePath);
+    const processedPath = await this.preprocessImage(imagePath, { target });
 
     try {
       const catalog = await getCatalogForPrompt(ownerUserId);
       const memory = await buildSupplierMemory(ownerUserId);
-      const result = await analyzeImageWithVerification(processedPath, apiKey, modelId, catalog, memory);
+      const result = await analyzeImageWithVerification(processedPath, target, catalog, memory);
 
       if (result.success && result.data) {
         return {
           text: result.rawText || JSON.stringify(result.data, null, 2),
-          engine: isGptModel(modelId) ? 'gpt_api' : 'claude_api',
+          engine: engineTag(target),
           structured: result.data,
         };
       }
@@ -387,6 +346,41 @@ export class OcrManager {
       if (processedPath !== imagePath) {
         try { fs.unlinkSync(processedPath); } catch { /* ignore */ }
       }
+    }
+  }
+
+  /**
+   * PDF: каждая страница — картинка 200 dpi, читается как фото (без определения
+   * поворота), несколько страниц склеиваются так же, как многостраничная фотонакладная.
+   */
+  private async recognizePdf(pdfPath: string, ownerUserId: number, target: AiTarget): Promise<OcrResult> {
+    const pages = await pdfToImages(pdfPath);
+    const note = pages.truncated ? `PDF: прочитаны первые ${pages.paths.length} страниц из ${pages.totalPages}\n\n` : '';
+    try {
+      const catalog = await getCatalogForPrompt(ownerUserId);
+      const memory = await buildSupplierMemory(ownerUserId);
+      const texts: string[] = [];
+      let lastData: OcrResult['structured'];
+      for (const pagePath of pages.paths) {
+        const prepared = await this.preprocessImage(pagePath, { detectRotation: false });
+        try {
+          const r = await analyzeImageWithVerification(prepared, target, catalog, memory);
+          if (!r.success || !r.data) throw new Error(r.error || 'PDF page analysis failed');
+          texts.push(r.rawText || JSON.stringify(r.data, null, 2));
+          lastData = r.data;
+        } finally {
+          if (prepared !== pagePath) {
+            try { fs.unlinkSync(prepared); } catch { /* ignore */ }
+          }
+        }
+      }
+      if (texts.length === 1) return { text: note + texts[0], engine: engineTag(target), structured: lastData };
+      const combined = texts.join(PAGE_SEPARATOR);
+      const merged = await analyzeMultiPageTextWithVerification(combined, target, texts.length, catalog, memory);
+      if (!merged.success || !merged.data) throw new Error(merged.error || 'PDF multi-page analysis failed');
+      return { text: note + combined, engine: engineTag(target, '_multipage'), structured: merged.data };
+    } finally {
+      pages.cleanup();
     }
   }
 }

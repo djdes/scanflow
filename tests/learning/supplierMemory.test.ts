@@ -55,11 +55,11 @@ describe('formatSupplierMemory', () => {
 });
 
 describe('buildSystemBlocks with memory', () => {
-  it('appends memory as the last cached block and skips blank memory', () => {
+  it('appends memory as the last block and skips blank memory', () => {
     const catalog = [{ guid: 'g1', name: 'Батон', unit: 'кг' }];
     const withMem = buildSystemBlocks(catalog, 'ПАМЯТКА');
     expect(withMem).toHaveLength(3);
-    expect(withMem[2]).toMatchObject({ type: 'text', text: 'ПАМЯТКА', cache_control: { type: 'ephemeral' } });
+    expect(withMem[2]).toBe('ПАМЯТКА');
     expect(buildSystemBlocks(catalog, '  ')).toHaveLength(2);
     expect(buildSystemBlocks(undefined, 'ПАМЯТКА')).toHaveLength(2);
   });

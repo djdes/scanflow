@@ -8,6 +8,9 @@ import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { supplierExtractJobRepo } from '../../database/repositories/supplierExtractJobRepo';
 import { lookupPartyByInn, DadataNotConfiguredError } from '../../sber/dadata';
 import { analyzeImageWithClaudeApi } from '../../ocr/claudeApiAnalyzer';
+import { pdfToImages } from '../../ocr/pdfPages';
+import { resolveAiTarget } from '../../ai/engine';
+import { AiUnavailableError } from '../../ai/errors';
 import { dispatchSupplierExtract, DispatcherConfigError, DispatcherApiError } from '../../dispatcher/createTask';
 import { notifySupplierExtractError } from '../../notifications/events';
 import { mergeSupplierCards, SupplierMergeError } from '../../services/supplierMerge';
@@ -205,19 +208,22 @@ router.post('/extract-from-photo', extractUpload.single('file'), async (req: Req
     }
   }
 
-  // ── claude_api / hybrid mode: synchronous Claude API (images only) ──
+  // ── Остальные режимы: модель из настроек через ИИ-шлюз, синхронно ──
+  let pdfCleanup: (() => void) | null = null;
   try {
+    const target = await resolveAiTarget();
+    // PDF — первой страницей-картинкой: реквизиты получателя всегда в шапке.
+    let imagePath = tmpPath;
     if (ext === '.pdf') {
-      return res.status(400).json({ error: 'PDF поддерживается только в режиме диспетчера. Загрузите фото (JPG/PNG).' });
+      const pdf = await pdfToImages(tmpPath, { maxPages: 1 });
+      pdfCleanup = pdf.cleanup;
+      imagePath = pdf.paths[0];
     }
-    const apiKey = cfg?.anthropic_api_key || config.anthropicApiKey;
-    if (!apiKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured' });
-    const modelId = cfg?.claude_model || 'claude-sonnet-5';
 
-    logger.info('Supplier extract: starting Claude OCR', { fileName: req.file.originalname, size: req.file.size });
-    const result = await analyzeImageWithClaudeApi(tmpPath, apiKey, modelId);
+    logger.info('Supplier extract: starting OCR', { fileName: req.file.originalname, size: req.file.size, model: target.model });
+    const result = await analyzeImageWithClaudeApi(imagePath, target);
     if (!result.success || !result.data) {
-      return res.status(500).json({ error: result.error || 'Claude API failed' });
+      return res.status(500).json({ error: result.error || 'Не удалось распознать реквизиты' });
     }
     const d = result.data;
     res.json({
@@ -233,9 +239,13 @@ router.post('/extract-from-photo', extractUpload.single('file'), async (req: Req
       },
     });
   } catch (err) {
+    if (err instanceof AiUnavailableError) {
+      return res.status(503).json({ error: `Распознавание сейчас недоступно: ${err.text}` });
+    }
     logger.error('Supplier extract failed', { error: (err as Error).message });
     res.status(500).json({ error: (err as Error).message });
   } finally {
+    pdfCleanup?.();
     fs.promises.unlink(tmpPath).catch(() => { /* best-effort */ });
   }
 });

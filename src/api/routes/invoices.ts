@@ -58,6 +58,7 @@ import { canonUnit } from '../../mapping/unitConverter';
 import type { InvoiceItem } from '../../database/repositories/invoiceRepo';
 import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
 import { invoiceFileKind, isXmlFileName, isXmlInvoice, xmlDownloadName } from '../../xml';
+import { AiUnavailableError } from '../../ai/errors';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -1178,7 +1179,16 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
     return;
   }
 
-  const outcome = await llmRemapInvoice(invoice, { includeAll, userId: req.user?.id ?? null });
+  let outcome: Awaited<ReturnType<typeof llmRemapInvoice>>;
+  try {
+    outcome = await llmRemapInvoice(invoice, { includeAll, userId: req.user?.id ?? null });
+  } catch (err) {
+    if (err instanceof AiUnavailableError) {
+      res.status(503).json({ error: `Подбор ИИ сейчас недоступен: ${err.text}` });
+      return;
+    }
+    throw err;
+  }
   if (!outcome.ok) {
     res.status(outcome.status).json({ error: outcome.error });
     return;

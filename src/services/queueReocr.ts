@@ -11,7 +11,10 @@ import { makeSupplierKey } from '../database/repositories/supplierMappingRepo';
 import { logEdit } from '../database/repositories/editLogRepo';
 import { OcrManager } from '../ocr/ocrManager';
 import { analyzeImageWithVerification, analyzeMultiPageTextWithVerification, type CatalogEntry } from '../ocr/claudeApiAnalyzer';
-import { isGptModel, visionModelFor } from '../ocr/gptVision';
+import { isPdfPath, pdfToImages } from '../ocr/pdfPages';
+import { aiTargetFromConfig } from '../ai/engine';
+import { AiUnavailableError } from '../ai/errors';
+import type { AiTarget } from '../ai/types';
 import type { ParsedInvoiceData } from '../ocr/types';
 import { buildSupplierMemory } from '../learning/supplierMemory';
 import type { MappingResult, NomenclatureMapper } from '../mapping/nomenclatureMapper';
@@ -33,8 +36,8 @@ import { startQueueJob, assertQueueJobFree, activeQueueJob, viewQueueJob, QueueS
  *
  * Строки накладных очереди записаны старым кодом (conv_source='legacy_stored'),
  * их значениям «как в накладной» доверять нельзя. Здесь фото накладной заново
- * распознаётся ТЕКУЩИМ боевым путём (claude_api: предобработка → Claude с
- * каталогом 1С и памяткой поставщиков → проверка и до-чтение), а из ответа
+ * распознаётся ТЕКУЩИМ боевым путём (предобработка → модель из настроек через
+ * ИИ-шлюз с каталогом 1С и памяткой поставщиков → проверка и до-чтение), а из ответа
  * тем же конвейером, что при приёме (санитайзеры НДС и арифметики → подбор
  * позиции 1С с проверками v2 → пересчёт единиц convertInvoiceLine), строятся
  * ПРЕДЛОЖЕННЫЕ строки. Они сравниваются с текущими и лежат в
@@ -583,8 +586,8 @@ export function parseReplaced(json: string | null | undefined): InvoiceItem[] {
 // ── Перераспознавание одной накладной ────────────────────────────────────────
 
 export interface RecognizeContext {
-  apiKey: string;
-  model: string;
+  /** Модель, выбранная один раз на задачу (смена настроек посреди прогона его не смешает). */
+  target: AiTarget;
   memory: string;
   /** Каталог 1С в том порядке, в каком он ушёл в запрос ([] — подбор ИИ выключен). */
   catalog: CatalogEntry[];
@@ -594,7 +597,7 @@ export interface ReocrDeps {
   /** Найти фото на диске (только чтение). null — файла нет. */
   locatePhoto: (fileName: string, filePath: string | null) => string | null;
   loadCatalog: (ownerUserId: number) => Promise<OnecNomenclatureRow[]>;
-  /** Одна страница: боевой путь claude_api. Бросает, если распознать не удалось. */
+  /** Одна страница: боевой путь распознавания фото. Бросает, если распознать не удалось. */
   recognizePage: (photoPath: string, rc: RecognizeContext) => Promise<{ text: string; parsed: ParsedInvoiceData }>;
   /** Многостраничная: сшить ответы страниц (как FileWatcher.reprocessInvoice). */
   mergePages: (combinedText: string, pageCount: number, rc: RecognizeContext) => Promise<ParsedInvoiceData>;
@@ -624,8 +627,7 @@ async function waitForRecognitionIdle(): Promise<void> {
 export interface ReocrRunContext {
   ownerUserId: number;
   startedBy: number | null;
-  apiKey: string;
-  model: string;
+  target: AiTarget;
   memory: string;
   llmMapperEnabled: boolean;
   mapper: MapperLike;
@@ -641,9 +643,9 @@ function ocrManager(): OcrManager {
 
 /** OcrManager.recognizeWithClaudeApi, но каталог — тот же массив, по которому потом читаем catalog_idx. */
 async function recognizePageWithClaude(photoPath: string, rc: RecognizeContext): Promise<{ text: string; parsed: ParsedInvoiceData }> {
-  const prepared = await ocrManager().preprocessImage(photoPath);
+  const prepared = await ocrManager().preprocessImage(photoPath, { target: rc.target });
   try {
-    const result = await analyzeImageWithVerification(prepared, rc.apiKey, rc.model, rc.catalog, rc.memory);
+    const result = await analyzeImageWithVerification(prepared, rc.target, rc.catalog, rc.memory);
     if (!result.success || !result.data) throw new Error(result.error || 'Image analysis failed');
     return { text: result.rawText || JSON.stringify(result.data, null, 2), parsed: result.data };
   } finally {
@@ -655,7 +657,7 @@ async function recognizePageWithClaude(photoPath: string, rc: RecognizeContext):
 
 /** OcrManager.analyzeMultiPageText с тем же каталогом. */
 async function mergePagesWithClaude(combinedText: string, pageCount: number, rc: RecognizeContext): Promise<ParsedInvoiceData> {
-  const result = await analyzeMultiPageTextWithVerification(combinedText, rc.apiKey, pageCount, rc.model, rc.catalog, rc.memory);
+  const result = await analyzeMultiPageTextWithVerification(combinedText, rc.target, pageCount, rc.catalog, rc.memory);
   if (!result.success || !result.data) throw new Error(result.error || 'Multi-page text analysis failed');
   return result.data;
 }
@@ -682,10 +684,14 @@ async function applyOcrCorrections(parsed: ParsedInvoiceData, inv: Invoice): Pro
   return await ocrCorrectionRepo.apply(copy as unknown as Record<string, unknown>, inv.owner_user_id ?? -1) as unknown as ParsedInvoiceData;
 }
 
-/** Одна накладная. Никогда не бросает: ошибка — результат со status 'error'. */
+/**
+ * Одна накладная. Ошибка — результат со status 'error'; бросает только
+ * AiUnavailableError (модель недоступна) — по ней задача очереди встаёт на паузу.
+ */
 export async function reocrInvoice(invoiceId: number, ctx: ReocrRunContext, deps: ReocrDeps = defaultReocrDeps): Promise<QueueJobResult> {
   const base = { invoice_id: invoiceId };
   let rowId: number | null = null;
+  const cleanups: Array<() => void> = [];
   try {
     const inv = await invoiceRepo.getById(invoiceId);
     if (!inv || inv.owner_user_id !== ctx.ownerUserId) return { ...base, status: 'skipped', reason: 'not_found' };
@@ -716,21 +722,28 @@ export async function reocrInvoice(invoiceId: number, ctx: ReocrRunContext, deps
     }
 
     if (deps.waitForIdle) await deps.waitForIdle();
-    rowId = await queueRepo.startReocr({ ownerUserId: ctx.ownerUserId, invoiceId, startedBy: ctx.startedBy, model: ctx.model, pages: found.length });
+    // PDF — страницами-картинками, как и при приёме.
+    const pages: string[] = [];
+    for (const p of found) {
+      if (!isPdfPath(p)) { pages.push(p); continue; }
+      const pdf = await pdfToImages(p);
+      cleanups.push(pdf.cleanup);
+      pages.push(...pdf.paths);
+    }
+    rowId = await queueRepo.startReocr({ ownerUserId: ctx.ownerUserId, invoiceId, startedBy: ctx.startedBy, model: ctx.target.model, pages: pages.length });
     const catalogRows = ctx.llmMapperEnabled ? await deps.loadCatalog(ctx.ownerUserId) : null;
     const rc: RecognizeContext = {
-      apiKey: ctx.apiKey,
-      model: ctx.model,
+      target: ctx.target,
       memory: ctx.memory,
       catalog: (catalogRows ?? []).map(r => ({ guid: r.guid, name: r.name, unit: r.unit })),
     };
     let parsed: ParsedInvoiceData;
-    if (found.length === 1) {
-      parsed = (await deps.recognizePage(found[0], rc)).parsed;
+    if (pages.length === 1) {
+      parsed = (await deps.recognizePage(pages[0], rc)).parsed;
     } else {
       const texts: string[] = [];
-      for (const p of found) texts.push((await deps.recognizePage(p, rc)).text);
-      parsed = await deps.mergePages(texts.join(PAGE_SEPARATOR), found.length, rc);
+      for (const p of pages) texts.push((await deps.recognizePage(p, rc)).text);
+      parsed = await deps.mergePages(texts.join(PAGE_SEPARATOR), pages.length, rc);
     }
 
     const corrected = await applyOcrCorrections(parsed, inv);
@@ -748,7 +761,8 @@ export async function reocrInvoice(invoiceId: number, ctx: ReocrRunContext, deps
       changed: summary.changed, added: summary.added, removed: summary.removed, header_diff: summary.header_diff,
     };
   } catch (err) {
-    const message = ((err as Error).message || String(err)).slice(0, 500);
+    const unavailable = err instanceof AiUnavailableError;
+    const message = (unavailable ? `Приостановлено: ${err.text}` : ((err as Error).message || String(err))).slice(0, 500);
     logger.warn('Queue re-OCR: invoice failed', { invoiceId, error: message });
     if (rowId != null) {
       try {
@@ -757,7 +771,10 @@ export async function reocrInvoice(invoiceId: number, ctx: ReocrRunContext, deps
         logger.error('Queue re-OCR: could not record failure', { invoiceId, error: (e as Error).message });
       }
     }
+    if (unavailable) throw err;
     return { ...base, status: 'error', error: message };
+  } finally {
+    for (const cleanup of cleanups) cleanup();
   }
 }
 
@@ -790,9 +807,9 @@ export async function startQueueReocr(
 ): Promise<{ job: QueueJobView; planned: number }> {
   assertQueueJobFree(opts.ownerUserId);
   const cfg = await invoiceRepo.getAnalyzerConfig();
-  // Та же модель, что читает фото в бою: в режиме gpt — GPT через шлюз ProjectsFlow.
-  const { modelId, apiKey } = visionModelFor(cfg);
-  if (!apiKey && !isGptModel(modelId)) throw new QueueStartError(400, 'Не задан API-ключ Anthropic — перераспознавание идёт через Anthropic API');
+  // Та же модель, что читает фото в бою (ИИ-шлюз): в режиме gpt — GPT по подписке.
+  const target = aiTargetFromConfig(cfg);
+  if (target.engine === 'claude' && !target.apiKey) throw new QueueStartError(400, 'Не задан ключ Anthropic — включён режим Claude');
   const selected = opts.invoiceIds != null;
   const ids = await queueRepo.queueIds(opts.ownerUserId, selected
     ? { ids: opts.invoiceIds }
@@ -809,8 +826,7 @@ export async function startQueueReocr(
   const ctx: ReocrRunContext = {
     ownerUserId: opts.ownerUserId,
     startedBy: opts.startedBy,
-    apiKey,
-    model: modelId,
+    target,
     memory,
     llmMapperEnabled: cfg.llm_mapper_enabled,
     mapper: opts.mapper,
@@ -820,7 +836,7 @@ export async function startQueueReocr(
     ownerUserId: opts.ownerUserId,
     startedBy: opts.startedBy,
     invoiceIds: ids,
-    meta: { model: modelId },
+    meta: { model: target.model },
     worker: (invoiceId) => reocrInvoice(invoiceId, ctx, deps),
   });
   return { job: viewQueueJob(job), planned: ids.length };

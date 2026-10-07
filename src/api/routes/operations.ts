@@ -10,7 +10,8 @@ import { evaluateInvoiceQuality } from '../../automation/qualityGate';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
 import { getDb } from '../../database/db';
 import { logger } from '../../utils/logger';
-import { createClient } from '../../ocr/claudeApiAnalyzer';
+import { aiText } from '../../ai/gateway';
+import { aiTargetFromConfig } from '../../ai/engine';
 import { parseBankStatement } from '../../operations/bankStatement';
 import { bankStatementRepo } from '../../database/repositories/bankStatementRepo';
 import { supplierRepo } from '../../database/repositories/supplierRepo';
@@ -452,13 +453,12 @@ router.post('/assistant', async (req: Request, res: Response) => {
   } else {
     answer = 'Я могу показать прогноз расходов, неоплаченные документы, исключения, дубликаты, согласования и рейтинг поставщиков. Например: «что нужно оплатить за 7 дней?»';
   }
-  // Claude receives only pre-aggregated operational context — never SQL,
+  // The model receives only pre-aggregated operational context — never SQL,
   // credentials or raw OCR text. The deterministic answer above is the safe
   // fallback if the model or proxy is temporarily unavailable.
   try {
-    const analyzer = await invoiceRepo.getAnalyzerConfig();
-    const apiKey = analyzer.anthropic_api_key || config.anthropicApiKey;
-    if (apiKey) {
+    const target = aiTargetFromConfig(await invoiceRepo.getAnalyzerConfig());
+    if (target.engine === 'gpt' || target.apiKey) {
       const context = {
         forecast: data.forecast,
         payment_summary: data.payment_summary,
@@ -466,14 +466,18 @@ router.post('/assistant', async (req: Request, res: Response) => {
         pending_approvals: data.approvals.filter(row => row.status === 'pending').length,
         suppliers: data.suppliers.slice(0, 10).map(row => ({ name: row.supplier, score: row.score, spend: row.total_spend, errors: row.errors, overdue: row.overdue })),
       };
-      const response = await createClient(apiKey).messages.create({
-        model: analyzer.claude_model,
-        max_tokens: 450,
-        system: 'Ты операционный помощник ScanFlow. Отвечай по-русски, кратко и конкретно, используя только переданный агрегированный контекст. Не выдумывай платежи, статусы или документы. Не предлагай выполнять действия от имени пользователя.',
-        messages: [{ role: 'user', content: `Контекст: ${JSON.stringify(context)}\n\nВопрос: ${question}` }],
-      }, { signal: AbortSignal.timeout(25_000) });
-      const text = response.content.find(block => block.type === 'text');
-      if (text?.type === 'text' && text.text.trim()) answer = text.text.trim();
+      const response = await aiText({
+        target,
+        label: 'Operations assistant',
+        system: ['Ты операционный помощник ScanFlow. Отвечай по-русски, кратко и конкретно, используя только переданный агрегированный контекст. Не выдумывай платежи, статусы или документы. Не предлагай выполнять действия от имени пользователя.'],
+        content: `Контекст: ${JSON.stringify(context)}\n\nВопрос: ${question}`,
+        effort: 'low',
+        thinking: 'default',
+        maxOutputTokens: 450,
+        timeoutMs: 25_000,
+        retries: 0,
+      });
+      if (response.text) answer = response.text;
     }
   } catch (error) {
     logger.warn('Operations assistant model fallback', { error: (error as Error).message });

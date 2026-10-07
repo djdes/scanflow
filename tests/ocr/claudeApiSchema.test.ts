@@ -7,27 +7,31 @@ const CATALOG: CatalogEntry[] = [
 ];
 
 describe('buildSystemBlocks', () => {
-  it('returns a single instruction block (with cache_control) when no catalog', () => {
+  it('returns a single instruction block when no catalog (cache_control ставит шлюз у Claude)', () => {
     const blocks = buildSystemBlocks();
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe('text');
-    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
     // Domain logic must survive the restructure.
-    expect(blocks[0].text).toContain('ТОРГ-12');
-    expect(blocks[0].text).toContain('ДИСЦИПЛИНА ЧТЕНИЯ ЦИФР');
-    expect(blocks[0].text).toContain('vat_sum');
+    expect(blocks[0]).toContain('ТОРГ-12');
+    expect(blocks[0]).toContain('ДИСЦИПЛИНА ЧТЕНИЯ ЦИФР');
+    expect(blocks[0]).toContain('vat_sum');
+  });
+
+  it('названия — как напечатано: правило «бренды из name убирай» удалено (спека 2026-10-07, раздел 5)', () => {
+    const [instructions] = buildSystemBlocks();
+    expect(instructions).not.toContain('из name убирай');
+    expect(instructions).toContain('Название переписывай как напечатано');
+    expect(instructions).toContain('name "Горбуша нат. 245г*48 ГОСТ (Вяземский РК)"');
   });
 
   it('adds a second catalog block (own cache breakpoint) when catalog provided', () => {
     const blocks = buildSystemBlocks(CATALOG);
     expect(blocks).toHaveLength(2);
-    expect(blocks[1].cache_control).toEqual({ type: 'ephemeral' });
-    expect(blocks[1].text).toContain('СПРАВОЧНИК НОМЕНКЛАТУРЫ');
-    expect(blocks[1].text).toContain('[1] Молоко 1л (шт)');
-    expect(blocks[1].text).toContain('[2] Сахар 50кг (кг)');
+    expect(blocks[1]).toContain('СПРАВОЧНИК НОМЕНКЛАТУРЫ');
+    expect(blocks[1]).toContain('[1] Молоко 1л (шт)');
+    expect(blocks[1]).toContain('[2] Сахар 50кг (кг)');
     // Instruction block is byte-identical whether or not a catalog is present
     // (keeps the prompt-cache prefix stable across catalog on/off).
-    expect(blocks[0].text).toBe(buildSystemBlocks()[0].text);
+    expect(blocks[0]).toBe(buildSystemBlocks()[0]);
   });
 });
 
