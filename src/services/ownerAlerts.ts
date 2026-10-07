@@ -48,3 +48,12 @@ export async function sendOwnerAlert(
     return false;
   }
 }
+
+/** Когда этому владельцу в последний раз ушло оповещение вида kind (мс эпохи), null — не уходило. */
+export async function lastOwnerAlertMs(ownerUserId: number, kind: string): Promise<number | null> {
+  const row = await getDb().prepare('SELECT last_sent_at FROM owner_alerts WHERE owner_user_id = ? AND kind = ?')
+    .get<{ last_sent_at: string }>(ownerUserId, kind);
+  if (!row) return null;
+  const ms = new Date(`${String(row.last_sent_at).replace(' ', 'T')}Z`).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}

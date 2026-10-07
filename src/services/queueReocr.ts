@@ -838,6 +838,8 @@ export async function startQueueReocr(
     invoiceIds: ids,
     meta: { model: target.model },
     worker: (invoiceId) => reocrInvoice(invoiceId, ctx, deps),
+    // После паузы (модель недоступна) — заново с оставшихся, с моделью и памяткой на момент продолжения.
+    resume: (remainingIds) => startQueueReocr({ ...opts, invoiceIds: remainingIds }, deps),
   });
   return { job: viewQueueJob(job), planned: ids.length };
 }

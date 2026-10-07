@@ -72,6 +72,7 @@ export async function startQueueLlmMap(opts: {
     invoiceIds: ids,
     meta: { model: target.model, catalog_size: catalog.length },
     worker: (invoiceId) => llmMapQueueInvoice(invoiceId, ctx),
+    resume: (remainingIds) => startQueueLlmMap({ ...opts, invoiceIds: remainingIds }),
   });
   return { job: viewQueueJob(job), planned: ids.length };
 }

@@ -15,6 +15,8 @@ import { evaluateInvoiceQuality } from '../automation/qualityGate';
 import type { ParsedInvoiceData, ParsedInvoiceItem } from '../ocr/types';
 import { mapItemsWithAi } from '../ocr/claudeApiAnalyzer';
 import { aiTargetFromConfig } from '../ai/engine';
+import { AiUnavailableError } from '../ai/errors';
+import { reportAiOutage } from '../services/aiOutage';
 import { isVisionLlmMode } from '../ocr/gptVision';
 import { FnsXmlError, isXmlFileName, isXmlInvoice, readFnsXmlInvoice } from '../xml';
 import { sendErrorEmail } from '../utils/mailer';
@@ -765,13 +767,6 @@ export class FileWatcher {
       throw err;
     }
 
-    // Каталог и сопоставления пер-тенантные: весь разбор этого файла идёт в
-    // области владельца созданной накладной. Объявлено здесь, а не ниже, потому
-    // что ветка многостраничного слияния обращается к каталогу раньше обычной.
-    // У «ничьей» накладной каталога нет — сопоставление вернёт «не найдено», и
-    // это корректно: претендента на неё не существует.
-    const mappingOwnerId = invoice.owner_user_id ?? -1;
-
     // Fire-and-forget: notify that a new invoice row was created.
     emitNotification('photo_uploaded', {
       invoice_id: invoice.id,
@@ -779,6 +774,36 @@ export class FileWatcher {
       supplier: invoice.supplier,
       total_sum: invoice.total_sum,
     }, null).catch(() => {});
+
+    return this.recognizeCreatedInvoice(invoice, filePath, fileName, forceEngine);
+  }
+
+  /**
+   * Распознать уже созданную строку накладной: OCR → разбор → склейка страниц →
+   * дубликаты → строки → уведомления. Зовут processFile (сразу после INSERT) и
+   * resumeWaitingInvoice (накладная ждала модель, waiting_ai).
+   *
+   * anchor — created_at накладной при возобновлении: соседние страницы ищутся
+   * в окне от времени загрузки, а не от «сейчас» (иначе страницы, ждавшие GPT
+   * часами, не склеились бы).
+   *
+   * Модель недоступна (AiUnavailableError) — накладная ждёт (waiting_ai), без
+   * «ошибки распознавания» и письма: её распознает src/services/aiResume.ts.
+   */
+  private async recognizeCreatedInvoice(
+    invoice: Invoice,
+    filePath: string,
+    fileName: string,
+    forceEngine?: string,
+    opts: { anchor?: string | null } = {},
+  ): Promise<number> {
+    // Каталог и сопоставления пер-тенантные: весь разбор этого файла идёт в
+    // области владельца созданной накладной. Объявлено здесь, а не ниже, потому
+    // что ветка многостраничного слияния обращается к каталогу раньше обычной.
+    // У «ничьей» накладной каталога нет — сопоставление вернёт «не найдено», и
+    // это корректно: претендента на неё не существует.
+    const mappingOwnerId = invoice.owner_user_id ?? -1;
+    const anchor = opts.anchor ?? null;
 
     try {
       // 2. OCR (hybrid mode: Google Vision + Claude analyzer if enabled)
@@ -875,7 +900,8 @@ export class FileWatcher {
       const firstRowNo0 = parsed.items[0]?.row_no;
       const looksLikeContinuation = !parsed.invoice_number
         || (firstRowNo0 != null && firstRowNo0 > 1);
-      if (looksLikeContinuation) {
+      // При возобновлении (anchor) накладные идут строго по одной — ждать некого.
+      if (looksLikeContinuation && !anchor) {
         await this.awaitInFlightPredecessors(invoice.id, 5, invoice.owner_user_id);
       }
 
@@ -890,6 +916,7 @@ export class FileWatcher {
           parsed.supplier ?? undefined,
           10,
           invoice.owner_user_id,
+          anchor,
         );
       }
 
@@ -903,6 +930,7 @@ export class FileWatcher {
             invoice.id,
             10,
             invoice.owner_user_id,
+            anchor,
           );
           if (existingInvoice && existingInvoice.id !== invoice.id) {
             logger.info('Multi-page: matched by filename pattern', {
@@ -938,6 +966,7 @@ export class FileWatcher {
           invoice.id,
           5,
           invoice.owner_user_id,
+          anchor,
         );
         if (candidate) {
           const existingItems = await invoiceRepo.getItems(candidate.id);
@@ -995,6 +1024,7 @@ export class FileWatcher {
           invoice.id,
           5,  // within last 5 minutes
           invoice.owner_user_id,
+          anchor,
         );
         if (existingInvoice && existingInvoice.id !== invoice.id) {
           logger.info('Multi-page: matched by supplier within 5 min (current page has no invoice_number)', {
@@ -1015,7 +1045,7 @@ export class FileWatcher {
       // Safety: only consults 'processed' rows (not 'parsing'), so we
       // never merge two concurrently-uploading invoices into each other.
       if (!existingInvoice && !parsed.invoice_number && !parsed.supplier) {
-        existingInvoice = await invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2, invoice.owner_user_id);
+        existingInvoice = await invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2, invoice.owner_user_id, anchor);
         if (existingInvoice) {
           logger.info('Multi-page: matched by temporal proximity (no metadata on this page)', {
             currentFile: fileName,
@@ -1509,6 +1539,10 @@ export class FileWatcher {
 
       return targetInvoiceId;
     } catch (err) {
+      if (err instanceof AiUnavailableError) {
+        await this.parkWaitingAi(invoice.id, filePath, fileName, err);
+        return invoice.id;
+      }
       const errorMsg = (err as Error).message;
       await invoiceRepo.updateStatus(invoice.id, 'error', errorMsg);
       logger.error('Invoice processing failed', { id: invoice.id, fileName, error: errorMsg });
@@ -1545,6 +1579,79 @@ export class FileWatcher {
 
       throw err;
     }
+  }
+
+  /**
+   * Модель недоступна — накладная ждёт: статус waiting_ai с причиной, фото в
+   * processed/ (оттуда его возьмёт возобновление и покажет карточка). Ни
+   * «ошибки распознавания», ни письма; админу — одно сообщение на сбой (aiOutage).
+   */
+  private async parkWaitingAi(invoiceId: number, filePath: string, fileName: string, err: AiUnavailableError): Promise<void> {
+    let storedPath: string | null = null;
+    if (!config.dryRun) {
+      const processedPath = path.join(config.processedDir, fileName);
+      try {
+        if (path.resolve(filePath) !== path.resolve(processedPath) && fs.existsSync(filePath) && !fs.existsSync(processedPath)) {
+          fs.renameSync(filePath, processedPath);
+        }
+        if (fs.existsSync(processedPath)) storedPath = processedPath;
+      } catch (e) {
+        // Watcher мог уже переместить файл — ENOENT нормален (правило 7).
+        logger.debug('Waiting AI: could not move file to processed', { filePath, error: (e as Error).message });
+      }
+    }
+    await invoiceRepo.markWaitingAi(invoiceId, err.text, storedPath);
+    logger.warn('Invoice waits for the AI model', { id: invoiceId, fileName, reason: err.reason, detail: err.detail });
+    void reportAiOutage(err);
+  }
+
+  /**
+   * Возобновить накладную, ждавшую модель (src/services/aiResume.ts — строго по одной).
+   * Одна страница — тем же путём, что новая загрузка, с окном соседних страниц от
+   * её created_at; несколько страниц (склеенная накладная) — перераспознаванием на месте.
+   */
+  async resumeWaitingInvoice(invoiceId: number): Promise<'processed' | 'waiting' | 'error' | 'skipped'> {
+    const invoice = await invoiceRepo.getById(invoiceId);
+    if (!invoice || invoice.status !== 'waiting_ai') return 'skipped';
+    const files = (invoice.file_name || '').split(',').map(s => s.trim()).filter(Boolean);
+    const locate = (name: string): string | undefined => [
+      path.join(config.processedDir, name),
+      path.join(config.failedDir, name),
+      path.join(config.inboxDir, name),
+    ].find(p => fs.existsSync(p));
+    await invoiceRepo.clearErrorMessage(invoiceId);
+    logger.info('Resuming invoice that waited for the AI model', { id: invoiceId, files: files.length });
+
+    if (files.length > 1) {
+      try {
+        await this.reprocessInvoice(invoiceId);
+        await this.emitRecognizedNotifications(invoiceId);
+        await this.runAutoSendHooks(invoiceId);
+        return 'processed';
+      } catch (err) {
+        if (err instanceof AiUnavailableError) {
+          await invoiceRepo.markWaitingAi(invoiceId, err.text);
+          return 'waiting';
+        }
+        await invoiceRepo.updateStatus(invoiceId, 'error', (err as Error).message);
+        return 'error';
+      }
+    }
+
+    const photo = files[0] ? locate(files[0]) : undefined;
+    if (!photo) {
+      await invoiceRepo.updateStatus(invoiceId, 'error', 'Фото не найдено — загрузите заново');
+      return 'error';
+    }
+    try {
+      await this.recognizeCreatedInvoice(invoice, photo, files[0], undefined, { anchor: invoice.created_at });
+    } catch {
+      return 'error'; // статус error и уведомление уже поставил recognizeCreatedInvoice
+    }
+    const after = await invoiceRepo.getById(invoiceId);
+    if (after?.status === 'waiting_ai') return 'waiting';
+    if (after?.status === 'error') return 'error';
+    return 'processed'; // в т.ч. страница склеилась с соседней (строки больше нет)
   }
 
   /**

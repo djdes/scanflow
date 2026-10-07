@@ -59,6 +59,7 @@ import type { InvoiceItem } from '../../database/repositories/invoiceRepo';
 import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
 import { invoiceFileKind, isXmlFileName, isXmlInvoice, xmlDownloadName } from '../../xml';
 import { AiUnavailableError } from '../../ai/errors';
+import { aiEngineState } from '../../ai/engine';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -2089,10 +2090,20 @@ router.post('/:id/rescan', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
+  // Модель недоступна — сразу понятный ответ, накладную не трогаем (отметки «сверено»
+  // перераспознавание сбрасывает в самом начале).
+  if (!isXmlInvoice(invoice)) {
+    const state = await aiEngineState();
+    if (!state.available) return res.status(503).json({ error: `Распознавание сейчас недоступно: ${state.text}` });
+  }
+
   try {
     await fileWatcher.reprocessInvoice(id);
     return res.json({ success: true });
   } catch (err) {
+    if (err instanceof AiUnavailableError) {
+      return res.status(503).json({ error: `Распознавание сейчас недоступно: ${err.text}` });
+    }
     logger.error('Rescan failed', { id, error: (err as Error).message });
     return res.status(502).json({ error: (err as Error).message });
   }
@@ -2577,6 +2588,16 @@ router.post('/:id/add-pages', addPagesUpload.array('files', 10), async (req: Req
     return;
   }
   if (files.length === 0) { res.status(400).json({ error: 'No files uploaded (field "files")' }); return; }
+
+  // Страницы читаются в фоне: при недоступной модели они бы молча потерялись — отвечаем сразу.
+  const aiState = await aiEngineState();
+  if (!aiState.available) {
+    for (const f of files) {
+      try { fs.unlinkSync(f.path); } catch { /* уже нет — не страшно */ }
+    }
+    res.status(503).json({ error: `Распознавание сейчас недоступно: ${aiState.text}. Добавьте страницы позже.` });
+    return;
+  }
 
   // Files are in processedDir (unwatched) — no watcher race, no markProcessing needed.
   const fw = fileWatcher;

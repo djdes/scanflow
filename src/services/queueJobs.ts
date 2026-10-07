@@ -1,4 +1,6 @@
 import { logger } from '../utils/logger';
+import { AiUnavailableError } from '../ai/errors';
+import { reportAiOutage } from './aiOutage';
 
 /**
  * Фоновые задачи «Очереди в 1С»: перераспознавание очереди и массовый подбор
@@ -10,7 +12,10 @@ import { logger } from '../utils/logger';
  *     зовут Claude, и вместе это были бы параллельные тяжёлые вызовы;
  *   - внутри задачи накладные идут строго по одной;
  *   - ошибка на одной накладной записывается в её результат, задача идёт дальше;
- *   - «Остановить» срабатывает между накладными (текущий вызов Claude не рвём).
+ *   - «Остановить» срабатывает между накладными (текущий вызов модели не рвём);
+ *   - модель недоступна (лимит подписки, вход, связь) — задача встаёт на паузу
+ *     (status 'paused'), а когда модель вернётся, aiResume продолжает её с
+ *     оставшихся накладных (resumePausedQueueJobs).
  *
  * Состояние — в памяти процесса (PM2 instances: 1). Итог последней задачи
  * каждой компании хранится, пока процесс жив; результаты перераспознавания
@@ -18,7 +23,7 @@ import { logger } from '../utils/logger';
  */
 
 export type QueueJobKind = 'reocr' | 'llm_map';
-export type QueueJobStatus = 'running' | 'done' | 'cancelled' | 'error';
+export type QueueJobStatus = 'running' | 'done' | 'cancelled' | 'error' | 'paused';
 
 export interface QueueJobResult {
   invoice_id: number;
@@ -87,6 +92,8 @@ export class QueueStartError extends Error {
 let active: QueueJob | null = null;
 let seq = 0;
 const lastByOwnerKind = new Map<string, QueueJob>();
+/** Задачи на паузе из-за недоступной модели: как продолжить с оставшихся накладных. */
+const paused = new Map<string, { job: QueueJob; remaining: number[]; resume: (ids: number[]) => Promise<unknown> }>();
 const key = (owner: number, kind: QueueJobKind) => `${owner}:${kind}`;
 
 export function activeQueueJob(): QueueJob | null {
@@ -104,6 +111,8 @@ export function startQueueJob(opts: {
   invoiceIds: number[];
   meta?: Record<string, unknown>;
   worker: (invoiceId: number, job: QueueJob) => Promise<QueueJobResult>;
+  /** Продолжить задачу с оставшихся накладных после паузы (модель недоступна). */
+  resume?: (remainingIds: number[]) => Promise<unknown>;
 }): { job: QueueJob; done: Promise<void> } {
   // Проверка и захват — синхронно, без await между ними: второй одновременный
   // запуск гарантированно получит «занято».
@@ -126,17 +135,28 @@ export function startQueueJob(opts: {
   };
   active = job;
   lastByOwnerKind.set(key(job.ownerUserId, job.kind), job);
+  paused.delete(key(job.ownerUserId, job.kind));
   logger.info('Queue job started', { jobId: job.id, kind: job.kind, ownerUserId: job.ownerUserId, planned: job.planned.length });
 
   const done = (async () => {
     try {
-      for (const invoiceId of job.planned) {
+      let pausedBy: AiUnavailableError | null = null;
+      for (let k = 0; k < job.planned.length; k++) {
+        const invoiceId = job.planned[k];
         if (job.cancelRequested) break;
         job.currentInvoiceId = invoiceId;
         let result: QueueJobResult;
         try {
           result = await opts.worker(invoiceId, job);
         } catch (err) {
+          if (err instanceof AiUnavailableError) {
+            // Модель недоступна: дальше по очереди упадёт так же — пауза до её возвращения.
+            pausedBy = err;
+            const remaining = job.planned.slice(k);
+            job.meta = { ...job.meta, remaining: remaining.length };
+            if (opts.resume) paused.set(key(job.ownerUserId, job.kind), { job, remaining, resume: opts.resume });
+            break;
+          }
           const message = (err as Error).message || String(err);
           logger.warn('Queue job: invoice failed', { jobId: job.id, kind: job.kind, invoiceId, error: message });
           result = { invoice_id: invoiceId, status: 'error', error: message.slice(0, 500) };
@@ -144,7 +164,14 @@ export function startQueueJob(opts: {
         job.results.push(result);
         job.processed++;
       }
-      job.status = job.cancelRequested ? 'cancelled' : 'done';
+      if (pausedBy) {
+        job.status = 'paused';
+        job.error = `Приостановлено: ${pausedBy.text}. Продолжится само, когда GPT снова будет доступен.`;
+        logger.warn('Queue job paused — AI model unavailable', { jobId: job.id, kind: job.kind, reason: pausedBy.reason });
+        void reportAiOutage(pausedBy);
+      } else {
+        job.status = job.cancelRequested ? 'cancelled' : 'done';
+      }
     } catch (err) {
       job.status = 'error';
       job.error = ((err as Error).message || String(err)).slice(0, 500);
@@ -191,15 +218,41 @@ export function queueJobStatus(ownerUserId: number, kind: QueueJobKind): QueueJo
   return { job: own ? viewQueueJob(own) : null, busy };
 }
 
-/** Остановить свою идущую задачу (после текущей накладной). */
+/** Остановить свою идущую задачу (после текущей накладной); задачу на паузе — снять. */
 export function cancelQueueJob(ownerUserId: number, kind: QueueJobKind): boolean {
+  if (paused.delete(key(ownerUserId, kind))) {
+    const job = lastByOwnerKind.get(key(ownerUserId, kind));
+    if (job && job.status === 'paused') job.status = 'cancelled';
+    return true;
+  }
   if (!active || active.ownerUserId !== ownerUserId || active.kind !== kind) return false;
   active.cancelRequested = true;
   return true;
+}
+
+/**
+ * Модель снова доступна — продолжить задачу на паузе с оставшихся накладных.
+ * Одна за раз: на сервер — одна задача (правило 21). Остальные — следующим проходом.
+ * true — задача запущена.
+ */
+export async function resumePausedQueueJobs(): Promise<boolean> {
+  if (active) return false;
+  for (const [k, entry] of paused) {
+    paused.delete(k);
+    try {
+      await entry.resume(entry.remaining);
+      logger.info('Queue job resumed after AI outage', { kind: entry.job.kind, ownerUserId: entry.job.ownerUserId, remaining: entry.remaining.length });
+      return true;
+    } catch (err) {
+      logger.warn('Queue job resume failed', { kind: entry.job.kind, ownerUserId: entry.job.ownerUserId, error: (err as Error).message });
+    }
+  }
+  return false;
 }
 
 /** Только для тестов: сбросить состояние модуля. */
 export function resetQueueJobsForTests(): void {
   active = null;
   lastByOwnerKind.clear();
+  paused.clear();
 }

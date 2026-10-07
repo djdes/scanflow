@@ -309,6 +309,20 @@ function ownerScope(ownerUserId: number | null | undefined): { sql: string; para
   return ownerUserId != null ? { sql: '\n       AND owner_user_id = ?', params: [ownerUserId] } : { sql: '', params: [] };
 }
 
+/**
+ * Окно «загружено рядом по времени» для поиска соседних страниц. Обычно — от NOW().
+ * anchor — created_at самой накладной: страницы, ждавшие GPT (waiting_ai), распознаются
+ * часы спустя, и окно от NOW() уже не нашло бы соседа, загруженного минутой раньше.
+ */
+function recentWindow(withinMinutes: number, anchor?: string | null): { sql: string; params: string[] } {
+  const mins = Math.max(1, Math.trunc(withinMinutes));
+  if (!anchor) return { sql: `created_at > (NOW() - INTERVAL ${mins} MINUTE)`, params: [] };
+  return {
+    sql: `created_at BETWEEN (CAST(? AS DATETIME) - INTERVAL ${mins} MINUTE) AND (CAST(? AS DATETIME) + INTERVAL ${mins} MINUTE)`,
+    params: [anchor, anchor],
+  };
+}
+
 function invoiceListWhere(status?: string, ownerUserId?: number, opts?: ListFilters) {
     const conds: string[] = [];
     const params: Record<string, unknown> = {};
@@ -1084,16 +1098,48 @@ export const invoiceRepo = {
     await getDb().prepare('UPDATE invoices SET file_hash = ? WHERE id = ?').run(fileHash, id);
   },
 
-  async findRecentByFileNamePattern(pattern: string, excludeId: number, withinMinutes: number = 10, ownerUserId?: number | null): Promise<Invoice | undefined> {
+  async findRecentByFileNamePattern(pattern: string, excludeId: number, withinMinutes: number = 10, ownerUserId?: number | null, anchor?: string | null): Promise<Invoice | undefined> {
     const owner = ownerScope(ownerUserId);
+    const win = recentWindow(withinMinutes, anchor);
     return getDb().prepare(
       `SELECT * FROM invoices
        WHERE file_name LIKE ?
        AND id != ?
        AND status != 'error'
-       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)${owner.sql}
+       AND ${win.sql}${owner.sql}
        ORDER BY created_at DESC LIMIT 1`
-    ).get<Invoice>(pattern, excludeId, ...owner.params);
+    ).get<Invoice>(pattern, excludeId, ...win.params, ...owner.params);
+  },
+
+  /**
+   * Модель недоступна (лимит подписки, нужен вход, нет связи): накладная ждёт и будет
+   * распознана сама (src/services/aiResume.ts). Причина — в error_message для показа.
+   */
+  async markWaitingAi(id: number, reason: string, filePath?: string | null): Promise<void> {
+    if (filePath) {
+      await getDb().prepare("UPDATE invoices SET status = 'waiting_ai', error_message = ?, file_path = ? WHERE id = ?").run(reason, filePath, id);
+    } else {
+      await getDb().prepare("UPDATE invoices SET status = 'waiting_ai', error_message = ? WHERE id = ?").run(reason, id);
+    }
+  },
+
+  /** Ждущие модель накладные всех компаний — по порядку загрузки. */
+  async listWaitingAiIds(limit: number = 200): Promise<number[]> {
+    const n = Math.max(1, Math.min(1000, Math.trunc(limit)));
+    const rows = await getDb().prepare(`SELECT id FROM invoices WHERE status = 'waiting_ai' ORDER BY id LIMIT ${n}`).all<{ id: number }>();
+    return rows.map(r => Number(r.id));
+  },
+
+  /** Сколько накладных ждёт модель: своей компании или (null) всех. */
+  async countWaitingAi(ownerUserId: number | null): Promise<number> {
+    const row = ownerUserId != null
+      ? await getDb().prepare("SELECT COUNT(*) AS c FROM invoices WHERE status = 'waiting_ai' AND owner_user_id = ?").get<{ c: number }>(ownerUserId)
+      : await getDb().prepare("SELECT COUNT(*) AS c FROM invoices WHERE status = 'waiting_ai'").get<{ c: number }>();
+    return Number(row?.c ?? 0);
+  },
+
+  async clearErrorMessage(id: number): Promise<void> {
+    await getDb().prepare('UPDATE invoices SET error_message = NULL WHERE id = ?').run(id);
   },
 
   /** Сколько накладных сейчас распознаётся (любая компания — память процесса общая). */
@@ -1109,20 +1155,21 @@ export const invoiceRepo = {
 
   // ownerUserId — страницы одной накладной всегда одной компании: без него
   // страница одной компании могла приклеиться к накладной другой (правило 19).
-  async findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10, ownerUserId?: number | null): Promise<Invoice | undefined> {
+  async findRecentByNumber(invoiceNumber: string, supplier?: string, withinMinutes: number = 10, ownerUserId?: number | null, anchor?: string | null): Promise<Invoice | undefined> {
     const targetNormalized = normalizeInvoiceNumber(invoiceNumber);
     if (!targetNormalized) return undefined;
 
     const targetDigits = extractDigitSequence(invoiceNumber);
 
     const owner = ownerScope(ownerUserId);
+    const win = recentWindow(withinMinutes, anchor);
     const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE invoice_number IS NOT NULL AND invoice_number != ''
-       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
+       AND ${win.sql}
        AND status IN ('processed', 'parsing', 'ocr_processing')${owner.sql}
        ORDER BY created_at DESC`
-    ).all<Invoice>(...owner.params);
+    ).all<Invoice>(...win.params, ...owner.params);
 
     for (const candidate of candidates) {
       if (normalizeInvoiceNumber(candidate.invoice_number) !== targetNormalized) continue;
@@ -1286,16 +1333,17 @@ export const invoiceRepo = {
     ).run(id);
   },
 
-  async findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2, ownerUserId?: number | null): Promise<Invoice | undefined> {
+  async findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2, ownerUserId?: number | null, anchor?: string | null): Promise<Invoice | undefined> {
     const owner = ownerScope(ownerUserId);
+    const win = recentWindow(withinMinutes, anchor);
     return getDb().prepare(
       `SELECT * FROM invoices
        WHERE id != ?
        AND status = 'processed'
-       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)${owner.sql}
+       AND ${win.sql}${owner.sql}
        ORDER BY created_at DESC
        LIMIT 1`
-    ).get<Invoice>(excludeId, ...owner.params);
+    ).get<Invoice>(excludeId, ...win.params, ...owner.params);
   },
 
   /**
@@ -1305,6 +1353,9 @@ export const invoiceRepo = {
    * `excludeIds` spares rows that crash recovery has deliberately parked in
    * 'ocr_processing' pending an in-place OCR retry — without it, this sweep
    * would mark them failed a moment before they get re-driven.
+   *
+   * 'waiting_ai' — не «зависла», а ждёт модель (лимит подписки, вход): её
+   * распознает src/services/aiResume.ts, переводить в ошибку нельзя.
    */
   async markStaleAsFailed(staleMinutes: number = 5, excludeIds: number[] = []): Promise<number> {
     const mins = Math.floor(staleMinutes);
@@ -1317,7 +1368,7 @@ export const invoiceRepo = {
       `UPDATE invoices
        SET status = 'error',
            error_message = COALESCE(error_message, 'Processing interrupted (stuck in non-terminal status)')
-       WHERE status NOT IN ('processed', 'sent_to_1c', 'duplicate', 'error')
+       WHERE status NOT IN ('processed', 'sent_to_1c', 'duplicate', 'error', 'waiting_ai')
        AND dispatcher_token IS NULL
        AND created_at < (NOW() - INTERVAL ${mins} MINUTE)${exclusion}`
     ).run(...excludeIds);
@@ -1401,16 +1452,17 @@ export const invoiceRepo = {
     return row?.recovery_attempts ?? 0;
   },
 
-  async findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2, ownerUserId?: number | null): Promise<Invoice | undefined> {
+  async findRecentBySupplier(supplier: string, excludeId: number, withinMinutes: number = 2, ownerUserId?: number | null, anchor?: string | null): Promise<Invoice | undefined> {
     const owner = ownerScope(ownerUserId);
+    const win = recentWindow(withinMinutes, anchor);
     const candidates = await getDb().prepare(
       `SELECT * FROM invoices
        WHERE supplier IS NOT NULL AND supplier != ''
        AND id != ?
-       AND created_at > (NOW() - INTERVAL ${withinMinutes} MINUTE)
+       AND ${win.sql}
        AND status IN ('processed', 'parsing', 'ocr_processing')${owner.sql}
        ORDER BY created_at DESC`
-    ).all<Invoice>(excludeId, ...owner.params);
+    ).all<Invoice>(excludeId, ...win.params, ...owner.params);
 
     for (const candidate of candidates) {
       if (candidate.supplier && suppliersMatch(supplier, candidate.supplier)) return candidate;

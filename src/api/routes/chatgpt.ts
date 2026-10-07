@@ -14,6 +14,7 @@ import {
   testChatgpt,
 } from '../../chatgpt/connection';
 import { DEFAULT_GPT_MODEL, isGptModel } from '../../ocr/gptVision';
+import { kickAiResume } from '../../services/aiResume';
 
 /**
  * /api/chatgpt — своё подключение подписки ChatGPT по коду (режим распознавания gpt).
@@ -78,6 +79,8 @@ router.post('/login/poll', async (_req: Request, res: Response) => {
   try {
     const result = await pollChatgptLogin();
     if (result.status === 'connected') {
+      // Вошли заново — накладные, ждавшие GPT, распознаются сразу, не дожидаясь 5 минут.
+      kickAiResume();
       res.json({ data: { result: 'connected', ...connectionView(result.connection, null) } });
       return;
     }
@@ -111,7 +114,10 @@ router.post('/test', async (req: Request, res: Response) => {
     const requested = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
     const cfg = await invoiceRepo.getAnalyzerConfig();
     const model = isGptModel(requested) ? requested : (isGptModel(cfg.gpt_model) ? cfg.gpt_model as string : DEFAULT_GPT_MODEL);
-    res.json({ data: await testChatgpt(model) });
+    const result = await testChatgpt(model);
+    // Связь есть (успешный запрос снимает и паузу лимита) — пора распознать ждущие.
+    if (result.ok) kickAiResume();
+    res.json({ data: result });
   } catch (err) {
     fail(res, err, 'test');
   }

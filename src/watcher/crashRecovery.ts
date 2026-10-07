@@ -4,6 +4,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { emit as emitNotification } from '../notifications/events';
+import { AiUnavailableError } from '../ai/errors';
 import type { FileWatcher } from './fileWatcher';
 
 /**
@@ -94,7 +95,8 @@ export async function recoverStaleInvoices(watcher: FileWatcher): Promise<number
  * critically, no photo_uploaded notification fires.
  */
 export async function retryStaleInvoices(watcher: FileWatcher, ids: number[]): Promise<void> {
-  for (const id of ids) {
+  for (let k = 0; k < ids.length; k++) {
+    const id = ids[k];
     try {
       logger.info('Crash recovery: re-processing stale invoice in place', { id });
       await watcher.reprocessInvoice(id);
@@ -103,6 +105,17 @@ export async function retryStaleInvoices(watcher: FileWatcher, ids: number[]): P
       const inv = await invoiceRepo.getById(id);
       for (const f of filesOf(inv?.file_name ?? '')) moveTo(config.processedDir, f);
     } catch (err) {
+      // Модель недоступна (лимит подписки, вход, связь) — это не сбой фото: эта и
+      // остальные накладные ждут (waiting_ai) и распознаются сами (aiResume).
+      if (err instanceof AiUnavailableError) {
+        for (const waitingId of ids.slice(k)) {
+          const inv = await invoiceRepo.getById(waitingId);
+          for (const f of filesOf(inv?.file_name ?? '')) moveTo(config.processedDir, f);
+          await invoiceRepo.markWaitingAi(waitingId, err.text);
+        }
+        logger.warn('Crash recovery: AI model unavailable — invoices wait for it', { ids: ids.slice(k), reason: err.reason });
+        return;
+      }
       // Leave the row stale. The next restart bumps the counter again and
       // eventually parks it in 'error'. Never re-queue the file, never open a
       // second row — that is exactly the loop this module was written to kill.

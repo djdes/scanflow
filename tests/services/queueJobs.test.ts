@@ -12,7 +12,11 @@ import {
   assertQueueJobFree,
   resetQueueJobsForTests,
   QueueJobBusyError,
+  resumePausedQueueJobs,
 } from '../../src/services/queueJobs';
+import { AiUnavailableError } from '../../src/ai/errors';
+
+vi.mock('../../src/services/aiOutage', () => ({ reportAiOutage: vi.fn(async () => {}) }));
 
 // Фоновые задачи «Очереди в 1С»: одна на сервер, накладные строго по одной.
 
@@ -104,5 +108,40 @@ describe('queueJobStatus — изоляция', () => {
     expect(finished.busy).toBeNull();
     expect(finished.job).toMatchObject({ status: 'done', processed: 2, counts: { done: 2 }, current_invoice_id: null });
     expect(queueJobStatus(2, 'reocr')).toEqual({ job: null, busy: null });
+  });
+});
+
+describe('пауза при недоступной модели', () => {
+  it('AiUnavailableError → status paused с причиной; продолжение — с оставшихся накладных', async () => {
+    const worker = vi.fn(async (id: number) => {
+      if (id === 8) throw new AiUnavailableError('rate_limited', null);
+      return { invoice_id: id, status: 'done' };
+    });
+    const resume = vi.fn(async () => undefined);
+    const { done } = startQueueJob({ kind: 'reocr', ownerUserId: 1, startedBy: 1, invoiceIds: [7, 8, 9], worker, resume });
+    await done;
+
+    const view = queueJobStatus(1, 'reocr').job;
+    expect(view).toMatchObject({ status: 'paused', processed: 1 });
+    expect(view?.error).toContain('Лимит подписки ChatGPT');
+    expect(worker).toHaveBeenCalledTimes(2); // 9-я не трогалась
+    expect(activeQueueJob()).toBeNull();
+
+    expect(await resumePausedQueueJobs()).toBe(true);
+    expect(resume).toHaveBeenCalledWith([8, 9]);
+    expect(await resumePausedQueueJobs()).toBe(false); // продолжается один раз
+  });
+
+  it('«Остановить» задачу на паузе — продолжения не будет', async () => {
+    const resume = vi.fn(async () => undefined);
+    const { done } = startQueueJob({
+      kind: 'llm_map', ownerUserId: 2, startedBy: 2, invoiceIds: [1],
+      worker: async () => { throw new AiUnavailableError('network', null); }, resume,
+    });
+    await done;
+    expect(cancelQueueJob(2, 'llm_map')).toBe(true);
+    expect(queueJobStatus(2, 'llm_map').job?.status).toBe('cancelled');
+    expect(await resumePausedQueueJobs()).toBe(false);
+    expect(resume).not.toHaveBeenCalled();
   });
 });

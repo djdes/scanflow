@@ -7,6 +7,7 @@ import { OcrManager } from './ocr/ocrManager';
 import { NomenclatureMapper } from './mapping/nomenclatureMapper';
 import { FileWatcher } from './watcher/fileWatcher';
 import { recoverStaleInvoices, retryStaleInvoices } from './watcher/crashRecovery';
+import { startAiResume } from './services/aiResume';
 import { pruneSendLog } from './notifications/rateLimit';
 import { startServer } from './api/server';
 import { backupDatabase } from './utils/backup';
@@ -95,6 +96,10 @@ async function main(): Promise<void> {
   if (staleToRetry.length > 0) {
     void retryStaleInvoices(fileWatcher, staleToRetry);
   }
+
+  // Накладные, ждавшие модель (waiting_ai: лимит подписки ChatGPT, вход, связь),
+  // распознаются сами, когда модель снова доступна — по одной.
+  startAiResume(fileWatcher);
 
   // Schedule daily database backup at 03:00 server time
   cron.schedule('0 3 * * *', () => {
