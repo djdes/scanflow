@@ -44,15 +44,44 @@ function pdfjsDir(): string {
 }
 async function importPdfjs(): Promise<any> {
   try {
-    // Node 22.12+ (прод — Node 25) грузит ES-модуль через require — так же работает и в тестах.
+    // Node 20.19+/22.12+ грузит ES-модуль через require — так же работает и в тестах;
+    // на прод-сервере Node 20, на старом минорном — запасной путь ниже.
     return await import(PDFJS_SPECIFIER as string);
   } catch (err) {
     if ((err as { code?: string }).code !== 'ERR_REQUIRE_ESM') throw err;
     return nativeImport(pathToFileURL(path.join(pdfjsDir(), 'legacy', 'build', 'pdf.mjs')).href);
   }
 }
+/**
+ * На сервере Node 20, а pdfjs (ветка 5.4) в Node опирается на более новые возможности:
+ * DOMMatrix/ImageData/Path2D (обычно подставляет их сам через process.getBuiltinModule —
+ * его нет до Node 20.16), Promise.withResolvers (Node 22). Подставляем до загрузки pdfjs:
+ * классы — из того же @napi-rs/canvas, что рисует страницы. Проверено на Node 20.0–25.
+ */
+function ensureNodePolyfills(): void {
+  const g = globalThis as Record<string, unknown>;
+  const canvas = require('@napi-rs/canvas') as Record<string, unknown>;
+  for (const name of ['DOMMatrix', 'ImageData', 'Path2D']) {
+    if (!g[name] && canvas[name]) g[name] = canvas[name];
+  }
+  const proc = process as unknown as { getBuiltinModule?: (id: string) => unknown };
+  if (typeof proc.getBuiltinModule !== 'function') {
+    proc.getBuiltinModule = (id: string) => require(String(id).replace(/^node:/, ''));
+  }
+  const P = Promise as unknown as { withResolvers?: () => unknown };
+  if (typeof P.withResolvers !== 'function') {
+    P.withResolvers = function withResolvers<T>(this: PromiseConstructor) {
+      let resolve!: (value: T | PromiseLike<T>) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new this<T>((res, rej) => { resolve = res; reject = rej; });
+      return { promise, resolve, reject };
+    };
+  }
+}
+
 function loadPdfjs(): Promise<any> {
   if (!pdfjsPromise) {
+    ensureNodePolyfills();
     pdfjsPromise = importPdfjs().catch((err) => { pdfjsPromise = null; throw err; });
   }
   return pdfjsPromise;
