@@ -23,6 +23,9 @@ import { newItemGroupKey } from './newItems';
  *                         единица не сходится с 1С, нужен фактический вес);
  *   - unit_mismatch    — единица строки не совпадает с единицей позиции 1С
  *                         (у строк до v2 флага нет — это их главный признак);
+ *   - unit_to_kg       — «Всё в кг»: строка в кг, а позиция 1С в штуках/литрах.
+ *                         Не ошибка: обработка 1С при загрузке переведёт позицию
+ *                         на кг, но остаток в прежней единице надо проверить;
  *   - price_outlier    — цена за единицу в 3 раза и больше отличается от
  *                         обычной цены позиции (для строк без qty_flag: у
  *                         строк до v2 проверка цены не выполнялась);
@@ -60,15 +63,20 @@ export const PRICE_OUTLIER_RATIO = 3;
 /** Сколько поставок нужно, чтобы «обычной» цене можно было верить (как в GET /invoices/:id). */
 export const MEDIAN_MIN_SAMPLES = 3;
 
-export type LineRiskCode = 'qty_flag' | 'unit_mismatch' | 'price_outlier' | 'low_confidence' | 'new_item';
-export const LINE_RISK_CODES: readonly LineRiskCode[] = ['qty_flag', 'unit_mismatch', 'price_outlier', 'low_confidence', 'new_item'];
+export type LineRiskCode = 'qty_flag' | 'unit_mismatch' | 'unit_to_kg' | 'price_outlier' | 'low_confidence' | 'new_item';
+export const LINE_RISK_CODES: readonly LineRiskCode[] = ['qty_flag', 'unit_mismatch', 'unit_to_kg', 'price_outlier', 'low_confidence', 'new_item'];
+
+/** Флаги движков, от которых зависят замечания: all_kg — «Всё в кг». */
+export interface RiskOptions {
+  allKg?: boolean;
+}
 
 export interface LineRisk {
   code: LineRiskCode;
   /** qty_flag: price_outlier | unit_mismatch | needs_weight. */
   flag?: string;
   note?: string | null;
-  /** unit_mismatch: единица позиции 1С. */
+  /** unit_mismatch, unit_to_kg: единица позиции 1С. */
   onec_unit?: string | null;
   /** price_outlier: цена / обычная цена. */
   ratio?: number;
@@ -131,13 +139,14 @@ export function priceDeviationPct(line: RiskLine): number | null {
  * «Создать в 1С» (newItemGroupKey): такая строка без позиции не «новая
  * неизвестная», 1С создаст её как попросили.
  */
-export function lineRisks(line: RiskLine, pendingNewItemKeys: ReadonlySet<string> = new Set()): LineRisk[] {
+export function lineRisks(line: RiskLine, pendingNewItemKeys: ReadonlySet<string> = new Set(), opts: RiskOptions = {}): LineRisk[] {
   const risks: LineRisk[] = [];
   const flag = line.qty_flag ? String(line.qty_flag) : '';
   if (flag) risks.push({ code: 'qty_flag', flag, note: line.qty_flag_note ?? null });
 
   if (!flag && line.onec_guid && line.onec_unit && line.unit && !sameUnit(line.unit, line.onec_unit)) {
-    risks.push({ code: 'unit_mismatch', onec_unit: line.onec_unit });
+    const toKg = opts.allKg && sameUnit(line.unit, 'кг');
+    risks.push({ code: toKg ? 'unit_to_kg' : 'unit_mismatch', onec_unit: line.onec_unit });
   }
 
   if (!flag && line.onec_guid) {
@@ -173,12 +182,12 @@ export interface QueueLineSummary {
   risk_counts: Record<LineRiskCode, number>;
 }
 
-export function summarizeLines(lines: RiskLine[], pendingNewItemKeys: ReadonlySet<string> = new Set()): QueueLineSummary {
+export function summarizeLines(lines: RiskLine[], pendingNewItemKeys: ReadonlySet<string> = new Set(), opts: RiskOptions = {}): QueueLineSummary {
   const counts = Object.fromEntries(LINE_RISK_CODES.map(c => [c, 0])) as Record<LineRiskCode, number>;
   let risky = 0;
   let legacy = 0;
   for (const l of lines) {
-    const r = lineRisks(l, pendingNewItemKeys);
+    const r = lineRisks(l, pendingNewItemKeys, opts);
     if (r.length) risky++;
     for (const x of r) counts[x.code]++;
     if (isLegacyLine(l)) legacy++;
@@ -260,6 +269,8 @@ export function queueReasons(input: QueueReasonInput): QueueReason[] {
   }
   const um = input.risk_counts.unit_mismatch ?? 0;
   if (um > 0) add('unit_mismatch', `Единица не совпадает с единицей позиции 1С: ${nLines(um)} — проверьте количество`);
+  const tk = input.risk_counts.unit_to_kg ?? 0;
+  if (tk > 0) add('unit_to_kg', `1С переведёт позицию на кг: ${nLines(tk)} — остаток в прежней единице проверьте инвентаризацией`);
   const po = input.risk_counts.price_outlier ?? 0;
   if (po > 0) add('price_outlier', `Цена за единицу в 3 раза и больше отличается от обычной: ${nLines(po)}`);
   return out;

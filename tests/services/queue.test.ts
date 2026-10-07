@@ -94,6 +94,14 @@ describe('lineRisks — строка с замечанием', () => {
     expect(codes(line({ unit: 'уп', onec_unit: 'упак' }))).toEqual([]);
   });
 
+  it('«Всё в кг»: строка в кг на штучной позиции — 1С переведёт позицию на кг, а не «единица не как в 1С»', () => {
+    expect(lineRisks(line({ unit: 'кг', onec_unit: 'шт' }), new Set(), { allKg: true })).toEqual([{ code: 'unit_to_kg', onec_unit: 'шт' }]);
+    // строка не в кг (нет веса) — по-прежнему расхождение; без флага — как раньше
+    expect(codes(line({ unit: 'шт', onec_unit: 'л' }))).toEqual(['unit_mismatch']);
+    expect(lineRisks(line({ unit: 'упак', onec_unit: 'шт' }), new Set(), { allKg: true })).toEqual([{ code: 'unit_mismatch', onec_unit: 'шт' }]);
+    expect(lineRisks(line({ unit: 'кг', onec_unit: 'шт' }))).toEqual([{ code: 'unit_mismatch', onec_unit: 'шт' }]);
+  });
+
   it('цена в 3 раза и больше отличается от обычной (≥3 поставок, та же единица)', () => {
     expect(codes(line({ price: 120, median_price: 40, median_price_unit: 'шт', median_samples: 3 }))).toEqual(['price_outlier']);
     expect(codes(line({ price: 13, median_price: 40, median_price_unit: 'шт', median_samples: 3 }))).toEqual(['price_outlier']);
@@ -143,7 +151,7 @@ describe('summarizeLines', () => {
       flagged: 1,
       risky_lines: 3,
       legacy_lines: 2,
-      risk_counts: { qty_flag: 1, unit_mismatch: 1, price_outlier: 0, low_confidence: 1, new_item: 1 },
+      risk_counts: { qty_flag: 1, unit_mismatch: 1, unit_to_kg: 0, price_outlier: 0, low_confidence: 1, new_item: 1 },
     });
   });
 });
@@ -188,13 +196,14 @@ describe('queueReasons — что держит накладную', () => {
   });
 
   it('ошибка 1С при прошлой загрузке, единица не как в 1С, цена в разы — замечания', () => {
-    const counts = { ...zero(), unit_mismatch: 2, price_outlier: 1, new_item: 5, low_confidence: 3 };
+    const counts = { ...zero(), unit_mismatch: 2, unit_to_kg: 1, price_outlier: 1, new_item: 5, low_confidence: 3 };
     const r = queueReasons({
       gate: [], supplier_inn: '7724357632', onec_status: 'rejected', onec_error: 'Не найдена\nединица  «кор»', risk_counts: counts,
     });
     expect(r).toEqual([
       { code: 'onec_error', message: '1С вернула ошибку при загрузке: Не найдена единица «кор»', hard: false },
       { code: 'unit_mismatch', message: 'Единица не совпадает с единицей позиции 1С: 2 строки — проверьте количество', hard: false },
+      { code: 'unit_to_kg', message: '1С переведёт позицию на кг: 1 строка — остаток в прежней единице проверьте инвентаризацией', hard: false },
       { code: 'price_outlier', message: 'Цена за единицу в 3 раза и больше отличается от обычной: 1 строка', hard: false },
     ]);
     // new_item и low_confidence — у гейта (unmapped, low_confidence), второй раз не дублируем

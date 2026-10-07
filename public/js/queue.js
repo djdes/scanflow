@@ -310,6 +310,7 @@ const Queue = {
     if (r.unmapped) parts.push(`<span${r.unmapped_open ? ' class="queue-warn"' : ''}>без позиции 1С: ${r.unmapped}</span>`);
     if (r.flagged) parts.push(`<span class="queue-bad">кол-во под вопросом: ${r.flagged}</span>`);
     if (r.risk_counts && r.risk_counts.unit_mismatch) parts.push(`<span class="queue-warn">ед. не как в 1С: ${r.risk_counts.unit_mismatch}</span>`);
+    if (r.risk_counts && r.risk_counts.unit_to_kg) parts.push(`<span class="queue-warn" title="При загрузке обработка 1С переведёт эти позиции на кг — остаток в прежней единице проверьте инвентаризацией">1С переведёт на кг: ${r.risk_counts.unit_to_kg}</span>`);
     const legacy = r.legacy_lines ? `<div class="queue-sub" title="Строки записаны до пакета v2: пересчёт единиц мог быть неверным — перераспознайте, чтобы сравнить">до v2: ${r.legacy_lines}</div>` : '';
     return `${Number(r.lines) || 0} стр.${parts.length ? `<div class="queue-sub queue-line-flags">${parts.join('')}</div>` : ''}${legacy}`;
   },
@@ -420,6 +421,7 @@ const Queue = {
     switch (x.code) {
       case 'qty_flag': return x.note ? `количество под вопросом: ${x.note}` : 'количество под вопросом — проверьте пересчёт единиц';
       case 'unit_mismatch': return `в 1С позиция в «${x.onec_unit}» — проверьте количество`;
+      case 'unit_to_kg': return `в 1С позиция в «${x.onec_unit}» — при загрузке 1С переведёт её на кг`;
       case 'price_outlier': return `цена в ${String(x.ratio).replace('.', ',')} раза от обычной (${App.formatMoney(x.median_price)})`;
       case 'low_confidence': return `позиция 1С подобрана неуверенно (${Math.round((x.confidence || 0) * 100)}%)`;
       case 'new_item': return 'позиции в 1С нет — 1С создаст новую';

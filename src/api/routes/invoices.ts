@@ -490,6 +490,10 @@ router.get('/:id', async (req: Request, res: Response) => {
     const byGuid = new Map(units.map(u => [u.guid, u.unit]));
     enriched.items = enriched.items.map((it: any) => ({ ...it, onec_unit: it.onec_guid ? byGuid.get(it.onec_guid) ?? null : null }));
   }
+  // В какую единицу считается строка: «Всё в кг» — всегда кг (штучную позицию
+  // обработка 1С при загрузке переведёт на кг), иначе — единица позиции 1С.
+  const allKg = (await getEngineFlags()).all_kg;
+  enriched.items = enriched.items.map((it: any) => ({ ...it, target_unit: allKg ? 'кг' : it.onec_unit ?? null }));
 
   (enriched as typeof enriched & { possible_siblings: unknown }).possible_siblings =
     await invoiceRepo.findSiblings(id);
@@ -1726,6 +1730,8 @@ router.post('/:invoiceId/items/:itemId/revert-raw', async (req: Request, res: Re
 // body { factor, target_unit?, all_suppliers? }. factor — сколько единиц 1С в
 // одной единице накладной (1 шт батона = 0,4 кг → 0.4). Создаёт правило
 // «поставщик + товар» (или для товара у любого поставщика) и пересчитывает строку.
+// «Всё в кг»: единица правила — кг (и у строки без позиции 1С), правило в другую
+// единицу пересчёт всё равно не применил бы.
 router.post('/:invoiceId/items/:itemId/unit-rule', async (req: Request, res: Response) => {
   const ctx = await loadOwnedItem(req, res);
   if (!ctx) return;
@@ -1736,7 +1742,9 @@ router.post('/:invoiceId/items/:itemId/unit-rule', async (req: Request, res: Res
   const onecUnit = ctx.item.onec_guid
     ? (await onecNomenclatureRepo.getByGuid(ctx.item.onec_guid, ctx.invoice.owner_user_id))?.unit ?? null
     : null;
-  const target = canonUnit(typeof body.target_unit === 'string' ? body.target_unit : onecUnit);
+  const target = (await getEngineFlags()).all_kg
+    ? canonUnit('кг')
+    : canonUnit(typeof body.target_unit === 'string' ? body.target_unit : onecUnit);
   if (!target) return res.status(400).json({ error: 'Не известна единица 1С для строки — сначала сопоставьте позицию' });
   const rawUnit = canonUnit(ctx.item.raw_unit ?? ctx.item.unit)?.unit ?? null;
   const supplierKey = body.all_suppliers === true ? null : makeSupplierKey(ctx.invoice.supplier_inn, ctx.invoice.supplier);

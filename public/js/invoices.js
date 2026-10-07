@@ -1515,8 +1515,18 @@ const Invoices = {
     return alias[s] || s;
   },
 
+  // Единица строки не та, в которую её надо считать: «Всё в кг» — кг, иначе —
+  // единица позиции 1С (target_unit приходит с сервера).
   _unitMismatch(item) {
-    return !!(item.onec_unit && item.unit && this._normUnit(item.unit) !== this._normUnit(item.onec_unit));
+    const target = item.target_unit || item.onec_unit;
+    return !!(item.onec_guid && target && item.unit && this._normUnit(item.unit) !== this._normUnit(target));
+  },
+
+  // Строка в кг, а позиция 1С — в штуках/литрах: при загрузке обработка 1С
+  // переведёт позицию на кг. Не ошибка, но остаток в прежней единице надо проверить.
+  _onecSwitchesToKg(item) {
+    return !!(item.onec_unit && item.unit && this._normUnit(item.unit) === 'кг' && this._normUnit(item.onec_unit) !== 'кг'
+      && this._normUnit(item.target_unit) === 'кг');
   },
 
   // Строка с флагом пересчёта — красная. «Дешевле обычного» не красим в
@@ -1542,7 +1552,10 @@ const Invoices = {
       parts.push(`<div class="qty-flag" title="${App.esc(item.qty_flag_note || '')}">⚠ ${FLAG[item.qty_flag] || App.esc(item.qty_flag)}</div>`);
       if (item.qty_flag_note) parts.push(`<div class="conv-note">${App.esc(item.qty_flag_note)}</div>`);
     } else if (this._unitMismatch(item)) {
-      parts.push(`<div class="qty-flag">⚠ в 1С учёт в «${App.esc(item.onec_unit)}»</div>`);
+      const byRule = item.target_unit && this._normUnit(item.target_unit) !== this._normUnit(item.onec_unit);
+      parts.push(`<div class="qty-flag">⚠ ${byRule ? `строка не в «${App.esc(item.target_unit)}» — всё идёт в кг` : `в 1С учёт в «${App.esc(item.onec_unit)}»`}</div>`);
+    } else if (this._onecSwitchesToKg(item)) {
+      parts.push(`<div class="conv-note">в 1С позиция в «${App.esc(item.onec_unit)}» — при загрузке 1С переведёт её на кг</div>`);
     }
     const actions = [];
     if (item.qty_flag || this._unitMismatch(item)) {
@@ -1551,7 +1564,7 @@ const Invoices = {
     if (rawDiffers) {
       actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemRevertRaw(${invoiceId}, ${item.id})" title="Вернуть количество, единицу и цену как в накладной">↺ как в накладной</button>`);
     }
-    if (item.onec_guid && (item.qty_flag || this._unitMismatch(item) || rawDiffers)) {
+    if ((item.onec_guid || item.target_unit) && (item.qty_flag || this._unitMismatch(item) || rawDiffers)) {
       actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemRememberRule(${invoiceId}, ${item.id})" title="Запомнить, сколько единиц 1С в одной единице накладной — для этого товара у этого поставщика">📌 запомнить</button>`);
     }
     if (actions.length) parts.push(`<div class="conv-actions">${actions.join(' ')}</div>`);
@@ -1620,7 +1633,7 @@ const Invoices = {
     } catch { /* ниже сообщим */ }
     if (!item) { App.notify('Строка не найдена', 'error'); return; }
     const rawUnit = item.raw_unit || item.unit || 'ед.';
-    const target = item.onec_unit || item.unit || '';
+    const target = item.target_unit || item.onec_unit || item.unit || '';
     const guess = item.conv_factor && item.conv_factor > 0 ? String(Math.round(item.conv_factor * 1000) / 1000).replace('.', ',') : '';
     const answer = window.prompt(`Сколько «${target}» в одной «${rawUnit}» для «${item.original_name}»?
 Например, батон 0,4 кг → 0,4; упаковка по 100 шт → 100.
