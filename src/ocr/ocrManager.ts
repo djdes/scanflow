@@ -108,10 +108,18 @@ export class OcrManager {
 
     const tmpPath = path.join(os.tmpdir(), `ocr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
 
-    // Detect rotation first. Falls back to 0 on any error.
-    const rotation = opts.detectRotation === false
-      ? 0
-      : await this.detectTextRotation(imagePath, opts.target ?? await resolveAiTarget());
+    // Detect rotation first. Falls back to 0 on any error. Недоступность модели
+    // пробрасывается только путям, которые сами читают фото моделью (передают target);
+    // цепочка OCR (Google Vision / Tesseract) идёт без поворота, как раньше без ключа.
+    let rotation: 0 | 90 | 180 | 270 = 0;
+    if (opts.detectRotation !== false) {
+      try {
+        rotation = await this.detectTextRotation(imagePath, opts.target ?? await resolveAiTarget());
+      } catch (err) {
+        if (opts.target || !(err instanceof AiUnavailableError)) throw err;
+        logger.warn('Orientation skipped — AI model unavailable', { imagePath, reason: err.reason });
+      }
+    }
 
     try {
       let pipeline = sharp(imagePath).rotate(); // EXIF-based auto-rotate
