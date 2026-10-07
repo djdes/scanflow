@@ -105,6 +105,24 @@ const Invoices = {
     } catch (e) {
       console.error('Failed to load stats', e);
     }
+    this._loadAiStatus();
+  },
+
+  // Строка над списком: GPT недоступен (лимит подписки, вход) или накладные ждут его.
+  async _loadAiStatus() {
+    const el = document.getElementById('ai-status-banner');
+    if (!el) return;
+    try {
+      const { data } = await App.apiJson('/ai/status');
+      if (data.available && !data.waiting) { el.hidden = true; return; }
+      const head = data.available
+        ? 'GPT снова доступен — накладные, которые ждали, распознаются'
+        : `Распознавание приостановлено: ${data.text}`;
+      el.textContent = data.waiting ? `${head}. Ждут: ${data.waiting}.` : `${head}.`;
+      el.hidden = false;
+    } catch {
+      el.hidden = true;
+    }
   },
 
   _renderSummary() {

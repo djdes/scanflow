@@ -170,6 +170,15 @@ const Queue = {
     }
     if (counts.error) parts.push(`ошибок — ${counts.error}`);
     if (counts.skipped) parts.push(`пропущено — ${counts.skipped}`);
+    if (job.status === 'paused') {
+      return `<div class="queue-job" role="status">
+        <div class="queue-job__head">
+          <strong>${title}: на паузе, ${done} из ${planned}</strong>
+          <button type="button" class="btn btn-outline btn-sm" data-action="cancel-job" data-kind="${kind}">Остановить</button>
+        </div>
+        <div class="queue-sub">${App.esc(job.error || 'GPT сейчас недоступен — продолжится само.')}</div>
+      </div>`;
+    }
     const head = job.status === 'cancelled'
       ? `${title} остановлено: ${done} из ${planned}`
       : job.status === 'error'

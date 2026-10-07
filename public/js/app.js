@@ -408,7 +408,8 @@ const App = {
       'parsing': 'Парсинг...',
       'processed': 'Обработан',
       'sent_to_1c': 'Отправлен',
-      'error': 'Ошибка'
+      'error': 'Ошибка',
+      'waiting_ai': 'Ждёт GPT'
     };
     return map[status] || status;
   },
@@ -418,6 +419,7 @@ const App = {
       'new': 'badge-new',
       'ocr_processing': 'badge-processing',
       'parsing': 'badge-processing',
+      'waiting_ai': 'badge-processing',
       'processed': 'badge-processed',
       'sent_to_1c': 'badge-sent',
       'error': 'badge-error'

@@ -21,6 +21,8 @@ router.get('/analyzer', async (req: Request, res: Response) => {
     res.json({
       data: {
         mode: config.mode,
+        // Менять настройки распознавания может только админ (PUT закрыт requireAdmin).
+        can_edit: isAdmin,
         has_api_key: !!config.anthropic_api_key,
         anthropic_api_key: isAdmin ? config.anthropic_api_key : null,
         dadata_api_key: isAdmin ? config.dadata_api_key : null,

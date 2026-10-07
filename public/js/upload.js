@@ -434,6 +434,15 @@ const Upload = {
               App.notify(`Накладная #${invoice.id} — дубликат №${invoice.duplicate_of}`, 'warn');
               return;
             }
+            if (invoice.status === 'waiting_ai') {
+              // Фото принято, GPT сейчас недоступен — накладная распознается сама.
+              this.history[idx].status = 'ok';
+              this.history[idx].invoiceId = invoice.id;
+              this.renderHistory();
+              this.updateCounter();
+              App.notify(`Накладная #${invoice.id} принята и ждёт GPT: ${invoice.error_message || 'распознается, когда он снова будет доступен'}`, 'warn');
+              return;
+            }
             if (invoice.status === 'error') {
               this.history[idx].status = 'error';
               this.history[idx].error = invoice.error_message || 'Не удалось распознать';

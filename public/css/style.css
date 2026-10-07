@@ -490,6 +490,16 @@ tbody tr.clickable:hover { background: var(--primary-soft); }
 .badge-sent { background: var(--success-soft); color: #065f46; }
 .badge-error { background: var(--error-soft); color: #991b1b; }
 .badge-processing { background: var(--warning-soft); color: #92400e; }
+
+/* GPT недоступен или накладные ждут его — строка над списком накладных. */
+.ai-status-banner { background: var(--warning-soft); color: #92400e; border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; font-size: 14px; overflow-wrap: anywhere; }
+.ai-status-banner[hidden] { display: none; }
+
+/* Свёрнутые карточки настроек («Проверки и пересчёт»). */
+.settings-details > summary { cursor: pointer; list-style: none; }
+.settings-details > summary::-webkit-details-marker { display: none; }
+.settings-details > summary::after { content: ' ▾'; color: var(--text-secondary); }
+.settings-details[open] > summary::after { content: ' ▴'; }
 .badge-confidence-high { background: var(--success-soft); color: #065f46; }
 .badge-confidence-medium { background: var(--warning-soft); color: #92400e; }
 .badge-confidence-low { background: var(--error-soft); color: #991b1b; }

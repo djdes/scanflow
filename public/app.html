@@ -144,6 +144,7 @@
         <div><h1 class="section-h1">Накладные</h1><p class="invoice-list-lead">Обработка, проверка и оплата документов</p></div>
         <div class="review-entry"><button type="button" class="btn btn-outline" onclick="InvoiceReview.start()">Проверить следующую →</button><a href="#/upload" class="btn btn-primary" id="btn-upload-from-list">＋ Загрузить накладную</a></div>
       </div>
+      <div class="ai-status-banner" id="ai-status-banner" role="status" hidden></div>
       <div id="invoices-list">
         <div class="invoice-summary" id="invoices-summary" aria-label="Сводка по всем накладным компании"></div>
         <div class="invoice-list-workspace">
@@ -164,7 +165,7 @@
             <label>Загружено по<input type="date" class="filter-input" id="filter-date-to" onchange="Invoices.setColumnFilter('dateTo', this.value)"></label>
             <label>Сумма от<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-from" oninput="Invoices.setColumnFilter('sumFrom', this.value)"></label>
             <label>Сумма до<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" oninput="Invoices.setColumnFilter('sumTo', this.value)"></label>
-            <label>Обработка<select class="filter-input" id="filter-status" onchange="Invoices.setColumnFilter('status', this.value)"><option value="">Все</option><option value="new">Новая</option><option value="processed">Распознана</option><option value="sent_to_1c">В 1С</option><option value="error">Ошибка</option></select></label>
+            <label>Обработка<select class="filter-input" id="filter-status" onchange="Invoices.setColumnFilter('status', this.value)"><option value="">Все</option><option value="new">Новая</option><option value="processed">Распознана</option><option value="sent_to_1c">В 1С</option><option value="waiting_ai">Ждёт GPT</option><option value="error">Ошибка</option></select></label>
             <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">Черновик в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option></select></label>
           </div>
           <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
@@ -645,161 +646,93 @@
     <!-- Settings Section -->
     <section id="view-settings">
       <div class="section-header">
-        <h2>Настройки анализатора</h2>
-        <p class="section-subtitle">Выберите режим распознавания накладных</p>
+        <h2>Настройки</h2>
       </div>
+
       <div class="card">
-        <div class="form-group">
-          <label>Режим распознавания</label>
-          <div class="radio-group">
-            <label class="radio-label">
-              <input type="radio" name="analyzer-mode" value="hybrid">
-              <div>
-                <strong>Google Vision + Claude API</strong>
-                <div class="radio-desc">Google Vision извлекает текст, Claude структурирует. Лучше для сложных/мелких накладных.</div>
-              </div>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="analyzer-mode" value="claude_api" checked>
-              <div>
-                <strong>Только Claude API</strong>
-                <div class="radio-desc">Claude сам читает фото и извлекает данные. Быстрее, один запрос.</div>
-              </div>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="analyzer-mode" value="gpt">
-              <div>
-                <strong>GPT (подписка ChatGPT)</strong>
-                <div class="radio-desc">Фото читает GPT по подписке ChatGPT, подключённой здесь входом по коду — без API-ключа OpenAI. Те же промпт, проверки и сверка строк, что у Claude. PDF по-прежнему читает Claude.</div>
-              </div>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="analyzer-mode" value="dispatcher">
-              <div>
-                <strong>Диспетчер (через ProjectsFlow)</strong>
-                <div class="radio-desc">ScanFlow ставит задачу в ProjectsFlow, ваша Claude Code сессия с Max-подпиской её подбирает и обрабатывает. Без оплаты Anthropic API. Требует запущенный диспетчер-агент — см. <code>docs/dispatcher-runner.md</code>.</div>
-              </div>
-            </label>
-          </div>
-        </div>
-        <div class="form-group" id="api-key-group">
-          <label>API-ключ Anthropic</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." autocomplete="off" spellcheck="false" style="flex:1">
-            <button type="button" class="btn btn-outline" id="settings-api-key-eye" onclick="Settings.toggleReveal('settings-api-key', this)" title="Показать / скрыть">Показать</button>
-          </div>
-          <div id="api-key-status" class="field-hint"></div>
-        </div>
-        <div class="form-group" id="pf-token-group" style="display:none">
-          <label>ProjectsFlow agent token</label>
-          <input type="text" id="settings-pf-token" placeholder="pfat_..." autocomplete="off" spellcheck="false">
-          <div id="pf-token-status" class="field-hint"></div>
-          <div class="field-hint" style="margin-top:4px;font-size:12px">Используется только в режиме «Диспетчер». Возьмите токен в своём ProjectsFlow-аккаунте.</div>
-        </div>
-        <div class="form-group" id="pf-project-group" style="display:none">
-          <label>ProjectsFlow project ID</label>
-          <input type="text" id="settings-pf-project-id" placeholder="UUID проекта ScanFlow в вашем PF-аккаунте" autocomplete="off" spellcheck="false">
-          <div class="field-hint" style="margin-top:4px;font-size:12px">UUID проекта в вашем ProjectsFlow, куда будут ставиться OCR-задачи. Найдите его в URL проекта или через <code>pf_list_projects</code>.</div>
-        </div>
-        <div class="form-group" id="chatgpt-group" style="display:none">
-          <label>Подключение ChatGPT</label>
+        <h3 style="margin-bottom:12px">Распознавание</h3>
+        <div class="form-group" id="chatgpt-group">
+          <label>GPT по подписке ChatGPT</label>
           <div id="chatgpt-status" class="field-hint">Загрузка…</div>
           <div id="chatgpt-login" class="field-hint" style="display:none;margin-top:8px"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <div id="chatgpt-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
             <button type="button" class="btn btn-outline" id="chatgpt-login-btn" onclick="Settings.chatgptLogin()">Войти по коду</button>
             <button type="button" class="btn btn-outline" id="chatgpt-test-btn" onclick="Settings.chatgptTest()" style="display:none">Проверить связь</button>
             <button type="button" class="btn btn-outline" id="chatgpt-disconnect-btn" onclick="Settings.chatgptDisconnect()" style="display:none">Отключить</button>
           </div>
-          <div class="field-hint" style="margin-top:4px;font-size:12px">Вход как у Codex: ScanFlow покажет код, его нужно ввести на сайте OpenAI под своим аккаунтом ChatGPT. Токены хранятся зашифрованными и обновляются сами; расход идёт из лимитов подписки.</div>
         </div>
-        <div class="form-group" id="gpt-model-group" style="display:none">
-          <label>Модель GPT</label>
+        <div class="form-group" id="mode-warning" style="display:none">
+          <div class="field-hint" style="color:var(--warning)">Сейчас включён другой режим распознавания.</div>
+          <button type="button" class="btn btn-outline" style="margin-top:8px" onclick="Settings.switchToGpt()">Перейти на GPT</button>
+        </div>
+        <div class="form-group">
+          <label for="settings-gpt-model">Модель</label>
           <select id="settings-gpt-model">
-            <option value="gpt-6.1-sol">GPT-6.1 Sol — основная (по умолчанию)</option>
-            <option value="gpt-6-luna">GPT-6 Luna — быстрая, меньше расходует лимит</option>
-            <option value="gpt-6-astra">GPT-6 Astra — самая сильная, быстрее расходует лимит</option>
+            <option value="gpt-6.1-sol">GPT-6.1 Sol — основная</option>
+            <option value="gpt-6-luna">GPT-6 Luna — быстрее, бережёт лимит</option>
+            <option value="gpt-6-astra">GPT-6 Astra — точнее, тратит больше лимита</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Модель Claude</label>
-          <select id="settings-claude-model">
-            <option value="claude-sonnet-5">Claude Sonnet 5 — новейший, лучший баланс (по умолчанию)</option>
-            <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — предыдущий баланс</option>
-            <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — быстрый и самый дешёвый</option>
-            <option value="claude-opus-4-8">Claude Opus 4.8 — максимально точный, дорогой</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>LLM-сопоставление номенклатуры</label>
           <div class="toggle-wrap">
             <label class="toggle">
               <input type="checkbox" id="settings-llm-mapper" checked>
               <span class="toggle-slider"></span>
             </label>
-            <span>Включено</span>
+            <span>Подбирать позиции 1С при распознавании</span>
           </div>
-          <div class="field-hint">
-            Claude получает ваш справочник 1С вместе с фото накладной и сам выбирает
-            подходящий товар для каждой позиции. Точнее, чем fuzzy-поиск по буквам,
-            и не добавляет отдельных API-вызовов — всё в одном запросе OCR.
-          </div>
+          <div class="field-hint">GPT выбирает товар из справочника 1С сразу при чтении фото.</div>
         </div>
-        <div class="form-group">
-          <label>DaData API-ключ</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input type="password" id="settings-dadata-key" placeholder="токен DaData (suggestions API)" autocomplete="off" spellcheck="false" style="flex:1">
-            <button type="button" class="btn btn-outline" id="settings-dadata-key-eye" onclick="Settings.toggleReveal('settings-dadata-key', this)" title="Показать / скрыть">Показать</button>
-          </div>
-          <div id="dadata-key-status" class="field-hint"></div>
-          <div class="field-hint" style="margin-top:4px;font-size:12px">Включает кнопку «Заполнить по ИНН (DaData)» в карточке поставщика — подтягивает название, КПП и адрес по ИНН. Бесплатный тариф: <code>dadata.ru</code>.</div>
-        </div>
-        <div class="form-actions">
+        <div class="form-actions settings-admin-only">
           <button class="btn btn-primary" onclick="Settings.save()">Сохранить</button>
         </div>
       </div>
 
       <div class="card" style="margin-top:24px">
-        <h3 style="margin-bottom:16px">Автоматизация после распознавания</h3>
-
+        <h3 style="margin-bottom:12px">Автоматизация</h3>
         <div class="form-group">
-          <label>Автоотправка в 1С</label>
           <div class="toggle-wrap">
             <label class="toggle">
               <input type="checkbox" id="settings-auto-send-1c">
               <span class="toggle-slider"></span>
             </label>
-            <span id="settings-auto-send-1c-text">Выключена</span>
+            <span>Сразу отправлять в 1С</span>
           </div>
-          <div class="field-hint">Сразу после успешного распознавания накладная помечается как одобренная (`approved_for_1c=1`) и подтянется в 1С на следующем pull'е. Дубликаты и накладные с ошибкой OCR пропускаются.</div>
+          <div class="field-hint">Распознанная накладная без ошибок сразу уходит в 1С.</div>
         </div>
-
-        <div class="form-group" style="margin-top:20px">
-          <label>Автоотправка черновика в Сбербанк</label>
+        <div class="form-group" style="margin-top:16px">
           <div class="toggle-wrap">
             <label class="toggle">
               <input type="checkbox" id="settings-auto-send-sber">
               <span class="toggle-slider"></span>
             </label>
-            <span id="settings-auto-send-sber-text">Выключена</span>
+            <span>Сразу создавать платёжку в Сбере</span>
           </div>
-          <div class="field-hint">Сразу после распознавания создаётся черновик платёжного поручения в СберБизнес. Поставщик должен быть `verified=1` в Поставщиках, иначе автоотправка тихо пропускается (только лог) — нужно вручную подтвердить реквизиты при первой отправке.</div>
-        </div>
-
-        <div class="form-actions">
-          <button class="btn btn-primary" onclick="Settings.saveAutoSend()">Сохранить</button>
+          <div class="field-hint">Черновик создаётся только для подтверждённых поставщиков.</div>
         </div>
       </div>
 
-      <!-- Переключатели движков v2 (единицы, сопоставление, обучение).
-           Рендерит settings.js; менять может только админ. -->
+      <div class="card" style="margin-top:24px">
+        <h3 style="margin-bottom:12px">Поставщики</h3>
+        <div class="form-group">
+          <label for="settings-dadata-key">Ключ DaData</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="password" id="settings-dadata-key" placeholder="токен DaData" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
+            <button type="button" class="btn btn-outline" id="settings-dadata-key-eye" onclick="Settings.toggleReveal('settings-dadata-key', this)" title="Показать / скрыть">Показать</button>
+          </div>
+          <div id="dadata-key-status" class="field-hint"></div>
+          <div class="field-hint">Нужен для кнопки «Заполнить по ИНН» в карточке поставщика.</div>
+        </div>
+        <div class="form-actions settings-admin-only">
+          <button class="btn btn-primary" onclick="Settings.saveDadata()">Сохранить</button>
+        </div>
+      </div>
+
+      <!-- «Проверки и пересчёт» (флаги движков v2). Рендерит settings.js; менять может только админ. -->
       <div id="settings-engine-flags"></div>
 
-      <!-- Admin-only: эталонные накладные (п.17 v2) — прогон и отчёты.
-           Рендерит settings.js, только если GET /api/golden/runs вернул 200. -->
+      <!-- Только админ: эталоны, команда, компании. Рендерит settings.js, если API ответил 200. -->
       <div id="settings-golden"></div>
-
-      <!-- Admin-only: team & roles. Rendered by settings.js only when
-           GET /api/users returns 200 (i.e. the caller is an admin). -->
       <div id="settings-users"></div>
       <div id="settings-companies"></div>
     </section>
