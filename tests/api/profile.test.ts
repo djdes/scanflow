@@ -28,6 +28,14 @@ vi.mock('../../src/database/repositories/userRepo', () => ({
   },
 }));
 
+// «Всё в кг» — настройка компании; без БД (в CI её нет) — в памяти.
+let memAllKg = false;
+vi.mock('../../src/services/engineFlags', () => ({ getEngineFlags: vi.fn(async () => ({ all_kg: true })) }));
+vi.mock('../../src/services/companyUnits', () => ({
+  getCompanyAllKgSetting: vi.fn(async () => memAllKg),
+  setCompanyAllKg: vi.fn(async (_id: number, on: boolean) => { memAllKg = on; }),
+}));
+
 vi.mock('../../src/utils/mailer', () => ({
   sendNotification: vi.fn(async () => {}),
   smtpConfigured: vi.fn(() => true),
@@ -134,6 +142,25 @@ describe('PATCH /api/profile (Telegram fields)', () => {
     expect(res.status).toBe(200);
     expect(memTgChat).toBeNull();
     expect(memTgToken).toBeNull();
+  });
+});
+
+describe('«Всё в килограммах» — настройка компании', () => {
+  beforeEach(() => { memAllKg = false; vi.clearAllMocks(); });
+
+  it('GET отдаёт настройку компании и общий выключатель', async () => {
+    const res = await request(makeApp()).get('/api/profile');
+    expect(res.body.data).toMatchObject({ units_all_kg: false, units_all_kg_platform: true });
+  });
+
+  it('PATCH включает и выключает; не boolean — 400', async () => {
+    let res = await request(makeApp()).patch('/api/profile').send({ units_all_kg: true });
+    expect(res.status).toBe(200);
+    expect(res.body.data.units_all_kg).toBe(true);
+    res = await request(makeApp()).patch('/api/profile').send({ units_all_kg: false });
+    expect(memAllKg).toBe(false);
+    res = await request(makeApp()).patch('/api/profile').send({ units_all_kg: 'yes' });
+    expect(res.status).toBe(400);
   });
 });
 
