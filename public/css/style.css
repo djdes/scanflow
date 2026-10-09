@@ -5496,3 +5496,7 @@ dialog.review-confirm p {
   table.cards-mobile.intlog-table tbody tr.intlog-day { border: none; background: transparent; box-shadow: none; padding: 8px 0 0; }
   table.cards-mobile.intlog-table tbody tr.intlog-day td::before { content: none; }
 }
+.intlog-table a.intlog-inv { color: var(--primary); text-decoration: none; }
+.intlog-table a.intlog-inv:hover { text-decoration: underline; }
+.intlog-table a.intlog-card { text-decoration: none; }
+.intlog-table a.intlog-card:hover { color: var(--primary); }

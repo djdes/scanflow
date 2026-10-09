@@ -28,9 +28,10 @@ const IntegrationsLog = {
         const head = d !== day ? `<tr class="intlog-day"><td colspan="2">${App.esc(d)}</td></tr>` : '';
         day = d;
         const { icon, html, error } = this._describe(ev);
+        const card = ev.invoice_id ? ` <a href="#/invoices/${ev.invoice_id}" class="intlog-card" title="Карточка накладной">карточка →</a>` : '';
         return `${head}<tr class="intlog-row${error ? ' intlog-row--error' : ''}">
           <td data-label="Время" class="intlog-time">${App.esc(this._time(ev.ts))}</td>
-          <td data-label="Что произошло"><span class="intlog-icon" aria-hidden="true">${icon}</span>${html}</td>
+          <td data-label="Что произошло"><span class="intlog-icon" aria-hidden="true">${icon}</span>${html}${card}</td>
         </tr>`;
       }).join('');
     } catch (e) {
@@ -40,31 +41,32 @@ const IntegrationsLog = {
   },
 
   // Одна понятная фраза на событие. Неизвестное событие — его текст как есть.
+  // Номер накладной в фразе — ссылка на её скан (_invoiceRef, падеж слова — от фразы).
   _describe(ev) {
-    const inv = this._invoiceRef(ev);
+    const inv = (word) => this._invoiceRef(ev, word);
     const err = this._errorText(ev);
-    const tail = (summary) => App.esc(String(summary || '').replace(/^[^:]*:\s*/, ''));
-    const k = `${ev.integration}:${ev.event_type}`;
-    switch (k) {
-      case '1c:approved': return { icon: '📤', html: `Отправлена в 1С ${inv} <span class="muted">— ждёт, пока 1С её заберёт</span>` };
-      case '1c:document_posted': return { icon: '✅', html: `1С провела ${inv}${this._docRef(ev)}` };
-      case '1c:document_created': return { icon: '📄', html: `1С создала документ по ${inv}${this._docRef(ev)} <span class="muted">— не проведён</span>` };
-      case '1c:sent': return { icon: '✅', html: `Загружена в 1С ${inv}` };
+    const tail = (summary) => App.esc(String(summary || '').replace(/^[^:]*:s*/, ''));
+    const waiting = ev.invoice_id && !ev.sent_at ? ' <span class="muted">— ждёт, пока 1С её заберёт</span>' : '';
+    switch (`${ev.integration}:${ev.event_type}`) {
+      case '1c:approved': return { icon: '📤', html: `Отправлена в 1С ${inv('накладная')}${waiting}` };
+      case '1c:document_posted': return { icon: '✅', html: `1С провела ${inv('накладную')}${this._docRef(ev)}` };
+      case '1c:document_created': return { icon: '📄', html: `1С создала документ по ${inv('накладной')}${this._docRef(ev)} <span class="muted">— не проведён</span>` };
+      case '1c:sent': return { icon: '✅', html: `Загружена в 1С ${inv('накладная')}` };
       case '1c:document_rejected':
-      case '1c:document_error': return { icon: '⚠️', html: `1С не приняла ${inv}${err ? `: ${App.esc(err)}` : ''}`, error: true };
-      case '1c:unapproved': return { icon: '↩️', html: `Отправка в 1С отозвана: ${inv}` };
-      case '1c:reset': return { icon: '🔁', html: `Можно отправить в 1С заново: ${inv}` };
+      case '1c:document_error': return { icon: '⚠️', html: `1С не приняла ${inv('накладную')}${err ? `: ${App.esc(err)}` : ''}`, error: true };
+      case '1c:unapproved': return { icon: '↩️', html: `Отозвана отправка в 1С: ${inv('накладная')}` };
+      case '1c:reset': return { icon: '🔁', html: `Можно снова отправить в 1С: ${inv('накладная')}` };
       case '1c:poll': return { icon: '🔄', html: '1С проверила очередь' };
-      case 'nomenclature:sync_requested': return { icon: '🆕', html: `В ${inv} новые товары — справочник 1С выгрузится заново` };
+      case 'nomenclature:sync_requested': return { icon: '🆕', html: `Новые товары в ${inv('накладной')} — справочник 1С выгрузится заново` };
       case 'nomenclature:catalog_synced':
       case 'nomenclature:catalog_imported': return { icon: '📚', html: `Справочник 1С обновлён: ${tail(ev.summary)}` };
-      case 'sber:payment_created': return { icon: '💳', html: `Создан черновик платёжки в СберБизнес по ${inv}` };
-      case 'sber:payment_failed': return { icon: '⚠️', html: `Платёжка в СберБизнес не создана по ${inv}${err ? `: ${App.esc(err)}` : ''}`, error: true };
-      case 'sber:payment_status': return { icon: '💳', html: `Платёжка по ${inv}: ${tail(ev.summary)}`, error: ev.status === 'error' };
-      case 'sber:paid_externally_set': return { icon: '💰', html: `Отмечена оплаченной без Сбера: ${inv}` };
-      case 'sber:paid_externally_cleared': return { icon: '💰', html: `Снята отметка «оплачена без Сбера»: ${inv}` };
-      case 'webhook:webhook_sent': return { icon: '📨', html: `Вебхук отправлен по ${inv}` };
-      case 'webhook:webhook_failed': return { icon: '⚠️', html: `Вебхук не отправлен по ${inv}`, error: true };
+      case 'sber:payment_created': return { icon: '💳', html: `Создан черновик платёжки в СберБизнес по ${inv('накладной')}` };
+      case 'sber:payment_failed': return { icon: '⚠️', html: `Не создана платёжка в СберБизнес по ${inv('накладной')}${err ? `: ${App.esc(err)}` : ''}`, error: true };
+      case 'sber:payment_status': return { icon: '💳', html: `Платёжка по ${inv('накладной')}: ${tail(ev.summary)}`, error: ev.status === 'error' };
+      case 'sber:paid_externally_set': return { icon: '💰', html: `Отмечена оплаченной без Сбера ${inv('накладная')}` };
+      case 'sber:paid_externally_cleared': return { icon: '💰', html: `Снята отметка «оплачена без Сбера»: ${inv('накладная')}` };
+      case 'webhook:webhook_sent': return { icon: '📨', html: `Вебхук отправлен по ${inv('накладной')}` };
+      case 'webhook:webhook_failed': return { icon: '⚠️', html: `Вебхук не отправлен по ${inv('накладной')}`, error: true };
       default: {
         const label = this._LABELS[ev.integration] || ev.integration;
         return { icon: '•', html: `<span class="muted">${App.esc(label)}:</span> ${App.esc(ev.summary || ev.event_type)}`, error: ev.status === 'error' };
@@ -72,17 +74,16 @@ const IntegrationsLog = {
     }
   },
 
-  // «накладная №17-0605773 · Свит Лайф Фудсервис · 107 528,07 ₽»; номер открывает скан.
-  _invoiceRef(ev) {
-    if (!ev.invoice_id) return 'накладная';
+  // «накладную №17-0605773 · Свит Лайф Фудсервис · 107 528,07 ₽»; номер открывает скан.
+  _invoiceRef(ev, word) {
+    if (!ev.invoice_id) return word;
     const num = ev.invoice_number ? `№${ev.invoice_number}` : `#${ev.invoice_id}`;
     const parts = [];
     if (ev.supplier) parts.push(App.esc(ev.supplier));
     if (ev.total_sum != null) parts.push(`${App.formatMoney(ev.total_sum)} ₽`);
-    return `накладная <a href="#/invoices/${ev.invoice_id}" class="intlog-inv" title="Открыть скан накладной"
+    return `${word} <a href="#/invoices/${ev.invoice_id}" class="intlog-inv" title="Открыть скан накладной"
       onclick="event.preventDefault(); IntegrationsLog.openScan(${ev.invoice_id}, ${ev.id})">${App.esc(num)}</a>`
-      + (parts.length ? ` <span class="muted">· ${parts.join(' · ')}</span>` : '')
-      + ` <a href="#/invoices/${ev.invoice_id}" class="intlog-card" title="Карточка накладной">карточка →</a>`;
+      + (parts.length ? ` <span class="muted">· ${parts.join(' · ')}</span>` : '');
   },
 
   // «… → Приходная накладная 2644 (вх. 17-0605773)» — из текста статуса 1С.

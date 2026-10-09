@@ -22,13 +22,13 @@ describe('integrationEventRepo.recent — журнал своей компани
 
   it('пользователь — только события своей компании, фильтры параметрами', async () => {
     await integrationEventRepo.recent({ integration: '1c', ownerUserId: 3, limit: 50, withoutPolls: true });
-    expect(sqls[0]).toBe("SELECT e.*, i.invoice_number, i.invoice_date, i.supplier, i.total_sum FROM integration_events e LEFT JOIN invoices i ON i.id = e.invoice_id WHERE e.integration = ? AND e.owner_user_id = ? AND e.event_type <> 'poll' ORDER BY e.ts DESC, e.id DESC LIMIT 50 OFFSET 0");
+    expect(sqls[0]).toBe("SELECT e.*, i.invoice_number, i.invoice_date, i.supplier, i.total_sum, i.sent_at FROM integration_events e LEFT JOIN invoices i ON i.id = e.invoice_id WHERE e.integration = ? AND e.owner_user_id = ? AND e.event_type <> 'poll' ORDER BY e.ts DESC, e.id DESC LIMIT 50 OFFSET 0");
     expect(params[0]).toEqual(['1c', 3]);
   });
 
   it('админ без фильтра — вся платформа', async () => {
     await integrationEventRepo.recent({});
-    expect(sqls[0]).toBe('SELECT e.*, i.invoice_number, i.invoice_date, i.supplier, i.total_sum FROM integration_events e LEFT JOIN invoices i ON i.id = e.invoice_id ORDER BY e.ts DESC, e.id DESC LIMIT 100 OFFSET 0');
+    expect(sqls[0]).toBe('SELECT e.*, i.invoice_number, i.invoice_date, i.supplier, i.total_sum, i.sent_at FROM integration_events e LEFT JOIN invoices i ON i.id = e.invoice_id ORDER BY e.ts DESC, e.id DESC LIMIT 100 OFFSET 0');
     expect(params[0]).toEqual([]);
   });
 });

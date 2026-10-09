@@ -14,6 +14,8 @@ export interface IntegrationEvent {
   invoice_date?: string | null;
   supplier?: string | null;
   total_sum?: number | null;
+  /** Накладная уже в 1С — чтобы не писать «ждёт» у давно загруженной. */
+  sent_at?: string | null;
 }
 
 export const integrationEventRepo = {
@@ -32,7 +34,7 @@ export const integrationEventRepo = {
     if (opts.ownerUserId != null) { where.push('e.owner_user_id = ?'); params.push(opts.ownerUserId); }
     if (opts.withoutPolls) where.push("e.event_type <> 'poll'");
     return getDb()
-      .prepare(`SELECT e.*, i.invoice_number, i.invoice_date, i.supplier, i.total_sum
+      .prepare(`SELECT e.*, i.invoice_number, i.invoice_date, i.supplier, i.total_sum, i.sent_at
          FROM integration_events e LEFT JOIN invoices i ON i.id = e.invoice_id${where.length ? ` WHERE ${where.join(' AND ')}` : ''}
          ORDER BY e.ts DESC, e.id DESC LIMIT ${lim} OFFSET ${off}`)
       .all<IntegrationEvent>(...params);
