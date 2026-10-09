@@ -88,6 +88,8 @@ const Invoices = {
     if (typeof InvoiceReview !== 'undefined') InvoiceReview.leave();
     InvoicePhotoViewer.close();
     this._currentInvoiceId = null;
+    if (typeof InvoiceCard !== 'undefined') InvoiceCard.closeMenu();
+    document.getElementById('view-invoices')?.classList.remove('is-detail');
     document.getElementById('invoices-list').style.display = 'block';
     document.getElementById('invoice-detail').style.display = 'none';
     await this.loadTable();
@@ -125,22 +127,21 @@ const Invoices = {
     }
   },
 
+  // Пять равных карточек-фильтров (спек 2026-10-09): число крупно, подпись мелко, выбранная — в рамке.
   _renderSummary() {
     const data = this._stats || {};
     const w = data.workflow || {};
     const cards = [
-      ['attention', 'Требуют внимания', 'Проверка реквизитов, товаров и ошибок', 'warning'],
-      ['ready', 'Готовы к отправке', 'Без замечаний в списке', 'success'],
-      ['queue', 'В очереди 1С', 'Ожидают загрузки', 'primary'],
-      ['payment', 'Без платёжки в Сбер', `На сумму ${App.formatMoney(w.paymentSum || 0)} ₽`, 'neutral'],
+      ['all', 'Все накладные', data.total, 'Вся компания', 'neutral'],
+      ['attention', 'Требуют внимания', w.attention, 'Реквизиты, товары, ошибки', 'warning'],
+      ['ready', 'Готовы к отправке', w.ready, 'Без замечаний', 'success'],
+      ['queue', 'В очереди 1С', w.queue, 'Ждут загрузки в 1С', 'primary'],
+      ['payment', 'Без платёжки', w.payment, w.paymentSum ? `На ${App.formatMoney(w.paymentSum)} ₽` : 'В СберБизнес', 'neutral'],
     ];
-    document.getElementById('invoices-summary').innerHTML = cards.map(([key, label, hint, tone]) => `
+    document.getElementById('invoices-summary').innerHTML = cards.map(([key, label, count, hint, tone]) => `
       <button type="button" class="invoice-summary-card invoice-summary-card--${tone}" aria-pressed="${this.currentView === key}" onclick="Invoices.setView('${key}')">
-        <span>${label}</span><strong>${w[key] ?? '—'}</strong><small>${hint}</small>
+        <span>${label}</span><strong>${count ?? '—'}</strong><small>${App.esc(hint)}</small>
       </button>`).join('');
-    const tabs = [['all', 'Все накладные', data.total], ...cards.slice(0, 3).map(c => [c[0], c[1], w[c[0]]]), ['payment', 'Без платёжки', w.payment]];
-    document.getElementById('invoice-view-tabs').innerHTML = tabs.map(([key, label, count]) => `
-      <button type="button" class="invoice-view-tab${this.currentView === key ? ' active' : ''}" aria-pressed="${this.currentView === key}" onclick="Invoices.setView('${key}')">${label} <span>${count ?? '—'}</span></button>`).join('');
   },
 
   setView(view) {
@@ -164,14 +165,14 @@ const Invoices = {
   },
 
   _reviewText(inv) {
-    const reasons = { error: 'Ошибка распознавания — откройте документ', duplicate: 'Возможный дубликат', total: 'Сумма расходилась с товарами — сверьте с фото', header: 'Не заполнены обязательные реквизиты', items: 'Нет распознанных товаров', quantity: 'Проверьте количество и единицы', mapping: 'Есть товары без сопоставления с 1С', supplier: 'Поставщик подобран по названию — проверьте ИНН' };
+    const reasons = { error: 'Ошибка распознавания — откройте документ', duplicate: 'Возможный дубликат', incomplete_pages: 'Накладная снята не полностью — проверьте страницы', total: 'Сумма расходилась с товарами — сверьте с фото', header: 'Не заполнены обязательные реквизиты', items: 'Нет распознанных товаров', quantity: 'Проверьте количество и единицы', mapping: 'Есть товары без сопоставления с 1С', supplier: 'Поставщик подобран по названию — проверьте ИНН' };
     return reasons[inv.review_reason] || '';
   },
 
   _rowAction(inv) {
-    if (inv.review_reason) return `<button type="button" class="btn btn-outline btn-sm" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Проверить</button>`;
-    if (inv.status === 'processed' && !inv.approved_for_1c) return `<button type="button" class="btn btn-primary btn-sm" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
-    return `<button type="button" class="btn btn-outline btn-sm" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Открыть</button>`;
+    if (inv.review_reason) return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Проверить</button>`;
+    if (inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-primary btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
+    return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Открыть</button>`;
   },
 
   async loadTable() {
@@ -238,14 +239,15 @@ const Invoices = {
         }
         const review = this._reviewText(inv);
         const priceCount = Number(inv.elevated_price_count) || 0;
+        const notes = [review, priceCount ? `${priceCount} ${this._plural(priceCount, 'позиция', 'позиции', 'позиций')} дороже обычного` : ''].filter(Boolean);
         rowsHtml.push(`
           <tr class="clickable${inv.review_reason ? ' invoice-needs-review' : ''}${!inv.read_at ? ' unread' : ''}${this.isVisited(inv.id) ? ' inv-visited' : ''}" data-day="${day}" onclick="Invoices.openInvoice(${inv.id})">
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${App.esc(inv.invoice_number || inv.id)}"></td>
             <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small>${App.formatDate(inv.invoice_date)} · #${inv.id}</small>${inv.duplicate_of ? `<a href="#/invoices/${inv.duplicate_of}" onclick="event.stopPropagation()" class="invoice-duplicate-link">Дубликат #${inv.duplicate_of}</a>` : ''}</div></td>
-            <td data-label="Поставщик"><div class="invoice-cell-stack"><span>${App.esc(inv.supplier || 'Не указан')}</span>${priceCount ? `<small class="invoice-price-note">${priceCount} ${this._plural(priceCount, 'позиция', 'позиции', 'позиций')} дороже обычного &gt;10%</small>` : ''}</div></td>
+            <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span>${notes.length ? `<small class="inv-notes">${notes.map(n => App.esc(n)).join(' · ')}</small>` : ''}</div></td>
             <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${this._vatLine(inv)}</div></td>
-            <td data-label="Обработка"><div class="invoice-cell-stack">${this._statusCell(inv)}${review ? `<small class="invoice-review-reason">${App.esc(review)}</small>` : ''}</div></td>
-            <td data-label="Платёж"><div class="invoice-cell-stack">${this._sberCell(inv)}</div></td>
+            <td class="col-state" data-label="1С"><div class="invoice-cell-stack">${this._onecPill(inv)}</div></td>
+            <td class="col-state" data-label="Оплата"><div class="invoice-cell-stack">${this._payPill(inv)}</div></td>
             <td class="cell-action">${this._rowAction(inv)}<button type="button" class="btn-icon-gear" aria-label="Другие действия для накладной ${inv.id}" title="Другие действия" onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">•••</button></td>
           </tr>`);
       }
@@ -385,6 +387,7 @@ const Invoices = {
     const LABELS = {
       not_processed: 'не в статусе «Обработан»',
       already_approved: 'уже отправлена в 1С',
+      incomplete_pages: 'накладная снята не полностью — добавьте недостающие страницы',
       over_threshold: 'выше лимита — отправьте по одной',
       supplier_unverified: 'поставщик не подтверждён — отправьте по одной',
       already_paid: 'платёж уже создан',
@@ -630,16 +633,25 @@ const Invoices = {
     return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:12px" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
   },
 
-  // Status badge for the list. A 'processed' invoice that's been approved for 1C
-  // pickup shows a distinct «Ожидает 1С» badge (full text in the tooltip) instead
-  // of the plain «Обработан» — mirrors the detail page's "Ожидает загрузки в 1С".
-  _statusCell(inv) {
-    if (inv.status === 'error') return '<span class="badge badge-error">Ошибка</span>';
-    if (inv.review_reason) return '<span class="badge badge-review">Требует проверки</span>' + (inv.approved_for_1c ? '<small>Разрешена загрузка в 1С</small>' : '');
-    if (inv.status === 'processed' && inv.approved_for_1c) return '<span class="badge badge-sent">Ожидает 1С</span>';
-    if (inv.status === 'processed') return '<span class="badge badge-processed">Готова к отправке</span>';
-    if (inv.status === 'sent_to_1c') return '<span class="badge badge-complete">В 1С</span>';
-    return App.statusBadge(inv.status);
+  // Плашка статуса в списке: точка + текст, подпись мелко под ней. Цвета одни на
+  // обе колонки: серый — ещё нет, синий — в работе, зелёный — готово, янтарный —
+  // нужно внимание, красный — ошибка. note приходит уже экранированным.
+  _pill(tone, text, note = '') {
+    return `<span class="inv-pill inv-pill--${tone}"><i aria-hidden="true"></i>${text}</span>${note ? `<small class="inv-pill-note" title="${note}">${note}</small>` : ''}`;
+  },
+
+  // Колонка «1С»: где накладная на пути в 1С.
+  _onecPill(inv) {
+    if (inv.duplicate_of || inv.status === 'duplicate') return this._pill('amber', 'Дубликат', 'не отправляется');
+    if (inv.status === 'error') return this._pill('red', 'Ошибка', 'распознавания');
+    if (inv.status === 'waiting_ai') return this._pill('blue', 'Ждёт GPT', 'распознается позже');
+    if (['new', 'ocr_processing', 'parsing'].includes(inv.status)) return this._pill('blue', 'Распознаётся');
+    if (['error', 'rejected'].includes(inv.onec_status)) return this._pill('red', 'Не принята', App.esc(inv.onec_error || 'ошибка 1С'));
+    // «В 1С» — по статусу накладной: после «Сбросить статус» onec_status остаётся прежним.
+    if (inv.status === 'sent_to_1c') return this._pill('green', 'В 1С', inv.onec_status === 'created' ? 'не проведена' : '');
+    if (inv.approved_for_1c) return this._pill('blue', 'В очереди', 'ждёт загрузки');
+    if (inv.review_reason) return this._pill('amber', 'Проверить');
+    return this._pill('grey', 'Не отправлена');
   },
 
   // ── Чек-лист «сверено с фото» ─────────────────────────────────────────────
@@ -655,31 +667,6 @@ const Invoices = {
     vat_rate: null,   // ставка живёт в позициях, отдельного поля шапки нет
   },
 
-  // Ставка НДС хранится по позициям, поэтому в шапке показываем набор
-  // уникальных ставок: «10%», «10%, 20%» на смешанной накладной или «—», если
-  // ставку не распознали. Сверять есть что именно здесь — в таблице позиций
-  // ставка тонет среди строк.
-  _vatRatesText(items) {
-    const rates = [...new Set((items || [])
-      .map(i => i.vat_rate)
-      .filter(r => r != null && r !== ''))]
-      .map(Number)
-      .filter(r => Number.isFinite(r))
-      .sort((a, b) => a - b);
-    if (!rates.length) return '<span class="muted">—</span>';
-    return rates.map(r => `${r}%`).join(', ');
-  },
-
-  _attrCheckbox(data, attr) {
-    const checked = data[`attr_checked_${attr}`] ? ' checked' : '';
-    const xml = App.isXmlInvoice(data);
-    return `<label class="attr-check" title="Отметить, что реквизит сверён с ${xml ? 'документом' : 'фотографией'}">
-      <input type="checkbox"${checked} data-attr="${attr}"
-             onchange="Invoices.toggleAttrCheck(${data.id}, '${attr}', this.checked)"
-             aria-label="Сверено с ${xml ? 'документом' : 'фото'}">
-    </label>`;
-  },
-
   // Отметить/снять один реквизит. Состояние берём ИЗ ОТВЕТА сервера, а не из
   // предположения: так интерфейс не разойдётся с базой, если запрос не прошёл.
   async toggleAttrCheck(id, attr, value) {
@@ -690,9 +677,6 @@ const Invoices = {
       this._applyAttrState(data);
     } catch (e) {
       App.notify('Не удалось сохранить отметку', 'error');
-      // Откатываем визуально: сервер состояние не принял.
-      const box = document.querySelector(`.attr-check input[data-attr="${attr}"]`);
-      if (box) box.checked = !value;
       this._syncSberGate();
     }
   },
@@ -709,27 +693,24 @@ const Invoices = {
     }
   },
 
-  // Разложить состояние с сервера по чекбоксам полей и пересчитать гейт.
+  // Состояние сверки с сервера: в карточку (шаг «Сверка»), гейт Сбера и панель проверки.
   _applyAttrState(state) {
     if (!state) return;
-    Object.keys(this.ATTR_FIELDS).forEach(attr => {
-      const box = document.querySelector(`.attr-check input[data-attr="${attr}"]`);
-      if (box) box.checked = !!state[attr];
-    });
+    const inv = typeof InvoiceCard !== 'undefined' ? InvoiceCard.inv : null;
+    if (inv && inv.id === this._currentInvoiceId) {
+      Object.keys(this.ATTR_FIELDS).forEach(attr => { inv[`attr_checked_${attr}`] = state[attr] ? 1 : 0; });
+      InvoiceCard.renderSteps();
+    }
     this._syncSberGate();
-    if (typeof InvoiceReview !== 'undefined') InvoiceReview.refresh();
+    if (typeof InvoiceReview !== 'undefined') { InvoiceReview.renderDecision(); InvoiceReview.refresh(); }
   },
 
   // Единственное место, где решается, можно ли жать «Отправить в Сбербанк».
   // Зовётся и после переключения галочки, и после отрисовки блока Сбера.
   _syncSberGate() {
-    const boxes = [...document.querySelectorAll('.attr-check input[data-attr]')];
-    if (!boxes.length) return;
-    const missing = boxes.filter(b => !b.checked)
-      .map(b => ({
-        number: 'Номер', date: 'Дата', supplier: 'Поставщик',
-        total: 'Сумма', vat: 'НДС', vat_rate: 'Ставка НДС',
-      })[b.dataset.attr]);
+    const inv = typeof InvoiceCard !== 'undefined' ? InvoiceCard.inv : null;
+    if (!inv || inv.id !== this._currentInvoiceId) return;
+    const missing = InvoiceCard.requisites(inv).filter(r => !r.checked).map(r => r.label);
     const all = missing.length === 0;
 
     const master = document.getElementById('sber-attrs-all');
@@ -759,45 +740,37 @@ const Invoices = {
       : '<div class="list-vat">без НДС</div>';
   },
 
-  // Renders one cell in the invoices list that shows whether a Sber payment
-  // exists for this invoice (created/failed/pending), so the user can spot at
-  // a glance which invoices have already been pushed to the bank.
-  _sberCell(inv) {
-    if (inv.paid_externally) return '<span class="badge badge-complete">Оплачено вне сервиса</span>';
-    const status = inv.sber_payment_status;
-    if (status === 'created' && inv.sber_bank_kind === 'paid') return '<span class="badge badge-processed">Оплачено</span><small>Исполнено банком</small>';
-    if (status === 'failed' || inv.sber_bank_kind === 'failed') return `<span class="badge badge-error">Ошибка платежа</span><small>${App.esc(inv.sber_bank_label || 'Откройте документ')}</small>`;
-    if (status === 'pending') return '<span class="badge badge-review">Создаётся</span>';
+  // Колонка «Оплата»: платёжка в СберБизнес или отметка «оплачено вне сервиса».
+  _payPill(inv) {
+    if (inv.paid_externally) return this._pill('green', 'Оплачено', 'вне сервиса');
+    const status = inv.sber_payment_status, kind = inv.sber_bank_kind;
+    if (status === 'created' && kind === 'paid') return this._pill('green', 'Оплачено', 'исполнено банком');
+    if (status === 'failed' || kind === 'failed') return this._pill('red', 'Ошибка', App.esc(inv.sber_bank_label || 'платёжка не создана'));
+    if (status === 'pending') return this._pill('blue', 'Создаётся');
     if (status === 'created') {
-      const draft = !inv.sber_bank_kind || inv.sber_bank_kind === 'draft' || inv.sber_bank_kind === 'unknown';
-      return `<span class="badge badge-sent">${draft ? 'Черновик' : 'В работе банка'}</span><small>${App.esc(inv.sber_bank_label || 'Создан в СберБизнес')}</small>`;
+      const draft = !kind || kind === 'draft' || kind === 'unknown';
+      return this._pill('blue', draft ? 'Черновик' : 'В банке', draft ? 'ждёт подписи' : App.esc(inv.sber_bank_label || 'в работе банка'));
     }
-    return `<span class="badge badge-complete">Не создан</span>${inv.sber_overdue ? `<small class="invoice-review-reason">Без платёжки более ${Number(inv.sber_overdue_days) || 14} дней</small>` : ''}`;
+    if (inv.sber_overdue) return this._pill('amber', 'Нет платёжки', `больше ${Number(inv.sber_overdue_days) || 14} дней`);
+    return this._pill('grey', 'Нет платёжки');
   },
 
   async showDetail(id) {
     if (typeof InvoiceReview !== 'undefined') InvoiceReview.reset(id);
     document.getElementById('invoices-list').style.display = 'none';
     document.getElementById('invoice-detail').style.display = 'block';
+    document.getElementById('view-invoices')?.classList.add('is-detail');
 
+    const switching = this._currentInvoiceId !== id;
     this._currentInvoiceId = id;
     this._photosLoaded = false;
     this._photoFiles = [];
-    this._reviewPhotos = false;
-    document.getElementById('invoice-review-workspace').classList.remove('invoice-review-split');
-    document.getElementById('invoice-review-toggle').setAttribute('aria-pressed', 'false');
     InvoicePhotoViewer.close();
+    if (typeof InvoiceCard !== 'undefined') InvoiceCard.closeMenu();
     this._markVisited(id);
     this._loadNeighbours(id);
-
-    // Reset to items tab
-    document.getElementById('invoice-tab-items').style.display = 'block';
-    document.getElementById('invoice-tab-photos').style.display = 'none';
-    document.getElementById('invoice-tab-ocr').style.display = 'none';
-    document.getElementById('invoice-tab-history').style.display = 'none';
-    document.getElementById('invoice-tab-history').innerHTML = '';
-    const tabBtns = document.querySelectorAll('#invoice-detail .tabs .tab-btn');
-    tabBtns.forEach((b, i) => b.classList.toggle('active', i === 0));
+    // Другая накладная — с вкладки «Товары»; та же (перерисовка после правки) — вкладку не трогаем.
+    if (switching) this.switchTab('items');
 
     await OnecCatalog.load();
 
@@ -810,107 +783,26 @@ const Invoices = {
         return;
       }
 
-      // Электронный документ из XML: вкладка «Фото» показывает сам документ,
-      // «OCR-текст» — разобранные из него данные.
+      // Электронный документ из XML: в скане — сам документ, внизу «Истории» — разобранные данные.
       const isXml = App.isXmlInvoice(data);
       this._currentXml = isXml ? this._xmlMeta(data) : null;
       this._photoTitle = `Накладная ${data.invoice_number || '#' + data.id}`;
-      document.getElementById('invoice-review-toggle').textContent = isXml ? 'Документ рядом с товарами' : 'Фото рядом с товарами';
-      if (tabBtns[1]) tabBtns[1].textContent = isXml ? 'Документ' : 'Фото';
-      if (tabBtns[2]) tabBtns[2].textContent = isXml ? 'Данные XML' : 'OCR-текст';
+      const ocrSummary = document.getElementById('ic-ocr-summary');
+      if (ocrSummary) ocrSummary.textContent = isXml ? 'Данные XML' : 'Текст распознавания';
+      const count = document.getElementById('ic-items-count');
+      if (count) count.textContent = (data.items || []).length ? `· ${data.items.length}` : '';
 
-      // Header fields
-      const header = document.getElementById('invoice-header-fields');
-      header.innerHTML = `
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'number')}Номер</div>
-          <div class="field-value">${App.esc(data.invoice_number || '—')}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'date')}Дата</div>
-          <div class="field-value">${App.formatDate(data.invoice_date)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'supplier')}Поставщик</div>
-          <div class="field-value">${App.esc(data.supplier || '—')}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'total')}Сумма</div>
-          <div class="field-value">
-            ${App.formatMoney(data.total_sum)}
-            ${data.items_total_mismatch ? '<span class="badge badge-error" title="Сумма в документе расходилась с суммой позиций более чем на 1%. Значение пересчитано из товаров — проверьте глазами." style="margin-left:8px">⚠ требует проверки</span>' : ''}
-          </div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'vat')}В т.ч. НДС</div>
-          <div class="field-value">${data.vat_sum != null ? App.formatMoney(data.vat_sum) : '—'}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">${this._attrCheckbox(data, 'vat_rate')}Ставка НДС</div>
-          <div class="field-value">${this._vatRatesText(data.items)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Статус</div>
-          <div class="field-value">${App.statusBadge(data.status)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Обработка</div>
-          <div class="field-value">${App.ocrEngineBadge(data.ocr_engine)}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Файл</div>
-          <div class="field-value">${App.esc(data.file_name || '')}</div>
-        </div>
-        <div class="invoice-field">
-          <div class="field-label">Создан</div>
-          <div class="field-value">${App.formatDate(data.created_at)}</div>
-        </div>
-      `;
+      // Шапка, шаги и панель шага — InvoiceCard (public/js/invoice-card.js).
+      InvoiceCard.render(data);
 
-      // История tab — render for every invoice (incl. duplicates), before any
-      // early-return. .catch keeps a rejection from masking showDetail success.
+      // История — для любой накладной, в т.ч. дубликата.
       this.renderHistory(data).catch(e => console.error('renderHistory failed', e));
 
-      // Supplier details (banking)
-      const supplierBlock = document.getElementById('invoice-supplier-details');
-      if (data.supplier_inn || data.supplier_bik || data.supplier_account) {
-        let html = '<h3 style="margin-bottom:12px">Реквизиты поставщика</h3>';
-        html += this._supplierMatchBanner(data);
-        html += '<div class="invoice-header">';
-        if (data.invoice_type) {
-          html += `<div class="invoice-field"><div class="field-label">Тип документа</div><div class="field-value">${App.esc(data.invoice_type)}</div></div>`;
-        }
-        if (data.onec_status && data.onec_status !== 'not_sent') {
-          html += `<div class="invoice-field"><div class="field-label">Статус в 1С</div><div class="field-value">${App.esc(data.onec_status)}${data.onec_document_ref ? ` · ${App.esc(data.onec_document_ref)}` : ''}${data.onec_error ? `<small class="text-danger">${App.esc(data.onec_error)}</small>` : ''}</div></div>`;
-        }
-        if (data.supplier_inn) {
-          html += `<div class="invoice-field"><div class="field-label">ИНН</div><div class="field-value">${App.esc(data.supplier_inn)}</div></div>`;
-        }
-        if (data.supplier_bik) {
-          html += `<div class="invoice-field"><div class="field-label">БИК</div><div class="field-value">${App.esc(data.supplier_bik)}</div></div>`;
-        }
-        if (data.supplier_account) {
-          html += `<div class="invoice-field"><div class="field-label">Расч. счёт</div><div class="field-value">${App.esc(data.supplier_account)}</div></div>`;
-        }
-        if (data.supplier_corr_account) {
-          html += `<div class="invoice-field"><div class="field-label">Корр. счёт</div><div class="field-value">${App.esc(data.supplier_corr_account)}</div></div>`;
-        }
-        if (data.supplier_address) {
-          html += `<div class="invoice-field"><div class="field-label">Адрес</div><div class="field-value">${App.esc(data.supplier_address)}</div></div>`;
-        }
-        html += '</div>';
-        supplierBlock.innerHTML = html;
-        supplierBlock.style.display = 'block';
-      } else {
-        supplierBlock.style.display = 'none';
-      }
+      // Поставщик и банк — словами, без служебных кодов.
+      this._renderSupplierTab(data);
 
-      // Actions
-      const actions = document.getElementById('invoice-actions');
-      let actionsHtml = '';
-
-      // Duplicate banner — превалирует над всем остальным. Дубликаты не сохраняют
-      // items, поэтому 1С/Сбер actions ниже им бесполезны.
+      // Дубликат: позиции не сохраняются, шаги 1С и оплаты недоступны.
+      const dupEl = document.getElementById('ic-duplicate');
       if (data.duplicate_of) {
         let duplicateReasons = [];
         try { duplicateReasons = JSON.parse(data.duplicate_reasons || '[]'); } catch { duplicateReasons = []; }
@@ -918,10 +810,10 @@ const Invoices = {
           ? duplicateReasons.map(reason => App.esc(reason)).join(' · ')
           : 'Совпали ключевые реквизиты документа';
         const probability = data.duplicate_score ? `, вероятность ${Math.round(data.duplicate_score * 100)}%` : '';
-        actionsHtml += `
+        dupEl.innerHTML = `
           <div class="duplicate-banner">
             <div class="duplicate-banner-text">
-              🔁 <strong>Дубликат накладной</strong>
+              <strong>Дубликат накладной</strong>
               <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a>
               ${App.esc(probability)} — ${evidence}. Позиции в эту запись не сохранены.
             </div>
@@ -929,220 +821,73 @@ const Invoices = {
               <button class="btn btn-outline btn-sm" onclick="Invoices.unlinkDuplicate(${data.id})">Не дубликат</button>
               <button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить дубликат</button>
             </div>
-          </div>
-        `;
-        actions.innerHTML = actionsHtml;
+          </div>`;
+        document.getElementById('invoice-items-tbody').innerHTML = '<tr><td colspan="7"><div class="empty-state">Позиции дубликата не сохраняются — откройте основную накладную</div></td></tr>';
+        document.getElementById('invoice-items-toolbar').innerHTML = '';
+        document.getElementById('invoice-price-warning').innerHTML = '';
+        const banner = document.getElementById('invoice-sibling-banner');
+        if (banner) banner.style.display = 'none';
+        const sberWrap = document.getElementById('invoice-sber-section');
+        if (sberWrap) sberWrap.innerHTML = '<p class="ic-muted">Дубликат не оплачивается — платёжку создают по основной накладной.</p>';
+        document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
         if (typeof InvoiceReview !== 'undefined') InvoiceReview.mount(data);
-        // Items/Sber/1С блоки ниже не нужны для дубликата — выйти из rendering
-        if (window.Sber) {
-          // Спрятать Sber-секцию если она была от прошлого invoice
-          const sberWrap = document.getElementById('invoice-sber-section');
-          if (sberWrap) sberWrap.style.display = 'none';
-        }
         return;
       }
+      if (dupEl) dupEl.innerHTML = '';
 
-      // Possible split-page duplicate: same number+supplier+date as another row.
-      // Auto-merge (fileWatcher Strategy A) only fires within 10 min and skips
-      // sent invoices, so late/post-send pages fork into a separate invoice.
-      // Offer a one-click fold-in using the existing merge-into endpoint.
+      // Похоже на ту же накладную (те же номер, поставщик и дата): предложить объединить.
       const sibs = data.possible_siblings || [];
+      const banner = document.getElementById('invoice-sibling-banner');
       if (sibs.length > 0) {
         const sentWarn = data.status === 'sent_to_1c' || data.approved_for_1c
           || sibs.some(s => s.status === 'sent_to_1c' || s.approved_for_1c);
-        const banner = document.getElementById('invoice-sibling-banner');
         banner.style.display = 'block';
         banner.innerHTML = sibs.map(s => `
           <div class="duplicate-banner">
             <div class="duplicate-banner-text">
-              ⚠ <strong>Похоже на ту же накладную:</strong>
+              <strong>Похоже на ту же накладную:</strong>
               <a href="#/invoices/${s.id}">№${s.id}</a>
-              — ${s.items_count} позиц., ${App.formatMoney(s.total_sum)}${s.status === 'sent_to_1c' ? ', «Отправлен»' : ''}.
+              — ${s.items_count} позиц., ${App.formatMoney(s.total_sum)} ₽${s.status === 'sent_to_1c' ? ', уже в 1С' : ''}.
               ${isXml
                 ? 'Эта накладная загружена из XML целиком — если там фото того же документа, лишнюю накладную удалите.'
                 : 'Возможно, это страницы одной накладной.'}
             </div>
             ${isXml ? '' : `<div class="duplicate-banner-actions">
               <button class="btn btn-primary btn-sm"
-                onclick="Invoices.mergeSibling(${data.id}, ${s.id}, ${sentWarn})">Объединить →</button>
+                onclick="Invoices.mergeSibling(${data.id}, ${s.id}, ${sentWarn})">Объединить</button>
             </div>`}
           </div>
         `).join('');
-      } else {
-        const banner = document.getElementById('invoice-sibling-banner');
-        if (banner) banner.style.display = 'none';
+      } else if (banner) {
+        banner.style.display = 'none';
       }
 
-      const unmappedCount = (data.items || []).filter(it => !it.onec_guid).length;
-      if (data.status === 'processed') {
-        if (data.approved_for_1c) {
-          actionsHtml += `<div class="badge badge-sent" style="padding:8px 16px">✓ Ожидает загрузки в 1С</div>`;
-          actionsHtml += `<button class="btn btn-outline" onclick="Invoices.unapproveForOneC(${data.id})">Отозвать отправку</button>`;
-        } else {
-          // Allow sending even with unmatched items — the BSL side calls
-          // НайтиИлиСоздатьНоменклатуру() which auto-creates new catalog
-          // entries in 1C when no match is found. This is the normal flow
-          // for first-time supplier items we haven't ordered before.
-          actionsHtml += `<button class="btn btn-primary" onclick="Invoices.sendTo1C(${data.id})">Отправить в 1С</button>`;
-          if (unmappedCount > 0) {
-            actionsHtml += `<div class="badge badge-new" style="padding:8px 16px" title="Несопоставленные товары будут созданы как новая номенклатура в 1С">Новых товаров: ${unmappedCount}</div>`;
-          }
-        }
-      }
-      if (data.status === 'sent_to_1c') {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.resetStatus(${data.id})" title="Сбросить статус «Отправлен», чтобы можно было повторно отправить в 1С">↻ Сбросить статус</button>`;
-      }
-      if (data.error_message) {
-        actionsHtml += `<div class="badge badge-error" style="padding:8px 16px">${App.esc(data.error_message)}</div>`;
-      }
-      // Remap buttons — two separate buttons, planshet-friendly
-      if (unmappedCount > 0) {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, false, event)" title="Попытаться сопоставить несопоставленные товары">Сопоставить недостающие</button>`;
-      }
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.editHeader(${data.id})" title="Редактировать реквизиты накладной">✎ Реквизиты</button>`;
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.remap(${data.id}, true, event)" title="Пересопоставить все товары заново">Пересопоставить всё</button>`;
-      if ((data.items || []).some(it => it.onec_guid)) {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.confirmMappings(${data.id}, event)" title="Текущие позиции 1С всех строк станут подтверждёнными правилами — их больше не перебьёт выбор ИИ">✓ Подтвердить сопоставления</button>`;
-      }
-      if (isXml) {
-        // Электронный документ целиком: «пересканировать» = перечитать исходный
-        // XML, а страниц к нему не бывает (сервер вернёт 409).
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event, true)" title="Заново разобрать исходный XML-файл и пересопоставить товары">🔄 Перечитать XML</button>`;
-      } else {
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.rescan(${data.id}, event)" title="Полный re-OCR + re-Claude + re-mapping исходного фото">🔄 Пересканировать фото</button>`;
-        actionsHtml += `<button class="btn btn-outline" onclick="Invoices.addPages(${data.id}, event)" title="Дофоткать страницы — их позиции добавятся в эту накладную">📎 Добавить страницы</button>`;
-      }
-      // LLM button is always visible. When everything is already mapped it
-      // passes all=true so Claude can reconsider existing picks (catalog may
-      // have grown, or an old fuzzy match may be improvable).
-      const llmAll = unmappedCount === 0;
-      const llmLabel = llmAll ? 'LLM: переделать всё' : 'LLM-маппинг';
-      const llmTitle = llmAll
-        ? 'Пересобрать все маппинги через Claude LLM (Anthropic API)'
-        : 'Сопоставить несопоставленные товары через Claude LLM (Anthropic API)';
-      actionsHtml += `<button class="btn btn-outline" onclick="Invoices.llmRemap(${data.id}, ${llmAll}, event)" title="${llmTitle}">${llmLabel}</button>`;
-      // ⭐ Эталон (п.17 v2): проверенная накладная, по которой админ сверяет
-      // распознавание после обновлений (Настройки → Эталонные накладные).
-      // Фото эталона не удаляется через 90 дней. PATCH /api/golden/invoices/:id.
-      const goldenTitle = (on) => on
-        ? 'Эталон: по этой накладной проверяется распознавание после обновлений, фото хранится бессрочно. Нажмите, чтобы убрать из эталонов.'
-        : 'Накладная проверена и верна? Отметьте её эталоном — по эталонам после обновлений проверяется, что номера, суммы и НДС распознаются правильно.';
-      const goldenOn = Number(data.golden) === 1;
-      // Эталон проверяет распознавание фото — у документа из XML его нет.
-      if (!isXml || goldenOn) {
-        actionsHtml += `<button type="button" class="btn btn-outline" id="invoice-golden-btn" data-golden="${goldenOn ? 1 : 0}" title="${goldenTitle(goldenOn)}">${goldenOn ? '⭐ Эталон' : '☆ В эталоны'}</button>`;
-      }
-      // Delete button (destructive, always visible, pushed to the right)
-      actionsHtml += `<button class="btn btn-danger" style="margin-left:auto" onclick="Invoices.deleteInvoice(${data.id})">Удалить накладную</button>`;
-      actions.innerHTML = actionsHtml;
-      const goldenBtn = document.getElementById('invoice-golden-btn');
-      if (goldenBtn) {
-        goldenBtn.addEventListener('click', async () => {
-          const next = goldenBtn.dataset.golden !== '1';
-          goldenBtn.disabled = true;
-          try {
-            await App.apiJson(`/golden/invoices/${data.id}`, { method: 'PATCH', body: { golden: next } });
-            goldenBtn.dataset.golden = next ? '1' : '0';
-            goldenBtn.textContent = next ? '⭐ Эталон' : '☆ В эталоны';
-            goldenBtn.title = goldenTitle(next);
-            App.notify(next ? 'Накладная добавлена в эталоны' : 'Накладная убрана из эталонов', 'success');
-          } catch (e) {
-            App.notify(e.message || 'Не удалось изменить отметку эталона', 'error');
-          } finally {
-            goldenBtn.disabled = false;
-          }
-        });
-      }
-
-      // Sber section (button + status)
+      // Оплата — в панели шага 3.
       if (window.Sber) {
         Sber.renderInvoiceSection(data).catch(err => console.error('[sber] render section', err));
       }
 
-      // Items table
+      // Товары
       const itemsTbody = document.getElementById('invoice-items-tbody');
       if (data.items && data.items.length > 0) {
-        itemsTbody.innerHTML = data.items.map((item, i) => {
-          const badge = item.name_overridden
-            ? '<span class="nom-badge nom-badge-custom" title="Своё название — будет создано в 1С под этим именем">✎</span>'
-            : item.onec_guid
-              ? '<span class="nom-badge nom-badge-ok" title="Сопоставлено с 1С">✓</span>'
-              : '<span class="nom-badge nom-badge-missing" title="Требует сопоставления">●</span>';
-          const currentName = item.mapped_name || item.original_name || '';
-          // esc() also escapes quotes, which is what we need for value="..."
-          const safeName = App.esc(currentName);
-          return `
-          <tr data-item-id="${item.id}" class="${Invoices._rowClassForItem(item)}">
-            <td class="item-no-cell">${i + 1}<button type="button" class="item-del-btn" title="Удалить строку"
-                      onclick="Invoices.deleteItem(${data.id}, ${item.id}, '${App.esc(String(item.original_name || '').slice(0, 60)).replace(/'/g, '&#39;')}')">✕</button></td>
-            <td>${App.esc(item.original_name || '')}</td>
-            <td>
-              <div class="nom-picker">
-                ${badge}
-                <input type="text" class="nom-picker-input"
-                       value="${safeName}"
-                       data-invoice-id="${data.id}"
-                       data-item-id="${item.id}"
-                       data-current-guid="${App.esc(item.onec_guid || '')}"
-                       oninput="Invoices.onNomInput(event)"
-                       onfocus="Invoices.onNomFocus(event)"
-                       onblur="Invoices.onNomBlur(event)">
-                <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
-                ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
-                  ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
-                  : ''}
-                ${item.name_overridden
-                  ? '<div class="nom-custom-note" title="Это название уйдёт в 1С для создания товара">✎ Своё название → создастся в 1С</div>'
-                  : ''}
-              </div>
-            </td>
-            <td style="text-align:right">
-              <input type="text" inputmode="decimal" class="item-edit item-edit-qty"
-                     value="${item.quantity != null ? String(item.quantity).replace('.', ',') : ''}"
-                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="quantity"
-                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
-              ${Invoices._convInfo(data.id, item)}
-            </td>
-            <td>
-              <input type="text" class="item-edit item-edit-unit"
-                     value="${App.esc(item.unit || '')}"
-                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="unit"
-                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
-            </td>
-            <td style="text-align:right">
-              ${Invoices._priceCell(item)}
-            </td>
-            ${Invoices._medianCell(item)}
-            <td style="text-align:right">
-              <input type="text" inputmode="decimal" class="item-edit item-edit-total"
-                     value="${item.total != null ? Number(item.total).toFixed(2).replace('.', ',') : ''}"
-                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="total"
-                     onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">
-            </td>
-            <td style="text-align:center">${Invoices._vatSelect(data.id, item)}</td>
-            <td>${App.confidenceBadge(item.mapping_confidence || 0)}</td>
-          </tr>
-        `;
-        }).join('');
+        itemsTbody.innerHTML = data.items.map((item, i) => this._itemRow(data, item, i)).join('');
       } else {
-        itemsTbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">Товары не найдены</div></td></tr>';
+        itemsTbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">Товары не найдены</div></td></tr>';
       }
 
       // Правка строк: добавить пропущенную, одна ставка НДС на все строки.
       const tb = document.getElementById('invoice-items-toolbar');
       if (tb) tb.innerHTML = this._itemsToolbar(data.id);
 
-      // Elevated-price warning banner + mobile square counters.
-      this._renderPriceWarning(data.items || [], data.alignment_problems || []);
+      // Предупреждения над товарами + счётчики цены на телефоне.
+      this._renderPriceWarning(data.items || [], data.alignment_problems || [], data.completeness, data.id);
       this._renderPriceBadges(data.items || []);
 
-      // Q4: for items left unmapped, auto-select a confident catalog match so
-      // the user only confirms (the item still needs a click — we don't silently
-      // write a sub-1.0 guess, per the ingest auto-apply policy).
+      // Для строк без позиции 1С — уверенное предложение из каталога (подтверждается кликом)
+      // и три кандидата «в один клик».
       this._suggestUnmapped(data.id, data.items || []);
       this._loadCandidates(data.id).catch(e => console.warn('candidates failed', e));
 
-      // OCR text
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
       if (typeof InvoiceReview !== 'undefined') InvoiceReview.mount(data);
 
@@ -1162,17 +907,116 @@ const Invoices = {
     }
   },
 
-  // Guard mutating actions against double-clicks / duplicate submissions.
-  // Render «Цена» as read-only «X,XX ₽/<unit>». Per-unit cost = item.price
-  // (OCR parses price as total/qty per ScanFlow convention, so it's already
-  // per-unit). Falls back to «—» when price is null.
-  // Цена редактируется: сумма строки пересчитается как количество × цена.
-  _priceCell(item) {
-    const v = item.price != null ? Number(item.price).toFixed(2).replace('.', ',') : '';
-    return `<input type="text" inputmode="decimal" class="item-edit item-edit-price"
-                   value="${v}" title="Цена за единицу с НДС — сумма пересчитается"
-                   data-invoice-id="${item.invoice_id}" data-item-id="${item.id}" data-field="price"
-                   onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)">${Invoices._priceBadge(item)}`;
+  // Строка товара: «как в накладной» + позиция 1С, количество с пересчётом серым,
+  // цена (с обычной ценой), сумма, НДС, меню строки «⋯». Проблема — меткой у названия.
+  _itemRow(data, item, i) {
+    // Номер как напечатан — только если номера уникальны (у многостраничной накладной
+    // нумерация на каждом листе с 1, тогда — по порядку).
+    if (data._printedRowNo === undefined) {
+      const nums = (data.items || []).map(it => it.row_no);
+      data._printedRowNo = nums.every(n => Number.isInteger(n) && n > 0) && new Set(nums).size === nums.length;
+    }
+    const no = data._printedRowNo ? item.row_no : i + 1;
+    const badge = item.name_overridden
+      ? '<span class="nom-badge nom-badge-custom" title="Своё название — будет создано в 1С под этим именем">✎</span>'
+      : item.onec_guid
+        ? '<span class="nom-badge nom-badge-ok" title="Сопоставлено с 1С">✓</span>'
+        : '<span class="nom-badge nom-badge-missing" title="Нет позиции 1С">●</span>';
+    const safeName = App.esc(item.mapped_name || item.original_name || '');
+    const tags = this._itemTags(data, item);
+    const flagged = tags.includes('ic-tag--amber') || tags.includes('ic-tag--red');
+    const rawDiffers = item.raw_quantity != null && (Number(item.raw_quantity) !== Number(item.quantity) || this._normUnit(item.raw_unit) !== this._normUnit(item.unit));
+    const convText = item.conv_note
+      ? String(item.conv_note).split(' = ')[0].replace(/\s*—\s*подобрано.*$/, '').replace(/\s*\([^)]*\)\s*$/, '')
+      : rawDiffers ? `в накладной: ${App.formatQty(item.raw_quantity)} ${item.raw_unit || ''}`.trim() : '';
+    const median = item.median_price != null
+      ? `<span class="ic-sub-line" title="Обычная цена: медиана за ${item.median_samples ?? 0} поставок">обычно ${App.formatMoney(item.median_price)}</span>`
+      : '';
+    const editAttrs = (field) => `data-invoice-id="${data.id}" data-item-id="${item.id}" data-field="${field}" onblur="Invoices.onItemEdit(event)" onkeydown="Invoices.onItemEditKey(event)"`;
+    return `
+      <tr data-item-id="${item.id}" class="${flagged ? 'ic-row--flag' : ''}">
+        <td class="ic-row-no">${no}</td>
+        <td class="ic-cell-name">
+          <div class="ic-row-name">${App.esc(item.original_name || '')}${tags}</div>
+          <div class="ic-row-onec">
+            <div class="nom-picker">
+              ${badge}
+              <input type="text" class="nom-picker-input" value="${safeName}" aria-label="Позиция 1С для строки ${no}"
+                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-current-guid="${App.esc(item.onec_guid || '')}"
+                     placeholder="Выбрать позицию 1С…"
+                     oninput="Invoices.onNomInput(event)" onfocus="Invoices.onNomFocus(event)" onblur="Invoices.onNomBlur(event)">
+              <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
+            </div>
+            ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
+              ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
+              : ''}
+            ${item.name_overridden ? '<div class="nom-custom-note" title="Это название уйдёт в 1С для создания товара">Своё название — товар создастся в 1С</div>' : ''}
+          </div>
+        </td>
+        <td class="ic-num" data-label="Кол-во">
+          <span class="ic-qty"><input type="text" inputmode="decimal" class="item-edit item-edit-qty" aria-label="Количество"
+                 value="${item.quantity != null ? String(item.quantity).replace('.', ',') : ''}" ${editAttrs('quantity')}><input type="text" class="item-edit item-edit-unit" aria-label="Единица"
+                 value="${App.esc(item.unit || '')}" ${editAttrs('unit')}></span>
+          ${convText ? `<span class="ic-sub-line" title="${App.esc(item.conv_note || '')}">${App.esc(convText)}</span>` : ''}
+        </td>
+        <td class="ic-num" data-label="Цена с НДС">
+          <input type="text" inputmode="decimal" class="item-edit item-edit-price" aria-label="Цена с НДС" title="Цена за единицу с НДС — сумма пересчитается"
+                 value="${item.price != null ? Number(item.price).toFixed(2).replace('.', ',') : ''}" ${editAttrs('price')}>${median}
+        </td>
+        <td class="ic-num" data-label="Сумма">
+          <input type="text" inputmode="decimal" class="item-edit item-edit-total" aria-label="Сумма строки"
+                 value="${item.total != null ? Number(item.total).toFixed(2).replace('.', ',') : ''}" ${editAttrs('total')}>
+        </td>
+        <td class="ic-num" data-label="НДС">${this._vatSelect(data.id, item)}</td>
+        <td class="ic-cell-menu"><button type="button" class="ic-row-more" aria-haspopup="menu" aria-expanded="false" aria-label="Действия со строкой ${no}" title="Действия со строкой" onclick="InvoiceCard.openRowMenu(this, ${item.id})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td>
+      </tr>`;
+  },
+
+  // Метки проблем строки у названия: нужен вес, количество под вопросом, цена выше обычной,
+  // нет позиции 1С, позиция под вопросом, «1С переведёт на кг».
+  _itemTags(data, item) {
+    const tags = [];
+    const flag = item.qty_flag;
+    if (flag === 'needs_weight') {
+      tags.push(`<button type="button" class="ic-tag ic-tag--red" title="${App.esc(item.qty_flag_note || 'Вес единицы в названии не найден')}" onclick="Invoices.itemRememberRule(${data.id}, ${item.id})">нужен вес</button>`);
+    } else if (flag) {
+      const label = flag === 'price_outlier' ? 'проверьте количество' : 'единица не как в 1С';
+      tags.push(`<button type="button" class="ic-tag ic-tag--amber" title="${App.esc(item.qty_flag_note || '')}" onclick="Invoices.itemReconvert(${data.id}, ${item.id})">${label}</button>`);
+    } else if (this._unitMismatch(item)) {
+      tags.push(`<button type="button" class="ic-tag ic-tag--amber" title="Количество не в той единице — пересчитать от значений «как в накладной»" onclick="Invoices.itemReconvert(${data.id}, ${item.id})">${this._normUnit(item.target_unit) === 'кг' ? 'не в кг' : `в 1С учёт в «${App.esc(item.onec_unit || '')}»`}</button>`);
+    } else if (this._onecSwitchesToKg(item)) {
+      tags.push(`<span class="ic-tag ic-tag--blue" title="В 1С позиция ведётся в «${App.esc(item.onec_unit)}» — при загрузке 1С переведёт её на кг">1С переведёт на кг</span>`);
+    }
+    if (item.price_deviation_pct != null && item.price_deviation_pct > 10) {
+      tags.push(`<span class="ic-tag ic-tag--amber" title="Цена выше обычной на ${Math.round(item.price_deviation_pct)}%">цена +${Math.round(item.price_deviation_pct)}%</span>`);
+    }
+    if (!item.onec_guid && !item.name_overridden) {
+      tags.push('<span class="ic-tag ic-tag--red" title="1С создаст товар по названию из накладной, если не выбрать позицию">нет позиции 1С</span>');
+    } else if (item.onec_guid && (item.mapping_confidence ?? 1) < 0.8) {
+      tags.push(`<span class="ic-tag ic-tag--amber" title="Позиция 1С подобрана неуверенно — проверьте">позиция ${Math.round((item.mapping_confidence || 0) * 100)}%</span>`);
+    }
+    return tags.join('');
+  },
+
+  // Вкладка «Поставщик и банк»: реквизиты словами, предупреждение о привязке по названию.
+  _INVOICE_TYPES: { 'счет_на_оплату': 'Счёт на оплату', 'торг_12': 'ТОРГ-12', 'упд': 'УПД', 'счет_фактура': 'Счёт-фактура', 'акт': 'Акт', 'кассовый_чек': 'Кассовый чек', 'авансовый_отчет': 'Авансовый отчёт', 'прочее': 'Другой документ' },
+
+  _renderSupplierTab(data) {
+    const el = document.getElementById('invoice-supplier-details');
+    if (!el) return;
+    const row = (label, value, wide = false) => value ? `<div class="invoice-field${wide ? ' invoice-field--wide' : ''}"><div class="field-label">${label}</div><div class="field-value">${App.esc(value)}</div></div>` : '';
+    const fields = [
+      row('Поставщик', data.supplier),
+      row('ИНН', data.supplier_inn),
+      row('КПП', data.supplier_kpp),
+      row('Тип документа', this._INVOICE_TYPES[data.invoice_type] || (App.isXmlInvoice(data) ? 'Электронный документ (XML)' : '')),
+      row('Банк, БИК', data.supplier_bik),
+      row('Расчётный счёт', data.supplier_account),
+      row('Корр. счёт', data.supplier_corr_account),
+      row('Адрес', data.supplier_address, true),
+    ].join('');
+    el.innerHTML = this._supplierMatchBanner(data)
+      + (fields ? `<div class="invoice-header">${fields}</div>` : '<p class="ic-muted">Реквизиты поставщика не распознаны — их можно ввести в «⋯ → Изменить реквизиты».</p>');
   },
 
   _VAT_OPTIONS: [['', '—'], ['0', '0%'], ['5', '5%'], ['7', '7%'], ['10', '10%'], ['18', '18%'], ['20', '20%'], ['22', '22%']],
@@ -1262,16 +1106,6 @@ const Invoices = {
     }
   },
 
-  // Inline "повышенная цена" pill — shown when the scanned price is >10% above
-  // the usual (median) price. Tiered colour matches the row heatmap.
-  _priceBadge(item) {
-    const pct = item.price_deviation_pct;
-    if (pct == null || pct <= 10) return '';
-    const r = Math.round(pct);
-    const cls = pct > 50 ? 'price-flag-anomaly' : pct > 25 ? 'price-flag-alert' : 'price-flag-warn';
-    return `<div class="price-flag-wrap"><span class="price-flag ${cls}" title="Цена выше обычной на ${r}%">↑ +${r}%</span></div>`;
-  },
-
   // Mobile square counters (top-right of the invoice): how many positions are
   // moderately overpriced (orange, 10–50% above usual) vs severely (red, >50%).
   _renderPriceBadges(items) {
@@ -1288,6 +1122,21 @@ const Invoices = {
 
   // «История» tab: processing/lifecycle timeline + live remarks. Built from the
   // already-loaded invoice `data`; the Sber payment timestamp is fetched lazily.
+  // «С какого устройства» словами вместо строки браузера (полная — в подсказке).
+  _deviceLabel(ua) {
+    const s = String(ua || '');
+    if (!s) return '';
+    const device = /iPhone/.test(s) ? 'iPhone' : /iPad/.test(s) ? 'iPad'
+      : /Android/.test(s) ? 'телефон Android'
+      : /Windows/.test(s) ? 'компьютер Windows' : /Macintosh|Mac OS X/.test(s) ? 'компьютер Mac'
+      : /Linux/.test(s) ? 'компьютер Linux' : '';
+    const browser = /YaBrowser/.test(s) ? 'Яндекс Браузер' : /SamsungBrowser/.test(s) ? 'Samsung Internet'
+      : /Edg\//.test(s) ? 'Edge' : /OPR\//.test(s) ? 'Opera' : /Firefox\//.test(s) ? 'Firefox'
+      : /Chrome\/|CriOS\//.test(s) ? 'Chrome' : /Safari\//.test(s) ? 'Safari' : '';
+    const label = [device, browser].filter(Boolean).join(', ');
+    return label ? label.replace(/^[а-яё]/, c => c.toUpperCase()) : 'Другое устройство';
+  },
+
   async renderHistory(data) {
     const el = document.getElementById('invoice-tab-history');
     if (!el) return;
@@ -1302,8 +1151,9 @@ const Invoices = {
     const sourceLabel = data.upload_source
       ? (SOURCE_LABELS[data.upload_source] || App.esc(data.upload_source))
       : '—';
-    const ua = data.upload_user_agent
-      ? `<div class="muted" style="font-size:12px;margin-top:2px;word-break:break-all">${App.esc(data.upload_user_agent)}</div>`
+    const device = this._deviceLabel(data.upload_user_agent);
+    const ua = device
+      ? `<div class="muted" style="font-size:12px;margin-top:2px" title="${App.esc(data.upload_user_agent)}">${App.esc(device)}</div>`
       : '';
     const duration = App.formatDuration(data.created_at, data.recognized_at);
 
@@ -1476,19 +1326,28 @@ const Invoices = {
   // Summary banner above the items table: rows that look shifted by a skewed
   // photo, then positions priced >10% above the usual price. Empty (cleared)
   // when there are none.
-  _renderPriceWarning(items, alignment = []) {
+  _renderPriceWarning(items, alignment = [], completeness = null, invoiceId = null) {
     const el = document.getElementById('invoice-price-warning');
     if (!el) return;
+    const incomplete = completeness?.message ? `
+      <div class="price-warning-banner" role="alert">
+        <span class="price-warning-banner__icon">⚠</span>
+        <div>
+          <strong>Накладная снята не полностью — проверьте страницы</strong>
+          <div>${App.esc(completeness.message)}</div>
+          ${invoiceId ? `<button type="button" class="btn btn-outline btn-sm" onclick="Invoices.addPages(${Number(invoiceId)}, event)">Добавить страницы</button>` : ''}
+        </div>
+      </div>` : '';
     const shifted = alignment.length ? `
       <div class="price-warning-banner">
         <span class="price-warning-banner__icon">⚠</span>
         <div>
-          <strong>Строки могли распознаться со сдвигом</strong> — названия и числа не совпадают по строкам (так бывает, когда фото снято под углом). Сверьте таблицу с фото или нажмите «Пересканировать фото».
+          <strong>Строки могли распознаться со сдвигом</strong> — названия и числа не совпадают по строкам (так бывает, когда фото снято под углом). Сверьте таблицу со сканом или пересканируйте фото (меню «⋯»).
           <div class="muted" style="margin-top:2px">${alignment.map(p => App.esc(p)).join('; ')}</div>
         </div>
       </div>` : '';
     const flagged = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10);
-    if (!flagged.length) { el.innerHTML = shifted; return; }
+    if (!flagged.length) { el.innerHTML = incomplete + shifted; return; }
     const worst = Math.round(Math.max(...flagged.map(f => f.price_deviation_pct)));
     const names = flagged
       .sort((a, b) => b.price_deviation_pct - a.price_deviation_pct)
@@ -1497,7 +1356,7 @@ const Invoices = {
       .join(', ');
     const more = flagged.length > 3 ? ` и ещё ${flagged.length - 3}` : '';
     const noun = this._plural(flagged.length, 'позиция', 'позиции', 'позиций');
-    el.innerHTML = shifted + `
+    el.innerHTML = incomplete + shifted + `
       <div class="price-warning-banner">
         <span class="price-warning-banner__icon">⚠</span>
         <div>
@@ -1527,48 +1386,6 @@ const Invoices = {
   _onecSwitchesToKg(item) {
     return !!(item.onec_unit && item.unit && this._normUnit(item.unit) === 'кг' && this._normUnit(item.onec_unit) !== 'кг'
       && this._normUnit(item.target_unit) === 'кг');
-  },
-
-  // Строка с флагом пересчёта — красная. «Дешевле обычного» не красим в
-  // зелёный, если количество под вопросом: ровно так выглядит ошибка ×N.
-  _rowClassForItem(item) {
-    if (item.qty_flag) return 'row-qty-flag';
-    if (this._unitMismatch(item)) return 'row-unit-mismatch';
-    return this._rowClassForDeviation(item.price_deviation_pct);
-  },
-
-  // Пояснение пересчёта под количеством (пакет v2): как в накладной, формула,
-  // флаг и действия «пересчитать / вернуть / запомнить».
-  _convInfo(invoiceId, item) {
-    const FLAG = { price_outlier: 'цена не похожа на обычную', unit_mismatch: 'единицы не совпадают с 1С', needs_weight: 'нужен фактический вес' };
-    const fmtN = (v) => (v == null ? '—' : String(Math.round(Number(v) * 1000) / 1000).replace('.', ','));
-    const parts = [];
-    const rawDiffers = item.raw_quantity != null && (Number(item.raw_quantity) !== Number(item.quantity) || this._normUnit(item.raw_unit) !== this._normUnit(item.unit));
-    if (rawDiffers) {
-      parts.push(`<div class="conv-raw">в накладной: ${fmtN(item.raw_quantity)} ${App.esc(item.raw_unit || '')}${item.raw_price != null ? ` × ${Number(item.raw_price).toFixed(2).replace('.', ',')} ₽` : ''}</div>`);
-    }
-    if (item.conv_note) parts.push(`<div class="conv-note">${App.esc(item.conv_note)}</div>`);
-    if (item.qty_flag) {
-      parts.push(`<div class="qty-flag" title="${App.esc(item.qty_flag_note || '')}">⚠ ${FLAG[item.qty_flag] || App.esc(item.qty_flag)}</div>`);
-      if (item.qty_flag_note) parts.push(`<div class="conv-note">${App.esc(item.qty_flag_note)}</div>`);
-    } else if (this._unitMismatch(item)) {
-      const byRule = item.target_unit && this._normUnit(item.target_unit) !== this._normUnit(item.onec_unit);
-      parts.push(`<div class="qty-flag">⚠ ${byRule ? `строка не в «${App.esc(item.target_unit)}» — всё идёт в кг` : `в 1С учёт в «${App.esc(item.onec_unit)}»`}</div>`);
-    } else if (this._onecSwitchesToKg(item)) {
-      parts.push(`<div class="conv-note">в 1С позиция в «${App.esc(item.onec_unit)}» — при загрузке 1С переведёт её на кг</div>`);
-    }
-    const actions = [];
-    if (item.qty_flag || this._unitMismatch(item)) {
-      actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemReconvert(${invoiceId}, ${item.id})" title="Пересчитать в единицу 1С от значений «как в накладной»">↻ пересчитать</button>`);
-    }
-    if (rawDiffers) {
-      actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemRevertRaw(${invoiceId}, ${item.id})" title="Вернуть количество, единицу и цену как в накладной">↺ как в накладной</button>`);
-    }
-    if ((item.onec_guid || item.target_unit) && (item.qty_flag || this._unitMismatch(item) || rawDiffers)) {
-      actions.push(`<button type="button" class="link-btn" onclick="Invoices.itemRememberRule(${invoiceId}, ${item.id})" title="Запомнить, сколько единиц 1С в одной единице накладной — для этого товара у этого поставщика">📌 запомнить</button>`);
-    }
-    if (actions.length) parts.push(`<div class="conv-actions">${actions.join(' ')}</div>`);
-    return parts.length ? `<div class="conv-info">${parts.join('')}</div>` : '';
   },
 
   // Топ-3 позиции 1С «в один клик» для строк без сопоставления или с низкой
@@ -1646,23 +1463,6 @@ const Invoices = {
       App.notify(`Запомнено: 1 ${rawUnit} = ${String(factor).replace('.', ',')} ${target}`, 'success');
       this.showDetail(invoiceId);
     } catch (e) { App.notify(e.message || 'Не удалось запомнить', 'error'); }
-  },
-
-  _rowClassForDeviation(pct) {
-    if (pct == null) return '';
-    if (pct <= -10) return 'row-price-good';
-    if (pct <= 10) return '';
-    if (pct <= 25) return 'row-price-warn';
-    if (pct <= 50) return 'row-price-alert';
-    return 'row-price-anomaly';
-  },
-
-  // Format the «Обычная» cell. Returns the cell HTML.
-  _medianCell(item) {
-    if (item.median_price == null) return '<td></td>';
-    const price = Number(item.median_price).toFixed(2).replace('.', ',');
-    const samples = item.median_samples ?? 0;
-    return `<td style="text-align:right"><div>${price} ₽</div><small class="muted">${samples} поставок</small></td>`;
   },
 
   // Each action claims a unique token; subsequent clicks while it's active
@@ -2234,7 +2034,8 @@ const Invoices = {
       try {
         await App.apiJson(`/invoices/${id}/paid-externally`, { method: 'POST', body: { value } });
         App.notify(value ? 'Отмечено «оплачено вне сервиса»' : 'Отметка «оплачено сами» снята', 'success');
-        this.showList();
+        // Из карточки (шаг «Оплата») — остаёмся в ней, из списка — обновляем список.
+        if (this._currentInvoiceId === id) this.showDetail(id); else this.showList();
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
       }
@@ -2426,16 +2227,6 @@ const Invoices = {
     }
   },
 
-  toggleReviewPhotos() {
-    this._reviewPhotos = !this._reviewPhotos;
-    document.getElementById('invoice-review-workspace').classList.toggle('invoice-review-split', this._reviewPhotos);
-    document.getElementById('invoice-review-toggle').setAttribute('aria-pressed', String(this._reviewPhotos));
-    const itemBtn = document.querySelector('#invoice-detail .tabs .tab-btn');
-    this.switchTab('items', itemBtn);
-    if (this._reviewPhotos && !this._photosLoaded) this.loadPhotos();
-    requestAnimationFrame(() => document.querySelectorAll('#invoice-photos-container .photo-frame').forEach(f => this._layoutPhoto(f)));
-  },
-
   openPhotoViewer(page) {
     const images = (this._photoFiles || []).map((p, index) => ({ ...p, page: index }))
       .filter(p => p.exists !== false && (p.kind || this._fileKind(p.filename)) === 'image')
@@ -2443,33 +2234,22 @@ const Invoices = {
     InvoicePhotoViewer.open(images, page, this._photoTitle, (pageIndex, delta) => this.rotatePhoto(this._currentInvoiceId, pageIndex, delta));
   },
 
-  switchTab(tab, btn) {
-    // Hide all tabs
-    document.getElementById('invoice-tab-items').style.display = 'none';
-    document.getElementById('invoice-tab-photos').style.display = 'none';
-    document.getElementById('invoice-tab-ocr').style.display = 'none';
-    document.getElementById('invoice-tab-history').style.display = 'none';
-
-    // Deactivate all buttons
-    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-
-    // Show selected tab
-    document.getElementById('invoice-tab-' + tab).style.display = 'block';
-    document.getElementById('invoice-review-workspace').classList.toggle('invoice-review-split', tab === 'items' && this._reviewPhotos);
-    if (tab === 'items' && this._reviewPhotos) document.getElementById('invoice-tab-photos').style.display = 'block';
-    requestAnimationFrame(() => document.querySelectorAll('#invoice-photos-container .photo-frame').forEach(f => this._layoutPhoto(f)));
-
-    // Load photos on first switch
-    if (tab === 'photos' && !this._photosLoaded) {
-      this.loadPhotos();
-    }
+  // Вкладки карточки: «Товары», «Поставщик и банк», «История» (с текстом распознавания).
+  switchTab(tab) {
+    const panels = { items: 'invoice-tab-items', supplier: 'invoice-tab-supplier', history: 'invoice-tab-history-wrap' };
+    if (!panels[tab]) tab = 'items';
+    Object.entries(panels).forEach(([key, id]) => { const el = document.getElementById(id); if (el) el.hidden = key !== tab; });
+    document.querySelectorAll('#invoice-detail .ic-tab').forEach(b => {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+    });
   },
 
   async loadPhotos() {
     const container = document.getElementById('invoice-photos-container');
     const id = this._currentInvoiceId;
-    if (!id) return;
+    if (!id || !container) return;
 
     try {
       const { data } = await App.apiJson(`/invoices/${id}/photos`);
@@ -2585,21 +2365,23 @@ const Invoices = {
       </div>`;
   },
 
-  // PDF в <img> не показывается (было «Файл не найден на диске») — ссылкой.
+  // PDF в <img> не показывается (было «Файл не найден на диске») — встроенным
+  // просмотром браузера в панели скана и ссылкой на отдельную вкладку.
   _pdfDocBlock(photo, i) {
-    const open = photo.exists === false
+    const missing = photo.exists === false;
+    const open = missing
       ? '<span class="xml-doc__missing">Файл удалён с сервера по сроку хранения.</span>'
-      : `<a class="btn btn-outline btn-sm" href="${this._fileUrl(photo)}" target="_blank" rel="noopener">Открыть PDF</a>`;
+      : `<a class="btn btn-outline btn-sm" href="${this._fileUrl(photo)}" target="_blank" rel="noopener">Открыть в новой вкладке</a>`;
     return `
       <div class="photo-block">
-        <div class="photo-toolbar"><span class="photo-caption">Лист ${i + 1}: ${App.esc(photo.filename)}</span></div>
         <div class="xml-doc">
           <div class="xml-doc__icon xml-doc__icon--pdf" aria-hidden="true">PDF</div>
           <div class="xml-doc__body">
-            <div class="xml-doc__title">PDF-документ</div>
+            <div class="xml-doc__title">PDF-документ${i > 0 ? `, файл ${i + 1}` : ''}</div>
             <div class="xml-doc__actions">${open}</div>
           </div>
         </div>
+        ${missing ? '' : `<iframe class="ic-pdf" src="${this._fileUrl(photo)}#view=FitH" title="PDF-документ ${App.esc(photo.filename)}" loading="lazy"></iframe>`}
       </div>`;
   },
 
@@ -2689,23 +2471,22 @@ const Invoices = {
   },
 
   async selectNomItem(invoiceId, itemId, guid, name) {
-    // Find the row in the current table so we can read the item's scan name
-    // and current quantity for the pack-size prompt. If the row isn't there
-    // (edge case — table re-rendered), skip the prompt gracefully.
+    // Название «как в накладной» и количество для вопроса об упаковке — из данных
+    // карточки, а не из ячеек: в ячейке названия теперь ещё метки и выбор позиции 1С
+    // (его варианты вроде «Сахар (50 кг)» ложно давали «упаковку 50 кг»).
+    // Строки нет (таблицу успели перерисовать) — вопрос просто не задаём.
     let packOverride = null;
     try {
-      const row = document.querySelector(`#invoice-items-tbody tr[data-item-id="${itemId}"]`);
-      if (row) {
-        const scanNameCell = row.querySelector('td:nth-child(2)');
-        const scanName = scanNameCell ? scanNameCell.textContent.trim() : '';
+      const card = typeof InvoiceCard !== 'undefined' ? InvoiceCard.inv : null;
+      const item = card && card.id === Number(invoiceId)
+        ? (card.items || []).find(it => it.id === Number(itemId))
+        : null;
+      if (item) {
+        const scanName = String(item.original_name || '').trim();
         const detected = this.detectPackKg(scanName);
         if (detected) {
-          // Read the current quantity from the 4th <td>. If it's a number > 0
-          // we can show "1 × 50 = 50 кг" in the prompt. Otherwise fall back to
-          // a generic "apply 50 kg per unit?" message.
-          const qtyCell = row.querySelector('td:nth-child(4)');
-          const qtyText = qtyCell ? qtyCell.textContent.replace(',', '.').replace(/\s/g, '') : '';
-          const currentQty = parseFloat(qtyText);
+          // Количество > 0 — показываем «1 × 50 = 50 кг», иначе общий вопрос.
+          const currentQty = Number(item.quantity);
           const hasQty = isFinite(currentQty) && currentQty > 0;
           const newQty = hasQty ? currentQty * detected.pack_size : detected.pack_size;
           const msg = hasQty

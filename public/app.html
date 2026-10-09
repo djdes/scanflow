@@ -146,9 +146,8 @@
       </div>
       <div class="ai-status-banner" id="ai-status-banner" role="status" hidden></div>
       <div id="invoices-list">
-        <div class="invoice-summary" id="invoices-summary" aria-label="Сводка по всем накладным компании"></div>
+        <div class="invoice-summary" id="invoices-summary" role="group" aria-label="Быстрые фильтры: сводка по всем накладным компании"></div>
         <div class="invoice-list-workspace">
-          <div class="invoice-view-tabs" id="invoice-view-tabs" aria-label="Быстрые фильтры накладных"></div>
           <div class="invoices-toolbar">
             <div class="search-field">
               <input type="search" id="invoices-search" placeholder="Номер, поставщик или ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" name="invoices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')" aria-label="Поиск накладных" aria-keyshortcuts="/">
@@ -173,7 +172,7 @@
             <table class="invoices-table">
               <thead><tr>
                 <th class="col-check"><input type="checkbox" id="invoices-select-all" onchange="Invoices.toggleSelectAll(this.checked)" aria-label="Выбрать все накладные на странице"></th>
-                <th>Документ</th><th>Поставщик / замечания</th><th style="text-align:right">Сумма, ₽</th><th>Обработка</th><th>Платёж</th><th style="text-align:right">Действие</th>
+                <th class="col-doc">Документ</th><th>Поставщик и замечания</th><th class="col-money">Сумма, ₽</th><th class="col-state">1С</th><th class="col-state">Оплата</th><th class="col-act"><span class="sr-only">Действие</span></th>
               </tr></thead>
               <tbody id="invoices-tbody"></tbody>
             </table>
@@ -184,68 +183,61 @@
       </div>
 
       <div id="invoice-detail" style="display:none">
-        <!-- Mobile-only at-a-glance overprice counters (top-right). Filled by JS. -->
-        <div id="invoice-price-badges" class="price-badges"></div>
-        <div class="invoice-nav-row">
-          <a href="#/invoices" class="back-link">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Назад к списку
-          </a>
-          <div id="invoice-nav" class="invoice-nav"></div>
-        </div>
-        <div id="invoice-decision" class="card review-decision" aria-live="polite"></div>
-        <div id="invoice-source-workspace" class="card" hidden></div>
-        <div id="invoice-comparison" class="card" hidden></div>
-        <div class="card">
-          <div class="invoice-header" id="invoice-header-fields"></div>
-          <div class="invoice-actions" id="invoice-actions"></div>
-        </div>
-        <div class="card" id="invoice-sber-section" style="display:none"></div>
-        <div class="card" id="invoice-supplier-details" style="display:none">
-          <h3 style="margin-bottom:12px">Реквизиты поставщика</h3>
-        </div>
-        <div class="invoice-review-tools"><button type="button" class="btn btn-outline btn-sm" id="invoice-review-toggle" aria-pressed="false" onclick="Invoices.toggleReviewPhotos()">Фото рядом с товарами</button><span>Откройте фото на весь экран, чтобы увеличить и сверить реквизиты</span></div>
-        <div class="tabs" style="margin-bottom:0">
-          <button class="tab-btn active" onclick="Invoices.switchTab('items', this)">Товары</button>
-          <button class="tab-btn" onclick="Invoices.switchTab('photos', this)">Фото</button>
-          <button class="tab-btn" onclick="Invoices.switchTab('ocr', this)">OCR-текст</button>
-          <button class="tab-btn" onclick="Invoices.switchTab('history', this)">История</button>
-        </div>
-        <div id="invoice-sibling-banner" style="display:none"></div>
-        <div id="invoice-review-workspace">
-        <div class="card" id="invoice-tab-items">
-          <div id="invoice-price-warning"></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Название (скан)</th>
-                  <th>Название (1С)</th>
-                  <th>Кол-во</th>
-                  <th>Ед.</th>
-                  <th>Цена</th>
-                  <th>Обычная</th>
-                  <th>Сумма</th>
-                  <th>НДС%</th>
-                  <th>Точность</th>
-                </tr>
-              </thead>
-              <tbody id="invoice-items-tbody"></tbody>
-            </table>
+        <!-- Карточка «по шагам» (спек 2026-10-09): шапка, предупреждения, шаги, панель шага,
+             товары и скан справа. Рисуют InvoiceCard, Invoices, InvoiceReview и Sber. -->
+        <div class="ic-layout" id="ic-layout">
+          <div class="ic-main">
+            <div id="invoice-price-badges" class="price-badges"></div>
+            <div class="card ic-head">
+              <a href="#/invoices" class="ic-back" aria-label="Назад к списку накладных"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span>Накладные</span></a>
+              <div class="ic-head-main" id="ic-head-main"></div>
+              <div id="invoice-nav" class="invoice-nav ic-nav" aria-label="Соседние накладные"></div>
+              <button type="button" class="ic-thumb" id="ic-thumb" onclick="InvoiceCard.openScan()" aria-label="Открыть скан накладной"></button>
+              <button type="button" class="ic-more" id="ic-more" aria-haspopup="menu" aria-expanded="false" aria-label="Другие действия с накладной" title="Другие действия" onclick="InvoiceCard.openMore(this)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+            </div>
+            <div class="ic-alerts" id="ic-alerts"><div id="ic-duplicate"></div><div id="invoice-sibling-banner" style="display:none"></div></div>
+            <div class="ic-steps" id="ic-steps" role="tablist" aria-label="Шаги работы с накладной"></div>
+            <div class="ic-panels" id="ic-panels">
+              <div class="card ic-panel" data-panel="verify" role="tabpanel" aria-label="Сверка с оригиналом"><div id="invoice-decision" class="ic-verify" aria-live="polite"></div></div>
+              <div class="card ic-panel" data-panel="onec" role="tabpanel" aria-label="Отправка в 1С" hidden><div id="ic-onec-panel"></div></div>
+              <div class="card ic-panel" data-panel="pay" role="tabpanel" aria-label="Оплата в СберБизнес" hidden><div id="invoice-sber-section"></div></div>
+            </div>
+            <div id="invoice-comparison" class="card ic-comparison" hidden></div>
+            <div class="card ic-tabs-card">
+              <div class="ic-tabs" role="tablist" aria-label="Разделы накладной">
+                <button type="button" class="ic-tab active" role="tab" aria-selected="true" data-tab="items" onclick="Invoices.switchTab('items', this)">Товары <span class="ic-tab-count" id="ic-items-count"></span></button>
+                <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="supplier" onclick="Invoices.switchTab('supplier', this)">Поставщик и банк</button>
+                <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="history" onclick="Invoices.switchTab('history', this)">История</button>
+              </div>
+              <div id="invoice-tab-items" role="tabpanel">
+                <div id="invoice-price-warning"></div>
+                <div class="table-wrap ic-items-wrap">
+                  <table class="ic-items">
+                    <thead>
+                      <tr>
+                        <th class="ic-col-no">#</th>
+                        <th>Товар как в накладной · позиция 1С</th>
+                        <th class="ic-col-num">Кол-во</th>
+                        <th class="ic-col-num">Цена с НДС</th>
+                        <th class="ic-col-num">Сумма</th>
+                        <th class="ic-col-vat">НДС</th>
+                        <th class="ic-col-menu"><span class="sr-only">Действия со строкой</span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="invoice-items-tbody"></tbody>
+                  </table>
+                </div>
+                <div id="invoice-items-toolbar"></div>
+              </div>
+              <div id="invoice-tab-supplier" role="tabpanel" hidden><div id="invoice-supplier-details"></div></div>
+              <div id="invoice-tab-history-wrap" role="tabpanel" hidden>
+                <div id="invoice-tab-history"></div>
+                <details class="ic-ocr"><summary id="ic-ocr-summary">Текст распознавания</summary><div class="ocr-text" id="invoice-ocr-text"></div></details>
+              </div>
+            </div>
           </div>
-          <div id="invoice-items-toolbar"></div>
+          <aside class="card ic-drawer" id="invoice-source-workspace" aria-label="Скан накладной" hidden></aside>
         </div>
-        <div class="card" id="invoice-tab-photos" style="display:none">
-          <div id="invoice-photos-container">
-            <div class="empty-state">Загрузка фото...</div>
-          </div>
-        </div>
-        </div>
-        <div class="card" id="invoice-tab-ocr" style="display:none">
-          <div class="ocr-text" id="invoice-ocr-text"></div>
-        </div>
-        <div class="card" id="invoice-tab-history" style="display:none"></div>
       </div>
     </section>
 
@@ -1140,6 +1132,7 @@
 <script src="/js/invoice-photo-viewer.js"></script>
 <script src="/js/invoices.js"></script>
 <script src="/js/invoice-review.js"></script>
+<script src="/js/invoice-card.js"></script>
 <script src="/js/upload.js"></script>
 <script src="/js/mappings.js"></script>
 <script src="/js/newItems.js"></script>

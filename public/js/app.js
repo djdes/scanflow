@@ -115,6 +115,7 @@ const App = {
     if (typeof InvoicePhotoViewer !== 'undefined') InvoicePhotoViewer.close();
     const hash = window.location.hash || '#/invoices';
     if (typeof InvoiceReview !== 'undefined' && !/^#\/invoices\/\d+$/.test(hash)) InvoiceReview.leave();
+    if (typeof InvoiceCard !== 'undefined') InvoiceCard.closeMenu();
     // Close the mobile nav drawer on every navigation.
     const navEl = document.querySelector('header nav');
     if (navEl) navEl.classList.remove('open');

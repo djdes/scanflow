@@ -2175,38 +2175,7 @@ tr.inv-visited:hover td { opacity: 1; }
   min-width: calc(5ch + 16px);
 }
 
-/* Invoice items table: let the scanned-name column breathe and keep the
-   editable numeric columns narrow. Без этого длинные русские названия
-   переносятся на 3 строки, а пустое место "убегает" в другие столбцы. */
-#invoice-items-tbody td:nth-child(2),   /* Название (скан) */
-#invoice-items-tbody td:nth-child(3) {  /* Название (1С) */
-  min-width: 240px;
-  max-width: 360px;
-  word-break: normal;
-  overflow-wrap: break-word;
-}
-/* ВНИМАНИЕ: индексы должны совпадать с thead в public/app.html. Колонка
-   «Обычная» (медианная цена) стоит между «Цена» и «Сумма» — раньше её здесь
-   пропустили, из-за чего 110px уезжали на медиану, а «Сумма» оставалась без
-   правила. Её input'у задан width:100%, а процентная ширина не участвует в
-   расчёте минимальной ширины колонки при table-layout:auto — столбец схлопывался
-   до паддингов и значение обрезалось («50» вместо «50 000,00»). */
-#invoice-items-tbody td:nth-child(4),   /* Кол-во */
-#invoice-items-tbody td:nth-child(5),   /* Ед. */
-#invoice-items-tbody td:nth-child(6),   /* Цена */
-#invoice-items-tbody td:nth-child(7),   /* Обычная */
-#invoice-items-tbody td:nth-child(8) {  /* Сумма */
-  /* Общий паддинг ячейки — 16px с каждой стороны, то есть треть ширины узкой
-     колонки уходит в пустоту. Поджимаем боковые поля только здесь — ширина
-     достаётся значению, а таблица не становится шире. */
-  padding-left: 8px;
-  padding-right: 8px;
-}
-#invoice-items-tbody td:nth-child(4) { width: 104px; }  /* Кол-во */
-#invoice-items-tbody td:nth-child(5) { width: 72px; }   /* Ед. — «шт», «кг», «упак» */
-/* «Цена» и «Обычная» — read-only текст, ширину задаёт содержимое.
-   «Сумма» — поле ввода: ширину задаём явно, иначе колонка схлопнется (см. выше). */
-#invoice-items-tbody td:nth-child(8) { width: 120px; }  /* Сумма */
+/* Ширины колонок таблицы товаров карточки (.ic-items) — в разделе «Карточка накладной по шагам». */
 .nom-picker-dropdown {
   display: none;
   position: absolute;
@@ -5500,3 +5469,369 @@ dialog.review-confirm p {
 .intlog-table a.intlog-inv:hover { text-decoration: underline; }
 .intlog-table a.intlog-card { text-decoration: none; }
 .intlog-table a.intlog-card:hover { color: var(--primary); }
+
+/* ===================================================================
+   Карточка накладной «по шагам» (спек docs/superpowers/specs/2026-10-09-invoice-card-redesign-design.md)
+   Шапка с превью скана → предупреждения → три шага → панель шага → товары; скан справа.
+   =================================================================== */
+#view-invoices.is-detail > .section-header { display: none; }
+#invoice-detail .card { margin-bottom: 12px; box-shadow: none; }
+
+/* Шапка */
+.ic-head { display: flex; align-items: center; gap: 14px; padding: 12px 14px; }
+.ic-back { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); font-size: 13px; font-weight: 500; text-decoration: none; padding: 8px 10px 8px 6px; border-radius: 8px; white-space: nowrap; }
+.ic-back:hover { background: var(--bg); color: var(--text); }
+.ic-head-main { flex: 1; min-width: 0; }
+.ic-title { font-size: 19px; font-weight: 700; letter-spacing: -0.2px; margin: 0; line-height: 1.25; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.ic-title-date { font-weight: 500; color: var(--text-secondary); }
+.ic-sub { margin-top: 2px; color: var(--text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.ic-pill { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0; }
+.ic-pill--amber { background: var(--warning-soft); color: #9a6a12; }
+.ic-pill--red { background: var(--error-soft); color: #b0332e; }
+.ic-pill--blue { background: var(--primary-soft); color: var(--primary-hover); }
+.ic-pill--grey { background: #efeeeb; color: var(--text-secondary); }
+.ic-nav { display: flex; gap: 6px; }
+.ic-nav .inv-nav-btn { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 8px; }
+.ic-nav .inv-nav-label { display: none; }
+.ic-thumb { display: inline-flex; align-items: center; gap: 10px; padding: 4px 14px 4px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font: inherit; color: var(--text); cursor: pointer; text-align: left; min-height: 56px; }
+.ic-thumb:hover { border-color: var(--primary); }
+.ic-thumb:disabled { cursor: default; opacity: .75; border-color: var(--border); }
+.ic-thumb-img { width: 64px; height: 46px; border-radius: 7px; object-fit: cover; display: block; background: var(--bg); }
+.ic-thumb-img--empty { display: grid; place-items: center; color: var(--text-tertiary); }
+.ic-thumb-text b { display: block; font-size: 13px; }
+.ic-thumb-text small { display: block; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.ic-more { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); display: grid; place-items: center; cursor: pointer; flex: none; }
+.ic-more:hover, .ic-more[aria-expanded="true"] { border-color: var(--border-hover); background: var(--bg); }
+
+/* Предупреждения */
+.ic-alerts > div:empty { display: none; }
+.ic-alerts .duplicate-banner, .ic-alerts .price-warning-banner { margin-bottom: 12px; }
+
+/* Шаги */
+.ic-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.ic-step { display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 64px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; cursor: pointer; transition: border-color var(--transition), box-shadow var(--transition); min-width: 0; }
+.ic-step:hover { border-color: var(--border-hover); }
+.ic-step:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ic-step.is-active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.ic-step-mark { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: #efeeeb; color: var(--text-secondary); }
+.ic-step-text { flex: 1; min-width: 0; }
+.ic-step-text b { display: block; font-size: 14px; font-weight: 600; }
+.ic-step-text small { display: block; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ic-step-action { flex: none; }
+.ic-step--current .ic-step-mark, .ic-step.is-active:not(.ic-step--done):not(.ic-step--error) .ic-step-mark { background: var(--primary); color: #fff; }
+.ic-step--done .ic-step-mark { background: var(--success); color: #fff; }
+.ic-step--done .ic-step-text small { color: var(--success); }
+.ic-step--queued .ic-step-text small, .ic-step--progress .ic-step-text small { color: var(--primary-hover); }
+.ic-step--error .ic-step-mark { background: var(--error); color: #fff; }
+.ic-step--error .ic-step-text small { color: var(--error); }
+.ic-step--blocked, .ic-step--off { background: #fbfaf8; }
+.ic-step--blocked .ic-step-text b, .ic-step--off .ic-step-text b { color: var(--text-secondary); }
+
+/* Панель шага */
+.ic-panel { padding: 16px 18px; }
+.ic-panel[hidden], #invoice-tab-items[hidden], #invoice-tab-supplier[hidden], #invoice-tab-history-wrap[hidden] { display: none !important; }
+.ic-panel-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin-top: 12px; }
+.ic-panel-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
+.ic-panel-row > .ic-onec-line { flex: 1 1 320px; min-width: 0; }
+.ic-panel-row > .ic-panel-actions { margin-top: 0; margin-left: auto; }
+.ic-link { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--primary); cursor: pointer; text-decoration: none; }
+.ic-link:hover { text-decoration: underline; }
+.ic-onec-line { display: flex; gap: 12px; align-items: flex-start; }
+.ic-onec-line b { display: block; font-size: 14px; }
+.ic-onec-line small { display: block; color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
+.ic-onec-line > svg { flex: none; width: 22px; height: 22px; padding: 4px; border-radius: 50%; background: var(--success); color: #fff; }
+.ic-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--text-tertiary); margin: 6px 6px 0; }
+.ic-onec-line--blue .ic-dot { background: var(--primary); }
+.ic-onec-line--red .ic-dot { background: var(--error); }
+.ic-onec-line--red small { color: #b0332e; }
+
+/* Сверка: реквизиты */
+.ic-verify-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.ic-verify-head > div { flex: 1; min-width: 220px; }
+.ic-verify-head b { font-size: 14px; }
+.ic-verify-head span { color: var(--text-secondary); font-size: 13px; }
+.ic-eyebrow { display: block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--primary); margin-bottom: 2px; }
+.ic-reqs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.ic-req { display: flex; flex-direction: column; gap: 3px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font: inherit; color: var(--text); text-align: left; cursor: pointer; min-width: 0; transition: border-color var(--transition), background var(--transition); }
+.ic-req:hover { border-color: var(--primary); }
+.ic-req span { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
+.ic-req b { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ic-req.is-ok { background: var(--success-soft); border-color: #cfe3d3; }
+.ic-req.is-ok span { color: var(--success); }
+.ic-issues { list-style: none; margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: #fffaf0; border: 1px solid #f3e2bd; color: #8a5d10; font-size: 13px; display: grid; gap: 4px; }
+.ic-issues li::before { content: '•'; margin-right: 8px; }
+.ic-muted { color: var(--text-secondary); font-size: 13px; margin: 12px 0 0; }
+
+/* Сравнение с прошлой поставкой */
+.ic-comparison { padding: 16px 18px; }
+
+/* Раскладка: карточка слева, скан справа (класс is-scan-open ставит InvoiceReview.showDrawer).
+   .ic-main — контейнер для @container: шаги и реквизиты подстраиваются под свою ширину,
+   а не под ширину окна (при открытом скане колонка уже). */
+.ic-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.ic-layout.is-scan-open { grid-template-columns: minmax(0, 1fr) minmax(0, 46%); }
+.ic-main { min-width: 0; container: icmain / inline-size; }
+#invoice-detail .price-badges { display: none !important; }
+.ic-tabs-card { padding: 0; overflow: hidden; }
+.ic-tabs { display: flex; gap: 24px; padding: 0 18px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.ic-tab { background: none; border: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--text-secondary); padding: 13px 0 11px; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.ic-tab:hover { color: var(--text); }
+.ic-tab.active { color: var(--text); border-bottom-color: var(--primary); }
+.ic-tab-count { color: var(--text-tertiary); font-weight: 500; margin-left: 2px; }
+#invoice-tab-items #invoice-price-warning:not(:empty) { padding: 12px 18px 0; }
+#invoice-tab-supplier, #invoice-tab-history-wrap { padding: 16px 18px; }
+.ic-ocr { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.ic-ocr summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-secondary); }
+.ic-ocr .ocr-text { margin-top: 10px; }
+
+/* Товары */
+.ic-items-wrap { border: 0; border-radius: 0; box-shadow: none; }
+.ic-items { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ic-items thead th { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border); background: var(--card); white-space: nowrap; }
+.ic-items thead th:first-child, .ic-items tbody td:first-child { padding-left: 18px; }
+.ic-items thead th:last-child, .ic-items tbody td:last-child { padding-right: 12px; }
+.ic-items .ic-col-num { text-align: right; }
+.ic-items .ic-col-no { width: 36px; }
+.ic-items .ic-col-vat { width: 74px; }
+.ic-items .ic-col-menu { width: 44px; }
+.ic-items tbody td { padding: 9px 10px; border-bottom: 1px solid #f1f0ee; vertical-align: top; }
+.ic-items tbody tr:last-child td { border-bottom: 0; }
+.ic-items tbody tr:hover td { background: #fbfaf8; }
+.ic-items tbody tr.review-selected td { background: var(--primary-soft); }
+.ic-items tbody tr.ic-row--flag td { background: #fffbf3; }
+.ic-items tbody tr.ic-row--flag:hover td { background: #fff6e6; }
+.ic-row-no { color: var(--text-tertiary); font-size: 13px; padding-top: 12px !important; }
+.ic-row-name { font-weight: 500; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.ic-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; margin-left: 6px; border-radius: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; vertical-align: 1px; border: 0; font-family: inherit; }
+button.ic-tag { cursor: pointer; }
+.ic-tag--amber { background: var(--warning-soft); color: #9a6a12; }
+.ic-tag--red { background: var(--error-soft); color: #b0332e; }
+.ic-tag--blue { background: var(--primary-soft); color: var(--primary-hover); }
+.ic-row-onec { margin-top: 3px; }
+.ic-row-onec .nom-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; position: relative; }
+.ic-row-onec .nom-suggest { flex-basis: 100%; padding-left: 22px; }
+.ic-row-onec .nom-badge { flex: none; }
+.ic-row-onec .nom-picker-input { border: 1px solid transparent; background: transparent; padding: 2px 6px; margin-left: -2px; font-size: 12.5px; color: var(--text-secondary); flex: 1 1 140px; width: auto; min-width: 0; border-radius: 6px; }
+.ic-row-onec .nom-picker-input:hover { border-color: var(--border); background: var(--card); }
+.ic-row-onec .nom-picker-input:focus { border-color: var(--primary); background: var(--card); color: var(--text); outline: none; }
+.ic-row-onec .nom-cands { margin-top: 4px; }
+.ic-items .ic-num { text-align: right; white-space: nowrap; }
+.ic-items .item-edit { border: 1px solid transparent; background: transparent; text-align: right; padding: 3px 6px; border-radius: 6px; font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text); }
+.ic-items .item-edit:hover { border-color: var(--border); background: var(--card); }
+.ic-items .item-edit:focus { border-color: var(--primary); background: var(--card); outline: none; box-shadow: 0 0 0 3px var(--primary-soft); }
+.ic-items .item-edit-unit { width: 5.5ch; min-width: 0; text-align: left; padding-left: 4px; color: var(--text-secondary); }
+/* Числа — по ширине значения (без разделителей тысяч: «107528,07»), название забирает остальное */
+.ic-items .item-edit-qty { width: calc(7ch + 14px); min-width: 0; }
+.ic-items .item-edit-price { width: calc(9ch + 14px); min-width: 0; }
+.ic-items .item-edit-total { width: calc(10ch + 14px); min-width: 0; }
+.ic-items td.ic-num { width: 1%; }
+.ic-items .ic-cell-name { min-width: 200px; }
+.ic-qty { display: inline-flex; align-items: baseline; justify-content: flex-end; }
+.ic-sub-line { display: block; margin-top: 2px; font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+.ic-sub-line--amber { color: #9a6a12; white-space: normal; max-width: 260px; margin-left: auto; }
+.ic-items .item-vat-select { border: 1px solid transparent; background: transparent; font: inherit; font-size: 13px; color: var(--text); padding: 3px 2px; border-radius: 6px; cursor: pointer; }
+.ic-items .item-vat-select:hover { border-color: var(--border); background: var(--card); }
+.ic-row-more { width: 32px; height: 32px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text-tertiary); display: grid; place-items: center; cursor: pointer; }
+.ic-items tbody tr:hover .ic-row-more, .ic-row-more:focus-visible, .ic-row-more[aria-expanded="true"] { color: var(--text); border-color: var(--border); background: var(--card); }
+#invoice-items-toolbar .items-toolbar { padding: 10px 18px 14px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+#invoice-items-toolbar .add-item-form { padding: 0 18px 14px; }
+
+/* Меню «⋯» */
+.ic-menu { position: absolute; z-index: 1200; min-width: 250px; max-width: min(340px, calc(100vw - 16px)); background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); padding: 6px; }
+.ic-menu-item { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 9px 10px; font: inherit; font-size: 13.5px; color: var(--text); cursor: pointer; }
+.ic-menu-item:hover, .ic-menu-item:focus-visible { background: var(--bg); outline: none; }
+.ic-menu-item--danger { color: var(--error); }
+.ic-menu-sep { height: 1px; background: var(--border); margin: 5px 4px; }
+
+/* Скан справа: прилипает под шапкой приложения (60 px), высота — до низа окна */
+.ic-drawer { position: sticky; top: 72px; height: calc(100vh - 84px); padding: 0; overflow: hidden; display: flex; flex-direction: column; margin-bottom: 0 !important; }
+.ic-drawer-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.ic-drawer-head h3 { flex: 1; margin: 0; font-size: 14px; font-weight: 600; min-width: 60px; }
+.ic-drawer-head .ic-page-select { width: auto; flex: none; font: inherit; font-size: 13px; height: 32px; padding: 0 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.ic-tools { display: flex; align-items: center; gap: 4px; }
+.ic-zoom { min-width: 44px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ic-tool { min-width: 32px; height: 32px; padding: 0 7px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font: inherit; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; display: inline-grid; place-items: center; flex: none; }
+.ic-tool:hover { border-color: var(--border-hover); background: var(--bg); }
+.ic-tool:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.ic-tool:disabled { opacity: .45; cursor: default; }
+.ic-tool--ghost { border-color: transparent; background: transparent; color: var(--text-tertiary); }
+.ic-drawer .review-photo-viewport { flex: 1 1 auto; min-height: 200px; height: auto; border-radius: 0; border: 0; background: #ecebe7; overscroll-behavior: contain; }
+.ic-drawer .review-photo-viewport:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ic-drawer .review-photo-surface { user-select: none; cursor: grab; }
+.ic-drawer .review-photo-surface.is-panning { cursor: grabbing; }
+.ic-drawer .review-photo-surface.binding { cursor: crosshair; }
+.ic-rot-wrap { position: relative; }
+.ic-drawer .review-photo-surface.is-rotated #review-on-photo { display: none !important; }
+.ic-drawer-note { padding: 16px 14px; margin: 0; color: var(--text-secondary); font-size: 13px; }
+.ic-drawer-docs { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: grid; gap: 12px; align-content: start; }
+.ic-drawer-docs .photo-block { margin: 0; }
+.ic-pdf { display: block; width: 100%; height: calc(100vh - 260px); min-height: 320px; border: 1px solid var(--border); border-radius: 8px; background: #ecebe7; margin-top: 10px; }
+.ic-drawer-foot { flex: none; border-top: 1px solid var(--border); padding: 10px 14px 12px; display: grid; gap: 8px; max-height: 50%; overflow: auto; }
+.ic-drawer-foot[hidden] { display: none; }
+/* «Совпадает?» — сверка реквизита */
+.ic-confirm { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 10px; background: var(--primary-soft); border: 1px solid #cfe0f7; }
+.ic-confirm[hidden] { display: none; }
+.ic-confirm-text { flex: 1; min-width: 0; }
+.ic-drawer-foot > * { min-width: 0; }
+@media (max-width: 480px) {
+  .ic-confirm { flex-wrap: wrap; }
+  .ic-confirm-text { flex-basis: calc(100% - 44px); }
+  .ic-confirm #review-verify-skip { order: 1; }
+  .ic-confirm .btn { order: 2; flex: 1; }
+}
+.ic-confirm-text small { display: block; font-size: 11.5px; color: var(--primary-hover); font-weight: 600; }
+.ic-confirm-text b { display: block; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Что сверяем и правка значения */
+.ic-target { display: flex; align-items: center; gap: 8px; }
+.ic-target label { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .04em; flex: none; }
+.ic-target select { flex: 1; min-width: 0; font: inherit; font-size: 13px; height: 32px; padding: 0 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.ic-edit-row { display: flex; align-items: flex-end; gap: 12px; }
+.ic-edit-val { flex: 1; min-width: 0; }
+.ic-edit-val small { display: block; font-size: 11.5px; color: var(--text-tertiary); }
+.ic-edit-val b { display: block; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ic-edit-val--none b { color: var(--text-tertiary); font-weight: 500; }
+.ic-edit-row .btn { flex: none; }
+.ic-edit-form { display: flex; gap: 6px; margin-top: 8px; }
+.ic-edit-form input { flex: 1; min-width: 0; font: inherit; font-size: 14px; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; font-variant-numeric: tabular-nums; }
+.ic-edit-form input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px var(--primary-soft); }
+.ic-edit-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
+.ic-edit-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ic-edit-field { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.ic-edit-field:hover { border-color: var(--primary); }
+.ic-edit-field small { font-size: 11px; color: var(--text-tertiary); }
+.ic-edit-field b { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ic-drawer-tools { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.ic-drawer-tools .ic-link:disabled { color: var(--text-tertiary); cursor: default; text-decoration: none; }
+.ic-drawer-status { margin: 0; font-size: 12px; color: var(--text-tertiary); }
+.ic-req.is-pending { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.ic-link--push { margin-left: auto; }
+.ic-link--danger { color: var(--error); }
+
+/* Шаг «Оплата»: форма черновика и состояние платежа */
+.ic-pay-form { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr); gap: 12px; max-width: none; margin: 0; }
+.ic-pay-form label > span { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.ic-pay-form label small { font-weight: 500; color: var(--text-tertiary); }
+.ic-pay-form input { max-width: none; height: 40px; }
+.ic-pay-form textarea { resize: vertical; min-height: 40px; }
+.ic-pay-hint { margin: 6px 0 12px; font-size: 12.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+#invoice-sber-section .sber-attrs-all { margin-bottom: 0; }
+#invoice-sber-section .sber-attrs-hint { margin: 8px 0 0; }
+#invoice-sber-section .ic-onec-line + .ic-pay-form { margin-top: 12px; }
+.ic-pay-purpose { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+.ic-pay-purpose small { display: block; font-size: 11.5px; color: var(--text-tertiary); margin-bottom: 2px; }
+.ic-pay-purpose div { font-size: 13px; overflow-wrap: anywhere; }
+@container icmain (max-width: 600px) {
+  .ic-pay-form { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Колонка карточки уже — шаги, реквизиты и таблица плотнее (колонка «#» прячется) */
+@container icmain (max-width: 860px) {
+  .ic-items .ic-col-no, .ic-items td.ic-row-no { display: none; }
+  .ic-items thead th, .ic-items tbody td { padding-left: 6px; padding-right: 6px; }
+  .ic-items thead th:nth-child(2), .ic-items tbody td.ic-cell-name { padding-left: 16px; }
+  .ic-items .ic-cell-name { min-width: 160px; }
+  .ic-items .item-edit-price { width: calc(8ch + 10px); }
+  .ic-items .item-edit-total { width: calc(9ch + 10px); }
+  .ic-items .ic-sub-line { white-space: normal; }
+  .ic-sub { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .ic-reqs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ic-step { flex-wrap: wrap; row-gap: 8px; }
+  .ic-step-action { margin-left: 40px; }
+}
+@container icmain (max-width: 600px) {
+  .ic-steps { grid-template-columns: minmax(0, 1fr); }
+  .ic-step { flex-wrap: nowrap; }
+  .ic-step-action { margin-left: 0; }
+  .ic-reqs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Узкие экраны: скан поверх карточки на весь экран */
+@media (max-width: 1100px) {
+  .ic-layout.is-scan-open { grid-template-columns: minmax(0, 1fr); }
+  .ic-drawer:not([hidden]) { position: fixed; inset: 0; z-index: 1100; height: auto; border-radius: 0; border: 0; }
+  body.ic-scan-lock { overflow: hidden; }
+  .ic-pdf { height: calc(100dvh - 120px); }
+}
+@media (max-width: 860px) {
+  .ic-head { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .ic-head-main { order: 3; flex-basis: 100%; padding: 2px 4px 0; }
+  .ic-back span { display: none; }
+  .ic-thumb { margin-left: auto; }
+  .ic-sub { white-space: normal; }
+  .ic-items tbody td { white-space: normal; }
+  .ic-items tbody td.ic-num { white-space: nowrap; }
+  .ic-items .item-edit-qty { width: calc(5ch + 8px); }
+  @supports (field-sizing: content) {
+    .ic-items .item-edit-qty { field-sizing: content; width: auto; min-width: 2ch; max-width: 10ch; }
+  }
+  .ic-steps { grid-template-columns: minmax(0, 1fr); }
+  .ic-reqs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ic-items thead { display: none; }
+  .ic-items, .ic-items tbody { display: block; }
+  .ic-items tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); position: relative; }
+  .ic-items tbody td { display: block; border: 0; padding: 0 !important; background: transparent !important; }
+  .ic-items tbody tr.ic-row--flag { background: #fffbf3; }
+  .ic-items tbody tr.review-selected { background: var(--primary-soft); }
+  .ic-items tbody td.ic-row-no { display: none; }
+  .ic-items tbody td.ic-cell-name { grid-column: 1 / -1; padding-right: 36px !important; }
+  .ic-items tbody td.ic-cell-menu { position: absolute; top: 8px; right: 8px; }
+  .ic-items tbody td.ic-num { text-align: left; }
+  .ic-items tbody td.ic-num::before { content: attr(data-label); display: block; font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .04em; }
+  .ic-items .item-edit { text-align: left; padding-left: 0; }
+  .ic-sub-line--amber { margin-left: 0; }
+}
+@media (max-width: 480px) {
+  .ic-thumb { padding: 3px; min-height: 0; }
+  .ic-thumb-text { display: none; }
+  .ic-thumb-img { width: 56px; height: 40px; }
+}
+
+/* ===================================================================
+   Список накладных: пять равных карточек-фильтров и одинаковые статусы
+   (спек docs/superpowers/specs/2026-10-09-invoice-card-redesign-design.md)
+   =================================================================== */
+.invoice-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.invoice-summary-card { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; border-radius: 12px; background: var(--card); border-color: var(--border); transition: border-color var(--transition), box-shadow var(--transition); }
+.invoice-summary-card span { font-size: 13px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.invoice-summary-card strong { font-size: 28px; line-height: 1.15; margin: 2px 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.invoice-summary-card small { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+.invoice-summary-card--warning { background: var(--card); border-color: var(--border); }
+.invoice-summary-card:hover { border-color: var(--border-hover); }
+.invoice-summary-card[aria-pressed="true"], .invoice-summary-card[aria-pressed="true"]:hover { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+
+.invoices-table th.col-money { text-align: right; }
+.invoices-table th.col-state, .invoices-table td.col-state { width: 148px; }
+.invoices-table th.col-act { width: 1%; }
+.invoices-table .inv-supplier { color: var(--text); }
+.invoice-cell-stack .inv-notes { color: #a77522; max-width: 420px; }
+.btn.inv-act { min-width: 108px; }
+
+/* Плашка статуса: точка + текст; цвета одни для «1С» и «Оплаты» */
+.inv-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; background: #f1f0ed; color: #6b6a66; }
+.inv-pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.inv-pill--blue { background: var(--primary-soft); color: var(--primary-hover); }
+.inv-pill--green { background: var(--success-soft); color: var(--success); }
+.inv-pill--amber { background: var(--warning-soft); color: #9a6a12; }
+.inv-pill--red { background: var(--error-soft); color: #b0332e; }
+.invoice-cell-stack .inv-pill-note { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 2px; }
+
+@media (max-width: 860px) {
+  .invoice-summary { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); overflow-x: auto; scroll-snap-type: x mandatory; padding: 2px 2px 6px; margin: -2px -2px 10px; }
+  .invoice-summary-card { scroll-snap-align: start; }
+}
+@media (max-width: 640px) {
+  .invoices-table th.col-state, .invoices-table td.col-state { width: auto; }
+  .invoices-table tbody tr.clickable td .invoice-cell-stack { align-items: flex-end; text-align: right; }
+  .invoice-cell-stack .inv-notes { max-width: 220px; }
+}
+@media (max-width: 640px) {
+  .invoices-table tbody tr.clickable td.cell-action::before { content: none; }
+}
+/* Первая строка каждой ячейки — на одной линии: номер, поставщик, сумма, плашки, кнопка */
+@media (min-width: 641px) {
+  .invoices-table tbody tr.clickable > td { vertical-align: top; padding-top: 14px; padding-bottom: 14px; }
+  .invoices-table tbody tr.clickable > td.col-check { padding-top: 16px; }
+  .invoices-table tbody tr.clickable .invoice-document-number, .invoices-table tbody tr.clickable .inv-supplier, .invoices-table tbody tr.clickable .invoice-money-cell strong { line-height: 24px; }
+  .invoices-table tbody tr.clickable > td.cell-action { padding-top: 10px; }
+}
+#invoice-supplier-details .invoice-field--wide { grid-column: 1 / -1; }

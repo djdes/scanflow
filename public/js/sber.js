@@ -313,72 +313,83 @@ const Sber = {
     this.load();
   },
 
-  // ===== Section на странице деталей накладной =====
+  // ===== Шаг «Оплата в СберБизнес» в карточке накладной =====
+  // Компактно: состояние платежа строкой (действия справа), под ней — форма или назначение.
+  // Кнопка «Создать черновик» и общая галочка сверки — через Invoices._syncSberGate.
+  _ICON: {
+    check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+  },
+
+  _payLine(tone, title, note, actions = '') {
+    const mark = tone === 'ok' ? this._ICON.check : '<span class="ic-dot"></span>';
+    return `<div class="ic-panel-row"><div class="ic-onec-line${tone ? ` ic-onec-line--${tone}` : ''}">${mark}<div><b>${title}</b>${note ? `<small>${note}</small>` : ''}</div></div>${actions ? `<div class="ic-panel-actions">${actions}</div>` : ''}</div>`;
+  },
+
   async renderInvoiceSection(invoice) {
     const wrap = document.getElementById('invoice-sber-section');
     if (!wrap) return;
     wrap.style.display = 'block';
+    const id = invoice.id;
+    if (invoice.paid_externally) {
+      wrap.innerHTML = this._payLine('ok', 'Оплачено вне сервиса', 'Платёжку в СберБизнес по этой накладной создавать не нужно.',
+        `<button type="button" class="ic-link" onclick="Invoices._markPaidExternally(${id}, false)">Снять отметку «оплачено»</button>`);
+      return;
+    }
+    // Пока ждали ответы, могли перейти к другой накладной (стрелки ←/→) — не рисовать чужую форму.
+    const stale = () => window.Invoices && Invoices._currentInvoiceId !== id;
     const status = this.state.status || (await (await App.api('/sber/status')).json());
     this.state.status = status;
+    if (stale()) return;
     if (!status.connected || !status.payer_complete) {
-      wrap.innerHTML = `
-        <h3 style="margin-bottom:8px">Сбербанк</h3>
-        <p class="muted">Сбербанк не подключён или нет реквизитов плательщика. <a href="#/sber">Открыть настройки</a></p>
-      `;
+      wrap.innerHTML = this._payLine('', 'СберБизнес не подключён',
+        status.connected ? 'Заполните реквизиты плательщика — без них банк не примет платёжку.' : 'Подключите банк, чтобы создавать черновики платёжек прямо из накладной.',
+        `<button type="button" class="ic-link" onclick="Invoices._markPaidExternally(${id}, true)">Оплачено без Сбера</button>
+         <a class="btn btn-outline btn-sm" href="#/sber">Настройки СберБизнес</a>`);
       return;
     }
-    const stRes = await App.api(`/invoices/${invoice.id}/sber-status`);
+    const stRes = await App.api(`/invoices/${id}/sber-status`);
     const { payment } = await stRes.json();
+    if (stale()) return;
     if (payment && payment.status === 'created') {
       const kind = payment.bank_status_kind;
-      const badgeCls = kind === 'paid' ? 'badge-sent' : kind === 'failed' ? 'badge-error' : 'badge-processing';
-      const bankLine = payment.bank_status
-        ? `<div class="badge ${badgeCls}" style="padding:6px 12px;display:inline-block;margin-top:8px">В банке: ${App.esc(payment.bank_status_label || payment.bank_status)}</div>
-           ${payment.bank_comment ? `<div class="field-hint" style="margin-top:4px">Комментарий банка: ${App.esc(payment.bank_comment)}</div>` : ''}`
-        : '';
-      wrap.innerHTML = `
-        <h3 style="margin-bottom:8px">Сбербанк</h3>
-        <div class="badge badge-sent" style="padding:8px 16px;display:inline-block">✓ Платёж создан в Сбере (черновик № ${App.esc(payment.sber_payment_number || '?')}${payment.amount != null ? `, ${Sber._money(payment.amount)} ₽` : ''}). Подпишите в Сбер.Бизнес.</div>
-        ${bankLine}
-        <div style="margin-top:12px">
-          <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Назначение платежа:</div>
-          <div style="font-family:var(--font-mono,monospace);font-size:13px;background:var(--code-bg,rgba(0,0,0,0.04));padding:8px 12px;border-radius:6px;border:1px solid var(--border,rgba(0,0,0,0.08))">${App.esc(payment.payment_purpose || '')}</div>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-          <button class="btn btn-outline" onclick="Sber.checkInvoicePayment(${invoice.id}, this)">↻ Проверить статус</button>
-          <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
-          <button class="btn btn-outline" onclick="Sber.resend(${invoice.id})">⟳ Отправить повторно</button>
-          <button class="btn btn-danger" onclick="Sber.deletePayment(${invoice.id})">🗑 Удалить черновик</button>
-        </div>
-      `;
+      const number = App.esc(payment.sber_payment_number || '—');
+      const amount = payment.amount != null ? ` · ${Sber._money(payment.amount)} ₽` : '';
+      const bank = payment.bank_status_label || payment.bank_status;
+      const comment = payment.bank_comment ? ` Комментарий банка: ${App.esc(payment.bank_comment)}` : '';
+      const check = `<button type="button" class="btn btn-outline btn-sm" onclick="Sber.checkInvoicePayment(${id}, this)">Проверить статус</button>`;
+      const line = kind === 'paid'
+        ? this._payLine('ok', `Оплачено${amount}`, `Исполнено банком · платёжка № ${number}`, check)
+        : kind === 'failed'
+          ? this._payLine('red', `Банк не провёл платёжку № ${number}`, `${App.esc(bank || 'Отклонена')}.${comment}`, check)
+          : kind === 'in_progress'
+            ? this._payLine('blue', `Платёжка № ${number} в работе банка${amount}`, `${App.esc(bank || 'Принята банком')}.${comment}`, check)
+            : this._payLine('blue', `Черновик № ${number} в СберБизнес${amount}`, `Подпишите платёжку в СберБизнес.${bank ? ` В банке: ${App.esc(bank)}.` : ''}${comment}`, check);
+      wrap.innerHTML = `${line}
+        <div class="ic-pay-purpose"><small>Назначение платежа</small><div>${App.esc(payment.payment_purpose || '—')}</div></div>
+        <div class="ic-panel-actions">
+          ${kind === 'paid' ? '' : `<button type="button" class="ic-link" onclick="Sber.resend(${id})">Создать платёжку заново</button>`}
+          <button type="button" class="ic-link" onclick="Sber.editTemplate()">Шаблон назначения</button>
+          ${kind === 'paid' ? '' : `<button type="button" class="ic-link ic-link--danger ic-link--push" onclick="Sber.deletePayment(${id})">Удалить запись о черновике</button>`}
+        </div>`;
       return;
     }
-    const preview = await this._loadPreview(invoice.id);
-    if (payment && payment.status === 'failed') {
-      wrap.innerHTML = `
-        <h3 style="margin-bottom:8px">Сбербанк</h3>
-        <p style="color:#dc2626">Ошибка предыдущей отправки: ${App.esc(payment.error_message || 'unknown')}</p>
-        ${this._presendHtml(preview)}
-        ${this._attrGateRow(invoice)}
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Попробовать снова</button>
-          <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
-        </div>
-      `;
-      Invoices._syncSberGate();
-      return;
-    }
-    wrap.innerHTML = `
-      <h3 style="margin-bottom:8px">Сбербанк</h3>
+    const preview = await this._loadPreview(id);
+    if (stale()) return;
+    const failed = payment && payment.status === 'failed'
+      ? this._payLine('red', 'Платёжка не создалась', App.esc(payment.error_message || 'Банк вернул ошибку — попробуйте ещё раз.'))
+      : '';
+    wrap.innerHTML = `${failed}
       ${this._presendHtml(preview)}
-      ${this._attrGateRow(invoice)}
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" id="sber-send-btn" onclick="Sber.sendToSber(${invoice.id})">Отправить в Сбербанк →</button>
-        <button class="btn btn-outline" onclick="Sber.editTemplate()">⚙ Шаблон назначения</button>
+      <div class="ic-panel-row ic-pay-actions">
+        ${this._attrGateRow(invoice)}
+        <div class="ic-panel-actions">
+          <button type="button" class="ic-link" onclick="Invoices._markPaidExternally(${id}, true)">Оплачено без Сбера</button>
+          <button type="button" class="ic-link" onclick="Sber.editTemplate()">Шаблон назначения</button>
+          <button type="button" class="btn btn-primary btn-sm" id="sber-send-btn" onclick="Sber.sendToSber(${id})">${failed ? 'Создать снова' : 'Создать черновик в СберБизнес'}</button>
+        </div>
       </div>
-    `;
-    // Начальное состояние кнопки считаем от галочек в шапке — одна точка
-    // истины на весь экран (Invoices._syncSberGate).
+      <div class="sber-attrs-hint" id="sber-attrs-hint" hidden></div>`;
+    // Доступность кнопки — по отметкам сверки (одна точка истины, Invoices._syncSberGate).
     Invoices._syncSberGate();
   },
 
@@ -403,15 +414,15 @@ const Sber = {
     if (!p) return '';
     const amount = p.amount != null ? String(p.amount.toFixed(2)).replace('.', ',') : '';
     return `
-      <div class="sber-presend">
-        <label>Сумма платежа, ₽
+      <div class="sber-presend ic-pay-form">
+        <label><span>Сумма платежа, ₽</span>
           <input id="sber-amount" inputmode="decimal" value="${App.esc(amount)}" autocomplete="off">
         </label>
-        <div class="field-hint">Сумма накладной: ${this._money(p.total_sum)} ₽${p.vat_sum != null ? ` · в т.ч. НДС ${this._money(p.vat_sum)} ₽` : ''}. Поменяете здесь — изменится только эта платёжка.</div>
-        <label style="margin-top:8px">Назначение платежа <span class="muted">(до 210 символов)</span>
+        <label><span>Назначение платежа <small>до 210 символов</small></span>
           <textarea id="sber-purpose" rows="2" maxlength="210">${App.esc(p.purpose || '')}</textarea>
         </label>
-      </div>`;
+      </div>
+      <div class="ic-pay-hint">Сумма накладной: ${this._money(p.total_sum)} ₽${p.vat_sum != null ? ` · в т.ч. НДС ${this._money(p.vat_sum)} ₽` : ''}. Поменяете здесь — изменится только эта платёжка, не накладная.</div>`;
   },
 
   _presendOverrides(invoiceId) {
@@ -445,10 +456,8 @@ const Sber = {
       <label class="sber-attrs-all">
         <input type="checkbox" id="sber-attrs-all"
                onchange="Invoices.toggleAllAttrChecks(${invoice.id}, this.checked)">
-        <span>Все реквизиты сверены с фото</span>
-      </label>
-      <div class="sber-attrs-hint" id="sber-attrs-hint" hidden></div>
-    `;
+        <span>Все реквизиты сверены с бумагой</span>
+      </label>`;
   },
 
   async editTemplate() {
