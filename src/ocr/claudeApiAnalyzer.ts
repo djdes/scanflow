@@ -4,6 +4,7 @@ import { ParsedInvoiceData } from './types';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import { preprocessInvoiceImage } from './imagePreprocess';
+import { mergeStructuredPageText } from './mergeStructuredPages';
 
 export interface ApiAnalyzerResult {
   success: boolean;
@@ -809,6 +810,8 @@ export async function analyzeMultiPageTextWithClaudeApi(
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
+  const merged = structuredPagesResult(combinedOcrText, pageCount);
+  if (merged) return merged;
   const { result } = await analyzeMultiPageTextCore(combinedOcrText, target, pageCount, catalog, memory);
   return result;
 }
@@ -821,8 +824,23 @@ export async function analyzeMultiPageTextWithVerification(
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
+  const merged = structuredPagesResult(combinedOcrText, pageCount);
+  if (merged) return merged;
   const { result, repair } = await analyzeMultiPageTextCore(combinedOcrText, target, pageCount, catalog, memory);
   return verifyAndRepair(`${modelTag(target)} multi-page text`, result, repair);
+}
+
+/** Готовые строки страниц сохраняем целиком, включая НДС, упаковку и выбор 1С. */
+function structuredPagesResult(combinedText: string, pageCount: number): ApiAnalyzerResult | null {
+  const data = mergeStructuredPageText(combinedText, pageCount);
+  if (!data) return null;
+  const issues = validateParsedInvoice(data);
+  logger.info('Multi-page: merged structured pages without model re-analysis', {
+    pageCount, itemsCount: data.items.length, issues: issues.map(i => i.code),
+  });
+  // Каждый лист уже прошёл проверку с до-чтением по фото. На этапе склейки
+  // нет исходных фото: замечания к общему итогу не повод переписывать строки.
+  return { success: true, data, rawText: JSON.stringify(data) };
 }
 
 async function analyzeMultipleImagesCore(

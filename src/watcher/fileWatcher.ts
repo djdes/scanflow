@@ -90,9 +90,8 @@ const XML_LLM_MAP_MAX_ITEMS = 150;
 /**
  * Extract the row_no of the FIRST item from a persisted invoice's raw_text.
  *
- * We never migrated row_no into the invoice_items table (it's only useful at
- * merge-time), so we re-parse it from the JSON Claude returned and that we
- * stored verbatim in invoices.raw_text. Tolerant to jsonrepair cases where
+ * Старые записи invoice_items не сохраняли row_no, поэтому читаем его из
+ * исходного постраничного JSON в invoices.raw_text. Tolerant to jsonrepair cases where
  * the text contains fenced markdown — we scan for the first /"row_no":\s*(\d+)/.
  */
 async function getFirstRowNo(invoiceId: number): Promise<number | null> {
@@ -553,6 +552,7 @@ export class FileWatcher {
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
         onec_guid: mapping.onec_guid,
+        row_no: item.row_no ?? null,
       });
     }
 
@@ -677,6 +677,7 @@ export class FileWatcher {
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
         onec_guid: mapping.onec_guid,
+        row_no: item.row_no ?? null,
       });
       added++;
     }
@@ -1283,6 +1284,7 @@ export class FileWatcher {
                   vat_rate: item.vat_rate,
                   mapping_confidence: mapping.confidence,
                   onec_guid: mapping.onec_guid,
+                  row_no: item.row_no ?? null,
                 });
               }
 
@@ -1483,6 +1485,7 @@ export class FileWatcher {
           vat_rate: item.vat_rate,
           mapping_confidence: mapping.confidence,
           onec_guid: mapping.onec_guid,
+          row_no: item.row_no ?? null,
         });
       }
 
