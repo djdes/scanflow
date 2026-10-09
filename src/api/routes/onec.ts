@@ -206,7 +206,7 @@ onecExchangeRouter.get('/invoices/pending', async (req: Request, res: Response) 
     ownerUserId: exchangeOwner(req) ?? undefined,
   });
   if (shouldLogPoll(req.onecConnection?.id, result.rows.length)) {
-    void logIntegrationEvent({ integration: '1c', event_type: 'poll', status: 'info', summary: `Подключение «${req.onecConnection?.name}» запросило очередь: ${result.rows.length}` });
+    void logIntegrationEvent({ integration: '1c', event_type: 'poll', status: 'info', owner_user_id: req.onecConnection?.owner_user_id ?? null, summary: `Подключение «${req.onecConnection?.name}» запросило очередь: ${result.rows.length}` });
   }
   res.json({ data: result.rows, count: result.rows.length, total: result.total });
 });
@@ -258,6 +258,7 @@ onecExchangeRouter.post('/invoices/:id/status', async (req: Request, res: Respon
   }
   void logIntegrationEvent({
     integration: '1c', event_type: `document_${status}`, status: status === 'error' || status === 'rejected' ? 'error' : 'ok', invoice_id: id,
+    owner_user_id: req.onecConnection?.owner_user_id ?? null,
     summary: `1С «${req.onecConnection?.name}»: статус ${status}${documentRef ? `, ${documentRef}` : ''}`,
     detail: error ? { error } : undefined,
   });

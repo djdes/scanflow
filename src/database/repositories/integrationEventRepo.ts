@@ -12,19 +12,19 @@ export interface IntegrationEvent {
 }
 
 export const integrationEventRepo = {
-  async recent(opts: { integration?: string; limit?: number; offset?: number } = {}): Promise<IntegrationEvent[]> {
+  /** ownerUserId задан — только события этой компании (миграция 84); нет — все (админ). */
+  async recent(opts: { integration?: string; limit?: number; offset?: number; ownerUserId?: number } = {}): Promise<IntegrationEvent[]> {
     // mysql2 named-placeholder pool can't bind LIMIT/OFFSET — inline after clamp
-    // (same approach as invoiceRepo.getAll). `integration` is bound as a param.
+    // (same approach as invoiceRepo.getAll). Filters are bound as params.
     const lim = Math.max(1, Math.min(200, Math.floor(opts.limit ?? 100)));
     const off = Math.max(0, Math.floor(opts.offset ?? 0));
-    if (opts.integration) {
-      return getDb()
-        .prepare(`SELECT * FROM integration_events WHERE integration = ? ORDER BY ts DESC, id DESC LIMIT ${lim} OFFSET ${off}`)
-        .all<IntegrationEvent>(opts.integration);
-    }
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts.integration) { where.push('integration = ?'); params.push(opts.integration); }
+    if (opts.ownerUserId != null) { where.push('owner_user_id = ?'); params.push(opts.ownerUserId); }
     return getDb()
-      .prepare(`SELECT * FROM integration_events ORDER BY ts DESC, id DESC LIMIT ${lim} OFFSET ${off}`)
-      .all<IntegrationEvent>();
+      .prepare(`SELECT * FROM integration_events${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ts DESC, id DESC LIMIT ${lim} OFFSET ${off}`)
+      .all<IntegrationEvent>(...params);
   },
 
   // Derived 1C "connection" signal: the most recent time 1C polled /pending.
@@ -33,6 +33,15 @@ export const integrationEventRepo = {
     const row = await getDb()
       .prepare(`SELECT MAX(timestamp) AS t FROM api_requests_log WHERE path LIKE '/api/invoices/pending%'`)
       .get<{ t: string | null }>();
+    return row?.t ?? null;
+  },
+
+  // То же для компании: база 1С ходит через /api/onec/exchange по токену
+  // подключения, и каждый её запрос обновляет onec_connections.last_used_at.
+  async last1cPollAtForOwner(ownerUserId: number): Promise<string | null> {
+    const row = await getDb()
+      .prepare('SELECT MAX(last_used_at) AS t FROM onec_connections WHERE owner_user_id = ? AND active = 1')
+      .get<{ t: string | null }>(ownerUserId);
     return row?.t ?? null;
   },
 

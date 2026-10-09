@@ -8,6 +8,11 @@ export interface IntegrationEventInput {
   event_type: string;
   status?: 'ok' | 'error' | 'info';
   invoice_id?: number | null;
+  /**
+   * Компания события (миграция 84) — по ней пользователь видит свой журнал.
+   * Не задана, но есть invoice_id — берётся владелец накладной.
+   */
+  owner_user_id?: number | null;
   summary: string;
   detail?: unknown;
 }
@@ -28,14 +33,23 @@ export async function logIntegrationEvent(e: IntegrationEventInput): Promise<voi
       const raw = typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail);
       detail = raw.slice(0, 4000);
     }
+    let owner = e.owner_user_id ?? null;
+    if (owner == null && e.invoice_id != null) {
+      const row = await getDb()
+        .prepare('SELECT owner_user_id FROM invoices WHERE id = ?')
+        .get<{ owner_user_id: number | null }>(e.invoice_id)
+        .catch(() => undefined);
+      owner = row?.owner_user_id ?? null;
+    }
     await getDb().prepare(
-      `INSERT INTO integration_events (integration, event_type, status, invoice_id, summary, detail)
-       VALUES (:integration, :event_type, :status, :invoice_id, :summary, :detail)`
+      `INSERT INTO integration_events (integration, event_type, status, invoice_id, owner_user_id, summary, detail)
+       VALUES (:integration, :event_type, :status, :invoice_id, :owner_user_id, :summary, :detail)`
     ).run({
       integration: e.integration,
       event_type: e.event_type,
       status: e.status ?? 'ok',
       invoice_id: e.invoice_id ?? null,
+      owner_user_id: owner,
       summary,
       detail,
     });

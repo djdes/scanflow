@@ -109,6 +109,7 @@ export async function resetDb(): Promise<mysql.Pool> {
     'integration_sync_state',
     'integration_sync_state_cards',
     'api_requests_log',
+    'integration_events',
   ];
   await pool.query('SET FOREIGN_KEY_CHECKS = 0');
   for (const t of tables) {

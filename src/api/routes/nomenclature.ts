@@ -69,7 +69,7 @@ router.post('/import', requireAdmin, receiveCatalogFile, async (req: Request, re
       mode, upserted, deleted, skipped: parsed.skippedRows, generatedIds: parsed.generatedIds,
     });
     void logIntegrationEvent({
-      integration: 'nomenclature', event_type: 'catalog_imported',
+      integration: 'nomenclature', event_type: 'catalog_imported', owner_user_id: ownerOf(req),
       summary: `Каталог загружен из таблицы: ${upserted} позиций (${mode === 'replace' ? 'замена' : 'добавление'})`,
       detail: { source: 'spreadsheet', generated_ids: parsed.generatedIds, skipped: parsed.skippedRows },
     });
@@ -121,7 +121,7 @@ router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
     if (mapper) mapper.invalidateCache(ownerOf(req));
     logger.info('Nomenclature sync completed', { upserted });
     void logIntegrationEvent({
-      integration: 'nomenclature', event_type: 'catalog_synced',
+      integration: 'nomenclature', event_type: 'catalog_synced', owner_user_id: ownerOf(req),
       summary: `Справочник 1С синхронизирован: ${upserted} позиц. из ${items.length}`,
     });
     res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });

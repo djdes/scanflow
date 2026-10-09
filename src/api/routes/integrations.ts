@@ -15,21 +15,27 @@ function ownerOf(req: Request): number {
 }
 
 // GET /api/integrations/log?integration=1c|sber|webhook|nomenclature&limit=&offset=
-// Returns the recent integration activity events plus the derived "1C last polled
-// at" signal (most recent /pending hit from api_requests_log).
-router.get('/log', requireAdmin, async (req: Request, res: Response) => {
+// Журнал и «1С на связи». Админ видит всю платформу (как раньше), пользователь —
+// только свою компанию: события её накладных и подключений 1С (миграция 84), а
+// время связи — по своим подключениям 1С (onec_connections.last_used_at).
+router.get('/log', async (req: Request, res: Response) => {
   try {
     const integration = req.query.integration as string | undefined;
     const allowed = ['1c', 'sber', 'webhook', 'nomenclature'];
     const filter = integration && allowed.includes(integration) ? integration : undefined;
     const limit = parseInt(req.query.limit as string, 10);
     const offset = parseInt(req.query.offset as string, 10);
+    const isAdmin = req.user?.role === 'admin';
+    const owner = ownerOf(req);
     const data = await integrationEventRepo.recent({
       integration: filter,
       limit: Number.isFinite(limit) ? limit : 100,
       offset: Number.isFinite(offset) ? offset : 0,
+      ownerUserId: isAdmin ? undefined : owner,
     });
-    const onec_last_poll_at = await integrationEventRepo.last1cPollAt();
+    const ownPoll = await integrationEventRepo.last1cPollAtForOwner(owner);
+    const legacyPoll = isAdmin ? await integrationEventRepo.last1cPollAt() : null;
+    const onec_last_poll_at = [ownPoll, legacyPoll].filter(Boolean).sort().pop() ?? null;
     res.json({ data, onec_last_poll_at });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

@@ -2462,6 +2462,26 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 84,
+    name: 'integration_events.owner_user_id — журнал интеграций своей компании',
+    // Журнал был только у админа и общий на платформу: пользователь компании
+    // видел «Ошибка загрузки журнала» (403) и думал, что накладные не доходят до
+    // 1С. Владелец события — компания накладной или подключения 1С; старые
+    // события с накладной получают владельца из invoices, прочие остаются NULL
+    // (их видит только админ).
+    detect: (exec) => hasColumn(exec, 'integration_events', 'owner_user_id'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'integration_events', 'owner_user_id'))) {
+        await exec.query(`ALTER TABLE integration_events ADD COLUMN owner_user_id INT NULL, ADD INDEX idx_integration_events_owner_ts (owner_user_id, ts)`);
+      }
+      await exec.query(`
+        UPDATE integration_events e JOIN invoices i ON i.id = e.invoice_id
+        SET e.owner_user_id = i.owner_user_id
+        WHERE e.owner_user_id IS NULL AND e.invoice_id IS NOT NULL
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
