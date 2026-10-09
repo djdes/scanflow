@@ -32,6 +32,7 @@ router.get('/log', async (req: Request, res: Response) => {
       limit: Number.isFinite(limit) ? limit : 100,
       offset: Number.isFinite(offset) ? offset : 0,
       ownerUserId: isAdmin ? undefined : owner,
+      withoutPolls: req.query.polls !== '1',
     });
     const ownPoll = await integrationEventRepo.last1cPollAtForOwner(owner);
     const legacyPoll = isAdmin ? await integrationEventRepo.last1cPollAt() : null;

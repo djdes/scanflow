@@ -9,21 +9,32 @@ export interface IntegrationEvent {
   invoice_id: number | null;
   summary: string;
   detail: string | null;
+  /** Из накладной события (LEFT JOIN) — чтобы журнал говорил «накладная №…», а не id. */
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  supplier?: string | null;
+  total_sum?: number | null;
 }
 
 export const integrationEventRepo = {
-  /** ownerUserId задан — только события этой компании (миграция 84); нет — все (админ). */
-  async recent(opts: { integration?: string; limit?: number; offset?: number; ownerUserId?: number } = {}): Promise<IntegrationEvent[]> {
+  /**
+   * ownerUserId задан — только события этой компании (миграция 84); нет — все (админ).
+   * withoutPolls — без опросов очереди 1С: их сотни, а «1С на связи» и так видно.
+   */
+  async recent(opts: { integration?: string; limit?: number; offset?: number; ownerUserId?: number; withoutPolls?: boolean } = {}): Promise<IntegrationEvent[]> {
     // mysql2 named-placeholder pool can't bind LIMIT/OFFSET — inline after clamp
     // (same approach as invoiceRepo.getAll). Filters are bound as params.
     const lim = Math.max(1, Math.min(200, Math.floor(opts.limit ?? 100)));
     const off = Math.max(0, Math.floor(opts.offset ?? 0));
     const where: string[] = [];
     const params: unknown[] = [];
-    if (opts.integration) { where.push('integration = ?'); params.push(opts.integration); }
-    if (opts.ownerUserId != null) { where.push('owner_user_id = ?'); params.push(opts.ownerUserId); }
+    if (opts.integration) { where.push('e.integration = ?'); params.push(opts.integration); }
+    if (opts.ownerUserId != null) { where.push('e.owner_user_id = ?'); params.push(opts.ownerUserId); }
+    if (opts.withoutPolls) where.push("e.event_type <> 'poll'");
     return getDb()
-      .prepare(`SELECT * FROM integration_events${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ts DESC, id DESC LIMIT ${lim} OFFSET ${off}`)
+      .prepare(`SELECT e.*, i.invoice_number, i.invoice_date, i.supplier, i.total_sum
+         FROM integration_events e LEFT JOIN invoices i ON i.id = e.invoice_id${where.length ? ` WHERE ${where.join(' AND ')}` : ''}
+         ORDER BY e.ts DESC, e.id DESC LIMIT ${lim} OFFSET ${off}`)
       .all<IntegrationEvent>(...params);
   },
 

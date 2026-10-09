@@ -283,7 +283,7 @@ onecExchangeRouter.post('/nomenclature/sync', async (req: Request, res: Response
     onCatalogChanged(catalogOwner(req));
     const orphaned = 0;
     mapper?.invalidateCache(catalogOwner(req));
-    void logIntegrationEvent({ integration: 'nomenclature', event_type: 'catalog_synced', summary: `1С «${req.onecConnection?.name}»: синхронизировано ${upserted} позиций` });
+    void logIntegrationEvent({ integration: 'nomenclature', event_type: 'catalog_synced', owner_user_id: catalogOwner(req), summary: `1С «${req.onecConnection?.name}»: синхронизировано ${upserted} позиций` });
     res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });
   } catch (error) {
     logger.error('Scoped 1C catalog sync failed', { connectionId: req.onecConnection?.id, error: (error as Error).message });

@@ -26,6 +26,7 @@ async function seed(): Promise<void> {
   await logIntegrationEvent({ integration: '1c', event_type: 'document_posted', invoice_id: 787, summary: '1С: posted' });
   await logIntegrationEvent({ integration: '1c', event_type: 'approved', invoice_id: 900, summary: 'чужая' });
   await logIntegrationEvent({ integration: 'sber', event_type: 'token_refreshed', summary: 'платформа' });
+  await logIntegrationEvent({ integration: '1c', event_type: 'poll', owner_user_id: 3, summary: 'опрос' });
 }
 
 describe.runIf((process.env.DB_NAME || '').includes('test'))('GET /api/integrations/log — журнал своей компании', () => {
@@ -36,7 +37,11 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('GET /api/integrati
     const res = await request(app).get('/api/integrations/log').set('X-API-Key', 'k-user');
     expect(res.status).toBe(200);
     expect(res.body.data.map((e: { summary: string }) => e.summary)).toEqual(['1С: posted']);
+    // данные накладной — чтобы журнал говорил «накладная №…», а не id; опросы 1С скрыты
+    expect(res.body.data[0]).toMatchObject({ invoice_id: 787, invoice_number: '17-0605773' });
     expect(res.body.onec_last_poll_at).toBe('2026-10-09 14:36:48');
+    const withPolls = await request(app).get('/api/integrations/log?polls=1').set('X-API-Key', 'k-user');
+    expect(withPolls.body.data.map((e: { event_type: string }) => e.event_type)).toContain('poll');
   });
 
   it('у компании без подключения 1С связи нет; чужих событий не видно', async () => {

@@ -5483,3 +5483,16 @@ dialog.review-confirm p {
   overflow-wrap:anywhere
 }
 .review-region.field-region{z-index:4}.review-region.field-region.active{z-index:5}#review-on-photo{z-index:6}
+
+/* ===== Журнал интеграций: фразы по дням, номер накладной открывает скан ===== */
+.intlog-table td { vertical-align: top; }
+.intlog-table .intlog-time { white-space: nowrap; width: 72px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.intlog-table .intlog-day td { background: var(--bg); font-weight: 600; font-size: 13px; padding-top: 10px; padding-bottom: 6px; }
+.intlog-table .intlog-icon { display: inline-block; width: 1.6em; }
+.intlog-table .intlog-row--error td { color: var(--error); }
+.intlog-table .intlog-inv { font-weight: 600; }
+.intlog-table .intlog-card { font-size: 12px; margin-left: 6px; color: var(--text-secondary); white-space: nowrap; }
+@media (max-width: 720px) {
+  table.cards-mobile.intlog-table tbody tr.intlog-day { border: none; background: transparent; box-shadow: none; padding: 8px 0 0; }
+  table.cards-mobile.intlog-table tbody tr.intlog-day td::before { content: none; }
+}
