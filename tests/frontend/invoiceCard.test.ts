@@ -105,6 +105,10 @@ describe('меню «⋯»', () => {
     expect(xml.map((x: any) => x && x.id)).not.toContain('golden');
     expect(xml.map((x: any) => x && x.id)).toContain('resetStatus');
   });
+  it('«Снова проверять страницы» — только когда проверка снята отметкой', () => {
+    expect(ids(base({ completeness: { confirmed: true, message: null } }))).toContain('pagesCheck');
+    expect(ids(base({ completeness: { message: 'Не найдены позиции 1–20' } }))).not.toContain('pagesCheck');
+  });
   it('дубликат — только «Это не дубликат» и удаление', () => {
     expect(ids(base({ duplicate_of: 3 }))).toEqual(['notDuplicate', '—', 'delete']);
   });

@@ -54,12 +54,20 @@ export function repairRowPairing(
   const items = Array.isArray(data.items) ? data.items : [];
   if (rows.length < 2 || items.length < 2) return keep('меньше двух строк');
 
-  // Отдельное чтение должно быть самосогласованным и сходиться с итогом —
-  // иначе оно прочитало не те колонки (например, «без НДС») или ошиблось.
+  // Отдельное чтение должно быть самосогласованным. На листе-продолжении
+  // итог относится ко ВСЕЙ накладной, а на первом листе его может не быть.
+  // В таких случаях доверяем только перестановке уже прочитанных сумм листа.
   if (!rows.every(r => isNum(r.total) && r.total > 0)) return keep('в отдельном чтении есть строки без суммы');
   const totalSum = data.total_sum;
   const rowsSum = rows.reduce((s, r) => s + (r.total as number), 0);
-  if (!isNum(totalSum) || totalSum <= 0 || Math.abs(rowsSum - totalSum) > Math.max(1, totalSum * 0.005)) {
+  const a = items.map(it => it.total).filter(isNum).sort((x, y) => x - y);
+  const b = rows.map(r => r.total as number).sort((x, y) => x - y);
+  const permutation = a.length === b.length && a.every((t, i) => near(t, b[i], MONEY_EPS));
+  const rowNos = items.map(it => it.row_no).filter(isNum);
+  const continuation = rowNos.length > 0 && Math.min(...rowNos) > 1;
+  const hasTotal = isNum(totalSum) && totalSum > 0;
+  const matchesTotal = hasTotal && Math.abs(rowsSum - totalSum) <= Math.max(1, totalSum * 0.005);
+  if (!matchesTotal && !((!hasTotal || continuation) && permutation)) {
     return keep('сумма строк отдельного чтения не сходится с итогом');
   }
   const inconsistent = rows.some(r => isNum(r.quantity) && isNum(r.price)
@@ -82,9 +90,6 @@ export function repairRowPairing(
 
   // Результат без замечаний меняем, только если это перестановка его же чисел.
   if (!opts.mainHasIssues) {
-    const a = items.map(it => it.total).filter(isNum).sort((x, y) => x - y);
-    const b = rows.map(r => r.total as number).sort((x, y) => x - y);
-    const permutation = a.length === b.length && a.every((t, i) => near(t, b[i], MONEY_EPS));
     if (!permutation) return keep('результат без замечаний, а числа отличаются не только порядком');
   }
 

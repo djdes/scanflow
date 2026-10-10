@@ -11,12 +11,13 @@ vi.mock('../../src/database/db', () => ({
   getDb: () => { throw new Error('объединение ходит в БД только через invoiceRepo'); },
 }));
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
+vi.mock('../../src/database/repositories/editLogRepo', () => ({ logEdit: vi.fn(), editLogRepo: {} }));
 vi.mock('../../src/database/repositories/invoiceRepo', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/database/repositories/invoiceRepo')>();
   return {
     ...real,
     invoiceRepo: {
-      getById: vi.fn(), moveItemsToInvoice: vi.fn(), appendFileName: vi.fn(), recordMerge: vi.fn(),
+      getById: vi.fn(), moveItemsToInvoice: vi.fn(), appendFileName: vi.fn(), appendRawText: vi.fn(), recordMerge: vi.fn(),
       delete: vi.fn(), updateInvoiceData: vi.fn(), recalculateTotal: vi.fn(), getWithItems: vi.fn(),
     },
   };
@@ -59,5 +60,24 @@ describe('POST /api/invoices/:id/merge-into/:targetId — владелец пр�
     expect(res.status).toBe(404);
     expect(repo.moveItemsToInvoice).not.toHaveBeenCalled();
     expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it.each(['invoice_number', 'invoice_date', 'supplier_inn'])(
+    'не объединяет документы с различающимся %s', async (field) => {
+      const source = { ...invoices[2], [field]: field === 'invoice_date' ? '2026-01-01' : '123' };
+      const target = { ...invoices[4], [field]: field === 'invoice_date' ? '2026-01-02' : '456' };
+      repo.getById.mockImplementation(async (id: number) => (id === 2 ? source : target) as never);
+      const res = await request(app()).post('/api/invoices/2/merge-into/4');
+      expect(res.status).toBe(409);
+      expect(repo.moveItemsToInvoice).not.toHaveBeenCalled();
+      expect(repo.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it('сохраняет исходное распознавание обеих страниц', async () => {
+    repo.getById.mockImplementation(async (id: number) => ({ ...invoices[id], raw_text: id === 2 ? 'page-two-json' : 'page-one-json' }) as never);
+    const res = await request(app()).post('/api/invoices/2/merge-into/4');
+    expect(res.status).toBe(200);
+    expect(repo.appendRawText).toHaveBeenCalledWith(4, 'page-two-json');
   });
 });

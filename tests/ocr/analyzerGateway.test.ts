@@ -5,11 +5,11 @@ import path from 'path';
 import sharp from 'sharp';
 
 // Модель подменена на уровне шлюза: проверяем, как распознавание обращается с ответами и ошибками.
-const h = vi.hoisted(() => ({ structured: vi.fn(), text: vi.fn() }));
+const h = vi.hoisted(() => ({ structured: vi.fn(), text: vi.fn(), flags: vi.fn() }));
 vi.mock('../../src/ai/gateway', () => ({ aiStructured: h.structured, aiText: h.text }));
-vi.mock('../../src/services/engineFlags', () => ({ getEngineFlags: vi.fn(async () => ({ row_pairing: false })) }));
+vi.mock('../../src/services/engineFlags', () => ({ getEngineFlags: h.flags }));
 
-import { analyzeImageWithVerification, mapItemsWithAi, detectOrientation } from '../../src/ocr/claudeApiAnalyzer';
+import { analyzeImageWithVerification, analyzeMultiPageTextWithVerification, mapItemsWithAi, detectOrientation } from '../../src/ocr/claudeApiAnalyzer';
 import { AiUnavailableError } from '../../src/ai/errors';
 import type { AiTarget } from '../../src/ai/types';
 
@@ -23,7 +23,7 @@ beforeAll(async () => {
   await sharp({ create: { width: 60, height: 80, channels: 3, background: '#ffffff' } }).jpeg().toFile(photo);
 });
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => { vi.resetAllMocks(); h.flags.mockResolvedValue({ row_pairing: false }); });
 
 const reading = (over: Record<string, unknown> = {}) => JSON.stringify({
   invoice_type: 'торг_12', invoice_number: '1', invoice_date: '2026-10-01', supplier: 'ООО Ромашка',
@@ -73,6 +73,41 @@ describe('распознавание через шлюз', () => {
     expect(r.success).toBe(false);
     expect(r.error).toContain('PDF');
     expect(h.structured).not.toHaveBeenCalled();
+  });
+
+  it('отдельное чтение исправляет позиции 21–23 при общем итоге накладной', async () => {
+    h.flags.mockResolvedValue({ row_pairing: true });
+    const numbers = [
+      { quantity: 20, unit: 'шт', price: 67, total: 1340, vat_rate: 10 },
+      { quantity: 12, unit: 'шт', price: 180, total: 2160, vat_rate: 22 },
+      { quantity: 9.125, unit: 'кг', price: 350, total: 3193.75, vat_rate: 10 },
+    ];
+    const names = ['Молоко 950г', 'Сыр рассольный 330г', 'Карбонад 2,5кг'];
+    h.structured.mockImplementation(async req => ({
+      text: req.schemaName === 'number_rows'
+        ? JSON.stringify({ number_rows: numbers })
+        : reading({ total_sum: 100000, vat_sum: 12000, items: names.map((name, i) => ({ ...numbers[[2, 0, 1][i]], name, row_no: 21 + i })) }),
+      truncated: false,
+    }));
+    const r = await analyzeImageWithVerification(photo, GPT);
+    expect(r.success).toBe(true);
+    expect(r.data?.items).toEqual(names.map((name, i) => ({ ...numbers[i], name, row_no: 21 + i })));
+    expect(JSON.parse(r.rawText!).items).toEqual(r.data?.items);
+    expect(h.structured).toHaveBeenCalledTimes(2); // Основное + числа, без лишнего repair.
+  });
+
+  it('готовые JSON страниц объединяются без вызова модели, raw OCR по-прежнему анализируется', async () => {
+    const head = JSON.parse(reading());
+    const tail = { ...head, total_sum: 200, items: head.items.map((it: any) => ({ ...it, row_no: 2 })) };
+    const r = await analyzeMultiPageTextWithVerification(reading() + '\n--- СТРАНИЦА ---\n' + JSON.stringify(tail), GPT, 2);
+    expect(r.success).toBe(true);
+    expect(r.data?.items).toHaveLength(2);
+    expect(r.data?.total_sum).toBe(200);
+    expect(h.structured).not.toHaveBeenCalled();
+
+    h.structured.mockResolvedValue({ text: reading(), truncated: false });
+    expect((await analyzeMultiPageTextWithVerification('Сырой текст OCR', GPT, 2)).success).toBe(true);
+    expect(h.structured).toHaveBeenCalledTimes(1);
   });
 });
 

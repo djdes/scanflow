@@ -2482,6 +2482,19 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 85,
+    name: 'invoices.pages_confirmed — «все страницы на месте» снимает проверку полноты',
+    // Проверка полноты по сквозной нумерации строк закрывает отправку в 1С. Номер
+    // строки может быть прочитан неверно или напечатан с пропуском — тогда человек
+    // сверяет бумагу и подтверждает, что страниц больше нет (в журнале правок).
+    detect: (exec) => hasColumn(exec, 'invoices', 'pages_confirmed'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoices', 'pages_confirmed'))) {
+        await exec.query(`ALTER TABLE invoices ADD COLUMN pages_confirmed TINYINT(1) NOT NULL DEFAULT 0`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

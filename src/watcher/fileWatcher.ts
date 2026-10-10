@@ -90,9 +90,8 @@ const XML_LLM_MAP_MAX_ITEMS = 150;
 /**
  * Extract the row_no of the FIRST item from a persisted invoice's raw_text.
  *
- * We never migrated row_no into the invoice_items table (it's only useful at
- * merge-time), so we re-parse it from the JSON Claude returned and that we
- * stored verbatim in invoices.raw_text. Tolerant to jsonrepair cases where
+ * Старые записи invoice_items не сохраняли row_no, поэтому читаем его из
+ * исходного постраничного JSON в invoices.raw_text. Tolerant to jsonrepair cases where
  * the text contains fenced markdown — we scan for the first /"row_no":\s*(\d+)/.
  */
 async function getFirstRowNo(invoiceId: number): Promise<number | null> {
@@ -553,6 +552,7 @@ export class FileWatcher {
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
         onec_guid: mapping.onec_guid,
+        row_no: item.row_no ?? null,
       });
     }
 
@@ -677,6 +677,7 @@ export class FileWatcher {
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
         onec_guid: mapping.onec_guid,
+        row_no: item.row_no ?? null,
       });
       added++;
     }
@@ -905,6 +906,13 @@ export class FileWatcher {
         await this.awaitInFlightPredecessors(invoice.id, 5, invoice.owner_user_id);
       }
 
+      // Compare the same supplier spelling that we store on recognized pages.
+      // A short OCR name (ИП Иванов И. И.) otherwise fails to match the full
+      // directory name on page 1, even when both pages carry the same ИНН.
+      const mergeSupplier = await this.resolveSupplier(
+        parsed.supplier, parsed.supplier_inn, invoice.owner_user_id,
+      );
+
       // Strategy A: match by invoice_number (within last 10 minutes).
       // Supplier is passed through so that the digit-sequence fallback inside
       // findRecentByNumber can fuzzy-match supplier names that OCR read
@@ -913,7 +921,7 @@ export class FileWatcher {
       if (parsed.invoice_number) {
         existingInvoice = await invoiceRepo.findRecentByNumber(
           parsed.invoice_number,
-          parsed.supplier ?? undefined,
+          mergeSupplier,
           10,
           invoice.owner_user_id,
           anchor,
@@ -958,11 +966,11 @@ export class FileWatcher {
       //
       // Both rely on supplier match + 5 min window, so they won't accidentally
       // merge invoices from unrelated deliveries.
-      if (!existingInvoice && parsed.supplier && parsed.items.length > 0) {
+      if (!existingInvoice && mergeSupplier && parsed.items.length > 0) {
         const firstRowNo = parsed.items[0].row_no;
         const lastRowNo = parsed.items[parsed.items.length - 1].row_no;
         const candidate = await invoiceRepo.findRecentBySupplier(
-          parsed.supplier,
+          mergeSupplier,
           invoice.id,
           5,
           invoice.owner_user_id,
@@ -1018,9 +1026,9 @@ export class FileWatcher {
       //
       // If the current page has a number that DOES match a recent invoice
       // (normalised), Strategy A above would've already caught it.
-      if (!existingInvoice && parsed.supplier && !parsed.invoice_number) {
+      if (!existingInvoice && mergeSupplier && !parsed.invoice_number) {
         existingInvoice = await invoiceRepo.findRecentBySupplier(
-          parsed.supplier,
+          mergeSupplier,
           invoice.id,
           5,  // within last 5 minutes
           invoice.owner_user_id,
@@ -1044,7 +1052,7 @@ export class FileWatcher {
       //
       // Safety: only consults 'processed' rows (not 'parsing'), so we
       // never merge two concurrently-uploading invoices into each other.
-      if (!existingInvoice && !parsed.invoice_number && !parsed.supplier) {
+      if (!existingInvoice && !parsed.invoice_number && !mergeSupplier) {
         existingInvoice = await invoiceRepo.findMostRecentProcessedForContinuation(invoice.id, 2, invoice.owner_user_id, anchor);
         if (existingInvoice) {
           logger.info('Multi-page: matched by temporal proximity (no metadata on this page)', {
@@ -1283,6 +1291,7 @@ export class FileWatcher {
                   vat_rate: item.vat_rate,
                   mapping_confidence: mapping.confidence,
                   onec_guid: mapping.onec_guid,
+                  row_no: item.row_no ?? null,
                 });
               }
 
@@ -1483,6 +1492,7 @@ export class FileWatcher {
           vat_rate: item.vat_rate,
           mapping_confidence: mapping.confidence,
           onec_guid: mapping.onec_guid,
+          row_no: item.row_no ?? null,
         });
       }
 

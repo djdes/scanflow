@@ -11,6 +11,7 @@ import { DuplicateItemLike, scoreDuplicate } from '../../duplicate/duplicateScor
 import { attachNewItems, indexPendingRequests, type NewItemPayload } from '../../services/newItems';
 import { newItemRequestRepo } from './newItemRequestRepo';
 import { logger } from '../../utils/logger';
+import { incompleteInvoiceSql } from '../../ocr/invoiceCompleteness';
 
 // Multi-page hold: a freshly-recognized invoice is withheld from /pending for
 // this many minutes so a SECOND photographed page still has time to auto-merge
@@ -161,6 +162,7 @@ export interface Invoice {
   recognized_at: string | null;   // set by updateStatus('processed') on first recognition, never at create()
   read_at: string | null;          // NULL = непрочитанная; ставится при открытии детали владельцем или кнопкой
   paid_externally: number;         // 1 = оплачено вне сервиса (наличные/своя карта) → вне overdue/обязательств
+  pages_confirmed?: number;        // 1 = «все страницы на месте»: проверка полноты по нумерации строк снята (миграция 85)
   // Чек-лист «сверено с фото». Все пять = 1 — только тогда сервер разрешает
   // создать платёж в Сбере. Правка поля обнуляет свою отметку.
   attr_checked_number: number;
@@ -580,6 +582,7 @@ export const invoiceRepo = {
       `SELECT * FROM invoices
        WHERE approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')
+       AND NOT ${incompleteInvoiceSql()}
        ORDER BY created_at DESC`
     ).all<Invoice>();
   },
@@ -611,6 +614,7 @@ export const invoiceRepo = {
     const pendingWhere =
       `approved_for_1c = 1
        AND status IN ('processed', 'parsing', 'ocr_processing')
+       AND NOT ${incompleteInvoiceSql()}
        AND (onec_pulled_at IS NULL OR onec_pulled_at < (NOW() - INTERVAL ${RESERVE_MINUTES} MINUTE))
        ${holdClause}
        ${ownerClause}`;
@@ -1225,7 +1229,7 @@ export const invoiceRepo = {
       ? 'AND (invoice_date = :curDate OR invoice_date IS NULL)'
       : '';
     const candidates = await getDb().prepare(
-      `SELECT id, invoice_number, invoice_date, supplier, total_sum, status, approved_for_1c,
+      `SELECT id, invoice_number, invoice_date, supplier, supplier_inn, total_sum, status, approved_for_1c,
               (SELECT COUNT(*) FROM invoice_items ii WHERE ii.invoice_id = i.id) AS items_count
        FROM invoices i
        WHERE invoice_number IS NOT NULL AND invoice_number != ''
@@ -1236,13 +1240,15 @@ export const invoiceRepo = {
        ORDER BY id ASC`
     ).all<{
       id: number; invoice_number: string | null; invoice_date: string | null;
-      supplier: string | null; total_sum: number | null; status: string;
+      supplier: string | null; supplier_inn: string | null; total_sum: number | null; status: string;
       approved_for_1c: number; items_count: number;
     }>(self.invoice_date ? { id, owner: self.owner_user_id ?? null, curDate: self.invoice_date } : { id, owner: self.owner_user_id ?? null });
 
     return candidates.filter((c) =>
       normalizeInvoiceNumber(c.invoice_number) === targetNormalized &&
-      suppliersMatch(self.supplier, c.supplier),
+      (self.supplier_inn && c.supplier_inn
+        ? self.supplier_inn === c.supplier_inn
+        : suppliersMatch(self.supplier, c.supplier)),
     );
   },
 

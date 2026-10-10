@@ -801,6 +801,9 @@ const Invoices = {
       // Поставщик и банк — словами, без служебных кодов.
       this._renderSupplierTab(data);
 
+      // Пропущенные страницы (разрыв в нумерации строк) — над шагами.
+      this._renderCompleteness(data);
+
       // Дубликат: позиции не сохраняются, шаги 1С и оплаты недоступны.
       const dupEl = document.getElementById('ic-duplicate');
       if (data.duplicate_of) {
@@ -880,7 +883,7 @@ const Invoices = {
       if (tb) tb.innerHTML = this._itemsToolbar(data.id);
 
       // Предупреждения над товарами + счётчики цены на телефоне.
-      this._renderPriceWarning(data.items || [], data.alignment_problems || [], data.completeness, data.id);
+      this._renderPriceWarning(data.items || [], data.alignment_problems || []);
       this._renderPriceBadges(data.items || []);
 
       // Для строк без позиции 1С — уверенное предложение из каталога (подтверждается кликом)
@@ -1326,18 +1329,54 @@ const Invoices = {
   // Summary banner above the items table: rows that look shifted by a skewed
   // photo, then positions priced >10% above the usual price. Empty (cleared)
   // when there are none.
-  _renderPriceWarning(items, alignment = [], completeness = null, invoiceId = null) {
-    const el = document.getElementById('invoice-price-warning');
+  // «Накладная снята не полностью» (в сквозной нумерации строк есть разрыв) — под шапкой
+  // карточки, видно с любой вкладки; без страниц шаг «Отправка в 1С» закрыт и на сервере.
+  _renderCompleteness(data) {
+    const el = document.getElementById('ic-completeness');
     if (!el) return;
-    const incomplete = completeness?.message ? `
-      <div class="price-warning-banner" role="alert">
-        <span class="price-warning-banner__icon">⚠</span>
-        <div>
-          <strong>Накладная снята не полностью — проверьте страницы</strong>
-          <div>${App.esc(completeness.message)}</div>
-          ${invoiceId ? `<button type="button" class="btn btn-outline btn-sm" onclick="Invoices.addPages(${Number(invoiceId)}, event)">Добавить страницы</button>` : ''}
+    const c = data?.completeness;
+    const message = c?.message;
+    // Коротко из диапазонов («позиции 1–20, 31»), полный текст сервера — если диапазонов нет.
+    const ranges = (c?.missing_ranges || []).slice(0, 6).map(r => (r.from === r.to ? `${r.from}` : `${r.from}–${r.to}`));
+    const detail = ranges.length
+      ? `Не найдены позиции ${ranges.join(', ')}${(c.missing_ranges.length > 6) ? ' и другие' : ''}. Добавьте фото недостающих страниц или сверьте нумерацию с бумагой.`
+      : message;
+    el.innerHTML = message ? `
+      <div class="price-warning-banner ic-alert" role="alert">
+        <span class="price-warning-banner__icon" aria-hidden="true">⚠</span>
+        <div class="ic-alert-text">
+          <strong>Накладная снята не полностью</strong>
+          <div>${App.esc(detail)}</div>
+        </div>
+        <div class="ic-alert-actions">
+          <button type="button" class="btn btn-outline btn-sm" onclick="Invoices.addPages(${Number(data.id)}, event)">Добавить страницы</button>
+          <button type="button" class="ic-link" onclick="Invoices.setPagesConfirmed(${Number(data.id)}, true)">Все страницы на месте</button>
         </div>
       </div>` : '';
+  },
+
+  // «Все страницы на месте»: разрыв в номерах строк — опечатка или ошибка чтения, а не
+  // пропущенный лист. Снимает проверку полноты; вернуть — в меню «⋯» карточки.
+  setPagesConfirmed(id, value) {
+    const save = async () => {
+      try {
+        await App.apiJson(`/invoices/${id}/pages-confirmed`, { method: 'POST', body: { value } });
+        App.notify(value ? 'Отмечено: все страницы на месте' : 'Проверка страниц снова включена', 'success');
+        this.showDetail(id);
+      } catch (e) {
+        App.notify(e.message || 'Не удалось сохранить отметку', 'error');
+      }
+    };
+    if (!value) return save();
+    this.showConfirm('Все страницы на месте?',
+      'Сверьте накладную с бумагой. Если страниц больше нет, а в номерах строк пропуск — опечатка или ошибка чтения, отметьте накладную: отправка в 1С станет доступна.\nОтметку можно снять в меню «⋯».',
+      save, { okLabel: 'Все страницы на месте', okClass: 'btn-primary' });
+    return undefined;
+  },
+
+  _renderPriceWarning(items, alignment = []) {
+    const el = document.getElementById('invoice-price-warning');
+    if (!el) return;
     const shifted = alignment.length ? `
       <div class="price-warning-banner">
         <span class="price-warning-banner__icon">⚠</span>
@@ -1347,7 +1386,7 @@ const Invoices = {
         </div>
       </div>` : '';
     const flagged = items.filter(it => it.price_deviation_pct != null && it.price_deviation_pct > 10);
-    if (!flagged.length) { el.innerHTML = incomplete + shifted; return; }
+    if (!flagged.length) { el.innerHTML = shifted; return; }
     const worst = Math.round(Math.max(...flagged.map(f => f.price_deviation_pct)));
     const names = flagged
       .sort((a, b) => b.price_deviation_pct - a.price_deviation_pct)
@@ -1356,7 +1395,7 @@ const Invoices = {
       .join(', ');
     const more = flagged.length > 3 ? ` и ещё ${flagged.length - 3}` : '';
     const noun = this._plural(flagged.length, 'позиция', 'позиции', 'позиций');
-    el.innerHTML = incomplete + shifted + `
+    el.innerHTML = shifted + `
       <div class="price-warning-banner">
         <span class="price-warning-banner__icon">⚠</span>
         <div>
@@ -1771,9 +1810,9 @@ const Invoices = {
         let before = 0;
         try { before = (await App.apiJson(`/invoices/${id}`)).data?.items?.length ?? 0; } catch { /* ignore */ }
         const fd = new FormData();
-        for (const f of files) fd.append('files', f);
         let resp;
         try {
+          for (const f of files) fd.append('files', await Upload.memoryBlob(f), f.name);
           resp = await App.api(`/invoices/${id}/add-pages`, { method: 'POST', body: fd });
         } catch (e) { App.notify('Ошибка загрузки: ' + e.message, 'error'); return; }
         if (!resp.ok) {
@@ -1810,6 +1849,33 @@ const Invoices = {
       }));
     }, { once: true });
     input.click();
+  },
+
+  async mergePagesFromList(id) {
+    return this._withGuard(`merge-candidates:${id}`, async () => {
+      try {
+        const { data } = await App.apiJson(`/invoices/${id}`);
+        if (String(data.ocr_engine || '').startsWith('xml') || /\.xml$/i.test(data.file_name || '')) {
+          App.notify('XML уже содержит накладную целиком — страницы объединять не нужно.', 'info');
+          return;
+        }
+        const siblings = data.possible_siblings || [];
+        if (!siblings.length) {
+          App.notify('Других страниц с тем же номером, датой и поставщиком не найдено.', 'info');
+          return;
+        }
+        if (siblings.length > 1) {
+          this.openInvoice(id);
+          App.notify('Выберите страницу для объединения в карточке накладной.', 'info');
+          return;
+        }
+        const sibling = siblings[0];
+        await this.mergeSibling(id, sibling.id, data.status === 'sent_to_1c' || data.approved_for_1c
+          || sibling.status === 'sent_to_1c' || sibling.approved_for_1c);
+      } catch (e) {
+        App.notify('Ошибка поиска страниц: ' + e.message, 'error');
+      }
+    });
   },
 
   // Fold two split-page invoices into one via the existing merge-into endpoint.
@@ -1979,43 +2045,21 @@ const Invoices = {
     modal.addEventListener('click', (e) => { if (e.target === modal) close(); }, { once: true });
   },
 
-  // Small per-row action menu opened by the ⚙ button. One floating element is
-  // (re)built and positioned under the gear. `read`/`paid` are the row's current
-  // 0/1 flags so the toggle captions reflect state without a refetch.
+  // Меню «•••» строки списка — то же меню, что «⋯» в карточке (InvoiceCard.openMenu):
+  // текст без значков, удаление — красным и последним. XML не объединяют.
   openRowMenu(id, read, paid, event) {
     if (event) { event.stopPropagation(); event.preventDefault(); }
-    this._closeRowMenu();
-    const btn = event && event.currentTarget;
-    const menu = document.createElement('div');
-    menu.className = 'row-action-menu';
-    menu.id = 'row-action-menu';
-    menu.innerHTML = `
-      <button class="ram-item" data-act="read">${read ? '&#9711; Пометить непрочитанной' : '&#10003; Пометить прочитанной'}</button>
-      <button class="ram-item" data-act="paid">${paid ? '&#8617; Снять «оплачено сами»' : '&#128181; Оплатили сами'}</button>
-      <button class="ram-item ram-danger" data-act="delete">&#128465; Удалить</button>`;
-    document.body.appendChild(menu);
-    if (btn) {
-      const r = btn.getBoundingClientRect();
-      menu.style.top = `${window.scrollY + r.bottom + 4}px`;
-      menu.style.left = `${Math.max(8, window.scrollX + r.right - menu.offsetWidth)}px`;
-    }
-    menu.querySelector('[data-act="read"]').onclick = (e) => { e.stopPropagation(); this._closeRowMenu(); this._markRead(id, !read); };
-    menu.querySelector('[data-act="paid"]').onclick = (e) => { e.stopPropagation(); this._closeRowMenu(); this._markPaidExternally(id, !paid); };
-    menu.querySelector('[data-act="delete"]').onclick = (e) => { e.stopPropagation(); this._closeRowMenu(); this.deleteInvoice(id); };
-    // Defer listener attach so THIS click (which opened the menu) doesn't close it.
-    setTimeout(() => {
-      this._rowMenuOutside = (e) => { if (!menu.contains(e.target)) this._closeRowMenu(); };
-      this._rowMenuEsc = (e) => { if (e.key === 'Escape') this._closeRowMenu(); };
-      document.addEventListener('click', this._rowMenuOutside);
-      document.addEventListener('keydown', this._rowMenuEsc);
-    }, 0);
-  },
-
-  _closeRowMenu() {
-    const m = document.getElementById('row-action-menu');
-    if (m) m.remove();
-    if (this._rowMenuOutside) { document.removeEventListener('click', this._rowMenuOutside); this._rowMenuOutside = null; }
-    if (this._rowMenuEsc) { document.removeEventListener('keydown', this._rowMenuEsc); this._rowMenuEsc = null; }
+    const anchor = event && event.currentTarget;
+    if (!anchor || typeof InvoiceCard === 'undefined') return;
+    const row = this._rowsById?.get(id);
+    const xml = row ? App.isXmlInvoice(row) : false;
+    InvoiceCard.openMenu(anchor, [
+      { label: read ? 'Пометить непрочитанной' : 'Пометить прочитанной', onClick: () => this._markRead(id, !read) },
+      { label: paid ? 'Снять отметку «оплачено»' : 'Оплачено без Сбера', onClick: () => this._markPaidExternally(id, !paid) },
+      xml ? null : { label: 'Объединить страницы', onClick: () => this.mergePagesFromList(id) },
+      null,
+      { label: 'Удалить накладную', danger: true, onClick: () => this.deleteInvoice(id) },
+    ].filter((it, i, all) => it !== null || all[i - 1] !== null), 'Действия с накладной');
   },
 
   async _markRead(id, read) {

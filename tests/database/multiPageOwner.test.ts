@@ -62,4 +62,19 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('поиск сос�
     const current = await mkInvoice(companyB, { number: '17-0546560', date: '2026-09-08', supplier: 'СВИТ ЛАЙФ ФУДСЕРВИС' });
     expect((await invoiceRepo.findSiblings(current)).map(s => s.id)).toEqual([own]);
   });
+
+  it('части по одному ИНН находятся при полном имени и инициалах', async () => {
+    const head = await mkInvoice(companyA, { number: 'TEST-510', supplier: 'ИП Иванов Иван Иванович' });
+    const tail = await mkInvoice(companyA, { number: 'TEST-510', supplier: 'ИП Иванов И. И.' });
+    await getDb().prepare("UPDATE invoices SET supplier_inn='123456789012' WHERE id IN (?,?)").run(head, tail);
+    expect((await invoiceRepo.findSiblings(tail)).map(s => s.id)).toEqual([head]);
+  });
+
+  it('одно имя и номер с разными ИНН не предлагаются для склейки', async () => {
+    const head = await mkInvoice(companyA, { number: 'TEST-510', supplier: 'ООО Тест' });
+    const tail = await mkInvoice(companyA, { number: 'TEST-510', supplier: 'ООО Тест' });
+    await getDb().prepare("UPDATE invoices SET supplier_inn='123456789012' WHERE id=?").run(head);
+    await getDb().prepare("UPDATE invoices SET supplier_inn='123456789013' WHERE id=?").run(tail);
+    expect(await invoiceRepo.findSiblings(tail)).toEqual([]);
+  });
 });

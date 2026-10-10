@@ -4,6 +4,7 @@ import { ParsedInvoiceData } from './types';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import { preprocessInvoiceImage } from './imagePreprocess';
+import { mergeStructuredPageText } from './mergeStructuredPages';
 
 export interface ApiAnalyzerResult {
   success: boolean;
@@ -145,6 +146,7 @@ ${lines}`;
                    Если подсказки нет, верни null.
      row_no      ← колонка "№ п/п" / "№" / "No" (2-я слева после "Код товара").
                    На 2-й странице многолистовой накладной нумерация продолжается (10, 11, ...).
+                   Читай напечатанный номер: НЕ перенумеровывай позиции с 1. Если номер не виден или колонки нет — null.
                    НЕ путай с колонкой "Код товара" слева (артикул типа "13-0659", "17-4549")
      quantity    ← колонка "Количество". Это НЕБОЛЬШОЕ число (обычно до нескольких тысяч).
                    Запятую и тысячный разделитель читай ОСТОРОЖНО: "2,000" = 2 штуки (одна запятая как дес.),
@@ -333,6 +335,7 @@ const INVOICE_INSTRUCTIONS = `Ты эксперт по русским товар
                  ("Кальмар Командорский 5кг" → "Кальмар 5кг").
      row_no    ← "№ п/п" (2-я колонка слева). НЕ путай с "Код товара" (артикул "13-0659").
                  На 2-й странице нумерация продолжается (10, 11, ...).
+                 Читай напечатанный номер: НЕ перенумеровывай позиции с 1. Если номер не виден или колонки нет — null.
      quantity  ← "Количество".
      unit      ← "Единица измерения" (шт, кг, л, уп, пач, упак).
      price     ← цена ЗА ЕДИНИЦУ С НДС = total / quantity. Колонка «БЕЗ налога» — НЕ price.
@@ -809,6 +812,8 @@ export async function analyzeMultiPageTextWithClaudeApi(
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
+  const merged = structuredPagesResult(combinedOcrText, pageCount);
+  if (merged) return merged;
   const { result } = await analyzeMultiPageTextCore(combinedOcrText, target, pageCount, catalog, memory);
   return result;
 }
@@ -821,8 +826,23 @@ export async function analyzeMultiPageTextWithVerification(
   catalog?: CatalogEntry[],
   memory?: string,
 ): Promise<ApiAnalyzerResult> {
+  const merged = structuredPagesResult(combinedOcrText, pageCount);
+  if (merged) return merged;
   const { result, repair } = await analyzeMultiPageTextCore(combinedOcrText, target, pageCount, catalog, memory);
   return verifyAndRepair(`${modelTag(target)} multi-page text`, result, repair);
+}
+
+/** Готовые строки страниц сохраняем целиком, включая НДС, упаковку и выбор 1С. */
+function structuredPagesResult(combinedText: string, pageCount: number): ApiAnalyzerResult | null {
+  const data = mergeStructuredPageText(combinedText, pageCount);
+  if (!data) return null;
+  const issues = validateParsedInvoice(data);
+  logger.info('Multi-page: merged structured pages without model re-analysis', {
+    pageCount, itemsCount: data.items.length, issues: issues.map(i => i.code),
+  });
+  // Каждый лист уже прошёл проверку с до-чтением по фото. На этапе склейки
+  // нет исходных фото: замечания к общему итогу не повод переписывать строки.
+  return { success: true, data, rawText: JSON.stringify(data) };
 }
 
 async function analyzeMultipleImagesCore(

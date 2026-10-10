@@ -38,8 +38,9 @@ export interface ParsedInvoiceItem {
   price?: number;
   total?: number;
   vat_rate?: number;
-  // "№ п/п" / "No" — sequential 1-based position in the items table on THIS
-  // page. Used by the watcher to detect that a new invoice starting with
+  // "№ п/п" / "No" — printed position, continuing across document pages.
+  // Do not replace it with the array index. Used by the watcher to detect
+  // that a new invoice starting with
   // row_no=10 is a continuation of a previous one that ended at row_no=9.
   row_no?: number;
   // Index (1-based) into the CatalogEntry array passed to the Claude prompt

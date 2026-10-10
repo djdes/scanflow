@@ -64,3 +64,6 @@ src/scripts/test-claude-direct.ts
 
 # 1С external processings — бинарь, пересобирается из 1c/.../Ext/*.bsl + формы
 *.epf
+
+# Приватные рабочие отчёты расследований (данные накладных, пути сервера) — не публиковать
+docs/investigations/

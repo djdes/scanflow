@@ -34,6 +34,16 @@ describe('autopilot quality gate', () => {
       'approval_required',
     ]));
   });
+
+  it('holds missing pages even when the operator disables the total mismatch check', () => {
+    const result = evaluateQualitySubject({
+      ...clean, completeness_message: 'Не найдены позиции 1–20. Добавьте фото недостающих страниц.',
+    }, { ...settings, block_total_mismatch: false });
+    expect(result.allowed).toBe(false);
+    expect(result.reasons).toContainEqual({
+      code: 'incomplete_pages', message: 'Не найдены позиции 1–20. Добавьте фото недостающих страниц.',
+    });
+  });
 });
 
 describe('rows misaligned by a skewed photo', () => {

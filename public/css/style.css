@@ -5739,7 +5739,6 @@ button.ic-tag { cursor: pointer; }
   .ic-step-action { margin-left: 40px; }
 }
 @container icmain (max-width: 600px) {
-  .ic-steps { grid-template-columns: minmax(0, 1fr); }
   .ic-step { flex-wrap: nowrap; }
   .ic-step-action { margin-left: 0; }
   .ic-reqs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -5764,7 +5763,6 @@ button.ic-tag { cursor: pointer; }
   @supports (field-sizing: content) {
     .ic-items .item-edit-qty { field-sizing: content; width: auto; min-width: 2ch; max-width: 10ch; }
   }
-  .ic-steps { grid-template-columns: minmax(0, 1fr); }
   .ic-reqs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ic-items thead { display: none; }
   .ic-items, .ic-items tbody { display: block; }
@@ -5835,3 +5833,110 @@ button.ic-tag { cursor: pointer; }
   .invoices-table tbody tr.clickable > td.cell-action { padding-top: 10px; }
 }
 #invoice-supplier-details .invoice-field--wide { grid-column: 1 / -1; }
+
+/* Предупреждение «снята не полностью» под шапкой карточки: текст слева, кнопка справа */
+.ic-alerts .ic-alert { align-items: center; }
+.ic-alert-text { flex: 1; min-width: 0; }
+@media (max-width: 640px) {
+  .ic-alerts .ic-alert { flex-wrap: wrap; }
+  .ic-alerts .ic-alert .btn { margin-left: 26px; }
+}
+
+/* ===================================================================
+   Шапка приложения на средних экранах (769–1240 px): меню в одну строку.
+   До 2026-10-10 на 1024 px пункты не помещались и «Выйти» уезжал за край
+   окна (горизонтальная прокрутка страницы). Ниже 769 px — меню-«бургер».
+   =================================================================== */
+@media (min-width: 768.02px) and (max-width: 1240px) {
+  header .header-inner { gap: 14px; padding: 0 16px; }
+  nav a { padding: 7px 10px; gap: 4px; }
+  nav > a > svg:first-child, .nav-group-trigger > svg:first-child { display: none; }
+}
+@media (min-width: 768.02px) and (max-width: 1100px) {
+  .btn-logout { font-size: 0; gap: 0; padding: 7px 9px; }
+}
+@media (min-width: 768.02px) and (max-width: 960px) {
+  header .logo span { display: none; }
+  nav a { padding: 7px 8px; font-size: 13px; }
+}
+/* Скрытые подписи (.sr-only, position:absolute) в заголовках широких таблиц иначе
+   «выпадают» из прокрутки обёртки и расширяют страницу (770–850 px: лишние 20–50 px). */
+.table-wrap { position: relative; }
+
+/* ===================================================================
+   Телефон (2026-10-10): шапки разделов — слева, список — компактные карточки,
+   шаги карточки накладной — три в ряд.
+   =================================================================== */
+.ic-step-short { display: none; }
+@media (max-width: 768px) {
+  /* Заголовок раздела с подписью был блоком по центру — выглядел «съехавшим». */
+  .section-header { align-items: stretch; }
+  #view-invoices > .section-header .review-entry { display: grid; grid-template-columns: minmax(0, 1fr); }
+  #view-invoices > .section-header .review-entry .btn { width: 100%; }
+  /* «Загрузить» — в нижней панели телефона. */
+  #btn-upload-from-list { display: none; }
+  .invoice-summary { scrollbar-width: none; }
+  .invoice-summary::-webkit-scrollbar { display: none; }
+}
+@media (max-width: 640px) {
+  /* Поиск — во всю ширину, период — одной строкой с прокруткой, «Фильтры» — рядом. */
+  .invoice-list-workspace .invoices-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px; }
+  .invoice-list-workspace .search-field { grid-column: 1 / -1; max-width: none; }
+  .invoice-list-workspace .period-filter { flex-wrap: nowrap; overflow-x: auto; min-width: 0; scrollbar-width: none; padding: 1px 0; }
+  .invoice-list-workspace .period-filter::-webkit-scrollbar { display: none; }
+  .invoice-list-workspace .period-filter__label { display: none; }
+  .invoice-list-workspace .period-btn { flex: none; }
+  .invoice-list-workspace #filter-reset { grid-column: 1 / -1; justify-self: start; }
+
+  /* Строка списка: номер и сумма сверху, поставщик и замечания, «1С» и «Оплата» поровну, действия. */
+  .invoices-table tbody tr.clickable {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "check doc money" ". sup sup" ". onec pay" "act act act";
+    column-gap: 12px; row-gap: 10px;
+    padding: 14px;
+  }
+  .invoices-table tbody tr.clickable td { display: block; padding: 0 !important; text-align: left; font-size: 14px; }
+  .invoices-table tbody tr.clickable td::before { content: none; }
+  .invoices-table tbody tr.clickable td .invoice-cell-stack { align-items: flex-start; text-align: left; }
+  .invoices-table tbody tr.clickable td.col-check { grid-area: check; padding-top: 3px !important; }
+  .invoices-table tbody tr.clickable td[data-label="Документ"] { grid-area: doc; }
+  .invoices-table tbody tr.clickable td.invoice-money-cell { grid-area: money; }
+  .invoices-table tbody tr.clickable td.invoice-money-cell .invoice-cell-stack { align-items: flex-end; text-align: right; }
+  .invoices-table tbody tr.clickable td[data-label="Поставщик"] { grid-area: sup; }
+  .invoices-table tbody tr.clickable td[data-label="1С"] { grid-area: onec; }
+  .invoices-table tbody tr.clickable td[data-label="Оплата"] { grid-area: pay; }
+  .invoices-table tbody tr.clickable td.col-state::before { content: attr(data-label); display: block; margin-bottom: 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
+  .invoices-table tbody tr.clickable td.cell-action { grid-area: act; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 2px; padding-top: 10px !important; border-top: 1px dashed var(--border) !important; }
+  .invoice-cell-stack .inv-pill-note { max-width: 100%; }
+}
+
+/* Карточка накладной в узкой колонке: шаги — три в ряд, короткие названия, кнопка — в панели шага. */
+@container icmain (max-width: 600px) {
+  .ic-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .ic-step { flex-direction: column; align-items: center; justify-content: flex-start; text-align: center; gap: 6px; padding: 10px 6px; min-height: 0; }
+  .ic-step-long { display: none; }
+  .ic-step-short { display: inline; }
+  .ic-step-text b { font-size: 13.5px; }
+  .ic-step-text small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 11.5px; line-height: 1.3; }
+  .ic-step-action { display: none; }
+  .ic-verify-head > div { flex-basis: 100%; min-width: 0; }
+  .ic-verify-head > .btn { width: 100%; }
+  .ic-panel { padding: 14px; }
+  .ic-panel-row > .ic-panel-actions { margin-left: 0; width: 100%; }
+  .ic-panel-row > .ic-panel-actions .btn { flex: 1; }
+}
+@media (max-width: 640px) {
+  .invoices-table tbody tr.clickable td .invoice-cell-stack { max-width: none; }
+  .invoices-table tbody tr.clickable td.col-check { width: auto; }
+  .invoices-table tbody tr.clickable td.col-check input { margin: 2px 0 0; }
+}
+@media (max-width: 860px) {
+  /* Строка товара на телефоне: «Кол-во / Сумма» и «Цена / НДС» — две равные колонки. */
+  .ic-items tbody tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .ic-items tbody td.ic-num .ic-sub-line { white-space: nowrap; }
+}
+@media (max-width: 768px) {
+  /* Меню-«бургер» не прячет последние пункты под нижней панелью телефона. */
+  nav.open { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+}

@@ -122,6 +122,7 @@ const InvoiceCard = {
       { id: 'compare', label: 'Сравнить с прошлой поставкой' },
       !xml || golden ? { id: 'golden', label: golden ? 'Убрать из эталонов' : 'Отметить эталоном' } : null,
       inv.status === 'sent_to_1c' ? { id: 'resetStatus', label: 'Сбросить статус «В 1С»' } : null,
+      inv.completeness?.confirmed ? { id: 'pagesCheck', label: 'Снова проверять страницы' } : null,
       null,
       { id: 'delete', label: 'Удалить накладную', danger: true },
     ];
@@ -195,7 +196,8 @@ const InvoiceCard = {
     const states = this.stepStates(inv, this.sber, this.payment);
     this.states = states;
     if (!this.activeStep) this.activeStep = this.defaultStep(states);
-    const titles = { verify: 'Сверка с оригиналом', onec: 'Отправка в 1С', pay: 'Оплата в СберБизнес' };
+    // Полное название и короткое — для узкой колонки (телефон: три шага в ряд).
+    const titles = { verify: ['Сверка с оригиналом', 'Сверка'], onec: ['Отправка в 1С', 'В 1С'], pay: ['Оплата в СберБизнес', 'Оплата'] };
     el.innerHTML = this.STEPS.map((key, i) => {
       const s = states[key];
       const active = this.activeStep === key;
@@ -207,7 +209,7 @@ const InvoiceCard = {
       return `<div class="ic-step ic-step--${s.state}${active ? ' is-active' : ''}" role="tab" tabindex="0" aria-selected="${active}" data-step="${key}"
         onclick="InvoiceCard.selectStep('${key}')" onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();InvoiceCard.selectStep('${key}')}">
         <span class="ic-step-mark">${mark}</span>
-        <span class="ic-step-text"><b>${titles[key]}</b><small>${App.esc(s.hint)}</small></span>${action}</div>`;
+        <span class="ic-step-text"><b><span class="ic-step-long">${titles[key][0]}</span><span class="ic-step-short">${titles[key][1]}</span></b><small>${App.esc(s.hint)}</small></span>${action}</div>`;
     }).join('');
     this.showPanel();
     this.renderOnecPanel();
@@ -346,6 +348,7 @@ const InvoiceCard = {
       compare: () => InvoiceReview.compare(),
       golden: () => this.toggleGolden(),
       resetStatus: () => Invoices.resetStatus(inv.id),
+      pagesCheck: () => Invoices.setPagesConfirmed(inv.id, false),
       delete: () => Invoices.deleteInvoice(inv.id),
     };
     this.openMenu(anchor, this.menuItems(inv).map(it => it && { ...it, onClick: actions[it.id] }), 'Действия с накладной');

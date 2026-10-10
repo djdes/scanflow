@@ -17,6 +17,7 @@ function makeApp(): express.Express {
   app.get('/api/items/:id', (req, res) => { res.json({ id: req.params.id }); });
   app.get('/boom', () => { throw new Error('kaput'); });
   app.get('/too-big', () => { throw new multer.MulterError('LIMIT_FILE_SIZE'); });
+  app.post('/api/upload', multer().single('file'), (_req, res) => { res.sendStatus(202); });
   app.get('/{*splat}', (_req, res) => { res.send('spa'); });
   app.use(terminalErrorHandler);
   return app;
@@ -57,5 +58,33 @@ describe('terminalErrorHandler (п.20)', () => {
   it('multer: слишком большой файл — 413', async () => {
     const res = await request(makeApp()).get('/too-big');
     expect(res.status).toBe(413);
+  });
+
+  it('Safari-style empty multipart body returns an actionable 400 instead of 500', async () => {
+    const res = await request(makeApp()).post('/api/upload?key=secret-not-to-log')
+      .set('Content-Type', 'multipart/form-data; boundary=----WebKitFormBoundaryTest')
+      .set('User-Agent', 'Safari test')
+      .send('');
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'upload_incomplete', error: expect.stringContaining('Повторить') });
+    expect(logger.warn).toHaveBeenCalledWith('Incomplete multipart upload', expect.objectContaining({
+      path: '/api/upload', content_length: '0', user_agent: 'Safari test',
+    }));
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('truncated multipart without closing boundary is a client upload error', async () => {
+    const body = '--boundary\r\nContent-Disposition: form-data; name="file"; filename="image.jpg"\r\nContent-Type: image/jpeg\r\n\r\npartial';
+    const res = await request(makeApp()).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data; boundary=boundary').send(body);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('upload_incomplete');
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('valid multipart continues to accept the complete file', async () => {
+    const res = await request(makeApp()).post('/api/upload').attach('file', Buffer.from('complete'), 'image.jpg');
+    expect(res.status).toBe(202);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import { FINAL_BANK_STATUSES, bankStatusKind } from '../../sber/payments';
+import { incompleteInvoiceSql } from '../../ocr/invoiceCompleteness';
 
 // These statuses are fixed application constants, never request parameters.
 const failedBankStatuses = FINAL_BANK_STATUSES.filter(s => bankStatusKind(s) === 'failed')
@@ -13,6 +14,7 @@ export const REVIEW_REASON_SQL = `CASE
   WHEN invoices.status = 'error' THEN 'error'
   WHEN invoices.status = 'duplicate'
     OR (invoices.status = 'processed' AND invoices.duplicate_of IS NOT NULL) THEN 'duplicate'
+  WHEN invoices.status = 'processed' AND ${incompleteInvoiceSql()} THEN 'incomplete_pages'
   WHEN invoices.status = 'processed' AND invoices.items_total_mismatch = 1
     AND invoices.attr_checked_total = 0 THEN 'total'
   WHEN invoices.status = 'processed' AND (

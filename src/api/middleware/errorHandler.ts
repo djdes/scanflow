@@ -11,6 +11,11 @@ function isUndecodableUrl(err: unknown): boolean {
   return err instanceof URIError || /Failed to decode param/i.test((err as Error)?.message ?? '');
 }
 
+function isIncompleteMultipart(err: unknown, req: Request): boolean {
+  return /^multipart\/form-data\b/i.test(req.headers['content-type'] ?? '')
+    && /^(Unexpected end of form|Unexpected end of file|Malformed part header|Multipart: Boundary not found)$/.test((err as Error)?.message ?? '');
+}
+
 /**
  * Terminal error handler (must be the LAST app.use). Without it, multer
  * rejections (file too large / unsupported type) and any other thrown error
@@ -22,6 +27,20 @@ export function terminalErrorHandler(err: unknown, req: Request, res: Response, 
   if (err instanceof multer.MulterError) {
     const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
     res.status(status).json({ error: err.message });
+    return;
+  }
+  if (isIncompleteMultipart(err, req)) {
+    logger.warn('Incomplete multipart upload', {
+      method: req.method,
+      path: String(req.originalUrl ?? '').split('?')[0].slice(0, 200),
+      error: (err as Error).message,
+      content_length: req.headers['content-length'] ?? null,
+      user_agent: String(req.headers['user-agent'] ?? '').slice(0, 256),
+    });
+    res.status(400).json({
+      code: 'upload_incomplete',
+      error: 'Файл не передан полностью. Нажмите «Повторить». Если ошибка повторяется, выберите фото заново.',
+    });
     return;
   }
   if (isUndecodableUrl(err)) {

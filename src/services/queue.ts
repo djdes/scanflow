@@ -222,7 +222,7 @@ const AUTOPILOT_ONLY = new Set(['amount_limit']);
 /** Коды причин, при которых накладную нельзя одобрить из очереди (см. QueueReason.hard). */
 export const HARD_REASONS: ReadonlySet<string> = new Set([
   'status', 'duplicate', 'invoice_number', 'invoice_date', 'supplier', 'supplier_inn', 'total', 'items',
-  'approval_required',
+  'approval_required', 'incomplete_pages',
 ]);
 
 export function plural(n: number, one: string, few: string, many: string): string {

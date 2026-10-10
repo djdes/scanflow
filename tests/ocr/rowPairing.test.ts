@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { repairRowPairing, NumberRow } from '../../src/ocr/rowPairing';
 import { ParsedInvoiceData, ParsedInvoiceItem } from '../../src/ocr/types';
+import { validateParsedInvoice } from '../../src/ocr/invoiceValidator';
+import { convertLine } from '../../src/mapping/unitConverter';
 
 // Накладная 783 (ИП Кнутова, 30.09.2026): правильная таблица.
 const TRUTH: Array<[string, number, string, number, number]> = [
@@ -89,5 +91,62 @@ describe('repairRowPairing', () => {
   it('without a separate reading nothing changes', () => {
     const items = NAMES.map((n, i) => item(i + 1, n, NUMBERS[i]));
     expect(repairRowPairing(invoice(items), null, { mainHasIssues: true }).changed).toBe(false);
+  });
+
+  // На втором листе только 3 позиции, но итог — всей накладной.
+  // Синтетические числа сохраняют структуру производственной перестановки.
+  const tailNumbers = [
+    { quantity: 20, unit: 'шт', price: 67, total: 1340, vat_rate: 10 },
+    { quantity: 12, unit: 'шт', price: 180, total: 2160, vat_rate: 22 },
+    { quantity: 9.125, unit: 'кг', price: 350, total: 3193.75, vat_rate: 10 },
+  ];
+  const tailNames = ['Молоко 950г', 'Сыр рассольный 330г', 'Карбонад 2,5кг'];
+  const shiftedTail = (): ParsedInvoiceData => ({
+    invoice_number: 'TEST-ALIGNMENT', total_sum: 100000, vat_sum: 12000,
+    items: tailNames.map((name, i) => ({ ...tailNumbers[[2, 0, 1][i]], name, row_no: 21 + i, pack_size: null, catalog_idx: i + 1 })),
+  });
+
+  it('fixes the cyclic shift on a continuation with the grand total, including units and VAT', () => {
+    const data = shiftedTail();
+    expect(validateParsedInvoice(data)).toEqual([]); // Арифметика не видит перестановку.
+    const out = repairRowPairing(data, tailNumbers, { mainHasIssues: false });
+    expect(out.changed).toBe(true);
+    expect(validateParsedInvoice(out.data)).toEqual([]);
+    expect(out.data.total_sum).toBe(100000);
+    expect(out.data.vat_sum).toBe(12000);
+    out.data.items.forEach((it, i) => {
+      expect(it).toMatchObject({ ...tailNumbers[i], name: tailNames[i], row_no: 21 + i, catalog_idx: i + 1 });
+    });
+    expect(out.data.items.map(it => convertLine({ name: it.name, raw: it, onecUnit: 'кг', forcedTarget: true }).quantity))
+      .toEqual([19, 3.96, 9.125]);
+    expect(data.items[0].quantity).toBe(9.125); // Исходные данные не мутируют.
+  });
+
+  it('also fixes a permutation on the first page with no printed total', () => {
+    const data = shiftedTail();
+    delete data.total_sum;
+    delete data.vat_sum;
+    data.items = data.items.map((it, i) => ({ ...it, row_no: i + 1 }));
+    const out = repairRowPairing(data, tailNumbers, { mainHasIssues: false });
+    expect(out.changed).toBe(true);
+    expect(out.data.items.map(it => it.quantity)).toEqual([20, 12, 9.125]);
+  });
+
+  it('keeps a correct continuation and its grand total', () => {
+    const data = { ...shiftedTail(), items: tailNames.map((name, i) => ({ ...tailNumbers[i], name, row_no: 21 + i })) };
+    expect(repairRowPairing(data, tailNumbers, { mainHasIssues: false })).toMatchObject({ changed: false, reason: 'пары совпадают' });
+  });
+
+  it('without a page total refuses different sums even when the primary reading has issues', () => {
+    const wrong = tailNumbers.map(r => ({ ...r, total: r.total / 1.1, price: r.price / 1.1 }));
+    for (const data of [shiftedTail(), { ...shiftedTail(), total_sum: undefined }]) {
+      expect(repairRowPairing(data, wrong, { mainHasIssues: true }).changed).toBe(false);
+    }
+  });
+
+  it('does not bypass a mismatching printed total of a complete invoice', () => {
+    const data = shiftedTail();
+    data.items = data.items.map((it, i) => ({ ...it, row_no: i + 1 }));
+    expect(repairRowPairing(data, tailNumbers, { mainHasIssues: true }).changed).toBe(false);
   });
 });

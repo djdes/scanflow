@@ -40,6 +40,8 @@ import { renderPurpose } from '../../sber/purposeTemplate';
 import { redact } from '../../sber/redact';
 import { enrichInvoiceWithSupplier } from '../../services/enrichSupplier';
 import { storedAlignmentProblems } from '../../automation/qualityGate';
+import { invoiceCompleteness } from '../../ocr/invoiceCompleteness';
+import { storedInvoiceCompleteness } from '../../services/invoiceCompleteness';
 import { findSuppliersByName, AUTO_LINK_MIN_SCORE } from '../../services/supplierMatch';
 import { bulkSend1c, bulkSendSber } from '../../services/bulkSend';
 import { requireAdmin } from '../middleware/auth';
@@ -60,6 +62,7 @@ import type { InvoiceItem } from '../../database/repositories/invoiceRepo';
 import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type RestorableField, type SnapshotKind } from '../../database/repositories/snapshotRepo';
 import { invoiceFileKind, isXmlFileName, isXmlInvoice, xmlDownloadName } from '../../xml';
 import { AiUnavailableError } from '../../ai/errors';
+import { mergeBlockedByNumber } from '../../services/mergeDecision';
 import { aiEngineState } from '../../ai/engine';
 
 /**
@@ -503,7 +506,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   (enriched as typeof enriched & { alignment_problems: string[] }).alignment_problems =
     await storedAlignmentProblems(id).catch(() => []);
 
-  res.json({ data: enriched });
+  res.json({ data: { ...enriched, completeness: invoiceCompleteness(raw) } });
 });
 
 // GET /api/invoices/:id/edits — журнал правок и снимки шапки (вкладка «История»).
@@ -733,6 +736,10 @@ router.post('/:id/send', async (req: Request, res: Response) => {
   }
 
   const onecAutomation = await automationRepo.get();
+  const completeness = await storedInvoiceCompleteness(id);
+  if (completeness.message) {
+    return res.status(409).json({ error: completeness.message, code: 'incomplete_pages', completeness });
+  }
   if (onecAutomation.payment_approval_threshold != null
       && (invoice.total_sum ?? 0) > onecAutomation.payment_approval_threshold
       && !(await approvalRepo.hasApproved(id, '1c'))) {
@@ -901,6 +908,29 @@ router.post('/:id/paid-externally', async (req: Request, res: Response) => {
   res.json({ data: { id, paid_externally: value } });
 });
 
+// POST /api/invoices/:id/pages-confirmed — «все страницы на месте»: человек сверил бумагу,
+// разрыв в нумерации строк — не пропущенный лист (номер прочитан неверно или напечатан
+// с пропуском). Снимает проверку полноты (отправка в 1С, автопилот, выдача 1С); value=false
+// возвращает проверку. Правка — в журнале.
+router.post('/:id/pages-confirmed', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice) {
+    res.status(404).json({ error: 'Invoice not found' });
+    return;
+  }
+  const value = (req.body as { value?: boolean })?.value !== false;
+  const before = Number(invoice.pages_confirmed ?? 0) === 1;
+  if (before !== value) {
+    await getDb().prepare('UPDATE invoices SET pages_confirmed = ? WHERE id = ?').run(value ? 1 : 0, id);
+    await logEdit({
+      ownerUserId: invoice.owner_user_id, userId: req.user?.id ?? null, invoiceId: id,
+      entity: 'invoice', field: 'pages_confirmed', oldValue: before, newValue: value,
+    });
+  }
+  res.json({ data: { id, pages_confirmed: value, completeness: await storedInvoiceCompleteness(id) } });
+});
+
 // POST /api/invoices/:id/unapprove — withdraw the "Отправить в 1С" approval.
 // Use when user wants to cancel the pending 1C upload before 1C has fetched it.
 router.post('/:id/unapprove', async (req: Request, res: Response) => {
@@ -950,12 +980,20 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
     return;
   }
 
+  if (mergeBlockedByNumber(source, target)
+      || (source.invoice_date && target.invoice_date && source.invoice_date !== target.invoice_date)
+      || (source.supplier_inn && target.supplier_inn && source.supplier_inn !== target.supplier_inn)) {
+    res.status(409).json({ error: 'У накладных различаются номер, дата или ИНН поставщика. Объединять их нельзя.' });
+    return;
+  }
+
   try {
     const grand = Math.max(source.total_sum ?? 0, target.total_sum ?? 0);
     // Move items first, then carry the photo(s), then drop the now-empty source.
     await invoiceRepo.moveItemsToInvoice(sourceId, targetId);
     const files = (source.file_name ?? '').split(',').map(s => s.trim()).filter(Boolean);
     for (const f of files) await invoiceRepo.appendFileName(targetId, f);
+    if (source.raw_text) await invoiceRepo.appendRawText(targetId, source.raw_text);
     // Связь пишем ДО удаления: ссылки на исходную накладную (из бота, из
     // закладок) должны продолжать работать и вести на приёмник.
     await invoiceRepo.recordMerge(sourceId, targetId);
@@ -964,6 +1002,13 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
     // forceDerive: the target's stored vat_sum covered only its own pages; after
     // folding in the source's items it's stale, so recompute VAT from all items.
     await invoiceRepo.recalculateTotal(targetId, { forceDerive: true });
+
+    await logEdit({
+      ownerUserId: target.owner_user_id, userId: req.user?.id ?? null, invoiceId: targetId,
+      entity: 'invoice', field: 'merge_pages',
+      oldValue: { ids: [targetId, sourceId], files: target.file_name },
+      newValue: { id: targetId, files: (await invoiceRepo.getById(targetId))?.file_name },
+    });
 
     logger.info('Manual invoice merge', { sourceId, targetId, grand });
     const merged = await invoiceRepo.getWithItems(targetId);

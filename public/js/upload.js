@@ -27,10 +27,10 @@ const Upload = {
     const captureInput = document.getElementById('capture-input');
     if (btnCapture && captureInput) {
       btnCapture.addEventListener('click', () => captureInput.click());
-      captureInput.addEventListener('change', () => {
+      captureInput.addEventListener('change', async () => {
         const f = captureInput.files[0];
+        if (f) await this.addFile(f);
         captureInput.value = '';
-        if (f) this.addFile(f);
       });
     }
 
@@ -63,10 +63,10 @@ const Upload = {
         const files = Array.from(e.dataTransfer.files);
         this._addMultiple(files);
       });
-      fileInput.addEventListener('change', () => {
+      fileInput.addEventListener('change', async () => {
         const files = Array.from(fileInput.files);
+        await this._addMultiple(files);
         fileInput.value = '';
-        this._addMultiple(files);
       });
     }
 
@@ -81,7 +81,7 @@ const Upload = {
     this.openDb().then(() => this.migrateLegacyDb()).then(() => this.retryPending());
   },
 
-  _addMultiple(files) {
+  async _addMultiple(files) {
     // .xml — электронные УПД/ТОРГ-12 из ЭДО (Диадок, СБИС): разбираются без распознавания.
     const ALLOWED = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf', '.xml'];
     for (const file of files) {
@@ -94,7 +94,7 @@ const Upload = {
         App.notify(`Пропущен: ${file.name} (>20 МБ)`, 'error');
         continue;
       }
-      this.addFile(file);
+      await this.addFile(file);
     }
   },
 
@@ -239,14 +239,32 @@ const Upload = {
 
   // ====================  Add File / Upload  ====================
 
+  async memoryBlob(source) {
+    // Safari/WebKit 319985: File из камеры или IndexedDB может отправиться
+    // как multipart с нулевым телом. Чтение байтов в памяти работает;
+    // простое new Blob([source]) всё ещё оставляет ссылку на дисковый файл.
+    if (!source || typeof source.arrayBuffer !== 'function' || source.size <= 0) {
+      throw new Error('Фото пустое или недоступно. Выберите его заново.');
+    }
+    const bytes = await source.arrayBuffer();
+    if (!bytes.byteLength || bytes.byteLength !== source.size) {
+      throw new Error('Не удалось прочитать фото полностью. Выберите его заново.');
+    }
+    return new Blob([bytes], { type: source.type || 'application/octet-stream' });
+  },
+
   async addFile(file) {
     const name = file.name || `photo_${Date.now()}.jpg`;
+    let blob;
+    try {
+      blob = await this.memoryBlob(file);
+    } catch (e) {
+      App.notify(e.message || 'Не удалось прочитать фото. Выберите его заново.', 'error');
+      return;
+    }
 
     let dbId = null;
     try {
-      const blob = file instanceof Blob
-        ? file
-        : new Blob([await file.arrayBuffer()], { type: file.type || 'image/jpeg' });
       dbId = await this.dbPut(blob, name);
     } catch (e) {
       console.error('Failed to save to IndexedDB', e);
@@ -255,7 +273,7 @@ const Upload = {
     const idx = this.history.length;
     this.history.push({
       id: dbId,
-      url: URL.createObjectURL(file),
+      url: URL.createObjectURL(blob),
       name,
       status: 'queued',
       progress: 0,
@@ -263,7 +281,7 @@ const Upload = {
     this.renderHistory();
     this.updateCounter();
     this._acquireWakeLock();
-    this._scheduleUpload(idx, file);
+    this._scheduleUpload(idx, blob);
   },
 
   async retryPending() {
@@ -326,10 +344,22 @@ const Upload = {
     }
   },
 
-  doUpload(fileOrBlob, idx, dbId) {
+  async doUpload(fileOrBlob, idx, dbId) {
+    let blob;
+    try {
+      // Старые File/Blob из IndexedDB также копируем перед каждой попыткой.
+      blob = await this.memoryBlob(fileOrBlob);
+    } catch (e) {
+      this.history[idx].status = 'error';
+      this.history[idx].error = e.message || 'Не удалось прочитать фото. Выберите его заново.';
+      this.renderHistory();
+      this.updateCounter();
+      App.notify(this.history[idx].error, 'error');
+      return;
+    }
     return new Promise((resolve) => {
       const formData = new FormData();
-      formData.append('file', fileOrBlob, this.history[idx].name);
+      formData.append('file', blob, this.history[idx].name);
 
       const xhr = new XMLHttpRequest();
       xhr.upload.addEventListener('progress', (e) => {

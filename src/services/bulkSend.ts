@@ -46,8 +46,9 @@ export async function bulkSend1c(invoices: Invoice[], apiKey: string): Promise<B
     if (threshold != null && (inv.total_sum ?? 0) > threshold && !(await approvalRepo.hasApproved(inv.id, '1c'))) {
       skipped.push({ id: inv.id, reason: 'over_threshold' }); continue;
     }
-    const { status } = await loopbackPost(`/api/invoices/${inv.id}/send`, apiKey);
+    const { status, json } = await loopbackPost(`/api/invoices/${inv.id}/send`, apiKey);
     if (status === 200) sent++;
+    else if (status === 409 && json.code === 'incomplete_pages') skipped.push({ id: inv.id, reason: 'incomplete_pages' });
     else if (status === 400) skipped.push({ id: inv.id, reason: 'not_processed' });
     else skipped.push({ id: inv.id, reason: 'error' });
   }

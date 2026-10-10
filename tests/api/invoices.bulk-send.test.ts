@@ -100,6 +100,13 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('bulk send 1C/Sber'
     expect(Number(appr?.c)).toBe(0);
   });
 
+  it('reports missing pages as a specific reason when mass approval is held', async () => {
+    const inv = await mkInvoice(1);
+    mockLoopback({ [inv]: { status: 409, json: { code: 'incomplete_pages' } } });
+    const res = await request(app).post('/api/invoices/send-1c-batch').set('X-API-Key', 'k1').send({ ids: [inv] });
+    expect(res.body.data).toMatchObject({ sent: 0, skipped: [{ id: inv, reason: 'incomplete_pages' }] });
+  });
+
   it('Sber loopback maps outcomes: sent / supplier_unverified / already_paid', async () => {
     const a = await mkInvoice(1);
     const b = await mkInvoice(1);

@@ -4,6 +4,7 @@ import { rowAlignmentProblems, priceShiftProblems, UsualPriceLookup } from '../o
 import { canonUnit } from '../mapping/unitConverter';
 import { robustMedian } from '../pricing/medianOf';
 import { isXmlInvoice } from '../xml';
+import { storedInvoiceCompleteness } from '../services/invoiceCompleteness';
 
 export interface QualitySubject {
   status: string;
@@ -23,6 +24,7 @@ export interface QualitySubject {
   flagged_items?: number;
   /** Признаки сдвига названий относительно чисел (строка без чисел, одно название у соседних строк, цены соседей). */
   alignment_problems?: string[];
+  completeness_message?: string | null;
 }
 
 export interface QualityReason {
@@ -48,6 +50,7 @@ export function evaluateQualitySubject(subject: QualitySubject, settings: Automa
   if (!subject.supplier) add('supplier', 'Не распознан поставщик');
   if (subject.total_sum == null || subject.total_sum <= 0) add('total', 'Не распознана положительная сумма');
   if (subject.items_count <= 0) add('items', 'В документе нет товарных позиций');
+  if (subject.completeness_message) add('incomplete_pages', subject.completeness_message);
   if (settings.block_total_mismatch && subject.items_total_mismatch === 1) {
     add('total_mismatch', 'Сумма позиций расходится с итогом накладной');
   }
@@ -109,6 +112,7 @@ export async function evaluateInvoiceQuality(invoiceId: number): Promise<Quality
     return { allowed: false, score: 0, reasons: [{ code: 'missing', message: 'Накладная не найдена' }], settings };
   }
   subject.alignment_problems = await storedAlignmentProblems(invoiceId);
+  subject.completeness_message = (await storedInvoiceCompleteness(invoiceId)).message;
   return { ...evaluateQualitySubject(subject, settings), settings };
 }
 
