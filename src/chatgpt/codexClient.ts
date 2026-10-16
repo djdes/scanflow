@@ -102,7 +102,9 @@ export async function codexRespond(req: CodexRequest): Promise<GptResponse> {
     }
     throw e;
   }
-  void chatgptConnectionRepo.touchUsed(Date.now()).catch(() => {});
+  // «Проверить связь» сразу запускает возобновление очереди: сохранённая пауза
+  // должна быть снята до того, как маршрут начнёт перечитывать состояние.
+  await chatgptConnectionRepo.touchUsed(Date.now()).catch(() => {});
   logger.info(`${req.label}: usage`, {
     model: parsed.model ?? req.model,
     input: parsed.usage?.input,

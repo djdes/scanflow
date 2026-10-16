@@ -9,7 +9,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('mapping explanatio
   beforeAll(async () => {
     await resetDb();
     await getDb().prepare("INSERT INTO users (id, username, password_hash, api_key, role, notify_events) VALUES (1, 'usage-owner', 'x', 'usage-key', 'admin', '[]')").run();
-    const created = await getDb().prepare("INSERT INTO invoices (owner_user_id, file_name, status) VALUES (1, 'usage.jpg', 'processed')").run();
+    const created = await getDb().prepare("INSERT INTO invoices (owner_user_id, file_name, file_path, status) VALUES (1, 'usage.jpg', 'usage.jpg', 'processed')").run();
     invoiceId = Number(created.lastInsertRowid);
   });
   afterAll(closeTestDb);

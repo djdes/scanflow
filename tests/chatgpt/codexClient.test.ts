@@ -33,6 +33,17 @@ beforeEach(() => {
 });
 
 describe('codexRespond', () => {
+  it('успех проверки не возвращается раньше снятия сохранённой паузы — очередь увидит доступный GPT', async () => {
+    let persisted!: () => void;
+    repo.touchUsed.mockReturnValue(new Promise<void>(resolve => { persisted = resolve; }));
+    net.fetch.mockResolvedValue(ok('готово'));
+    let completed = false;
+    const result = codexRespond({ ...req(), ignoreRateLimit: true }).then(value => { completed = true; return value; });
+    await vi.waitFor(() => expect(repo.touchUsed).toHaveBeenCalled());
+    expect(completed).toBe(false);
+    persisted();
+    expect((await result).text).toBe('готово');
+  });
   it('успех: текст ответа, отметка использования', async () => {
     net.fetch.mockResolvedValue(ok('готово'));
     expect((await codexRespond(req())).text).toBe('готово');
