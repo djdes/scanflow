@@ -924,7 +924,7 @@ const Invoices = {
       ? '<span class="nom-badge nom-badge-custom" title="Своё название — будет создано в 1С под этим именем">✎</span>'
       : item.onec_guid
         ? '<span class="nom-badge nom-badge-ok" title="Сопоставлено с 1С">✓</span>'
-        : '<span class="nom-badge nom-badge-missing" title="Нет позиции 1С">●</span>';
+        : '<span class="nom-badge nom-badge-missing" title="Позиция 1С ещё не выбрана для этой строки">●</span>';
     const safeName = App.esc(item.mapped_name || item.original_name || '');
     const tags = this._itemTags(data, item);
     const flagged = tags.includes('ic-tag--amber') || tags.includes('ic-tag--red');
@@ -977,7 +977,7 @@ const Invoices = {
   },
 
   // Метки проблем строки у названия: нужен вес, количество под вопросом, цена выше обычной,
-  // нет позиции 1С, позиция под вопросом, «1С переведёт на кг».
+  // не выбрана позиция 1С, позиция под вопросом, «1С переведёт на кг».
   _itemTags(data, item) {
     const tags = [];
     const flag = item.qty_flag;
@@ -995,7 +995,7 @@ const Invoices = {
       tags.push(`<span class="ic-tag ic-tag--amber" title="Цена выше обычной на ${Math.round(item.price_deviation_pct)}%">цена +${Math.round(item.price_deviation_pct)}%</span>`);
     }
     if (!item.onec_guid && !item.name_overridden) {
-      tags.push('<span class="ic-tag ic-tag--red" title="1С создаст товар по названию из накладной, если не выбрать позицию">нет позиции 1С</span>');
+      tags.push('<span class="ic-tag ic-tag--red" title="В строке не сохранена привязка к позиции 1С. Выберите предложенный вариант или найдите товар в справочнике.">не выбрана позиция 1С</span>');
     } else if (item.onec_guid && (item.mapping_confidence ?? 1) < 0.8) {
       tags.push(`<span class="ic-tag ic-tag--amber" title="Позиция 1С подобрана неуверенно — проверьте">позиция ${Math.round((item.mapping_confidence || 0) * 100)}%</span>`);
     }
@@ -1440,9 +1440,9 @@ const Invoices = {
         ({ data: list } = await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/candidates`));
       } catch { continue; }
       if (!list || !list.length) continue;
-      slot.innerHTML = `<span class="muted">Похоже на:</span> ` + list.map(c => `
+      slot.innerHTML = `<span class="muted">Варианты для выбора:</span> ` + list.map(c => `
         <button type="button" class="nom-cand${c.conflict ? ' nom-cand-conflict' : ''}"
-          title="${App.esc(c.conflict ? 'Не совпадает: ' + c.conflict : 'Сходство ' + Math.round(c.confidence * 100) + '%')}"
+          title="${App.esc(c.conflict ? 'Не совпадает: ' + c.conflict : 'Сходство названий в поиске: ' + Math.round(c.confidence * 100) + '%. Нажмите, чтобы выбрать позицию 1С для строки.')}"
           onclick="Invoices.pickCandidate(${invoiceId}, ${itemId}, '${App.esc(c.guid)}')">${App.esc(c.name)}${c.unit ? ` <span class="muted">(${App.esc(c.unit)})</span>` : ''}</button>`).join(' ');
     }
   },
