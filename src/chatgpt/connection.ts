@@ -75,6 +75,7 @@ const TEST_TIMEOUT_MS = 60_000;
 
 /**
  * Короткий настоящий запрос к модели: проверяет токены, выход сервера к chatgpt.com и лимиты.
+ * Идёт и на паузе лимита — так снимается пауза, если лимит сбросили раньше срока.
  * Ошибку возвращает текстом — её показывает админка.
  */
 export async function testChatgpt(model: string): Promise<{ ok: boolean; model: string; latencyMs: number; reply: string | null; error: string | null }> {
@@ -87,6 +88,7 @@ export async function testChatgpt(model: string): Promise<{ ok: boolean; model: 
       effort: 'low',
       signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
       label: 'ChatGPT test',
+      ignoreRateLimit: true,
     });
     return { ok: true, model: response.model ?? model, latencyMs: Date.now() - startedAt, reply: response.text.slice(0, 200), error: null };
   } catch (e) {

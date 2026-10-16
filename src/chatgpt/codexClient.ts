@@ -25,10 +25,12 @@ export interface CodexRequest {
   effort: 'low' | 'medium' | 'high';
   signal: AbortSignal;
   label: string;
+  /** Спросить OpenAI и на паузе лимита — только «Проверить связь» (см. acquireChatgptAccess). */
+  ignoreRateLimit?: boolean;
 }
 
 /** Тело запроса Responses API для бэкенда Codex. Чистая функция — её проверяют тесты. */
-export function buildCodexBody(req: Omit<CodexRequest, 'signal' | 'label'>): Record<string, unknown> {
+export function buildCodexBody(req: Omit<CodexRequest, 'signal' | 'label' | 'ignoreRateLimit'>): Record<string, unknown> {
   return {
     model: req.model,
     instructions: req.instructions,
@@ -72,11 +74,12 @@ export async function codexRespond(req: CodexRequest): Promise<GptResponse> {
     ...(dispatcher ? { dispatcher } : {}),
   });
 
-  let access = await acquireChatgptAccess();
+  const pause = req.ignoreRateLimit ? { ignoreRateLimit: true } : {};
+  let access = await acquireChatgptAccess(pause);
   let res = await send(access);
   if (res.status === 401) {
     await res.text().catch(() => '');
-    access = await acquireChatgptAccess({ rejectedAccessToken: access.accessToken });
+    access = await acquireChatgptAccess({ rejectedAccessToken: access.accessToken, ...pause });
     res = await send(access);
     if (res.status === 401) await chatgptConnectionRepo.markReauth('ChatGPT отклонил токен (401)');
   }

@@ -65,6 +65,13 @@ describe('codexRespond', () => {
     expect(message).toMatch(/usage limit/);
   });
 
+  it('ignoreRateLimit доходит до получения токена — и в повторе после 401', async () => {
+    net.fetch.mockResolvedValueOnce(new Response('{}', { status: 401 })).mockResolvedValueOnce(ok('ок'));
+    await codexRespond({ ...req(), ignoreRateLimit: true });
+    expect(access.acquireChatgptAccess).toHaveBeenNthCalledWith(1, { ignoreRateLimit: true });
+    expect(access.acquireChatgptAccess).toHaveBeenNthCalledWith(2, { rejectedAccessToken: 'AT-1', ignoreRateLimit: true });
+  });
+
   it('403 от Cloudflare — подсказка про прокси', async () => {
     net.fetch.mockResolvedValue(new Response('<html>Just a moment... cf-ray</html>', { status: 403 }));
     await expect(codexRespond(req())).rejects.toThrow(/OPENAI_PROXY_URL/);

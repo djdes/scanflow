@@ -31,21 +31,25 @@ let refreshing: Promise<ChatgptAccess> | null = null;
  *
  * rejectedAccessToken — токен, на который бэкенд ответил 401: если в БД уже другой, отдаём его,
  * иначе обновляем принудительно, не дожидаясь срока.
+ *
+ * ignoreRateLimit — для «Проверить связь»: пауза лимита держит срок, который OpenAI назвал при 429,
+ * а лимит могут сбросить раньше. Без этого пауза снималась бы только успешным запросом, а его
+ * сама пауза и не пускала. Успех снимет паузу (touchUsed), новый 429 её продлит.
  */
-export async function acquireChatgptAccess(opts: { rejectedAccessToken?: string } = {}): Promise<ChatgptAccess> {
-  const { connection, credentials } = await load();
+export async function acquireChatgptAccess(opts: { rejectedAccessToken?: string; ignoreRateLimit?: boolean } = {}): Promise<ChatgptAccess> {
+  const { connection, credentials } = await load(opts.ignoreRateLimit);
   if (!needsRefresh(connection, credentials, opts.rejectedAccessToken)) {
     return { accessToken: credentials.accessToken, accountId: connection.accountId };
   }
   if (!refreshing) {
-    refreshing = refresh(opts.rejectedAccessToken).finally(() => { refreshing = null; });
+    refreshing = refresh(opts.rejectedAccessToken, opts.ignoreRateLimit).finally(() => { refreshing = null; });
   }
   return refreshing;
 }
 
-async function refresh(rejectedAccessToken: string | undefined): Promise<ChatgptAccess> {
+async function refresh(rejectedAccessToken: string | undefined, ignoreRateLimit: boolean | undefined): Promise<ChatgptAccess> {
   // Перечитываем под «замком»: пока ждали, токен мог уже обновиться.
-  const { connection, credentials } = await load();
+  const { connection, credentials } = await load(ignoreRateLimit);
   if (!needsRefresh(connection, credentials, rejectedAccessToken)) {
     return { accessToken: credentials.accessToken, accountId: connection.accountId };
   }
@@ -89,17 +93,17 @@ async function refresh(rejectedAccessToken: string | undefined): Promise<Chatgpt
     return { accessToken: grant.credentials.accessToken, accountId: account.accountId };
   }
   // Строку успели обновить в обход этого вызова — берём то, что записано.
-  const latest = await load();
+  const latest = await load(ignoreRateLimit);
   return { accessToken: latest.credentials.accessToken, accountId: latest.connection.accountId };
 }
 
-async function load(): Promise<{ connection: ChatgptConnection; credentials: ChatgptCredentials }> {
+async function load(ignoreRateLimit = false): Promise<{ connection: ChatgptConnection; credentials: ChatgptCredentials }> {
   const connection = await chatgptConnectionRepo.get();
   if (!connection) throw new ChatgptUnavailableError('ChatGPT не подключён: Настройки → «Подключение ChatGPT» → «Войти по коду»');
   if (connection.status === 'reauth_required') {
     throw new ChatgptUnavailableError(`Подключение ChatGPT требует повторного входа по коду${connection.lastError ? `: ${connection.lastError}` : ''}`);
   }
-  if (connection.rateLimitedUntilMs && connection.rateLimitedUntilMs > Date.now()) {
+  if (!ignoreRateLimit && connection.rateLimitedUntilMs && connection.rateLimitedUntilMs > Date.now()) {
     throw new ChatgptUnavailableError(`Лимит подписки ChatGPT исчерпан до ${new Date(connection.rateLimitedUntilMs).toISOString()}`);
   }
   const credentials = await chatgptConnectionRepo.getCredentials();

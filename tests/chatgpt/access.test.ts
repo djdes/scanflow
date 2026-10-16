@@ -118,6 +118,16 @@ describe('acquireChatgptAccess', () => {
     expect(auth.refreshTokens).not.toHaveBeenCalled();
   });
 
+  it('проверка связи идёт мимо паузы лимита: лимит могли сбросить раньше названного срока', async () => {
+    repo.get.mockResolvedValue(connection({ rateLimitedUntilMs: Date.now() + 72 * HOUR }));
+    expect(await acquireChatgptAccess({ ignoreRateLimit: true })).toEqual({ accessToken: 'AT-old', accountId: 'acc-1' });
+  });
+
+  it('мимо паузы лимита — но не мимо «нужен вход»', async () => {
+    repo.get.mockResolvedValue(connection({ status: 'reauth_required', rateLimitedUntilMs: Date.now() + HOUR }));
+    await expect(acquireChatgptAccess({ ignoreRateLimit: true })).rejects.toThrow(/повторного входа/);
+  });
+
   it('токены не расшифровать (сменился JWT_SECRET) — «нужен вход»', async () => {
     repo.get.mockResolvedValue(connection());
     repo.getCredentials.mockResolvedValue(null);

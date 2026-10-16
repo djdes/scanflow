@@ -317,7 +317,7 @@ const Settings = {
       text = 'Нужно войти заново.';
       color = 'var(--error)';
     } else if (d.rate_limited_until) {
-      text = `Подключено (${d.account_email || 'аккаунт ChatGPT'}). Лимит подписки исчерпан до ${fmt(d.rate_limited_until)} — накладные подождут.`;
+      text = `Подключено (${d.account_email || 'аккаунт ChatGPT'}). Лимит подписки исчерпан до ${fmt(d.rate_limited_until)} — накладные подождут. Если лимит уже сбросили — нажмите «Проверить связь».`;
       color = 'var(--warning)';
     } else {
       text = `Подключено: ${d.account_email || 'аккаунт ChatGPT'}${d.plan_type ? `, ${d.plan_type}` : ''}.`;
