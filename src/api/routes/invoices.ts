@@ -1129,7 +1129,8 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
         item.id,
         result.onec_guid,
         result.mapped_name,
-        result.confidence
+        result.confidence,
+        result.mapping_reason ?? null
       );
       remapped++;
     } else if (result?.source === 'legacy' && result.mapped_name !== item.original_name) {
@@ -1138,7 +1139,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
       // Update the displayed name so the user sees the correct target even
       // without a catalog GUID. mapping_confidence set to 0.9 to match the
       // mapper's internal convention for legacy results.
-      await invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
+      await invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence, result.mapping_reason ?? null);
       legacyMapped++;
     } else if (
       result?.source === 'none' &&
@@ -1147,7 +1148,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
     ) {
       // Unmatched: refresh the editable «Название (1С)» with the cleaned name so
       // rows ingested before name-cleaning get fixed when the user re-maps.
-      await invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence);
+      await invoiceRepo.updateItemMappingName(item.id, result.mapped_name, result.confidence, result.mapping_reason ?? null);
       cleaned++;
     }
 

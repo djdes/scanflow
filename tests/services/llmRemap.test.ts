@@ -26,6 +26,7 @@ vi.mock('../../src/database/repositories/invoiceRepo', () => ({
     getItemById: vi.fn(),
     getAnalyzerConfig: vi.fn(),
     updateItemMapping: vi.fn(),
+    setItemMappingReason: vi.fn(),
     updateItemFields: vi.fn(),
     recalculateTotal: vi.fn(),
   },
@@ -127,7 +128,7 @@ describe('ответы — как у прежнего маршрута', () => {
     const out = await llmRemapInvoice(INVOICE, { includeAll: false });
     expect(onec.listItems).toHaveBeenCalledWith({ ownerUserId: 3, excludeFolders: true });
     expect(h.mapItems.mock.calls[0][0]).toEqual([{ key: '1', name: 'Товар 1', unit: 'шт' }]);
-    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-bread', 'Батон нарезной', 1.0);
+    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-bread', 'Батон нарезной', 1.0, 'По выбору ИИ из каталога 1С.');
     expect(repo.recalculateTotal).toHaveBeenCalledWith(7);
     expect(out).toEqual({ ok: true, guarded: 0, data: { id: 7, requested: 1, matched: 1, changed: 1, repacked: 0, coerced: 0, total: 2 } });
     expect(vi.mocked(logEdit)).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: 7, entity: 'mapping', field: 'llm_remap' }));
@@ -148,7 +149,7 @@ describe('проверки v2 (mapping_v2)', () => {
     h.mapItems.mockResolvedValue({ success: true, matched: new Map([['1', hit('g-milk2')]]) });
     maps.getConfirmed.mockResolvedValue({ id: 40, onec_guid: 'g-milk1', confirmed_at: '2026-09-01', pack_size: null, pack_unit: null } as never);
     const out = await llmRemapInvoice(INVOICE, { includeAll: false });
-    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk1', 'Молоко 3,2% 1л', 1.0);
+    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk1', 'Молоко 3,2% 1л', 1.0, 'По сопоставлению, подтверждённому человеком.');
     expect(out.ok && out.guarded).toBe(1);
     expect(out.ok && out.data.matched).toBe(1);
   });
@@ -158,7 +159,7 @@ describe('проверки v2 (mapping_v2)', () => {
     h.mapItems.mockResolvedValue({ success: true, matched: new Map([['1', hit('g-milk1')]]) });
     maps.getConfirmed.mockResolvedValue({ id: 40, onec_guid: 'g-milk1', confirmed_at: '2026-09-01', pack_size: null, pack_unit: null } as never);
     const out = await llmRemapInvoice(INVOICE, { includeAll: false });
-    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk1', 'Молоко 3,2% 1л', 1.0);
+    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk1', 'Молоко 3,2% 1л', 1.0, 'По сопоставлению, подтверждённому человеком.');
     expect(out.ok && out.guarded).toBe(0);
   });
 
@@ -216,7 +217,7 @@ describe('проверки v2 (mapping_v2)', () => {
     h.mapItems.mockResolvedValue({ success: true, matched: new Map([['1', hit('g-milk2')]]) });
     rej.guidsFor.mockResolvedValue(new Set(['g-milk2']));
     const out = await llmRemapInvoice(INVOICE, { includeAll: false });
-    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk2', 'Молоко 3,2% 2л', 1.0);
+    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk2', 'Молоко 3,2% 2л', 1.0, 'По выбору ИИ из каталога 1С.');
     expect(maps.getConfirmed).not.toHaveBeenCalled();
     expect(out.ok && out.guarded).toBe(0);
   });

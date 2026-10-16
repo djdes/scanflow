@@ -9,6 +9,9 @@ import { reconvertStoredItem } from './itemReconvert';
 import { getEngineFlags } from './engineFlags';
 import { checkLlmPick } from './llmPickGuard';
 import { logger } from '../utils/logger';
+import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
+
+const usageMapper = new NomenclatureMapper();
 
 /**
  * «LLM-маппинг» одной накладной: Claude сопоставляет строки со справочником
@@ -89,6 +92,9 @@ export async function llmRemapInvoice(invoice: Invoice, opts: LlmRemapOptions): 
   // накладной, а не действующего пользователя — так админ, правящий чужую
   // накладную, всё равно видит каталог её компании.
   const mappingOwnerId = invoice.owner_user_id ?? -1;
+  // Этот экземпляр обслуживает повторный подбор и не участвует в кэше watcher:
+  // каталог мог обновиться после предыдущей накладной.
+  usageMapper.invalidateCache(mappingOwnerId);
 
   const items = await invoiceRepo.getItems(id);
   let targets = includeAll ? items : items.filter(it => !it.onec_guid);
@@ -139,9 +145,11 @@ export async function llmRemapInvoice(invoice: Invoice, opts: LlmRemapOptions): 
     let hit: LlmMapHit | undefined = result.matched.get(String(it.id));
     const wasUnmapped = !it.onec_guid;
 
+    let confirmedByHuman = false;
     if (hit && flags.mapping_v2) {
       const verdict = await checkLlmPick(it.original_name || '', hit, mappingOwnerId);
       if (verdict.kind === 'confirmed') {
+        confirmedByHuman = true;
         // Подтверждённое человеком правило важнее выбора ИИ — и позиция, и
         // упаковка правила (как FileWatcher.pickWithLlm). Своей упаковки у
         // правила нет — подсказка ИИ остаётся, только если ИИ выбрал ту же
@@ -166,14 +174,28 @@ export async function llmRemapInvoice(invoice: Invoice, opts: LlmRemapOptions): 
       }
     }
 
+    let mappingReason: string | null = null;
+    let mappingConfidence = 1;
+    if (hit) {
+      const checked = await usageMapper.refineWithUsage(it.original_name || '', {
+        original_name: it.original_name || '', mapped_name: hit.name, onec_guid: hit.guid,
+        confidence: 1, source: 'learned', mapping_id: null, pack_size: hit.pack_size, pack_unit: hit.unit_override,
+        mapping_reason: confirmedByHuman ? 'По сопоставлению, подтверждённому человеком.' : 'По выбору ИИ из каталога 1С.',
+      }, mappingOwnerId);
+      hit = { ...hit, guid: checked.onec_guid!, name: checked.mapped_name, pack_size: checked.pack_size, unit_override: checked.pack_unit };
+      mappingReason = checked.mapping_reason ?? null;
+      mappingConfidence = checked.confidence;
+    }
+
     // Path A: Claude returned a hit. Apply guid + maybe pack_size / unit_override.
     if (hit) {
       matched++;
       const guidChanged = it.onec_guid !== hit.guid;
       if (guidChanged) {
-        await invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, 1.0);
+        await invoiceRepo.updateItemMapping(it.id, hit.guid, hit.name, mappingConfidence, mappingReason);
         changed++;
       }
+      if (!guidChanged && mappingReason) await invoiceRepo.setItemMappingReason(it.id, mappingReason);
       const onec1cUnit = (await onecNomenclatureRepo.getByGuid(hit.guid, mappingOwnerId))?.unit ?? null;
 
       // Pack-transforms multiply qty — so we only run them when this row is

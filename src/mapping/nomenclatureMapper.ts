@@ -8,13 +8,16 @@ import { getEngineFlags } from '../services/engineFlags';
 import { cleanItemName } from './nameCleaner';
 import { logger } from '../utils/logger';
 import { makeSupplierKey, supplierMappingRepo } from '../database/repositories/supplierMappingRepo';
+import { getOnecUsage, usageSource, type OnecUsage } from '../integration/onecUsage';
 
 export interface MappingResult {
   original_name: string;
   mapped_name: string;
   onec_guid: string | null;
   confidence: number;
-  source: 'supplier' | 'learned' | 'onec_exact' | 'onec_token' | 'onec_fuzzy' | 'legacy' | 'none';
+  source: 'supplier' | 'learned' | 'onec_exact' | 'onec_token' | 'onec_fuzzy' | 'onec_usage' | 'legacy' | 'none';
+  mapping_reason?: string | null;
+  confirmed_by_user?: boolean;
   mapping_id: number | null; // id of nomenclature_mappings row if matched
   // Pack transform carried through from the learned mapping (if any).
   // When both are non-null, the watcher rewrites the item:
@@ -398,6 +401,90 @@ export class NomenclatureMapper {
   }
 
   async map(scannedName: string, ownerUserId: number, context?: { supplierInn?: string | null; supplierName?: string | null }): Promise<MappingResult> {
+    const ordinary = await this.mapBase(scannedName, ownerUserId, context);
+    return this.refineWithUsage(scannedName, ordinary, ownerUserId);
+  }
+
+  /** Общая проверка для обычного подбора и выбора ИИ, включая очередь. */
+  async refineWithUsage(scannedName: string, ordinary: MappingResult, ownerUserId: number): Promise<MappingResult> {
+    const notes: Record<MappingResult['source'], string> = {
+      supplier: 'По сохранённому правилу поставщика.', learned: 'По сохранённому сопоставлению.',
+      onec_exact: 'По совпадению названия с каталогом 1С.', onec_token: 'По словам и характеристикам товара.',
+      onec_fuzzy: 'По сходству названия с каталогом 1С.', onec_usage: 'По частоте использования в 1С.',
+      legacy: 'По прежнему сопоставлению без ссылки на позицию 1С.', none: 'Подходящая позиция 1С не найдена.',
+    };
+    const base = { ...ordinary, mapping_reason: ordinary.mapping_reason ?? notes[ordinary.source] };
+    if (ordinary.source === 'supplier') return base;
+    try {
+      if (!usageSource(ownerUserId)) return base;
+    } catch {
+      return { ...base, mapping_reason: `${base.mapping_reason} Статистика 1С недоступна.` };
+    }
+    const confirmed = await mappingRepo.getConfirmed(scannedName, ownerUserId);
+    if (confirmed?.onec_guid) {
+      const row = await onecNomenclatureRepo.getByGuid(confirmed.onec_guid, ownerUserId);
+      if (row) return {
+        ...base, mapped_name: row.name, onec_guid: row.guid, confidence: 1, source: 'learned', mapping_id: confirmed.id,
+        pack_size: confirmed.pack_size, pack_unit: confirmed.pack_unit,
+        mapping_reason: 'По сопоставлению, подтверждённому человеком.',
+        confirmed_by_user: true,
+      };
+    }
+    const candidates = await this.usageCandidates(scannedName, ownerUserId);
+    if (candidates.length < 2) return base;
+    const snapshot = await getOnecUsage(ownerUserId, candidates.map(c => c.item.guid));
+    if (!snapshot.available) return {
+      ...base, mapping_reason: `${base.mapping_reason} Частота в спецификациях и приходах 1С не проверена: статистика 1С недоступна.`,
+    };
+    const ranked = candidates.map(c => ({ ...c, usage: snapshot.rows.get(c.item.guid.toLowerCase())! }))
+      .sort((a, b) => b.usage.specifications - a.usage.specifications || b.usage.receipts - a.usage.receipts);
+    const [winner, next] = ranked;
+    const plural = (n: number, forms: [string, string, string]) => forms[n % 100 >= 11 && n % 100 <= 14 ? 2 : n % 10 === 1 ? 0 : n % 10 >= 2 && n % 10 <= 4 ? 1 : 2];
+    const count = (u: OnecUsage) => `${u.specifications} ${plural(u.specifications, ['спецификация', 'спецификации', 'спецификаций'])}, ${u.receipts} ${plural(u.receipts, ['приходная накладная', 'приходные накладные', 'приходных накладных'])}`;
+    const evidence = ranked.slice(0, 10).map(c => `«${c.item.name.slice(0, 300)}»: ${count(c.usage)}`).join('; ');
+    const checkedAt = snapshot.checkedAt ? new Date(snapshot.checkedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', hour12: false }) + ' МСК' : 'дата неизвестна';
+    const checked = ` Проверка 1С: ${checkedAt}. Сравнено позиций: ${ranked.length}.${ranked.length > 10 ? ' Показаны первые 10 по частоте.' : ''} ${evidence}.`;
+    if (!winner || !next || (winner.usage.specifications === next.usage.specifications && winner.usage.receipts === next.usage.receipts)) {
+      return { ...base, mapping_reason: `${base.mapping_reason} Частота не различает подходящие варианты.${checked}` };
+    }
+    const changed = ordinary.onec_guid !== winner.item.guid;
+    return {
+      ...base, mapped_name: winner.item.name, onec_guid: winner.item.guid,
+      confidence: Math.min(0.95, winner.score), source: 'onec_usage', mapping_id: null,
+      pack_size: changed ? null : ordinary.pack_size, pack_unit: changed ? null : ordinary.pack_unit,
+      mapping_reason: `Выбрано по ${winner.usage.specifications > next.usage.specifications ? 'частоте в спецификациях' : 'частоте в приходных накладных при равной частоте в спецификациях'} 1С: ${count(winner.usage)}.${checked}`,
+    };
+  }
+
+  /** Популярность не превращает блюдо «с беконом» в ингредиент «бекон». */
+  private async usageCandidates(name: string, ownerUserId: number): Promise<Array<{ item: OnecNomenclatureRow; score: number }>> {
+    await this.ensureIndex(ownerUserId);
+    const ix = this.indexFor(ownerUserId);
+    if (!ix.onecTokenIndex || !ix.onecIdf) return [];
+    const tokens = stemmedTokenSet(name);
+    const identityTokens = [...tokens].filter(t => !SPECIES.has(t) && !['замор', 'охлажд'].includes(t));
+    const identity = identityTokens.sort((a, b) => ix.onecIdf!(b) - ix.onecIdf!(a))[0];
+    if (!identity) return [];
+    const attrs = extractAttrs(name);
+    const rejected = await rejectionRepo.guidsFor(ownerUserId, itemNameKey(name));
+    const sum = [...tokens].reduce((n, t) => n + ix.onecIdf!(t), 0);
+    const out: Array<{ item: OnecNomenclatureRow; score: number }> = [];
+    for (const doc of ix.onecTokenIndex) {
+      if (!doc.tokens.has(identity) || rejected.has(doc.item.guid)) continue;
+      if (speciesConflict(speciesOf(tokens), speciesOf(doc.tokens)) || attrsConflict(attrs, extractAttrs(doc.item.name))) continue;
+      if ((tokens.has('замор') && doc.tokens.has('охлажд')) || (tokens.has('охлажд') && doc.tokens.has('замор'))) continue;
+      const head = [...stemmedTokenSet(doc.item.name)].find(t => !SPECIES.has(t) && !['замор', 'охлажд'].includes(t));
+      if (head !== identity && !(doc.topToken && tokens.has(doc.topToken))) continue;
+      const shared = [...tokens].filter(t => doc.tokens.has(t)).reduce((n, t) => n + ix.onecIdf!(t), 0);
+      const score = shared / (sum || 1);
+      if (score >= MIN_TOKEN_CONFIDENCE) out.push({ item: doc.item, score });
+    }
+    // Не обрезаем варианты: иначе «популярнейший» мог остаться за лимитом поиска.
+    // MCP-клиент разбивает все подходящие GUID на ограниченные пакеты.
+    return out;
+  }
+
+  private async mapBase(scannedName: string, ownerUserId: number, context?: { supplierInn?: string | null; supplierName?: string | null }): Promise<MappingResult> {
     // Индекс каталога — строго этой компании. Держим ссылку локально: все
     // обращения ниже идут через неё, а не через поля экземпляра.
     const ix = this.indexFor(ownerUserId);

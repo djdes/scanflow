@@ -261,6 +261,7 @@ export class FileWatcher {
           return {
             original_name: name, mapped_name: onec.name, onec_guid: onec.guid, confidence: 1,
             source: 'learned', mapping_id: confirmed.id,
+            mapping_reason: 'По сопоставлению, подтверждённому человеком.',
             pack_size: confirmed.pack_size, pack_unit: confirmed.pack_unit,
           };
         }
@@ -276,16 +277,19 @@ export class FileWatcher {
     }
     // Preserve any previously-learned pack transform on the existing mapping.
     const existingMapping = await mappingRepo.getByScannedName(name, ownerUserId);
-    const mapping: MappingResult = {
+    const ordinary: MappingResult = {
       original_name: name,
       mapped_name: llmPicked.name,
       onec_guid: llmPicked.guid,
       confidence: 1,
       source: 'learned',
       mapping_id: existingMapping?.id ?? null,
+      mapping_reason: 'По выбору ИИ из каталога 1С.',
       pack_size: existingMapping?.pack_size ?? null,
       pack_unit: existingMapping?.pack_unit ?? null,
     };
+    const mapping = await this.mapper.refineWithUsage(name, ordinary, ownerUserId);
+    if (mapping.source === 'onec_usage' || mapping.confirmed_by_user) return mapping;
     // Teach the fuzzy mapper for future invoices where LLM might be off.
     try {
       if (v2) {
@@ -551,6 +555,7 @@ export class FileWatcher {
         conversion: resolved.conversion,
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
+        mapping_reason: mapping.mapping_reason ?? null,
         onec_guid: mapping.onec_guid,
         row_no: item.row_no ?? null,
       });
@@ -676,6 +681,7 @@ export class FileWatcher {
         conversion: r.conversion,
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
+        mapping_reason: mapping.mapping_reason ?? null,
         onec_guid: mapping.onec_guid,
         row_no: item.row_no ?? null,
       });
@@ -1290,6 +1296,7 @@ export class FileWatcher {
                   conversion: mergedResolved.conversion,
                   vat_rate: item.vat_rate,
                   mapping_confidence: mapping.confidence,
+                  mapping_reason: mapping.mapping_reason ?? null,
                   onec_guid: mapping.onec_guid,
                   row_no: item.row_no ?? null,
                 });
@@ -1491,6 +1498,7 @@ export class FileWatcher {
           conversion: resolved.conversion,
           vat_rate: item.vat_rate,
           mapping_confidence: mapping.confidence,
+          mapping_reason: mapping.mapping_reason ?? null,
           onec_guid: mapping.onec_guid,
           row_no: item.row_no ?? null,
         });
@@ -1877,6 +1885,7 @@ export class FileWatcher {
         conversion: resolved.conversion,
         vat_rate: item.vat_rate,
         mapping_confidence: mapping.confidence,
+        mapping_reason: mapping.mapping_reason ?? null,
         onec_guid: mapping.onec_guid,
         row_no: item.row_no ?? null,
       });

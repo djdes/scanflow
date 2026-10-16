@@ -2495,6 +2495,16 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 86,
+    name: 'invoice_items.mapping_reason — объяснение выбора позиции 1С',
+    detect: (exec) => hasColumn(exec, 'invoice_items', 'mapping_reason'),
+    run: async (exec) => {
+      if (!(await hasColumn(exec, 'invoice_items', 'mapping_reason'))) {
+        await exec.query('ALTER TABLE invoice_items ADD COLUMN mapping_reason TEXT NULL');
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

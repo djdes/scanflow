@@ -539,7 +539,8 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         total: transformedItem.total ?? undefined,
         conversion: conv.conversion,
         vat_rate: it.vat_rate ?? undefined,
-        mapping_confidence: mapping?.confidence ?? 0,
+          mapping_confidence: mapping?.confidence ?? 0,
+          mapping_reason: mapping?.mapping_reason ?? null,
         onec_guid: mapping?.onec_guid ?? undefined,
         row_no: it.row_no ?? null,
       });

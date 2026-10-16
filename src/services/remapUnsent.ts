@@ -38,7 +38,7 @@ export async function remapUnsentInvoices(ownerUserId: number, mapper: Nomenclat
         if (it.onec_guid && conf >= 0.8) continue;
         const r = await mapper.map(it.original_name, ownerUserId, { supplierInn: inv.supplier_inn, supplierName: inv.supplier });
         if (!r.onec_guid || r.onec_guid === it.onec_guid || r.confidence <= conf) continue;
-        await invoiceRepo.updateItemMapping(it.id, r.onec_guid, r.mapped_name, r.confidence);
+        await invoiceRepo.updateItemMapping(it.id, r.onec_guid, r.mapped_name, r.confidence, r.mapping_reason ?? null);
         const fresh = await invoiceRepo.getItemById(it.id);
         if (fresh) await reconvertStoredItem(fresh, inv, { onecGuid: r.onec_guid, mappedName: r.mapped_name });
         changed++;

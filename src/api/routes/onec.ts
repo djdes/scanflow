@@ -15,6 +15,7 @@ import { createPollLogGate } from '../../integration/pollLogGate';
 import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { onCatalogChanged } from '../../services/catalogSyncWatcher';
+import { getOnecUsage, usageSource, USAGE_BATCH_SIZE } from '../../integration/onecUsage';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -125,6 +126,30 @@ onecAdminRouter.get('/connections', async (req: Request, res: Response) => {
     integrationEventRepo.last1cPollAt(),
   ]);
   res.json({ data: { connections, catalog, sync_state: syncState, last_poll_at: lastPoll } });
+});
+
+/** Диагностика своего источника. Даже администратор не получает строки чужого каталога. */
+onecUserRouter.get('/usage', async (req: Request, res: Response) => {
+  const owner = req.user!.id;
+  if (req.query.owner_user_id != null && Number(req.query.owner_user_id) !== owner) {
+    return res.status(403).json({ error: 'Доступна только статистика своей компании' });
+  }
+  let configured = false;
+  try { configured = !!usageSource(owner); } catch { return res.status(500).json({ error: 'Проверьте настройку источника статистики 1С' }); }
+  if (!configured) return res.json({ data: { owner_user_id: owner, configured: false, available: false, items: [] } });
+  const requested = typeof req.query.guids === 'string' ? [...new Set(req.query.guids.split(',').map(g => g.trim().toLowerCase()))] : [];
+  if (requested.length > USAGE_BATCH_SIZE || requested.some(g => !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(g))) {
+    return res.status(400).json({ error: `Укажите до ${USAGE_BATCH_SIZE} GUID` });
+  }
+  const catalog = await onecNomenclatureRepo.listItems({ ownerUserId: owner, excludeFolders: true });
+  const names = new Map(catalog.map(c => [c.guid.toLowerCase(), c.name]));
+  if (requested.some(g => !names.has(g))) return res.status(400).json({ error: 'Позиция отсутствует в каталоге этой компании' });
+  const guids = requested.length ? requested : [...names.keys()].slice(0, 10);
+  const snapshot = await getOnecUsage(owner, guids);
+  return res.json({ data: {
+    owner_user_id: owner, configured: true, available: snapshot.available, checked_at: snapshot.checkedAt,
+    items: [...snapshot.rows].map(([guid, counts]) => ({ guid, name: names.get(guid), specifications: counts.specifications, receipts: counts.receipts })),
+  } });
 });
 
 onecAdminRouter.post('/connections', async (req: Request, res: Response) => {

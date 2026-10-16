@@ -52,6 +52,14 @@ describe('колонка «Оплата»', () => {
 });
 
 describe('номер строки товара', () => {
+  it('показывает метод и числа рядом с товаром и экранирует названия из объяснения', () => {
+    const item = { id: 1, original_name: 'Бекон', onec_guid: 'g', quantity: 1, unit: 'кг', total: 10,
+      mapping_reason: 'Выбрано по спецификациям 1С: 12 спецификаций. Вариант: <img src=x onerror=alert(1)>.' };
+    const html = I._itemRow({ id: 1, items: [item] }, item, 0);
+    expect(html).toContain('<summary>Выбрано по спецификациям 1С: 12 спецификаций</summary>');
+    expect(html).toContain('&lt;img');
+    expect(html).not.toContain('<img src=x');
+  });
   const no = (items: any[], i: number) => /<td class="ic-row-no">(\d+)<\/td>/.exec(I._itemRow({ id: 1, items }, items[i], i))?.[1];
   const item = (id: number, row_no: number | null) => ({ id, row_no, original_name: 'Товар', quantity: 1, unit: 'кг', price: 1, total: 1, onec_guid: 'g' });
   it('как напечатан, если номера уникальны; у многостраничной (с 1 на каждом листе) — по порядку', () => {

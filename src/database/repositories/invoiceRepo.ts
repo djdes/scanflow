@@ -207,6 +207,7 @@ export interface InvoiceItem {
   total: number | null;
   vat_rate: number | null;
   mapping_confidence: number;
+  mapping_reason?: string | null;
   onec_guid: string | null;
   row_no: number | null;
   // 1 when the user manually set mapped_name as the name to create in 1C
@@ -280,6 +281,7 @@ export interface CreateInvoiceItemData {
   total?: number;
   vat_rate?: number;
   mapping_confidence?: number;
+  mapping_reason?: string | null;
   onec_guid?: string | null;
   row_no?: number | null;
   /** Пакет v2: «как в накладной» + результат пересчёта. Не передано — raw = итоговые значения. */
@@ -855,9 +857,9 @@ export const invoiceRepo = {
     const db = getDb();
     const result = await db.prepare(`
       INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence, onec_guid, row_no,
-        raw_quantity, raw_unit, raw_price, raw_total, conv_factor, conv_note, conv_source, qty_flag, qty_flag_note)
+        raw_quantity, raw_unit, raw_price, raw_total, conv_factor, conv_note, conv_source, qty_flag, qty_flag_note, mapping_reason)
       VALUES (:invoice_id, :original_name, :mapped_name, :quantity, :unit, :price, :total, :vat_rate, :mapping_confidence, :onec_guid, :row_no,
-        :raw_quantity, :raw_unit, :raw_price, :raw_total, :conv_factor, :conv_note, :conv_source, :qty_flag, :qty_flag_note)
+        :raw_quantity, :raw_unit, :raw_price, :raw_total, :conv_factor, :conv_note, :conv_source, :qty_flag, :qty_flag_note, :mapping_reason)
     `).run({
       invoice_id: data.invoice_id,
       original_name: data.original_name,
@@ -868,6 +870,7 @@ export const invoiceRepo = {
       total: data.total ?? null,
       vat_rate: data.vat_rate ?? null,
       mapping_confidence: data.mapping_confidence ?? 0,
+      mapping_reason: data.mapping_reason ?? null,
       onec_guid: data.onec_guid ?? null,
       row_no: data.row_no ?? null,
       // Без явного пересчёта «как в накладной» = то, что пишем (никаких догадок).
@@ -906,8 +909,9 @@ export const invoiceRepo = {
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     // Catalog map (or clear) supersedes any manual name override.
     await db.prepare(
-      `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name), name_overridden = 0 WHERE id = ?`
-    ).run(onecGuid, mappedName, itemId);
+      `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name), name_overridden = 0,
+        mapping_reason = ? WHERE id = ?`
+    ).run(onecGuid, mappedName, onecGuid ? 'Выбрано вручную.' : 'Сопоставление снято вручную.', itemId);
     triggerStatsRecompute([prev?.onec_guid, onecGuid], prev?.invoice_id);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
   },
@@ -996,25 +1000,29 @@ export const invoiceRepo = {
     return Math.max(Number(r?.m) || 0, Number(r?.n) || 0) + 1;
   },
 
-  async updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number): Promise<void> {
+  async updateItemMapping(itemId: number, onecGuid: string, mappedName: string, confidence: number, reason: string | null = null): Promise<void> {
     const db = getDb();
     const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     await db.prepare(
-      `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ?, name_overridden = 0 WHERE id = ?`
-    ).run(onecGuid, mappedName, confidence, itemId);
+      `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ?, name_overridden = 0, mapping_reason = ? WHERE id = ?`
+    ).run(onecGuid, mappedName, confidence, reason, itemId);
     triggerStatsRecompute([prev?.onec_guid, onecGuid], prev?.invoice_id);
   },
 
   /** Уверенность строки (ручной выбор/подтверждение = 1.0). */
+  async setItemMappingReason(itemId: number, reason: string | null): Promise<void> {
+    await getDb().prepare('UPDATE invoice_items SET mapping_reason = ? WHERE id = ?').run(reason, itemId);
+  },
+
   async setItemConfidence(itemId: number, confidence: number): Promise<void> {
     await getDb().prepare('UPDATE invoice_items SET mapping_confidence = ? WHERE id = ?').run(confidence, itemId);
   },
 
-  async updateItemMappingName(itemId: number, mappedName: string, confidence: number): Promise<void> {
+  async updateItemMappingName(itemId: number, mappedName: string, confidence: number, reason: string | null = null): Promise<void> {
     await getDb().prepare(
-      `UPDATE invoice_items SET mapped_name = ?, mapping_confidence = ? WHERE id = ?`
-    ).run(mappedName, confidence, itemId);
+      `UPDATE invoice_items SET mapped_name = ?, mapping_confidence = ?, mapping_reason = ? WHERE id = ?`
+    ).run(mappedName, confidence, reason, itemId);
   },
 
   /**
@@ -1028,7 +1036,8 @@ export const invoiceRepo = {
     const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     await db.prepare(
-      `UPDATE invoice_items SET mapped_name = ?, onec_guid = NULL, name_overridden = 1, mapping_confidence = 1 WHERE id = ?`
+      `UPDATE invoice_items SET mapped_name = ?, onec_guid = NULL, name_overridden = 1, mapping_confidence = 1,
+        mapping_reason = 'Название задано вручную.' WHERE id = ?`
     ).run(name, itemId);
     triggerStatsRecompute([prev?.onec_guid, null], prev?.invoice_id);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);

@@ -79,9 +79,11 @@ jobs:
       - name: Install dependencies and restart
         env:
           ANTHROPIC_PROXY_URL: ${{ secrets.ANTHROPIC_PROXY_URL }}
+          ONEC_USAGE_MCP_CONFIG: ${{ secrets.ONEC_USAGE_MCP_CONFIG }}
         run: |
           ANTHROPIC_PROXY_URL_B64="$(printf '%s' "$ANTHROPIC_PROXY_URL" | base64 -w 0)"
-          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=accept-new ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "ANTHROPIC_PROXY_URL_B64='$ANTHROPIC_PROXY_URL_B64' bash -s" << 'ENDSSH'
+          ONEC_USAGE_MCP_CONFIG_B64="$(printf '%s' "$ONEC_USAGE_MCP_CONFIG" | base64 -w 0)"
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=accept-new ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "ANTHROPIC_PROXY_URL_B64='$ANTHROPIC_PROXY_URL_B64' ONEC_USAGE_MCP_CONFIG_B64='$ONEC_USAGE_MCP_CONFIG_B64' bash -s" << 'ENDSSH'
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
@@ -128,6 +130,20 @@ jobs:
           else
             echo "WARNING: ANTHROPIC_PROXY_URL GitHub secret is empty"
           fi
+
+          # Источник статистики назначен явно компании; значения — только в secret и .env.
+          if [ -n "$ONEC_USAGE_MCP_CONFIG_B64" ]; then
+            usage_config="$(printf '%s' "$ONEC_USAGE_MCP_CONFIG_B64" | base64 -d)"
+            touch .env
+            awk '!/^ONEC_USAGE_MCP_CONFIG=/' .env > .env.usage.tmp
+            printf 'ONEC_USAGE_MCP_CONFIG=%s\n' "$usage_config" >> .env.usage.tmp
+            chmod 600 .env.usage.tmp
+            mv .env.usage.tmp .env
+            echo "ONEC_USAGE_MCP_CONFIG ensured in .env"
+          fi
+
+          # Проверяем доступ к назначенной компании базе до перезапуска приложения.
+          node dist/scripts/check-onec-usage.js || exit 1
 
           # Restart with PM2
           pm2 startOrRestart ecosystem.config.js 2>&1

@@ -661,7 +661,7 @@ describe('revertQueueReocr — вернуть строки, какие были 
   const FP = linesFingerprint(applied);
   const previous = [{
     id: 1, invoice_id: 10, original_name: 'Батон 0,4кг', mapped_name: 'Ламинария', quantity: 60, unit: 'шт', price: 20, total: 1200,
-    vat_rate: 20, mapping_confidence: 0.7, onec_guid: null, row_no: 3, name_overridden: 1,
+    vat_rate: 20, mapping_confidence: 0.7, mapping_reason: 'Выбрано вручную.', onec_guid: null, row_no: 3, name_overridden: 1,
     raw_quantity: 60, raw_unit: 'шт', raw_price: 20, raw_total: 1200, conv_factor: null, conv_note: null,
     conv_source: 'legacy_stored', qty_flag: null, qty_flag_note: null,
   }];
@@ -691,7 +691,7 @@ describe('revertQueueReocr — вернуть строки, какие были 
     expect(call).toMatchObject({ resultId: 5, mark: 'revert' });
     expect(call.lines).toEqual([{
       original_name: 'Батон 0,4кг', mapped_name: 'Ламинария', quantity: 60, unit: 'шт', price: 20, total: 1200, vat_rate: 20,
-      mapping_confidence: 0.7, onec_guid: null, row_no: 3, name_overridden: 1,
+      mapping_confidence: 0.7, mapping_reason: 'Выбрано вручную.', onec_guid: null, row_no: 3, name_overridden: 1,
       conversion: {
         raw_quantity: 60, raw_unit: 'шт', raw_price: 20, raw_total: 1200, conv_factor: null, conv_note: null,
         conv_source: 'legacy_stored', qty_flag: null, qty_flag_note: null,

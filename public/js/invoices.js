@@ -954,6 +954,7 @@ const Invoices = {
               ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
               : ''}
             ${item.name_overridden ? '<div class="nom-custom-note" title="Это название уйдёт в 1С для создания товара">Своё название — товар создастся в 1С</div>' : ''}
+            ${item.mapping_reason ? `<details class="ic-mapping-reason"><summary>${App.esc(String(item.mapping_reason).split('. ')[0])}</summary><div>${App.esc(item.mapping_reason)}</div></details>` : ''}
           </div>
         </td>
         <td class="ic-num" data-label="Кол-во">

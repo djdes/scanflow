@@ -58,7 +58,7 @@ import { startQueueJob, assertQueueJobFree, activeQueueJob, viewQueueJob, QueueS
 
 export const PAGE_SEPARATOR = '\n\n--- СТРАНИЦА ---\n\n';
 
-export type MapperLike = Pick<NomenclatureMapper, 'map' | 'mapSupplierOverride'>;
+export type MapperLike = Pick<NomenclatureMapper, 'map' | 'mapSupplierOverride'> & Partial<Pick<NomenclatureMapper, 'refineWithUsage'>>;
 
 export interface ProposedLine {
   original_name: string;
@@ -66,6 +66,7 @@ export interface ProposedLine {
   onec_guid: string | null;
   mapping_confidence: number;
   mapping_source: MappingResult['source'];
+  mapping_reason?: string | null;
   quantity: number | null;
   unit: string | null;
   price: number | null;
@@ -112,15 +113,17 @@ async function proposeLlmPick(
       return {
         original_name: name, mapped_name: verdict.name, onec_guid: verdict.guid, confidence: 1,
         source: 'learned', mapping_id: verdict.mappingId, pack_size: verdict.packSize, pack_unit: verdict.packUnit,
+        mapping_reason: 'По сопоставлению, подтверждённому человеком.',
       };
     }
     if (verdict.kind !== 'accept') return mapper.map(name, ownerUserId, context);
   }
   const existing = await mappingRepo.getByScannedName(name, ownerUserId);
-  return {
+  const ordinary: MappingResult = {
     original_name: name, mapped_name: pick.name, onec_guid: pick.guid, confidence: 1, source: 'learned',
     mapping_id: existing?.id ?? null, pack_size: existing?.pack_size ?? null, pack_unit: existing?.pack_unit ?? null,
   };
+  return mapper.refineWithUsage ? mapper.refineWithUsage(name, ordinary, ownerUserId) : ordinary;
 }
 
 /**
@@ -197,6 +200,7 @@ export async function buildProposedLines(
       onec_guid: mapping.onec_guid ?? null,
       mapping_confidence: Number(mapping.confidence) || 0,
       mapping_source: mapping.source,
+      mapping_reason: mapping.mapping_reason ?? null,
       quantity: conv.quantity,
       unit: conv.unit,
       price: conv.price,
@@ -864,6 +868,7 @@ function toReplacementLine(p: ProposedLine): ReplacementLine {
     vat_rate: toNumber(p.vat_rate),
     mapping_confidence: p.mapping_confidence,
     onec_guid: p.onec_guid,
+    mapping_reason: p.mapping_reason ?? null,
     row_no: null,
     name_overridden: 0,
     conversion: {
@@ -891,6 +896,7 @@ function fromStoredItem(i: InvoiceItem): ReplacementLine {
     total: toNumber(i.total),
     vat_rate: toNumber(i.vat_rate),
     mapping_confidence: toNumber(i.mapping_confidence) ?? 0,
+    mapping_reason: i.mapping_reason ?? null,
     onec_guid: i.onec_guid ?? null,
     row_no: toNumber(i.row_no),
     name_overridden: Number(i.name_overridden ?? 0) ? 1 : 0,

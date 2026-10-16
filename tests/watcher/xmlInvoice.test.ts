@@ -106,6 +106,7 @@ const stubOcr = {
   recognizeWithEngine: vi.fn(noOcr), analyzeMultiPageText: vi.fn(noOcr),
 };
 const mapper = {
+  refineWithUsage: vi.fn(async (_name: string, result: unknown) => result),
   mapSupplierOverride: vi.fn(async () => null),
   map: vi.fn(async (name: string) => ({
     original_name: name, mapped_name: name, onec_guid: null, confidence: 0, source: 'none',

@@ -2242,6 +2242,10 @@ tr.inv-visited:hover td { opacity: 1; }
   color: #1a72c9;
 }
 
+.ic-mapping-reason { margin-top: 5px; font-size: 11.5px; color: var(--text-muted, #787774); }
+.ic-mapping-reason summary { cursor: pointer; }
+.ic-mapping-reason > div { margin-top: 4px; line-height: 1.5; overflow-wrap: anywhere; white-space: normal; }
+
 /* Tabs inside nomenclature section */
 .tabs {
   display: flex;

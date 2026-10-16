@@ -91,6 +91,7 @@ export interface ReplacementLine {
   total: number | null;
   vat_rate: number | null;
   mapping_confidence: number;
+  mapping_reason?: string | null;
   onec_guid: string | null;
   /** Порядковый номер из документа (при применении перераспознавания — нет). */
   row_no?: number | null;
@@ -349,10 +350,10 @@ export const queueRepo = {
       const insert = txn.prepare(`
         INSERT INTO invoice_items (invoice_id, original_name, mapped_name, quantity, unit, price, total, vat_rate, mapping_confidence,
           onec_guid, row_no, name_overridden,
-          raw_quantity, raw_unit, raw_price, raw_total, conv_factor, conv_note, conv_source, qty_flag, qty_flag_note)
+          raw_quantity, raw_unit, raw_price, raw_total, conv_factor, conv_note, conv_source, qty_flag, qty_flag_note, mapping_reason)
         VALUES (:invoice_id, :original_name, :mapped_name, :quantity, :unit, :price, :total, :vat_rate, :mapping_confidence,
           :onec_guid, :row_no, :name_overridden,
-          :raw_quantity, :raw_unit, :raw_price, :raw_total, :conv_factor, :conv_note, :conv_source, :qty_flag, :qty_flag_note)
+          :raw_quantity, :raw_unit, :raw_price, :raw_total, :conv_factor, :conv_note, :conv_source, :qty_flag, :qty_flag_note, :mapping_reason)
       `);
       for (const l of opts.lines) {
         await insert.run(replacementParams(opts.invoiceId, l));
@@ -382,6 +383,7 @@ export function replacementParams(invoiceId: number, l: ReplacementLine): Record
     total: finiteOrNull(l.total),
     vat_rate: finiteOrNull(l.vat_rate),
     mapping_confidence: finiteOrNull(l.mapping_confidence) ?? 0,
+    mapping_reason: cut(l.mapping_reason, 16000),
     onec_guid: l.onec_guid || null,
     row_no: rowNo != null ? Math.trunc(rowNo) : null,
     name_overridden: Number(l.name_overridden ?? 0) ? 1 : 0,
