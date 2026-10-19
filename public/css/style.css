@@ -17,6 +17,48 @@
 .quantity-review-dialog :is(button, input):focus-visible, .ic-qty-review:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 @media (max-width: 440px) { .quantity-review-dialog { padding: 20px; } .quantity-review-fields { grid-template-columns: minmax(0, 1fr); } }
 
+.nom-picker-current { flex: 1 1 160px; min-width: 0; color: var(--text-secondary); font-size: 12.5px; overflow-wrap: anywhere; }
+.nom-picker-open { display: inline-flex; align-items: center; min-height: 30px; padding: 4px 10px; border: 1px solid #cbdcf0; border-radius: 6px; color: #225c9c; background: #edf4fd; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.nom-picker-open:hover { background: #e0ecfc; border-color: #96b9e5; }
+.nomenclature-picker-dialog { width: min(760px, calc(100% - 32px)); margin: auto; padding: 24px; max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: var(--card); font-family: var(--font); box-shadow: var(--shadow-lg); }
+.nomenclature-picker-dialog::backdrop { background: rgb(25 23 30 / 45%); }
+.nom-choice-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.nom-choice-header h2 { font-size: 21px; font-weight: 600; }
+.nom-choice-close { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 6px; background: var(--bg); color: var(--text-secondary); font-size: 24px; cursor: pointer; flex-shrink: 0; }
+.nom-choice-source, .nom-choice-current { font-size: 12px; color: var(--text-secondary); margin-top: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.nom-choice-source strong { font-weight: 500; color: var(--text); }
+.nom-choice-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px; margin-top: 20px; align-items: center; }
+.nom-choice-search label { grid-column: 1 / -1; font-size: 12px; }
+.nom-choice-search input, .nom-choice-new input { min-width: 0; width: 100%; padding: 10px 12px; border: 1px solid var(--border-hover); border-radius: 6px; font: inherit; font-size: 16px; background: var(--card); color: var(--text); }
+.nom-choice-status { color: var(--text-secondary); font-size: 12px; margin: 12px 0 8px; }
+.nom-choice-warning, .nom-choice-error { padding: 10px 12px; border-radius: 6px; font-size: 12px; margin-top: 12px; line-height: 1.6; }
+.nom-choice-warning { background: var(--warning-soft); color: #80580f; }
+.nom-choice-error { background: var(--error-soft); color: #a52b27; }
+.nom-choice-results { max-height: min(42dvh, 360px); overflow: auto; border: 1px solid var(--border); border-radius: 8px; overscroll-behavior: contain; }
+.nom-choice-result { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-height: 62px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.nom-choice-result:last-child { border-bottom: 0; }
+.nom-choice-result:hover, .nom-choice-result:focus-visible { background: #edf4fd; }
+.nom-choice-result-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.nom-choice-result strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.nom-choice-result small { color: var(--text-secondary); font-size: 11px; }
+.nom-choice-result-action { font-size: 12px; color: #225c9c; flex-shrink: 0; }
+.nom-choice-empty, .nom-choice-loading { padding: 28px 20px; text-align: center; font-size: 13px; color: var(--text-secondary); }
+.nom-choice-empty h3 { color: var(--text); font-size: 14px; font-weight: 500; margin-bottom: 7px; }
+.nom-choice-empty p { line-height: 1.7; font-size: 12px; }
+.nom-choice-new { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 16px; }
+.nom-choice-new summary { font-size: 13px; cursor: pointer; }
+.nom-choice-new p { font-size: 12px; color: var(--text-secondary); line-height: 1.7; margin: 10px 0; }
+.nom-choice-new label { display: block; margin: 14px 0 7px; font-size: 12px; }
+.nom-choice-new .btn { margin-top: 10px; }
+.nomenclature-picker-dialog :is(button, input, summary):focus-visible, .nom-picker-open:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 520px) {
+  .nomenclature-picker-dialog { padding: 18px; }
+  .nom-choice-search { grid-template-columns: minmax(0, 1fr); }
+  .nom-choice-search .btn { justify-self: start; }
+  .nom-choice-result { padding: 11px; gap: 10px; }
+  .nom-choice-header h2 { font-size: 19px; }
+}
+
 :root {
   /* ── Notion-inspired system ──────────────────────────────────────────────
      Warm, content-first, calm. Hairline borders instead of heavy shadows,

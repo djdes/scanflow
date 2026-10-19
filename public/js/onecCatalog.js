@@ -6,27 +6,38 @@ const OnecCatalog = {
   fuse: null,
   loaded: false,
   lastSyncedAt: null,
+  lastError: null,
+  _loadPromise: null,
 
   async load(force = false) {
-    if (this.loaded && !force) return;
-    try {
-      const { data, last_synced_at } = await App.apiJson('/nomenclature?exclude_folders=true');
-      this.items = data || [];
-      this.lastSyncedAt = last_synced_at;
-      // Keep fuse.js around for typo-tolerance, but loosen the threshold so
-      // partial matches survive. The primary matcher below is a substring
-      // scan — fuse is only a fallback for misspellings.
-      this.fuse = new Fuse(this.items, {
-        keys: ['name', 'full_name'],
-        threshold: 0.5,
-        minMatchCharLength: 1,
-        ignoreLocation: true,
-        includeScore: true,
-      });
-      this.loaded = true;
-    } catch (e) {
-      console.error('Failed to load onec catalog', e);
-    }
+    if (this.loaded && !force) return true;
+    if (this._loadPromise) return this._loadPromise;
+    this._loadPromise = (async () => {
+      try {
+        const { data, last_synced_at } = await App.apiJson('/nomenclature?exclude_folders=true');
+        if (!Array.isArray(data)) throw new Error('Не удалось прочитать справочник 1С');
+        // Fuzzy matching is optional; substring and code search always work.
+        let fuse = null;
+        try {
+          if (typeof Fuse === 'function') fuse = new Fuse(data, {
+            keys: ['name', 'full_name'], threshold: 0.5, minMatchCharLength: 1,
+            ignoreLocation: true, includeScore: true,
+          });
+        } catch (error) { console.warn('Fuzzy search unavailable; using catalog text search', error); }
+        this.items = data;
+        this.fuse = fuse;
+        this.lastSyncedAt = last_synced_at;
+        this.loaded = true;
+        this.lastError = null;
+        return true;
+      } catch (e) {
+        this.lastError = e.message || 'Не удалось загрузить справочник 1С';
+        console.error('Failed to load onec catalog', e);
+        return false;
+      }
+    })();
+    try { return await this._loadPromise; }
+    finally { this._loadPromise = null; }
   },
 
   /**
@@ -98,6 +109,7 @@ const OnecCatalog = {
           name: item.name,
           full_name: item.full_name,
           unit: item.unit,
+          code: item.code,
           confidence: score,
         });
         seen.add(item.guid);
@@ -116,6 +128,7 @@ const OnecCatalog = {
           name: r.item.name,
           full_name: r.item.full_name,
           unit: r.item.unit,
+          code: r.item.code,
           confidence: Math.max(0.1, 1 - (r.score || 1)),
         });
         if (hits.length >= limit) break;

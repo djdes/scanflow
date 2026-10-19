@@ -944,11 +944,8 @@ const Invoices = {
           <div class="ic-row-onec">
             <div class="nom-picker">
               ${badge}
-              <input type="text" class="nom-picker-input" value="${safeName}" aria-label="Позиция 1С для строки ${no}"
-                     data-invoice-id="${data.id}" data-item-id="${item.id}" data-current-guid="${App.esc(item.onec_guid || '')}"
-                     placeholder="Выбрать позицию 1С…"
-                     oninput="Invoices.onNomInput(event)" onfocus="Invoices.onNomFocus(event)" onblur="Invoices.onNomBlur(event)">
-              <div class="nom-picker-dropdown" id="nom-dd-${item.id}"></div>
+              <span class="nom-picker-current">${item.onec_guid || item.name_overridden ? safeName : 'Товар из 1С не выбран'}</span>
+              <button type="button" class="nom-picker-open" onclick="NomenclaturePicker.open(${data.id}, ${item.id})" aria-label="${item.onec_guid ? 'Изменить' : 'Выбрать'} позицию 1С для строки ${no}">${item.onec_guid ? 'Изменить' : 'Выбрать из 1С'}</button>
             </div>
             ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
               ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
@@ -1443,8 +1440,15 @@ const Invoices = {
       let list = [];
       try {
         ({ data: list } = await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/candidates`));
-      } catch { continue; }
-      if (!list || !list.length) continue;
+      } catch {
+        if (slot.isConnected && this._currentInvoiceId === invoiceId) slot.textContent = 'Подсказки недоступны. Товар можно выбрать вручную.';
+        continue;
+      }
+      if (!slot.isConnected || this._currentInvoiceId !== invoiceId) return;
+      if (!list || !list.length) {
+        slot.textContent = 'Нет автоматических предложений — найдите товар по названию или коду.';
+        continue;
+      }
       slot.innerHTML = `<span class="muted">Варианты для выбора:</span> ` + list.map(c => `
         <button type="button" class="nom-cand${c.conflict ? ' nom-cand-conflict' : ''}"
           title="${App.esc(c.conflict ? 'Не совпадает: ' + c.conflict : 'Сходство названий в поиске: ' + Math.round(c.confidence * 100) + '%. Нажмите, чтобы выбрать позицию 1С для строки.')}"
@@ -2209,29 +2213,23 @@ const Invoices = {
 
   // Persist a user-typed name for an unmatched item — exactly what 1C will create
   // Номенклатура from. Clears any catalog match + flags the override (✎ mark).
-  async saveCustomName(invoiceId, itemId, name) {
+  async saveCustomName(invoiceId, itemId, name, options = {}) {
     const clean = String(name || '').trim();
     if (!clean) return;
     try {
-      const res = await App.api(`/invoices/${invoiceId}/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mapped_name: clean }),
-      });
-      if (res.ok) {
-        App.notify(`В 1С уйдёт название: «${clean}»`, 'success');
-        this.showDetail(parseInt(invoiceId, 10));
-      } else {
-        const err = await res.json().catch(() => ({}));
-        App.notify(err.error || 'Не удалось сохранить название', 'error');
-      }
+      await App.apiJson(`/invoices/${invoiceId}/items/${itemId}`, { method: 'PATCH', body: { mapped_name: clean } });
+      App.notify(`В 1С уйдёт название: «${clean}»`, 'success');
+      if (options.refresh !== false) this.showDetail(parseInt(invoiceId, 10));
+      return true;
     } catch (e) {
+      if (options.throwOnError) throw e;
       App.notify('Ошибка: ' + e.message, 'error');
+      return false;
     }
   },
 
   // For each unmapped item, find the best client-catalog match and, when it's
-  // confident, pre-select it in the picker input + offer one-click apply. Best
+  // confident, offer a clearly labelled suggestion with one-click apply. Best
   // effort: silent on any error, never blocks the detail view.
   _suggestUnmapped(invoiceId, items) {
     if (typeof OnecCatalog === 'undefined' || !OnecCatalog.loaded) return;
@@ -2247,19 +2245,13 @@ const Invoices = {
 
       const row = document.querySelector(`#invoice-items-tbody tr[data-item-id="${item.id}"]`);
       const picker = row && row.querySelector('.nom-picker');
-      const input = picker && picker.querySelector('.nom-picker-input');
-      if (!picker || !input || picker.querySelector('.nom-suggest')) continue;
-
-      // Auto-select: show the confident match in the field; keep the ● badge so
-      // it's clearly still pending until the user confirms.
-      input.value = top.name;
-      input.dataset.suggestedGuid = top.guid;
+      if (!picker || picker.querySelector('.nom-suggest')) continue;
 
       const chip = document.createElement('div');
       chip.className = 'nom-suggest';
       chip.style.cssText = 'margin-top:4px;font-size:12px;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
       const label = document.createElement('span');
-      label.textContent = 'Подобрано из каталога';
+      label.textContent = 'Предложение: ' + top.name;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-outline';
@@ -2587,7 +2579,7 @@ const Invoices = {
     return { pack_size: n, pack_unit: 'кг' };
   },
 
-  async selectNomItem(invoiceId, itemId, guid, name) {
+  async selectNomItem(invoiceId, itemId, guid, name, options = {}) {
     // Название «как в накладной» и количество для вопроса об упаковке — из данных
     // карточки, а не из ячеек: в ячейке названия теперь ещё метки и выбор позиции 1С
     // (его варианты вроде «Сахар (50 кг)» ложно давали «упаковку 50 кг»).
@@ -2627,20 +2619,18 @@ const Invoices = {
         body.pack_size = packOverride.pack_size;
         body.pack_unit = packOverride.pack_unit;
       }
-      const res = await App.api(`/invoices/${invoiceId}/items/${itemId}/map`, {
+      await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/map`, {
         method: 'PUT',
         body,
       });
-      if (res.ok) {
-        const extra = packOverride ? ` (${packOverride.pack_size} ${packOverride.pack_unit})` : '';
-        App.notify(`Сопоставлено: ${name}${extra}`, 'success');
-        this.showDetail(parseInt(invoiceId, 10));
-      } else {
-        const data = await res.json();
-        App.notify(data.error || 'Ошибка сопоставления', 'error');
-      }
+      const extra = packOverride ? ` (${packOverride.pack_size} ${packOverride.pack_unit})` : '';
+      App.notify(`Сопоставлено и сохранено: ${name}${extra}`, 'success');
+      if (options.refresh !== false) this.showDetail(parseInt(invoiceId, 10));
+      return true;
     } catch (e) {
+      if (options.throwOnError) throw e;
       App.notify('Ошибка: ' + e.message, 'error');
+      return false;
     }
   }
 };
