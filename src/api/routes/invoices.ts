@@ -1,5 +1,6 @@
 import { isInvoiceListView } from '../../database/repositories/invoiceListWorkflow';
 import invoiceReviewRouter from './invoiceReview';
+import { confirmItemQuantity, quantityReviewToken, QuantityConfirmationError } from '../../services/itemQuantityConfirmation';
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -497,7 +498,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   // В какую единицу считается строка: «Всё в кг» — всегда кг (штучную позицию
   // обработка 1С при загрузке переведёт на кг), иначе — единица позиции 1С.
   const allKg = await companyAllKg(raw.owner_user_id);
-  enriched.items = enriched.items.map((it: any) => ({ ...it, target_unit: allKg ? 'кг' : it.onec_unit ?? null }));
+  enriched.items = enriched.items.map((it: any) => ({ ...it, target_unit: allKg ? 'кг' : it.onec_unit ?? null, qty_review_token: quantityReviewToken(it) }));
 
   (enriched as typeof enriched & { possible_siblings: unknown }).possible_siblings =
     await invoiceRepo.findSiblings(id);
@@ -1730,6 +1731,18 @@ async function loadOwnedItem(req: Request, res: Response): Promise<{ item: Invoi
   }
   return { item, invoice };
 }
+
+// Approval belongs to this row only; no supplier rule is learned.
+router.post('/:invoiceId/items/:itemId/quantity-confirmation', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Требуется вход' });
+  try {
+    const data = await confirmItemQuantity(Number(req.params.invoiceId), Number(req.params.itemId), req.user.id, req.body ?? {});
+    return res.json({ data });
+  } catch (error) {
+    if (error instanceof QuantityConfirmationError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+});
 
 // POST /api/invoices/:invoiceId/items/:itemId/reconvert — пересчитать строку в
 // единицу 1С от значений «как в накладной» (явное действие человека: работает

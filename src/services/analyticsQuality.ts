@@ -549,7 +549,7 @@ export async function loadQualityRows(ownerUserId: number, days: AnalyticsPeriod
       LEFT JOIN (
         SELECT ii.invoice_id,
                COUNT(*) AS line_count,
-               SUM(CASE WHEN ii.qty_flag IS NOT NULL AND ii.qty_flag <> '' THEN 1 ELSE 0 END) AS flagged,
+               SUM(CASE WHEN ii.qty_flag IS NOT NULL AND ii.qty_flag <> '' AND COALESCE(ii.qty_confirmed, 0) = 0 THEN 1 ELSE 0 END) AS flagged,
                SUM(CASE WHEN ii.conv_source = 'manual'
                           OR EXISTS (SELECT 1 FROM edit_log e
                                       WHERE e.invoice_id = ii.invoice_id AND e.item_id = ii.id

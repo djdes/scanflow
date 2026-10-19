@@ -66,7 +66,7 @@ export async function runLearning(ownerUserId: number, opts: { useLlm?: boolean 
         FROM invoice_items ii
         JOIN invoices i ON i.id = ii.invoice_id
         LEFT JOIN onec_nomenclature_cards onc ON onc.guid = ii.onec_guid AND onc.owner_user_id = i.owner_user_id
-       WHERE i.owner_user_id = ? AND ii.qty_flag IS NOT NULL AND i.created_at >= (NOW() - INTERVAL 60 DAY)
+       WHERE i.owner_user_id = ? AND ii.qty_flag IS NOT NULL AND COALESCE(ii.qty_confirmed, 0) = 0 AND i.created_at >= (NOW() - INTERVAL 60 DAY)
        ORDER BY ii.id DESC LIMIT 400
     `).all<Record<string, any>>(ownerUserId);
     const medianCache = new Map<string, number | null>();

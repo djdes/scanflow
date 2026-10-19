@@ -962,6 +962,7 @@ const Invoices = {
                  value="${item.quantity != null ? String(item.quantity).replace('.', ',') : ''}" ${editAttrs('quantity')}><input type="text" class="item-edit item-edit-unit" aria-label="Единица"
                  value="${App.esc(item.unit || '')}" ${editAttrs('unit')}></span>
           ${convText ? `<span class="ic-sub-line" title="${App.esc(item.conv_note || '')}">${App.esc(convText)}</span>` : ''}
+          ${data.status === 'processed' && !data.approved_for_1c ? `<button type="button" class="ic-qty-review" onclick="Invoices.reviewItemQuantity(${data.id}, ${item.id})">${Number(item.qty_confirmed) === 1 ? 'Проверено · изменить' : 'Проверить количество'}</button>` : ''}
         </td>
         <td class="ic-num" data-label="Цена с НДС">
           <input type="text" inputmode="decimal" class="item-edit item-edit-price" aria-label="Цена с НДС" title="Цена за единицу с НДС — сумма пересчитается"
@@ -980,12 +981,14 @@ const Invoices = {
   // не выбрана позиция 1С, позиция под вопросом, «1С переведёт на кг».
   _itemTags(data, item) {
     const tags = [];
-    const flag = item.qty_flag;
+    const confirmed = Number(item.qty_confirmed) === 1;
+    if (confirmed) tags.push('<span class="ic-tag ic-tag--checked" title="Количество и единица этой строки проверены вручную">Количество проверено</span>');
+    const flag = confirmed ? null : item.qty_flag;
     if (flag === 'needs_weight') {
-      tags.push(`<button type="button" class="ic-tag ic-tag--red" title="${App.esc(item.qty_flag_note || 'Вес единицы в названии не найден')}" onclick="Invoices.itemRememberRule(${data.id}, ${item.id})">нужен вес</button>`);
+      tags.push(`<button type="button" class="ic-tag ic-tag--red" title="${App.esc(item.qty_flag_note || 'Вес единицы в названии не найден')}" onclick="Invoices.reviewItemQuantity(${data.id}, ${item.id})">нужен вес</button>`);
     } else if (flag) {
       const label = flag === 'price_outlier' ? 'проверьте количество' : 'единица не как в 1С';
-      tags.push(`<button type="button" class="ic-tag ic-tag--amber" title="${App.esc(item.qty_flag_note || '')}" onclick="Invoices.itemReconvert(${data.id}, ${item.id})">${label}</button>`);
+      tags.push(`<button type="button" class="ic-tag ic-tag--amber" title="${App.esc(item.qty_flag_note || '')}" onclick="Invoices.reviewItemQuantity(${data.id}, ${item.id})">${label}</button>`);
     } else if (this._unitMismatch(item)) {
       tags.push(`<button type="button" class="ic-tag ic-tag--amber" title="Количество не в той единице — пересчитать от значений «как в накладной»" onclick="Invoices.itemReconvert(${data.id}, ${item.id})">${this._normUnit(item.target_unit) === 'кг' ? 'не в кг' : `в 1С учёт в «${App.esc(item.onec_unit || '')}»`}</button>`);
     } else if (this._onecSwitchesToKg(item)) {
@@ -1253,7 +1256,7 @@ const Invoices = {
       invoice_number: 'Номер', invoice_date: 'Дата', total_sum: 'Сумма', vat_sum: 'НДС',
       supplier: 'Поставщик', supplier_inn: 'ИНН поставщика', supplier_kpp: 'КПП', supplier_bik: 'БИК',
       supplier_account: 'Счёт', supplier_corr_account: 'Корсчёт', supplier_address: 'Адрес',
-      invoice_type: 'Тип документа', quantity: 'Количество', unit: 'Единица', price: 'Цена',
+      invoice_type: 'Тип документа', quantity: 'Количество', unit: 'Единица', price: 'Цена', qty_confirmed: 'Проверка количества и единицы',
       total: 'Сумма строки', mapped_name: 'Название (1С)', onec_guid: 'Позиция 1С',
     };
     const fmt = (v) => (v == null || v === '') ? '—' : App.esc(String(v).replace(/^"|"$/g, ''));
@@ -1417,6 +1420,7 @@ const Invoices = {
   // Единица строки не та, в которую её надо считать: «Всё в кг» — кг, иначе —
   // единица позиции 1С (target_unit приходит с сервера).
   _unitMismatch(item) {
+    if (Number(item.qty_confirmed) === 1) return false;
     const target = item.target_unit || item.onec_unit;
     return !!(item.onec_guid && target && item.unit && this._normUnit(item.unit) !== this._normUnit(target));
   },
@@ -1424,6 +1428,7 @@ const Invoices = {
   // Строка в кг, а позиция 1С — в штуках/литрах: при загрузке обработка 1С
   // переведёт позицию на кг. Не ошибка, но остаток в прежней единице надо проверить.
   _onecSwitchesToKg(item) {
+    if (Number(item.qty_confirmed) === 1) return false;
     return !!(item.onec_unit && item.unit && this._normUnit(item.unit) === 'кг' && this._normUnit(item.onec_unit) !== 'кг'
       && this._normUnit(item.target_unit) === 'кг');
   },
@@ -1480,6 +1485,73 @@ const Invoices = {
       App.notify('Строка возвращена как в накладной', 'success');
       this.showDetail(invoiceId);
     } catch (e) { App.notify(e.message || 'Не удалось вернуть', 'error'); }
+  },
+
+  async reviewItemQuantity(invoiceId, itemId) {
+    const returnFocus = document.activeElement;
+    let item;
+    try {
+      const { data } = await App.apiJson(`/invoices/${invoiceId}`);
+      item = data.items?.find(row => row.id === itemId);
+    } catch (error) { App.notify(error.message || 'Не удалось загрузить строку', 'error'); return; }
+    if (!item?.qty_review_token) { App.notify('Строка не найдена. Обновите документ.', 'error'); return; }
+    document.getElementById('quantity-review-dialog')?.close();
+    const dialog = document.createElement('dialog');
+    dialog.id = 'quantity-review-dialog';
+    dialog.className = 'quantity-review-dialog';
+    dialog.setAttribute('aria-labelledby', 'quantity-review-title');
+    dialog.innerHTML = `<form><h2 id="quantity-review-title">Проверить количество</h2><p class="quantity-review-name">${App.esc(item.original_name)}</p><p class="quantity-review-help">Укажите фактическое количество или вес. Для штучного товара можно оставить «шт».</p>${item.raw_quantity != null ? `<div class="quantity-review-source">В накладной: <strong>${App.esc(App.formatQty(item.raw_quantity))} ${App.esc(item.raw_unit || '')}</strong></div>` : ''}<div class="quantity-review-fields"><label>Количество / вес<input name="quantity" type="text" inputmode="decimal" autocomplete="off" required value="${App.esc(item.quantity == null ? '' : String(item.quantity).replace('.', ','))}"></label><label>Единица измерения<input name="unit" type="text" autocomplete="off" maxlength="32" required value="${App.esc(item.unit || '')}"></label></div><p class="quantity-review-help">Сумма строки: ${App.esc(App.formatMoney(item.total))} ₽. При изменении количества цена за единицу пересчитается, сумма сохранится.</p><label class="quantity-review-check"><input name="confirmed" type="checkbox" ${Number(item.qty_confirmed) === 1 ? 'checked' : ''}><span>Количество и единица измерения проверены, всё верно</span></label><p class="quantity-review-help">Подтверждение относится только к этой строке. Изменение чисел или позиции 1С снимет отметку.</p><p class="quantity-review-error" role="alert" hidden></p><div class="quantity-review-actions"><button type="button" class="btn btn-outline" data-cancel>Отмена</button>${Number(item.qty_confirmed) === 1 ? '<button type="button" class="btn btn-outline" data-revoke>Снять отметку</button>' : ''}<button type="submit" class="btn btn-primary" disabled>Сохранить</button></div></form>`;
+    document.body.appendChild(dialog);
+    const form = dialog.querySelector('form');
+    const save = form.querySelector('[type="submit"]');
+    const check = form.elements.namedItem('confirmed');
+    const error = form.querySelector('.quantity-review-error');
+    let busy = false;
+    check.onchange = () => { save.disabled = !check.checked; };
+    save.disabled = !check.checked;
+    ['quantity', 'unit'].forEach(name => form.elements.namedItem(name).addEventListener('input', () => {
+      check.checked = false;
+      save.disabled = true;
+    }));
+    form.querySelector('[data-cancel]').onclick = () => dialog.close();
+    const onNavigate = () => { if (!busy) dialog.close(); };
+    window.addEventListener('hashchange', onNavigate);
+    dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+    dialog.addEventListener('close', () => {
+      window.removeEventListener('hashchange', onNavigate);
+      dialog.remove();
+      if (returnFocus?.isConnected) returnFocus.focus();
+    }, { once: true });
+    const submit = async confirmed => {
+      if (busy) return;
+      const quantity = Number(form.elements.namedItem('quantity').value.trim().replace(',', '.'));
+      const unit = form.elements.namedItem('unit').value.trim();
+      if (confirmed && (!check.checked || !Number.isFinite(quantity) || quantity <= 0 || !unit)) {
+        error.textContent = 'Укажите положительное количество, единицу и отметьте, что всё проверено.';
+        error.hidden = false;
+        return;
+      }
+      busy = true;
+      error.hidden = true;
+      form.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
+      try {
+        await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/quantity-confirmation`, {
+          method: 'POST', body: { confirmed, expected: item.qty_review_token, ...(confirmed ? { quantity, unit } : {}) },
+        });
+        dialog.close();
+        if (location.hash === `#/invoices/${invoiceId}`) this.showDetail(invoiceId);
+        App.notify(confirmed ? 'Количество и единица подтверждены' : 'Подтверждение снято', 'success');
+      } catch (cause) {
+        error.textContent = cause.message || 'Не удалось сохранить проверку';
+        error.hidden = false;
+        form.querySelectorAll('button, input').forEach(el => { el.disabled = false; });
+        save.disabled = !check.checked;
+      } finally { busy = false; }
+    };
+    form.onsubmit = event => { event.preventDefault(); submit(true); };
+    form.querySelector('[data-revoke]')?.addEventListener('click', () => submit(false));
+    dialog.showModal();
+    form.elements.namedItem('quantity').focus();
   },
 
   async itemRememberRule(invoiceId, itemId) {
@@ -1731,7 +1803,7 @@ const Invoices = {
       }
       // Пакет v2: строки, где количество под вопросом (флаг пересчёта или
       // единица не совпадает с 1С), — главная причина неверных остатков в 1С.
-      const suspect = (invoice.items || []).filter(it => it.qty_flag || this._unitMismatch(it));
+      const suspect = (invoice.items || []).filter(it => (it.qty_flag && Number(it.qty_confirmed) !== 1) || this._unitMismatch(it));
       if (suspect.length > 0) {
         const names = suspect.slice(0, 5).map(it => '• ' + (it.original_name || it.mapped_name || '')).join('\n');
         const ok = confirm(

@@ -224,6 +224,9 @@ export interface InvoiceItem {
   conv_source?: string | null;
   qty_flag?: string | null;
   qty_flag_note?: string | null;
+  qty_confirmed?: number;
+  qty_confirmed_at?: string | null;
+  qty_confirmed_by?: number | null;
 }
 
 /** Поля результата пересчёта строки (src/services/lineConversion.ts). */
@@ -909,9 +912,10 @@ export const invoiceRepo = {
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     // Catalog map (or clear) supersedes any manual name override.
     await db.prepare(
-      `UPDATE invoice_items SET onec_guid = ?, mapped_name = COALESCE(?, mapped_name), name_overridden = 0,
-        mapping_reason = ? WHERE id = ?`
-    ).run(onecGuid, mappedName, onecGuid ? 'Выбрано вручную.' : 'Сопоставление снято вручную.', itemId);
+      `UPDATE invoice_items SET qty_confirmed = IF(onec_guid <=> ?, qty_confirmed, 0),
+        qty_confirmed_at = IF(onec_guid <=> ?, qty_confirmed_at, NULL), qty_confirmed_by = IF(onec_guid <=> ?, qty_confirmed_by, NULL),
+        onec_guid = ?, mapped_name = COALESCE(?, mapped_name), name_overridden = 0, mapping_reason = ? WHERE id = ?`
+    ).run(onecGuid, onecGuid, onecGuid, onecGuid, mappedName, onecGuid ? 'Выбрано вручную.' : 'Сопоставление снято вручную.', itemId);
     triggerStatsRecompute([prev?.onec_guid, onecGuid], prev?.invoice_id);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
   },
@@ -924,7 +928,7 @@ export const invoiceRepo = {
   ): Promise<void> {
     const db = getDb();
     await db.prepare(
-      `UPDATE invoice_items SET quantity = ?, unit = ?, price = ? WHERE id = ?`
+      `UPDATE invoice_items SET quantity = ?, unit = ?, price = ?, qty_confirmed = 0, qty_confirmed_at = NULL, qty_confirmed_by = NULL WHERE id = ?`
     ).run(quantity, unit, price, itemId);
     const after = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
@@ -939,7 +943,7 @@ export const invoiceRepo = {
     itemId: number,
     r: { quantity: number | null; unit: string | null; price: number | null; total?: number | null } & Partial<ItemConversionColumns>,
   ): Promise<void> {
-    const sets: string[] = ['quantity = ?', 'unit = ?', 'price = ?'];
+    const sets: string[] = ['quantity = ?', 'unit = ?', 'price = ?', 'qty_confirmed = 0', 'qty_confirmed_at = NULL', 'qty_confirmed_by = NULL'];
     const vals: unknown[] = [r.quantity, r.unit, r.price];
     if (r.total !== undefined) { sets.push('total = ?'); vals.push(r.total); }
     for (const k of ['raw_quantity', 'raw_unit', 'raw_price', 'raw_total', 'conv_factor', 'conv_note', 'conv_source', 'qty_flag', 'qty_flag_note'] as const) {
@@ -964,6 +968,7 @@ export const invoiceRepo = {
     if ('price' in fields) { sets.push('price = ?'); vals.push(fields.price); }
     if ('total' in fields) { sets.push('total = ?'); vals.push(fields.total); }
     if (sets.length === 0) return;
+    sets.push('qty_confirmed = 0', 'qty_confirmed_at = NULL', 'qty_confirmed_by = NULL');
     vals.push(itemId);
     const db = getDb();
     await db.prepare(`UPDATE invoice_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
@@ -1005,8 +1010,10 @@ export const invoiceRepo = {
     const prev = await db.prepare('SELECT onec_guid, invoice_id FROM invoice_items WHERE id = ?')
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     await db.prepare(
-      `UPDATE invoice_items SET onec_guid = ?, mapped_name = ?, mapping_confidence = ?, name_overridden = 0, mapping_reason = ? WHERE id = ?`
-    ).run(onecGuid, mappedName, confidence, reason, itemId);
+      `UPDATE invoice_items SET qty_confirmed = IF(onec_guid <=> ?, qty_confirmed, 0),
+        qty_confirmed_at = IF(onec_guid <=> ?, qty_confirmed_at, NULL), qty_confirmed_by = IF(onec_guid <=> ?, qty_confirmed_by, NULL),
+        onec_guid = ?, mapped_name = ?, mapping_confidence = ?, name_overridden = 0, mapping_reason = ? WHERE id = ?`
+    ).run(onecGuid, onecGuid, onecGuid, onecGuid, mappedName, confidence, reason, itemId);
     triggerStatsRecompute([prev?.onec_guid, onecGuid], prev?.invoice_id);
   },
 
@@ -1037,7 +1044,7 @@ export const invoiceRepo = {
       .get<{ onec_guid: string | null; invoice_id: number }>(itemId);
     await db.prepare(
       `UPDATE invoice_items SET mapped_name = ?, onec_guid = NULL, name_overridden = 1, mapping_confidence = 1,
-        mapping_reason = 'Название задано вручную.' WHERE id = ?`
+        mapping_reason = 'Название задано вручную.', qty_confirmed = 0, qty_confirmed_at = NULL, qty_confirmed_by = NULL WHERE id = ?`
     ).run(name, itemId);
     triggerStatsRecompute([prev?.onec_guid, null], prev?.invoice_id);
     return db.prepare('SELECT * FROM invoice_items WHERE id = ?').get<InvoiceItem>(itemId);
@@ -1513,7 +1520,7 @@ export const invoiceRepo = {
         FROM invoice_source_regions s WHERE s.invoice_id = ?
         ON DUPLICATE KEY UPDATE invoice_source_regions.id = invoice_source_regions.id`).run(toInvoiceId, fromInvoiceId);
       await db.prepare('DELETE FROM invoice_source_regions WHERE invoice_id = ?').run(fromInvoiceId);
-      await db.prepare('UPDATE invoice_items SET invoice_id = ? WHERE invoice_id = ?').run(toInvoiceId, fromInvoiceId);
+      await db.prepare('UPDATE invoice_items SET invoice_id = ?, qty_confirmed = 0, qty_confirmed_at = NULL, qty_confirmed_by = NULL WHERE invoice_id = ?').run(toInvoiceId, fromInvoiceId);
     });
   },
 

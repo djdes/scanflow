@@ -207,7 +207,7 @@ export async function llmRemapInvoice(invoice: Invoice, opts: LlmRemapOptions): 
         const fresh = await invoiceRepo.getItemById(it.id);
         const llmPack = hit.pack_size && hit.pack_size > 0 && hit.unit_override
           ? { size: hit.pack_size, unit: hit.unit_override } : null;
-        if (fresh && await reconvertStoredItem(fresh, invoice, { onecGuid: hit.guid, mappedName: hit.name, pack: llmPack, force: canRepack && fresh.conv_source != null && fresh.conv_source !== 'legacy_stored' })) {
+        if (fresh && await reconvertStoredItem(fresh, invoice, { onecGuid: hit.guid, mappedName: hit.name, pack: llmPack, force: Number(fresh.qty_confirmed) !== 1 && canRepack && fresh.conv_source != null && fresh.conv_source !== 'legacy_stored' })) {
           repacked++;
         }
         continue;

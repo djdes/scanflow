@@ -15,6 +15,10 @@ export async function reconvertStoredItem(
   invoice: { owner_user_id: number | null; supplier_inn: string | null; supplier: string | null },
   opts: { onecGuid?: string | null; mappedName?: string | null; pack?: { size: number; unit: string } | null; mappingId?: number | null; force?: boolean } = {},
 ): Promise<boolean> {
+  // A checked manual result belongs to this row only. Background remapping
+  // must not replace it with an automatic conversion from raw values.
+  if (Number(item.qty_confirmed) === 1 && !opts.force
+      && (opts.onecGuid === undefined || opts.onecGuid === item.onec_guid)) return false;
   // conv_source пуст — строку записал не конвейер v2 (например, старый код
   // после отката): её raw_* могут быть уже пересчитанными — тоже не трогаем.
   if ((item.conv_source == null || item.conv_source === 'legacy_stored') && !opts.force) return false;
@@ -34,7 +38,7 @@ export async function reconvertStoredItem(
   });
   const changed = conv.quantity !== item.quantity || conv.unit !== item.unit || conv.price !== item.price
     || (conv.conversion.qty_flag ?? null) !== (item.qty_flag ?? null);
-  if (changed || item.conv_source !== conv.conversion.conv_source) {
+  if (changed || item.conv_source !== conv.conversion.conv_source || Number(item.qty_confirmed) === 1) {
     await invoiceRepo.updateItemConversion(item.id, {
       quantity: conv.quantity, unit: conv.unit, price: conv.price,
       conv_factor: conv.conversion.conv_factor, conv_note: conv.conversion.conv_note,

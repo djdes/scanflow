@@ -217,6 +217,14 @@ describe('queueReasons — что держит накладную', () => {
 });
 
 describe('мелочи', () => {
+  it('ручная проверка снимает только замечания о количестве и единице, сохраняя проблемы сопоставления', () => {
+    const checked = line({ qty_confirmed: 1, qty_flag: 'needs_weight', unit: 'шт', onec_unit: 'кг' });
+    expect(lineRisks(checked)).toEqual([]);
+    expect(summarizeLines([checked]).flagged).toBe(0);
+    expect(lineRisks({ ...checked, mapping_confidence: .4 })).toEqual([{ code: 'low_confidence', confidence: .4 }]);
+    expect(lineRisks({ ...checked, onec_guid: null })).toEqual([{ code: 'new_item' }]);
+    expect(lineRisks({ ...checked, qty_confirmed: 0 })[0].code).toBe('qty_flag');
+  });
   it('isLegacyLine: legacy_stored и пустой источник — строки до v2', () => {
     expect(isLegacyLine({ conv_source: 'legacy_stored' })).toBe(true);
     expect(isLegacyLine({ conv_source: null })).toBe(true);

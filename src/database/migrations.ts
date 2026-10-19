@@ -2505,6 +2505,18 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 87,
+    name: 'invoice_items: ручное подтверждение количества и единицы строки',
+    detect: async (exec) => (await hasColumn(exec, 'invoice_items', 'qty_confirmed'))
+      && (await hasColumn(exec, 'invoice_items', 'qty_confirmed_at'))
+      && (await hasColumn(exec, 'invoice_items', 'qty_confirmed_by')),
+    run: async (exec) => {
+      for (const [name, type] of [['qty_confirmed', 'TINYINT(1) NOT NULL DEFAULT 0'], ['qty_confirmed_at', 'DATETIME NULL'], ['qty_confirmed_by', 'INT NULL']]) {
+        if (!(await hasColumn(exec, 'invoice_items', name))) await exec.query(`ALTER TABLE invoice_items ADD COLUMN ${name} ${type}`);
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

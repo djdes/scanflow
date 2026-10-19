@@ -94,6 +94,7 @@ export interface RiskLine {
   price: number | null;
   qty_flag?: string | null;
   qty_flag_note?: string | null;
+  qty_confirmed?: number | null;
   conv_source?: string | null;
   /** Единица позиции 1С (JOIN каталога компании). */
   onec_unit?: string | null;
@@ -141,15 +142,16 @@ export function priceDeviationPct(line: RiskLine): number | null {
  */
 export function lineRisks(line: RiskLine, pendingNewItemKeys: ReadonlySet<string> = new Set(), opts: RiskOptions = {}): LineRisk[] {
   const risks: LineRisk[] = [];
-  const flag = line.qty_flag ? String(line.qty_flag) : '';
+  const confirmed = Number(line.qty_confirmed) === 1;
+  const flag = !confirmed && line.qty_flag ? String(line.qty_flag) : '';
   if (flag) risks.push({ code: 'qty_flag', flag, note: line.qty_flag_note ?? null });
 
-  if (!flag && line.onec_guid && line.onec_unit && line.unit && !sameUnit(line.unit, line.onec_unit)) {
+  if (!confirmed && !flag && line.onec_guid && line.onec_unit && line.unit && !sameUnit(line.unit, line.onec_unit)) {
     const toKg = opts.allKg && sameUnit(line.unit, 'кг');
     risks.push({ code: toKg ? 'unit_to_kg' : 'unit_mismatch', onec_unit: line.onec_unit });
   }
 
-  if (!flag && line.onec_guid) {
+  if (!confirmed && !flag && line.onec_guid) {
     const pct = priceDeviationPct(line);
     if (pct != null) {
       const ratio = Number(line.price) / Number(line.median_price);
@@ -196,7 +198,7 @@ export function summarizeLines(lines: RiskLine[], pendingNewItemKeys: ReadonlySe
     lines: lines.length,
     unmapped: lines.filter(l => !l.onec_guid).length,
     unmapped_open: lines.filter(l => !l.onec_guid && !Number(l.name_overridden ?? 0)).length,
-    flagged: lines.filter(l => !!l.qty_flag).length,
+    flagged: lines.filter(l => !!l.qty_flag && Number(l.qty_confirmed) !== 1).length,
     risky_lines: risky,
     legacy_lines: legacy,
     risk_counts: counts,

@@ -96,7 +96,7 @@ export async function evaluateInvoiceQuality(invoiceId: number): Promise<Quality
     SELECT i.status, i.duplicate_of, i.invoice_number, i.invoice_date,
            i.supplier, i.total_sum, COALESCE(i.items_total_mismatch, 0) AS items_total_mismatch,
            i.supplier_match,
-           SUM(CASE WHEN ii.qty_flag IS NOT NULL THEN 1 ELSE 0 END) AS flagged_items,
+           SUM(CASE WHEN ii.qty_flag IS NOT NULL AND COALESCE(ii.qty_confirmed, 0) = 0 THEN 1 ELSE 0 END) AS flagged_items,
            COUNT(ii.id) AS items_count,
            SUM(CASE WHEN ii.id IS NOT NULL AND (ii.onec_guid IS NULL OR ii.onec_guid = '') THEN 1 ELSE 0 END) AS unmapped_count,
            MIN(CASE WHEN ii.id IS NOT NULL THEN COALESCE(ii.mapping_confidence, 0) END) AS min_confidence,

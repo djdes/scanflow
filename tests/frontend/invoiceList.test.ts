@@ -83,6 +83,16 @@ describe('устройство загрузки в «Истории»', () => {
 });
 
 describe('кнопка действия строки', () => {
+  it('не требует вес или кг после ручного подтверждения, но сохраняет отдельные предупреждения', () => {
+    const item = { id: 2, qty_confirmed: 1, qty_flag: 'needs_weight', unit: 'шт', target_unit: 'кг', onec_unit: 'кг', onec_guid: 'label', mapping_confidence: 1 };
+    const html = I._itemTags({ id: 1 }, item);
+    expect(html).toContain('Количество проверено');
+    expect(html).not.toContain('нужен вес');
+    expect(html).not.toContain('не в кг');
+    expect(I._unitMismatch(item)).toBe(false);
+    expect(I._itemTags({ id: 1 }, { ...item, qty_confirmed: 0 })).toContain('нужен вес');
+    expect(I._itemTags({ id: 1 }, { ...item, onec_guid: null })).toContain('не выбрана позиция 1С');
+  });
   it('одной ширины; «В 1С →» только у готовой к отправке', () => {
     const a = (inv: any) => I._rowAction({ id: 7, status: 'processed', approved_for_1c: 0, ...inv });
     for (const html of [a({}), a({ review_reason: 'total' }), a({ status: 'sent_to_1c' }), a({ duplicate_of: 2 })]) expect(html).toContain('inv-act');

@@ -95,7 +95,7 @@ export function compareItems(current: InvoiceItem[], previous: InvoiceItem[]) {
         const sameUnit = !!unitA && unitA === unitB;
         const sameVat = a?.vat_rate != null && b?.vat_rate != null && Number(a.vat_rate) === Number(b.vat_rate);
         // A conversion with unknown/conflicting factors is not a comparable price basis.
-        const conversionSafe = !a?.qty_flag && !b?.qty_flag && ((a?.conv_factor ?? 1) === (b?.conv_factor ?? 1));
+        const conversionSafe = (!a?.qty_flag || Number(a.qty_confirmed) === 1) && (!b?.qty_flag || Number(b.qty_confirmed) === 1) && ((a?.conv_factor ?? 1) === (b?.conv_factor ?? 1));
         const comparable = !!a && !!b && sameUnit && sameVat && conversionSafe && Number(a.price) > 0 && Number(b.price) > 0;
         return { ...pair, comparable, price_change_pct: comparable ? (Number(a.price) / Number(b.price) - 1) * 100 : null,
             reason: !a || !b ? pair.match : !sameUnit ? 'different_units' : !sameVat ? 'different_vat' : !conversionSafe ? 'different_conversion' : !comparable ? 'missing_price' : null,
@@ -133,7 +133,7 @@ export function decision(inv: Invoice & {
     const sum = inv.items.reduce((n, i) => n + Number(i.total ?? 0), 0);
     return { unchecked: missing, item_sum: Math.round(sum * 100) / 100, editable: editable(inv),
         unmapped: inv.items.filter(i => !i.onec_guid && !i.name_overridden).map(i => i.id),
-        quantity: inv.items.filter(i => i.qty_flag).map(i => i.id),
+        quantity: inv.items.filter(i => i.qty_flag && Number(i.qty_confirmed) !== 1).map(i => i.id),
         mismatch: Number(inv.items_total_mismatch) === 1 && !inv.attr_checked_total,
         missing_header: HEADER_EDIT_FIELDS.filter(f => f !== 'vat_sum' && (inv[f] == null || inv[f] === '' || (f === 'total_sum' && Number(inv[f]) <= 0))),
     };
@@ -194,7 +194,7 @@ export async function applyReviewEdit(invoiceId: number, owner: number, body: Re
             const q = field === 'quantity' ? value : row.quantity, p = field === 'price' ? value : row.price;
             if (field !== 'total' && field !== 'unit' && q != null && p != null)
                 changes.total = Math.round(Number(q) * Number(p) * 100) / 100;
-            await db.prepare(`UPDATE invoice_items SET ${Object.keys(changes).map(k => `${k} = ?`).join(', ')} WHERE id = ? AND invoice_id = ?`).run(...Object.values(changes), itemId, invoiceId);
+            await db.prepare(`UPDATE invoice_items SET ${Object.keys(changes).map(k => `${k} = ?`).join(', ')}, qty_confirmed = 0, qty_confirmed_at = NULL, qty_confirmed_by = NULL WHERE id = ? AND invoice_id = ?`).run(...Object.values(changes), itemId, invoiceId);
             // Explicitly edited quantities supersede the unresolved conversion warning; raw source values remain untouched.
             if (field === 'quantity' || field === 'unit')
                 await db.prepare('UPDATE invoice_items SET qty_flag = NULL, conv_source = ? WHERE id = ?').run('manual', itemId);

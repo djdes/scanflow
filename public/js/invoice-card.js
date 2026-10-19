@@ -427,10 +427,11 @@ const InvoiceCard = {
     const item = (inv?.items || []).find(it => it.id === itemId);
     if (!item) return;
     const rawDiffers = item.raw_quantity != null && (Number(item.raw_quantity) !== Number(item.quantity) || Invoices._normUnit(item.raw_unit) !== Invoices._normUnit(item.unit));
-    const needsWork = !!item.qty_flag || Invoices._unitMismatch(item);
+    const needsWork = (!!item.qty_flag && Number(item.qty_confirmed) !== 1) || Invoices._unitMismatch(item);
     const hasImages = !App.isXmlInvoice(inv);
     const items = [
       hasImages ? { label: 'Показать на скане', onClick: () => this.openScan(`item:${item.id}:row`) } : null,
+      inv.status === 'processed' && !inv.approved_for_1c ? { label: 'Проверить количество и единицу', onClick: () => Invoices.reviewItemQuantity(inv.id, item.id) } : null,
       rawDiffers ? { label: `Как в накладной (${App.formatQty(item.raw_quantity)} ${item.raw_unit || ''}`.trim() + ')', onClick: () => Invoices.itemRevertRaw(inv.id, item.id) } : null,
       needsWork ? { label: 'Пересчитать количество', onClick: () => Invoices.itemReconvert(inv.id, item.id) } : null,
       (item.onec_guid || item.target_unit) && (needsWork || rawDiffers) ? { label: 'Запомнить пересчёт для поставщика', onClick: () => Invoices.itemRememberRule(inv.id, item.id) } : null,

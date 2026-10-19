@@ -27,7 +27,7 @@ export const REVIEW_REASON_SQL = `CASE
   ) THEN 'items'
   WHEN invoices.status = 'processed' AND EXISTS (
     SELECT 1 FROM invoice_items wi WHERE wi.invoice_id = invoices.id
-      AND COALESCE(wi.qty_flag, '') <> ''
+      AND COALESCE(wi.qty_flag, '') <> '' AND COALESCE(wi.qty_confirmed, 0) = 0
   ) THEN 'quantity'
   WHEN invoices.status = 'processed' AND EXISTS (
     SELECT 1 FROM invoice_items wi WHERE wi.invoice_id = invoices.id
