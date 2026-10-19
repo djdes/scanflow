@@ -94,21 +94,31 @@ const App = {
     window.location.hash = hash;
   },
 
-  // Set .active on the nav link for `tab`. If the link lives inside a
-  // .nav-group dropdown, also highlight the group's trigger so the user
-  // sees which dropdown is open — and the phone tab bar item that leads to
-  // the group's page («Накладные» for «Очередь в 1С» and the analytics pages).
+  // Keep the current page visible in the left navigation.
   activateNavTab(tab) {
-    const links = document.querySelectorAll(`nav a[data-tab="${tab}"]:not(.nav-group-trigger)`);
+    const links = document.querySelectorAll(`#app-primary-nav a[data-tab="${tab}"]`);
     links.forEach((link) => {
       link.classList.add('active');
       link.setAttribute('aria-current', 'page');
-      const trigger = link.closest('.nav-group')?.querySelector('.nav-group-trigger');
-      if (!trigger) return;
-      trigger.classList.add('active');
-      const home = trigger.getAttribute('href');
-      if (home) document.querySelectorAll(`.mobile-tabbar a[href="${home}"]`).forEach(a => a.classList.add('active'));
     });
+  },
+
+  setNavigationOpen(open) {
+    const sidebar = document.getElementById('app-sidebar');
+    const toggle = document.getElementById('nav-toggle');
+    const mobile = window.matchMedia('(max-width: 900px)').matches;
+    const expanded = mobile && open;
+    if (!expanded && sidebar?.contains(document.activeElement) && mobile) toggle?.focus();
+    sidebar?.classList.toggle('is-open', expanded);
+    if (sidebar) sidebar.inert = mobile && !expanded;
+    toggle?.setAttribute('aria-expanded', String(expanded));
+    toggle?.setAttribute('aria-label', expanded ? 'Закрыть меню' : 'Открыть меню');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (backdrop) backdrop.hidden = !expanded;
+    document.body.classList.toggle('sidebar-open', expanded);
+    const main = document.getElementById('app-main');
+    if (main) main.inert = expanded;
+    if (expanded) (sidebar?.querySelector('a[aria-current="page"]') || sidebar?.querySelector('a'))?.focus();
   },
 
   route() {
@@ -117,9 +127,7 @@ const App = {
     if (typeof InvoiceReview !== 'undefined' && !/^#\/invoices\/\d+$/.test(hash)) InvoiceReview.leave();
     if (typeof InvoiceCard !== 'undefined') InvoiceCard.closeMenu();
     // Close the mobile nav drawer on every navigation.
-    const navEl = document.querySelector('header nav');
-    if (navEl) navEl.classList.remove('open');
-    document.getElementById('nav-toggle')?.setAttribute('aria-expanded', 'false');
+    this.setNavigationOpen(false);
     // Hide all sections
     document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
 
@@ -294,14 +302,38 @@ const App = {
   init() {
     window.addEventListener('hashchange', () => this.route());
 
-    // Mobile hamburger: toggle the nav drawer.
+    // The left panel becomes a dismissible drawer on phones and tablets.
     const navToggle = document.getElementById('nav-toggle');
-    const navEl = document.querySelector('header nav');
-    if (navToggle && navEl) {
+    const sidebar = document.getElementById('app-sidebar');
+    if (navToggle && sidebar) {
       navToggle.addEventListener('click', () => {
-        const open = navEl.classList.toggle('open');
-        navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        this.setNavigationOpen(!sidebar.classList.contains('is-open'));
       });
+      document.getElementById('sidebar-backdrop')?.addEventListener('click', () => this.setNavigationOpen(false));
+      document.getElementById('sidebar-close')?.addEventListener('click', () => this.setNavigationOpen(false));
+      sidebar.addEventListener('click', (event) => {
+        if (event.target.closest('a[href]')) this.setNavigationOpen(false);
+      });
+      window.matchMedia('(max-width: 900px)').addEventListener('change', () => this.setNavigationOpen(false));
+      document.addEventListener('keydown', (event) => {
+        if (!sidebar.classList.contains('is-open')) return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          this.setNavigationOpen(false);
+        } else if (event.key === 'Tab') {
+          const items = sidebar.querySelectorAll('a[href], button:not([disabled])');
+          const first = items[0];
+          const last = items[items.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }
+      });
+      this.setNavigationOpen(false);
     }
 
     // Fast, discoverable keyboard search on the primary work screen.
