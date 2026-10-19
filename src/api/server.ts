@@ -38,6 +38,7 @@ import operationsRouter from './routes/operations';
 import goldenRouter from './routes/golden';
 import learningRouter from './routes/learning';
 import analyticsRouter from './routes/analytics';
+import billingRouter, { robokassaCallbackRouter } from './routes/billing';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
@@ -266,6 +267,10 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // компания в подписанном state. ДО `/api/sber` (apiKeyAuth), иначе 401.
   const sberCallbackLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
   app.use('/api/sber/callback', sberCallbackLimiter, sberCallbackRouter);
+  // Provider callbacks cannot supply X-API-Key. They stay hard-disabled until
+  // persistent, verified settlement is implemented; no payment is acknowledged.
+  const billingCallbackLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
+  app.use('/api/payments/robokassa', billingCallbackLimiter, robokassaCallbackRouter);
 
   app.use('/api/invoices', apiKeyAuth, invoicesRouter);
   app.use('/api/mappings', apiKeyAuth, mappingsRouter);
@@ -280,6 +285,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/debug', apiKeyAuth, requireAdmin, debugRouter);
   app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);
   app.use('/api/profile', apiKeyAuth, profileRouter);
+  app.use('/api/billing', apiKeyAuth, billingRouter);
   app.use('/api/sber', apiKeyAuth, sberRouter);
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);

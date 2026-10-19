@@ -229,6 +229,10 @@ const App = {
       document.getElementById('view-settings').style.display = 'block';
       this.activateNavTab('settings');
       Settings.load();
+    } else if (hash === '#/billing' || hash.startsWith('#/billing?')) {
+      document.getElementById('view-billing').style.display = 'block';
+      this.activateNavTab('billing');
+      Billing.load();
     } else if (hash === '#/profile') {
       document.getElementById('view-profile').style.display = 'block';
       this.activateNavTab('profile');
