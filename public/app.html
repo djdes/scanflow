@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/sidebar.css">
   <link rel="stylesheet" href="/css/billing.css">
+  <link rel="stylesheet" href="/css/unit-cost.css">
 </head>
 <body>
 
@@ -133,6 +134,7 @@
       </div>
       <div class="ai-status-banner" id="ai-status-banner" role="status" hidden></div>
       <div id="invoices-list">
+        <div id="unit-cost-alerts" class="unit-cost-alerts" aria-live="polite" hidden></div>
         <div class="invoice-summary" id="invoices-summary" role="group" aria-label="Быстрые фильтры: сводка по всем накладным компании"></div>
         <div class="invoice-list-workspace">
           <div class="invoices-toolbar">
@@ -1113,6 +1115,7 @@
 <script src="/js/invoice-photo-viewer.js"></script>
 <script src="/js/invoices.js"></script>
 <script src="/js/nomenclature-picker.js"></script>
+<script src="/js/unit-cost.js"></script>
 <script src="/js/invoice-review.js"></script>
 <script src="/js/invoice-card.js"></script>
 <script src="/js/upload.js"></script>

@@ -89,7 +89,7 @@ const NomenclaturePicker = {
           : await Invoices.saveCustomName(invoiceId, itemId, customName, options);
         if (!saved) throw new Error('Выбор не сохранён. Повторите попытку.');
         dialog.close();
-        if (location.hash === `#/invoices/${invoiceId}`) Invoices.showDetail(invoiceId);
+        if (location.hash.split('?')[0] === `#/invoices/${invoiceId}`) Invoices.showDetail(invoiceId);
       } catch (cause) {
         error.textContent = cause.message || 'Не удалось сохранить выбор';
         error.hidden = false;

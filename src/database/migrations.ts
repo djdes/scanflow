@@ -2517,6 +2517,37 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 88,
+    name: 'Цена расходной единицы: подтверждённые формулы и просмотренные расчёты',
+    detect: async (exec) => (await hasTable(exec, 'item_cost_rules')) && (await hasTable(exec, 'item_cost_decisions')),
+    run: async (exec) => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS item_cost_rules (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        owner_user_id INT NOT NULL,
+        supplier_key VARCHAR(64) NOT NULL,
+        name_key CHAR(64) NOT NULL,
+        raw_unit VARCHAR(32) NOT NULL,
+        scanned_name TEXT NOT NULL,
+        units_per_pack BIGINT NOT NULL,
+        unit_kind VARCHAR(16) NOT NULL,
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        created_by INT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_item_cost_rule (owner_user_id, supplier_key, name_key, raw_unit),
+        INDEX idx_item_cost_owner (owner_user_id, active)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await exec.query(`CREATE TABLE IF NOT EXISTS item_cost_decisions (
+        owner_user_id INT NOT NULL,
+        item_id INT NOT NULL,
+        fingerprint CHAR(64) NOT NULL,
+        action VARCHAR(16) NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (owner_user_id, item_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

@@ -28,6 +28,7 @@ import { resolveAndApplyPackTransform } from '../../mapping/packTransform';
 import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
 import { llmRemapInvoice } from '../../services/llmRemap';
 import { emit as emitNotification } from '../../notifications/events';
+import { itemCostViews } from '../../services/itemUnitCost';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { randomUUID } from 'node:crypto';
 import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
@@ -499,6 +500,10 @@ router.get('/:id', async (req: Request, res: Response) => {
   // обработка 1С при загрузке переведёт на кг), иначе — единица позиции 1С.
   const allKg = await companyAllKg(raw.owner_user_id);
   enriched.items = enriched.items.map((it: any) => ({ ...it, target_unit: allKg ? 'кг' : it.onec_unit ?? null, qty_review_token: quantityReviewToken(it) }));
+  if (raw.owner_user_id != null) {
+    const costs = await itemCostViews(raw.owner_user_id, raw, enriched.items);
+    enriched.items = enriched.items.map((it: any, index: number) => ({ ...it, unit_cost: costs[index] }));
+  }
 
   (enriched as typeof enriched & { possible_siblings: unknown }).possible_siblings =
     await invoiceRepo.findSiblings(id);

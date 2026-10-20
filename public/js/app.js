@@ -123,7 +123,8 @@ const App = {
 
   route() {
     if (typeof InvoicePhotoViewer !== 'undefined') InvoicePhotoViewer.close();
-    const hash = window.location.hash || '#/invoices';
+    const hash = (window.location.hash || '#/invoices').split('?')[0];
+    if (typeof UnitCost !== 'undefined') UnitCost.stopFeed();
     if (typeof InvoiceReview !== 'undefined' && !/^#\/invoices\/\d+$/.test(hash)) InvoiceReview.leave();
     if (typeof InvoiceCard !== 'undefined') InvoiceCard.closeMenu();
     // Close the mobile nav drawer on every navigation.

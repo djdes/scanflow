@@ -92,6 +92,7 @@ const Invoices = {
     document.getElementById('view-invoices')?.classList.remove('is-detail');
     document.getElementById('invoices-list').style.display = 'block';
     document.getElementById('invoice-detail').style.display = 'none';
+    if (typeof UnitCost !== 'undefined') UnitCost.loadFeed();
     await this.loadTable();
   },
 
@@ -893,6 +894,7 @@ const Invoices = {
 
       document.getElementById('invoice-ocr-text').textContent = data.raw_text || 'Нет данных';
       if (typeof InvoiceReview !== 'undefined') InvoiceReview.mount(data);
+      if (typeof UnitCost !== 'undefined') UnitCost.focusRequestedRow();
 
     } catch (e) {
       // Страница могла войти в другую накладную: уведомление «фото загружено»
@@ -952,6 +954,7 @@ const Invoices = {
               : ''}
             ${item.name_overridden ? '<div class="nom-custom-note" title="Это название уйдёт в 1С для создания товара">Своё название — товар создастся в 1С</div>' : ''}
             ${item.mapping_reason ? `<details class="ic-mapping-reason"><summary>${App.esc(String(item.mapping_reason).split('. ')[0])}</summary><div>${App.esc(item.mapping_reason)}</div></details>` : ''}
+            ${typeof UnitCost !== 'undefined' ? UnitCost.rowHtml(data.id, item) : ''}
           </div>
         </td>
         <td class="ic-num" data-label="Кол-во">
@@ -1254,7 +1257,7 @@ const Invoices = {
       supplier: 'Поставщик', supplier_inn: 'ИНН поставщика', supplier_kpp: 'КПП', supplier_bik: 'БИК',
       supplier_account: 'Счёт', supplier_corr_account: 'Корсчёт', supplier_address: 'Адрес',
       invoice_type: 'Тип документа', quantity: 'Количество', unit: 'Единица', price: 'Цена', qty_confirmed: 'Проверка количества и единицы',
-      total: 'Сумма строки', mapped_name: 'Название (1С)', onec_guid: 'Позиция 1С',
+      total: 'Сумма строки', mapped_name: 'Название (1С)', onec_guid: 'Позиция 1С', unit_cost_formula: 'Формула цены за единицу',
     };
     const fmt = (v) => (v == null || v === '') ? '—' : App.esc(String(v).replace(/^"|"$/g, ''));
     const MONEY_FIELDS = new Set(['total_sum', 'vat_sum', 'price', 'total']);
@@ -1543,7 +1546,7 @@ const Invoices = {
           method: 'POST', body: { confirmed, expected: item.qty_review_token, ...(confirmed ? { quantity, unit } : {}) },
         });
         dialog.close();
-        if (location.hash === `#/invoices/${invoiceId}`) this.showDetail(invoiceId);
+        if (location.hash.split('?')[0] === `#/invoices/${invoiceId}`) this.showDetail(invoiceId);
         App.notify(confirmed ? 'Количество и единица подтверждены' : 'Подтверждение снято', 'success');
       } catch (cause) {
         error.textContent = cause.message || 'Не удалось сохранить проверку';

@@ -84,6 +84,8 @@ export async function resetDb(): Promise<mysql.Pool> {
     'onec_pairing_codes',
     'onec_connections',
     'invoice_source_regions',
+    'item_cost_decisions',
+    'item_cost_rules',
     'invoice_items',
     'invoices',
     'mapping_supplier_usage',
