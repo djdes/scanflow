@@ -1,7 +1,8 @@
 import cron from 'node-cron';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { logger } from '../utils/logger';
-import { aiEngineState } from '../ai/engine';
+import { aiEngineState, type AiEngineState } from '../ai/engine';
+import { testChatgpt } from '../chatgpt/connection';
 import { reportAiResumed } from './aiOutage';
 import { activeQueueJob, resumePausedQueueJobs } from './queueJobs';
 
@@ -15,6 +16,11 @@ import { activeQueueJob, resumePausedQueueJobs } from './queueJobs';
  *
  * Когда проверяем: каждые 5 минут, сразу после входа в ChatGPT и успешной проверки
  * связи (kickAiResume) и через 30 секунд после названного времени сброса лимита.
+ *
+ * Лимит подписки могут сбросить раньше срока, который OpenAI назвал при 429 (21.10
+ * назвали 27.10, а лимит вернулся через день). Пока пауза держится, к ChatGPT никто
+ * не ходит и сброс не заметить — поэтому раз в час идёт один короткий пробный запрос
+ * в обход паузы (как «Проверить связь»): успех снимает паузу, новый 429 её продлевает.
  */
 
 export interface ResumeWatcher {
@@ -25,10 +31,13 @@ const IDLE_POLL_MS = 5_000;
 const IDLE_MAX_WAIT_MS = 10 * 60_000;
 const RESET_GRACE_MS = 30_000;
 const MAX_RESET_WAIT_MS = 24 * 3_600_000;
+const PROBE_INTERVAL_MS = 3_600_000;
 
 let watcherRef: ResumeWatcher | null = null;
 let running = false;
 let resetTimer: NodeJS.Timeout | null = null;
+/** Когда пробовать ChatGPT в обход паузы лимита; 0 — паузы не видели. */
+let nextProbeMs = 0;
 
 /** Новые загрузки распознаются в том же процессе — дождаться, пока они закончатся. */
 async function waitForRecognitionIdle(): Promise<void> {
@@ -49,6 +58,24 @@ function scheduleAtReset(retryAtMs: number | null): void {
   resetTimer.unref?.();
 }
 
+/** Пробный запрос, если пауза лимита держится уже час. true — лимит сброшен, пауза снята. */
+async function probeEarlyReset(state: AiEngineState): Promise<boolean> {
+  if (state.engine !== 'gpt' || state.reason !== 'rate_limited') {
+    nextProbeMs = 0;
+    return false;
+  }
+  const now = Date.now();
+  if (!nextProbeMs) {
+    nextProbeMs = now + PROBE_INTERVAL_MS;
+    return false;
+  }
+  if (now < nextProbeMs) return false;
+  nextProbeMs = now + PROBE_INTERVAL_MS;
+  const result = await testChatgpt(state.model);
+  if (result.ok) logger.info('AI resume: ChatGPT limit reset before the announced time', { announced: state.retryAtMs ? new Date(state.retryAtMs).toISOString() : null });
+  return result.ok;
+}
+
 export async function runAiResumePass(
   watcher: ResumeWatcher,
   deps: { waitForIdle?: () => Promise<void> } = {},
@@ -58,11 +85,13 @@ export async function runAiResumePass(
   if (activeQueueJob()) return { resumed: 0, stopped: false };
   running = true;
   try {
-    const state = await aiEngineState();
+    let state = await aiEngineState();
+    if (!state.available && await probeEarlyReset(state)) state = await aiEngineState();
     if (!state.available) {
       scheduleAtReset(state.retryAtMs);
       return { resumed: 0, stopped: true };
     }
+    nextProbeMs = 0;
     const ids = await invoiceRepo.listWaitingAiIds(200);
     let resumed = 0;
     for (const id of ids) {
@@ -108,4 +137,5 @@ export function resetAiResumeForTests(): void {
   watcherRef = null;
   if (resetTimer) clearTimeout(resetTimer);
   resetTimer = null;
+  nextProbeMs = 0;
 }
