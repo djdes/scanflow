@@ -33,6 +33,14 @@
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const hasIO = 'IntersectionObserver' in window;
 
+  // Цели Яндекс Метрики. Номер счётчика приходит с сервера (window.SF_SITE,
+  // env YANDEX_METRIKA_ID), а сам счётчик загружается только после «Принять»
+  // в сообщении о cookie (initAnalytics ниже) — до этого track() молчит.
+  const SITE = window.SF_SITE || {};
+  function track(goal, params) {
+    if (SITE.metrika && typeof window.ym === 'function') window.ym(SITE.metrika, 'reachGoal', goal, params);
+  }
+
   // ========== Появление секций при прокрутке ==========
   // Один раз, через IntersectionObserver — без листенера scroll.
   (function initReveal() {
@@ -379,6 +387,105 @@
     });
   })();
 
+  // ========== Калькулятор экономии ==========
+  // Оценка по цифрам посетителя. Допущения те же, что в «Как считаем» под
+  // ползунками: меняете число здесь — меняйте и текст там.
+  (function initSavings() {
+    const root = document.querySelector('[data-calc]');
+    if (!root) return;
+    const HEADER_MIN = 3;          // шапка накладной вручную, минут
+    const CHECK_MIN = 1;           // проверка шапки и одобрение в ScanFlow, минут
+    const CHECK_SEC_PER_LINE = 2;  // взгляд на строку в ScanFlow, секунд
+    // Тарифы — как в разделе «Тарифы» (src/billing/catalog.ts); ползунок
+    // накладных кончается на 1 500, дальше «Бизнеса» не бывает.
+    const PLANS = [
+      { pages: 50, name: 'Старт', price: '(0\u00a0₽)' },
+      { pages: 1000, name: 'Pro', price: '(990\u00a0₽ в\u00a0месяц после беты)' },
+      { pages: Infinity, name: 'Бизнес', price: '(4\u00a0990\u00a0₽ в\u00a0месяц после беты)' },
+    ];
+    const num = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
+    const ranges = Array.from(root.querySelectorAll('.calc__range'));
+    const out = (key) => root.querySelector(`[data-out="${key}"]`);
+    const shown = { hours: 0, money: 0 };
+    let frame = 0;
+    let announceTimer = 0;
+    let used = false;
+    let first = true;
+
+    const roundHours = (h) => (h < 10 ? Math.round(h * 10) / 10 : Math.round(h));
+    const roundMoney = (rub) => Math.round(rub / 100) * 100;
+    const value = (name) => Number(root.querySelector(`[name="${name}"]`).value);
+
+    function paintRange(el) {
+      const min = Number(el.min);
+      const max = Number(el.max);
+      el.style.setProperty('--fill', `${((Number(el.value) - min) / (max - min)) * 100}%`);
+    }
+
+    function draw(hours, money) {
+      shown.hours = hours;
+      shown.money = money;
+      out('saved-hours').textContent = num.format(roundHours(hours));
+      out('saved-money').textContent = num.format(roundMoney(money));
+    }
+
+    // Числа результата «докручиваются» за 300 мс, а не прыгают.
+    function animateTo(hours, money) {
+      cancelAnimationFrame(frame);
+      if (reduceMotion.matches) { draw(hours, money); return; }
+      const from = { hours: shown.hours, money: shown.money };
+      const start = performance.now();
+      const step = (now) => {
+        const t = Math.min(1, (now - start) / 300);
+        const k = 1 - Math.pow(1 - t, 3);
+        draw(from.hours + (hours - from.hours) * k, from.money + (money - from.money) * k);
+        if (t < 1) frame = requestAnimationFrame(step);
+      };
+      frame = requestAnimationFrame(step);
+    }
+
+    function update() {
+      const invoices = value('invoices');
+      const lines = value('lines');
+      const seconds = value('seconds');
+      const rate = value('rate');
+      ranges.forEach(paintRange);
+      out('invoices').textContent = num.format(invoices);
+      out('lines').textContent = num.format(lines);
+      out('seconds').textContent = `${seconds}\u00a0с`;
+      out('rate').textContent = `${num.format(rate)}\u00a0₽`;
+
+      const manualHours = (invoices * (HEADER_MIN + (lines * seconds) / 60)) / 60;
+      const scanHours = (invoices * (CHECK_MIN + (lines * CHECK_SEC_PER_LINE) / 60)) / 60;
+      const savedHours = Math.max(0, manualHours - scanHours);
+      if (first) draw(savedHours, savedHours * rate); else animateTo(savedHours, savedHours * rate);
+      first = false;
+      out('manual-hours').textContent = `${num.format(roundHours(manualHours))}\u00a0ч`;
+      out('scan-hours').textContent = `${num.format(roundHours(scanHours))}\u00a0ч`;
+      root.querySelector('[data-bar="manual"]').style.setProperty('--w', '100%');
+      root.querySelector('[data-bar="scan"]').style.setProperty('--w', `${Math.max(2, (scanHours / manualHours) * 100)}%`);
+
+      // Одна накладная — один лист: страниц столько же, сколько накладных.
+      const plan = PLANS.find((p) => invoices <= p.pages);
+      out('pages').textContent = num.format(invoices);
+      out('plan').textContent = plan.name;
+      out('plan-price').textContent = plan.price;
+
+      // Для скринридера — итог одной фразой, когда ползунок отпустили.
+      clearTimeout(announceTimer);
+      announceTimer = setTimeout(() => {
+        out('summary').textContent = `Экономия около ${num.format(roundHours(savedHours))} ч и ${num.format(roundMoney(savedHours * rate))} ₽ в месяц, подойдёт тариф ${plan.name}.`;
+      }, 700);
+    }
+
+    root.querySelector('.calc__inputs').addEventListener('submit', (e) => e.preventDefault());
+    ranges.forEach((el) => el.addEventListener('input', () => {
+      update();
+      if (!used) { used = true; track('calc_used'); }
+    }));
+    update();
+  })();
+
   // ========== Состояние входа (лендинг знает, что вы уже в кабинете) ==========
 
   // Источник правды — тот же ключ, что читает кабинет; sessionStorage —
@@ -521,6 +628,8 @@
         return;
       }
       showError('');
+      const formName = form.id === 'hero-email-form' ? 'hero' : 'cta';
+      track('register_submit', { form: formName });
       submit.disabled = true;
       submit.setAttribute('aria-busy', 'true');
       const idleLabel = label ? label.textContent : '';
@@ -537,6 +646,7 @@
           return;
         }
         clearOnboardingFlags();
+        track('register_success', { form: formName });
         form.reset();
         openLogin('register');
         showMailSentView(email, 'register');
@@ -552,12 +662,26 @@
 
   // Кнопки «Создать аккаунт» (тарифы, приёмник файлов) — сразу модалка
   // регистрации, без прокрутки к нижнему блоку.
+  function registerSource(el) {
+    const plan = el.closest('.plan');
+    if (plan) return `plan-${(plan.querySelector('.plan__name') || {}).textContent || ''}`.toLowerCase();
+    if (el.closest('.result__next')) return 'sandbox';
+    if (el.closest('#demo-dropzone')) return 'dropzone';
+    return 'other';
+  }
+
   document.querySelectorAll('[data-action="register"], [data-action="hero-register"]').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      track('register_open', { from: registerSource(link) });
       openLogin('register');
     });
+  });
+
+  // «Попробовать» в шапке, в доке на телефоне и ссылки на пример результата.
+  document.querySelectorAll('a[href="#try"], a[href="/#try"]').forEach((link) => {
+    link.addEventListener('click', () => track('try_click', { from: link.id || link.className.split(' ')[0] || 'link' }));
   });
 
   const ctaLoginBtn = document.getElementById('auth-cta-login');
@@ -584,6 +708,7 @@
   if (demoDropzone) {
     demoDropzone.addEventListener('click', (e) => {
       if (e.target.closest('a, button')) return; // у кнопки свой обработчик
+      track('register_open', { from: 'dropzone' });
       openLogin('register');
     });
     demoDropzone.addEventListener('dragover', (e) => {
@@ -594,6 +719,7 @@
     demoDropzone.addEventListener('drop', (e) => {
       e.preventDefault(); // иначе браузер откроет файл вместо страницы
       demoDropzone.classList.remove('dragover');
+      track('file_drop');
       openLogin('register');
     });
   }
@@ -629,6 +755,66 @@
       if (!next) return;
       e.preventDefault();
       select(next, true);
+    });
+  })();
+
+  // ========== Песочница: «Распознать пример» ==========
+  // Анонимного распознавания нет (правило 36): кнопка по шагам показывает тот
+  // же заготовленный результат, что без JS виден сразу. Показ ускорен — под
+  // результатом сказано, что в жизни это около 30 секунд.
+  (function initSandbox() {
+    const panels = document.querySelectorAll('.docs__panel[data-sandbox]');
+    panels.forEach((panel) => {
+      const run = panel.querySelector('[data-run]');
+      const label = run && run.querySelector('span');
+      const next = panel.querySelector('[data-run-next]');
+      const type = panel.querySelector('.result__type');
+      if (!run || !label || !next || !type) return;
+      const rows = Array.from(panel.querySelectorAll('.paper__row'));
+      const items = Array.from(panel.querySelectorAll('.result__fields dd, .result__table tbody tr, .result__total'));
+      const checks = Array.from(panel.querySelectorAll('.result__checks li, .result__out'));
+      let timers = [];
+
+      function setState(state) {
+        panel.dataset.state = state;
+        const word = { ready: 'до распознавания', running: 'читаем…', done: 'распознано' }[state];
+        type.textContent = `${type.dataset.type} · ${word}`;
+      }
+
+      function clear() {
+        timers.forEach(clearTimeout);
+        timers = [];
+        panel.querySelectorAll('.is-in, .is-hit').forEach((el) => el.classList.remove('is-in', 'is-hit'));
+      }
+
+      function finish() {
+        timers.forEach(clearTimeout);
+        timers = [];
+        items.concat(checks).forEach((el) => el.classList.add('is-in'));
+        setState('done');
+        next.hidden = false;
+        label.textContent = 'Ещё раз';
+        run.disabled = false;
+      }
+
+      function start() {
+        track('sandbox_run', { doc: panel.dataset.panel });
+        clear();
+        next.hidden = true;
+        if (reduceMotion.matches) { finish(); return; }
+        setState('running');
+        run.disabled = true;
+        const later = (ms, fn) => timers.push(setTimeout(fn, ms));
+        rows.forEach((row, i) => later(120 + i * 100, () => row.classList.add('is-hit')));
+        items.forEach((el, i) => later(450 + i * 130, () => el.classList.add('is-in')));
+        const checksAt = 450 + items.length * 130 + 150;
+        checks.forEach((el, i) => later(checksAt + i * 220, () => el.classList.add('is-in')));
+        later(checksAt + checks.length * 220 + 250, finish);
+      }
+
+      setState('ready');
+      run.hidden = false;
+      run.addEventListener('click', start);
     });
   })();
 
@@ -671,6 +857,7 @@
     if (!loginModal) return;
     if (isMenuOpen()) closeMobileMenu(false);
     if (!loginModal.classList.contains('open')) lastFocus = document.activeElement;
+    if ((mode || 'login') === 'login' && !loginModal.classList.contains('open')) track('login_open');
     loginModal.classList.add('open');
     loginModal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('login-open');
@@ -794,6 +981,7 @@
         registerConsent.focus();
         return;
       }
+      track('register_submit', { form: 'modal' });
       registerSubmit.disabled = true;
       const idleLabel = registerSubmit.textContent;
       registerSubmit.textContent = 'Отправляем письмо…';
@@ -810,6 +998,7 @@
           return;
         }
         clearOnboardingFlags();
+        track('register_success', { form: 'modal' });
         showMailSentView(email, 'register');
       } catch (err) {
         showModalError(registerError, 'Нет связи с сервером. Проверьте интернет и отправьте ещё раз.');
@@ -906,6 +1095,7 @@
         localStorage.setItem('adminUsername', username);
         localStorage.setItem('adminRole', data.role || 'user');
         applyAuthState();
+        track('login_success');
         window.location.href = '/app.html';
       } catch (err) {
         showModalError(loginError, 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.');
@@ -915,6 +1105,93 @@
       }
     });
   }
+
+  // ========== Cookie и Яндекс Метрика ==========
+  // Счётчик есть, только если сервер передал номер (window.SF_SITE.metrika, env
+  // YANDEX_METRIKA_ID), и загружается только после «Принять». «Только
+  // необходимые» — счётчик не грузится, а уже загруженный перестаёт слать
+  // данные (disableYaCounter…) и его cookie стираются. Решение хранится в
+  // браузере; сменить — «Настройки cookie» в подвале. Вебвизор выключен.
+  (function initAnalytics() {
+    const id = SITE.metrika;
+    if (!id) return;
+    const KEY = 'sf-cookie-consent';
+    const read = () => { try { return localStorage.getItem(KEY); } catch (e) { return null; } };
+    const save = (value) => { try { localStorage.setItem(KEY, value); } catch (e) { /* приватный режим */ } };
+    const heroVariant = document.documentElement.getAttribute('data-hero');
+    let banner = null;
+
+    function loadCounter() {
+      window[`disableYaCounter${id}`] = false;
+      if (typeof window.ym === 'function') return;
+      window.ym = function () { (window.ym.a = window.ym.a || []).push(arguments); };
+      window.ym.l = Date.now();
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://mc.yandex.ru/metrika/tag.js';
+      document.head.appendChild(script);
+      const options = { clickmap: true, trackLinks: true, accurateTrackBounce: true, webvisor: false };
+      if (heroVariant) options.params = { hero_variant: heroVariant };
+      window.ym(id, 'init', options);
+    }
+
+    function stopCounter() {
+      window[`disableYaCounter${id}`] = true;
+      const domains = ['', `; domain=${location.hostname}`, `; domain=.${location.hostname.replace(/^www\./, '')}`];
+      document.cookie.split(';').map((c) => c.split('=')[0].trim()).filter((name) => /^_ym/.test(name)).forEach((name) => {
+        domains.forEach((d) => { document.cookie = `${name}=; Max-Age=0; path=/${d}`; });
+      });
+      try {
+        Object.keys(localStorage).filter((k) => /^_ym/.test(k)).forEach((k) => localStorage.removeItem(k));
+      } catch (e) { /* приватный режим */ }
+    }
+
+    function closeBanner() {
+      if (!banner) return;
+      const el = banner;
+      banner = null;
+      el.classList.remove('is-open');
+      document.body.classList.remove('cookie-open');
+      setTimeout(() => el.remove(), 400);
+    }
+
+    function decide(choice) {
+      save(choice);
+      if (choice === 'all') loadCounter(); else stopCounter();
+      closeBanner();
+    }
+
+    function openBanner() {
+      if (banner) return;
+      banner = document.createElement('div');
+      banner.className = 'cookie';
+      banner.setAttribute('role', 'region');
+      banner.setAttribute('aria-label', 'Cookie');
+      banner.innerHTML = '<p class="cookie__title">Cookie для аналитики</p>'
+        + '<p>Яндекс&nbsp;Метрика помогает понять, какие разделы сайта полезны. Без вашего согласия счётчик не&nbsp;загружается. '
+        + '<a href="/privacy#cookies">Подробнее</a></p>'
+        + '<div class="cookie__actions">'
+        + '<button type="button" class="btn btn--secondary" data-cookie="necessary">Только необходимые</button>'
+        + '<button type="button" class="btn btn--primary" data-cookie="all">Принять</button>'
+        + '</div>';
+      banner.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-cookie]');
+        if (btn) decide(btn.dataset.cookie);
+      });
+      document.body.appendChild(banner);
+      document.body.classList.add('cookie-open');
+      requestAnimationFrame(() => requestAnimationFrame(() => { if (banner) banner.classList.add('is-open'); }));
+    }
+
+    document.querySelectorAll('[data-cookie-settings]').forEach((btn) => {
+      btn.hidden = false;
+      btn.addEventListener('click', openBanner);
+    });
+
+    const choice = read();
+    if (choice === 'all') loadCounter();
+    else if (choice !== 'necessary') openBanner();
+  })();
 
   // ========== Тема — как в системе пользователя (prefers-color-scheme) ==========
   // Начальное значение ставит инлайн-скрипт в <head> (без мигания). Здесь —
