@@ -8,7 +8,7 @@ import { loadArticles } from '../seo/articles';
 import { buildSitemapXml } from '../seo/sitemap';
 import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
 import { LEGAL_PAGES, LegalPage, legalOperator, renderLegalPage } from '../legal/documents';
-import { injectSiteConfig } from '../seo/siteConfig';
+import { applyHeroVariants, injectSiteConfig } from '../seo/siteConfig';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth, requireAdmin } from './middleware/auth';
@@ -474,7 +474,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   function getLandingHtml(): string {
     if (landingHtmlCache) return landingHtmlCache;
     const raw = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-    landingHtmlCache = injectSiteConfig(renderPreviewHtml(raw, loadArticles()) || raw);
+    landingHtmlCache = applyHeroVariants(injectSiteConfig(renderPreviewHtml(raw, loadArticles()) || raw));
     return landingHtmlCache;
   }
 

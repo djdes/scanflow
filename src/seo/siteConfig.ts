@@ -27,3 +27,12 @@ export function injectSiteConfig(html: string, cfg: SiteConfig = siteConfig()): 
   const script = cfg.metrika ? `<script>window.SF_SITE=${JSON.stringify(cfg)};</script>` : '';
   return html.split(MARK).join(script);
 }
+
+/**
+ * Вариант «b» заголовка героя нужен в разметке только во время A/B: без флага
+ * сервер его вырезает, чтобы в <h1> не лежал скрытый текст.
+ */
+export function applyHeroVariants(html: string, cfg: SiteConfig = siteConfig()): string {
+  if (cfg.heroAb) return html;
+  return html.replace(/\n?[ \t]*<span class="gradient-text" data-hero-v="b">[\s\S]*?<\/span>/, '');
+}
