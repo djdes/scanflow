@@ -362,7 +362,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.type('html').send(`<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"><title>Входим в ScanFlow…</title>
-<style>body{font-family:-apple-system,sans-serif;background:#f7f9fc;color:#1a1f2e;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}p{font-size:14px;color:#64748b}</style>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fafafa;color:#171717;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}p{font-size:14px;color:#737373}@media (prefers-color-scheme:dark){body{background:#000;color:#ededed}p{color:#a1a1a1}}</style>
 </head><body><p>Открываем кабинет…</p>
 <script>
   (async () => {
