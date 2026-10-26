@@ -33,7 +33,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@100..900&family=Unbounded:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/landing.css">
   <link rel="stylesheet" href="/css/article.css">
 
@@ -102,27 +102,31 @@
 
   <header class="site-header" id="site-header">
     <div class="container header-inner">
-      <a href="/" class="logo">
-        <div class="logo-icon">
-          <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
-            <rect x="2" y="2" width="36" height="36" rx="8" stroke="currentColor" stroke-width="2.5"/>
-            <line x1="10" y1="14" x2="30" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <line x1="10" y1="20" x2="26" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
-            <line x1="10" y1="26" x2="22" y2="26" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+      <a href="/" class="logo" aria-label="ScanFlow — на главную">
+        <span class="logo-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="16" fill="currentColor"/>
+            <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+            <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+            <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
           </svg>
-        </div>
+        </span>
         <span class="logo-text">ScanFlow</span>
       </a>
-      <nav class="main-nav" id="main-nav">
+      <nav class="main-nav" id="main-nav" aria-label="Основное меню">
+        <a href="/#demo">Как работает</a>
         <a href="/#features">Возможности</a>
-        <a href="/#demo">Демо</a>
         <a href="/#pricing">Тарифы</a>
+        <a href="/#faq">Вопросы</a>
         <a href="/blog" aria-current="page">Блог</a>
       </nav>
       <div class="header-actions">
-        <a href="/#auth" class="btn-ghost">Войти</a>
+        <a href="/?login=1" class="btn-ghost">Войти</a>
         <a href="/#try" class="btn-primary-sm">Попробовать</a>
       </div>
+      <button class="mobile-menu-btn" id="mobile-menu-btn" type="button" aria-label="Открыть меню" aria-controls="main-nav" aria-expanded="false">
+        <span></span><span></span>
+      </button>
     </div>
   </header>
 
@@ -384,37 +388,41 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div class="footer-brand">
-        <a href="/" class="logo">
-          <div class="logo-icon">
-            <svg width="24" height="24" viewBox="0 0 40 40" fill="none">
-              <rect x="3" y="3" width="34" height="34" rx="8" stroke="currentColor" stroke-width="2.5"/>
-              <line x1="11" y1="14" x2="29" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <line x1="11" y1="20" x2="25" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+        <a href="/" class="logo" aria-label="ScanFlow — на главную">
+          <span class="logo-icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 64 64" fill="none">
+              <rect width="64" height="64" rx="16" fill="currentColor"/>
+              <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+              <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+              <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
             </svg>
-          </div>
+          </span>
           <span class="logo-text">ScanFlow</span>
         </a>
-        <p>Распознавание накладных и выгрузка в 1С:УНФ для малого и среднего бизнеса.</p>
+        <p>Распознавание накладных и&nbsp;выгрузка в&nbsp;1С:УНФ для малого и&nbsp;среднего бизнеса.</p>
         <a class="footer-mail" href="mailto:hi@scanflow.ru">hi@scanflow.ru</a>
       </div>
       <div class="footer-links">
         <div class="footer-col">
           <h4>Продукт</h4>
+          <a href="/#demo">Как это работает</a>
           <a href="/#features">Возможности</a>
           <a href="/#pricing">Тарифы</a>
-          <a href="/#faq">Вопросы и ответы</a>
-          <a href="/blog">Блог</a>
+          <a href="/#faq">Вопросы и&nbsp;ответы</a>
+          <a href="/app.html">Кабинет</a>
         </div>
         <div class="footer-col">
           <h4>Как это устроено</h4>
-          <a href="/blog/perevod-paper-zacenok-v-1c-unf">Выгрузка в 1С:УНФ</a>
-          <a href="/blog/avto-platezhka-v-sberbiznes">Платёжки в СберБизнесе</a>
-          <a href="/blog/dadata-i-kontragenty-po-inn">Поставщики по ИНН</a>
+          <a href="/blog/perevod-paper-zacenok-v-1c-unf">Выгрузка в&nbsp;1С:УНФ</a>
+          <a href="/blog/avto-platezhka-v-sberbiznes">Платёжки в&nbsp;СберБизнесе</a>
+          <a href="/blog/dadata-i-kontragenty-po-inn">Поставщики по&nbsp;ИНН</a>
           <a href="/blog/multi-page-nakladnye-sliyanie">Многостраничные накладные</a>
+          <a href="/blog">Все статьи</a>
         </div>
       </div>
       <div class="footer-bottom">
         <span>&copy; 2026 ScanFlow</span>
+        <a href="/">На главную</a>
       </div>
     </div>
   </footer>
