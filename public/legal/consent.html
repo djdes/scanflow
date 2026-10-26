@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Шаблон. Страницу отдаёт маршрут /consent (src/legal/documents.ts):
+       метки «LEGAL:…» в комментариях заменяются реквизитами оператора из env. -->
+  <title>Согласие на обработку персональных данных — ScanFlow</title>
+  <meta name="description" content="Текст согласия на обработку персональных данных, которое даёт пользователь при регистрации в ScanFlow: какие данные, для чего, кому передаются и как отозвать согласие.">
+  <link rel="canonical" href="https://scanflow.ru/consent">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Согласие на обработку персональных данных — ScanFlow">
+  <meta property="og:url" content="https://scanflow.ru/consent">
+  <meta property="og:image" content="https://scanflow.ru/og/default.png">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+  <link rel="preload" href="/fonts/geist-v5-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/geist-v5-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/article.css">
+
+  <script>
+    (function () {
+      var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+</head>
+<body class="article-page legal-page">
+  <div class="read-progress" id="read-progress" aria-hidden="true"></div>
+  <div class="grain-overlay" aria-hidden="true"></div>
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo" aria-label="ScanFlow — на главную">
+        <span class="logo-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="16" fill="currentColor"/>
+            <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+            <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+            <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
+          </svg>
+        </span>
+        <span class="logo-text">ScanFlow</span>
+      </a>
+      <nav class="main-nav" id="main-nav" aria-label="Основное меню">
+        <a href="/#demo">Как работает</a>
+        <a href="/#features">Возможности</a>
+        <a href="/#pricing">Тарифы</a>
+        <a href="/#faq">Вопросы</a>
+        <a href="/blog">Блог</a>
+      </nav>
+      <div class="header-actions">
+        <a href="/?login=1" class="btn-ghost">Войти</a>
+        <a href="/#try" class="btn-primary-sm">Попробовать</a>
+      </div>
+      <button class="mobile-menu-btn" id="mobile-menu-btn" type="button" aria-label="Открыть меню" aria-controls="main-nav" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="article-hero">
+      <div class="container">
+        <nav class="article-breadcrumb" aria-label="Хлебные крошки">
+          <a href="/">Главная</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <span>Документы</span>
+        </nav>
+        <h1>Согласие на обработку персональных данных</h1>
+        <div class="article-meta">
+          <span>Редакция от <b>26 октября 2026</b></span>
+        </div>
+        <nav class="legal-docs" aria-label="Документы">
+          <a href="/privacy">Политика</a>
+          <a href="/consent" aria-current="page">Согласие на обработку</a>
+          <a href="/terms">Пользовательское соглашение</a>
+        </nav>
+      </div>
+    </section>
+
+    <div class="container article-layout article-layout--single">
+      <article class="article-prose">
+        <p>Отмечая «Даю согласие на&nbsp;обработку персональных данных» при регистрации на&nbsp;сайте scanflow.ru, я&nbsp;свободно, своей волей и&nbsp;в&nbsp;своём интересе даю согласие оператору сервиса ScanFlow (далее — Оператор) на&nbsp;обработку моих персональных данных на&nbsp;следующих условиях. Оператор — <!--LEGAL:operator-name-->, реквизиты указаны в&nbsp;конце документа.</p>
+
+        <h2 id="data">1. Какие данные</h2>
+        <ul>
+          <li>адрес электронной почты;</li>
+          <li>логин и&nbsp;пароль (пароль хранится только в&nbsp;виде хеша);</li>
+          <li>если я&nbsp;подключу уведомления в&nbsp;Telegram — идентификаторы чатов и&nbsp;токен моего бота;</li>
+          <li>даты регистрации и&nbsp;входов, IP-адрес и&nbsp;сведения о&nbsp;браузере при регистрации и&nbsp;работе с&nbsp;сервисом.</li>
+        </ul>
+
+        <h2 id="purpose">2. Для чего</h2>
+        <ul>
+          <li>регистрация и&nbsp;доступ к&nbsp;сервису ScanFlow;</li>
+          <li>письма для входа и&nbsp;восстановления доступа, уведомления о&nbsp;накладных и&nbsp;служебные сообщения о&nbsp;работе сервиса;</li>
+          <li>ответы на&nbsp;мои обращения;</li>
+          <li>защита сервиса от&nbsp;злоупотреблений.</li>
+        </ul>
+
+        <h2 id="actions">3. Какие действия</h2>
+        <p>Сбор, запись, систематизация, накопление, хранение, уточнение (обновление, изменение), извлечение, использование, передача (предоставление, доступ), блокирование, удаление, уничтожение — с&nbsp;использованием средств автоматизации.</p>
+
+        <h2 id="third-parties">4. Кому могут быть переданы</h2>
+        <p>Оператор вправе поручить обработку провайдеру хостинга и&nbsp;почтовому сервису, через который уходят письма. Если я&nbsp;подключу уведомления в&nbsp;Telegram, данные из&nbsp;пункта&nbsp;1 и&nbsp;текст уведомлений передаются в&nbsp;Telegram, в&nbsp;том числе за&nbsp;пределы России. Полный перечень получателей — в&nbsp;разделе&nbsp;5 <a href="/privacy#recipients">Политики обработки персональных данных</a>.</p>
+
+        <h2 id="term">5. Срок и отзыв</h2>
+        <p>Согласие действует до удаления аккаунта или до отзыва согласия. Отозвать его можно письмом на&nbsp;<!--LEGAL:email--> с&nbsp;адреса, указанного при регистрации, или письменным заявлением по&nbsp;адресу Оператора. Оператор прекращает обработку и&nbsp;уничтожает данные в&nbsp;течение 30&nbsp;дней с&nbsp;даты получения отзыва, если закон не&nbsp;разрешает или не&nbsp;обязывает хранить их&nbsp;дольше.</p>
+
+        <h2 id="policy">6. Политика</h2>
+        <p>С&nbsp;<a href="/privacy">Политикой обработки персональных данных</a> я&nbsp;ознакомлен(а). Мои права как субъекта персональных данных описаны в&nbsp;её&nbsp;разделе&nbsp;9.</p>
+
+        <h2 id="operator">Оператор</h2>
+        <!--LEGAL:operator-->
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="logo" aria-label="ScanFlow — на главную">
+          <span class="logo-icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 64 64" fill="none">
+              <rect width="64" height="64" rx="16" fill="currentColor"/>
+              <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+              <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+              <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
+            </svg>
+          </span>
+          <span class="logo-text">ScanFlow</span>
+        </a>
+        <p>Распознавание накладных и&nbsp;выгрузка в&nbsp;1С:УНФ для малого и&nbsp;среднего бизнеса.</p>
+        <a class="footer-mail" href="mailto:hi@scanflow.ru">hi@scanflow.ru</a>
+      </div>
+      <div class="footer-links">
+        <div class="footer-col">
+          <h4>Продукт</h4>
+          <a href="/#demo">Как это работает</a>
+          <a href="/#features">Возможности</a>
+          <a href="/#pricing">Тарифы</a>
+          <a href="/#faq">Вопросы и&nbsp;ответы</a>
+          <a href="/app.html">Кабинет</a>
+        </div>
+        <div class="footer-col">
+          <h4>Как это устроено</h4>
+          <a href="/blog/perevod-paper-zacenok-v-1c-unf">Выгрузка в&nbsp;1С:УНФ</a>
+          <a href="/blog/avto-platezhka-v-sberbiznes">Платёжки в&nbsp;СберБизнесе</a>
+          <a href="/blog/dadata-i-kontragenty-po-inn">Поставщики по&nbsp;ИНН</a>
+          <a href="/blog/multi-page-nakladnye-sliyanie">Многостраничные накладные</a>
+          <a href="/blog">Все статьи</a>
+        </div>
+        <div class="footer-col">
+          <h4>Документы</h4>
+          <a href="/privacy">Политика обработки данных</a>
+          <a href="/consent">Согласие на&nbsp;обработку</a>
+          <a href="/terms">Пользовательское соглашение</a>
+          <button type="button" class="footer-cookie" data-cookie-settings hidden>Настройки cookie</button>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 ScanFlow</span>
+        <a href="/">На главную</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/js/landing.js"></script>
+  <script src="/js/article.js" defer></script>
+</body>
+</html>

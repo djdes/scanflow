@@ -9,6 +9,8 @@ import {
 } from '../../auth/password';
 import { sendAuthEmail } from '../../utils/mailer';
 import { logger } from '../../utils/logger';
+import { consentRepo } from '../../database/repositories/consentRepo';
+import { PD_CONSENT_VERSION } from '../../legal/documents';
 
 const router = Router();
 
@@ -19,6 +21,33 @@ const MAGIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 function magicTokenExpiry(): Date {
   return new Date(Date.now() + MAGIC_TOKEN_TTL_MS);
+}
+
+// Согласие на обработку персональных данных (152-ФЗ): форма регистрации шлёт
+// pd_consent: true — отдельная галочка со ссылкой на /consent. Без неё аккаунт
+// не создаём.
+const PD_CONSENT_REQUIRED = 'Отметьте согласие на обработку персональных данных — без него мы не можем создать аккаунт.';
+
+function hasPdConsent(body: unknown): boolean {
+  return (body as { pd_consent?: unknown } | null)?.pd_consent === true;
+}
+
+// Журнал согласий (pd_consents): когда, на какую редакцию, с какого адреса.
+// Не бросает — аккаунт уже создан, и сбой журнала не должен оставить человека
+// без письма; ошибку видно в логе.
+async function recordPdConsent(req: Request, userId: number, email: string): Promise<void> {
+  try {
+    await consentRepo.record({
+      userId,
+      email,
+      document: 'pd_consent',
+      version: PD_CONSENT_VERSION,
+      ip: req.ip || null,
+      userAgent: req.get('user-agent') || null,
+    });
+  } catch (e) {
+    logger.error('pd_consent: failed to record consent', { userId, error: (e as Error).message });
+  }
 }
 
 // Public origin для magic-ссылки в письме. На проде это https://scanflow.ru
@@ -101,6 +130,11 @@ router.post('/register', async (req: Request, res: Response) => {
     return;
   }
 
+  if (!hasPdConsent(req.body)) {
+    res.status(400).json({ error: PD_CONSENT_REQUIRED, code: 'pd_consent_required' });
+    return;
+  }
+
   const cleanUsername = username.trim();
   const existing = await userRepo.findByUsername(cleanUsername);
   if (existing) {
@@ -126,6 +160,7 @@ router.post('/register', async (req: Request, res: Response) => {
     return;
   }
 
+  await recordPdConsent(req, id, trimmedEmail);
   logger.info('User registered via /api/auth/register', { id, username: cleanUsername });
   res.status(201).json({ apiKey: api_key, username: cleanUsername, role: 'user' });
 });
@@ -142,9 +177,14 @@ router.post('/register-email', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Укажите корректный email' });
     return;
   }
+  if (!hasPdConsent(req.body)) {
+    res.status(400).json({ error: PD_CONSENT_REQUIRED, code: 'pd_consent_required' });
+    return;
+  }
 
   const existingByEmail = await userRepo.findByEmail(trimmedEmail);
   if (existingByEmail) {
+    await recordPdConsent(req, existingByEmail.id, trimmedEmail);
     // Не раскрываем существование email — отправляем второе письмо с
     // НОВЫМИ магик-токеном и паролем (так же как /recover). Так зумер
     // не упирается в «email уже занят» и не догадывается есть ли
@@ -173,6 +213,7 @@ router.post('/register-email', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Не удалось создать аккаунт. Попробуйте ещё раз.' });
     return;
   }
+  await recordPdConsent(req, id, trimmedEmail);
 
   try {
     await sendAuthEmail({

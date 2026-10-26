@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Шаблон. Страницу отдаёт маршрут /terms (src/legal/documents.ts):
+       метки «LEGAL:…» в комментариях заменяются реквизитами оператора из env. -->
+  <title>Пользовательское соглашение — ScanFlow</title>
+  <meta name="description" content="Условия использования ScanFlow: что делает сервис, бесплатная бета, аккаунт, документы и данные пользователя, интеграции с 1С и СберБизнесом, ответственность.">
+  <link rel="canonical" href="https://scanflow.ru/terms">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Пользовательское соглашение — ScanFlow">
+  <meta property="og:url" content="https://scanflow.ru/terms">
+  <meta property="og:image" content="https://scanflow.ru/og/default.png">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+  <link rel="preload" href="/fonts/geist-v5-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/geist-v5-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/article.css">
+
+  <script>
+    (function () {
+      var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+</head>
+<body class="article-page legal-page">
+  <div class="read-progress" id="read-progress" aria-hidden="true"></div>
+  <div class="grain-overlay" aria-hidden="true"></div>
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo" aria-label="ScanFlow — на главную">
+        <span class="logo-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="16" fill="currentColor"/>
+            <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+            <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+            <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
+          </svg>
+        </span>
+        <span class="logo-text">ScanFlow</span>
+      </a>
+      <nav class="main-nav" id="main-nav" aria-label="Основное меню">
+        <a href="/#demo">Как работает</a>
+        <a href="/#features">Возможности</a>
+        <a href="/#pricing">Тарифы</a>
+        <a href="/#faq">Вопросы</a>
+        <a href="/blog">Блог</a>
+      </nav>
+      <div class="header-actions">
+        <a href="/?login=1" class="btn-ghost">Войти</a>
+        <a href="/#try" class="btn-primary-sm">Попробовать</a>
+      </div>
+      <button class="mobile-menu-btn" id="mobile-menu-btn" type="button" aria-label="Открыть меню" aria-controls="main-nav" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="article-hero">
+      <div class="container">
+        <nav class="article-breadcrumb" aria-label="Хлебные крошки">
+          <a href="/">Главная</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <span>Документы</span>
+        </nav>
+        <h1>Пользовательское соглашение</h1>
+        <div class="article-meta">
+          <span>Редакция от <b>26 октября 2026</b></span>
+          <span class="sep">·</span>
+          <span>действует с момента публикации</span>
+        </div>
+        <nav class="legal-docs" aria-label="Документы">
+          <a href="/privacy">Политика</a>
+          <a href="/consent">Согласие на обработку</a>
+          <a href="/terms" aria-current="page">Пользовательское соглашение</a>
+        </nav>
+      </div>
+    </section>
+
+    <div class="container article-layout">
+      <article class="article-prose legal-prose">
+        <details class="article-toc-mobile">
+          <summary>Содержание</summary>
+          <ol>
+            <li><a href="#general">Общие положения</a></li>
+            <li><a href="#service">Что делает сервис</a></li>
+            <li><a href="#price">Стоимость</a></li>
+            <li><a href="#account">Аккаунт</a></li>
+            <li><a href="#data">Документы и данные</a></li>
+            <li><a href="#integrations">Интеграции</a></li>
+            <li><a href="#rules">Правила использования</a></li>
+            <li><a href="#liability">Ответственность</a></li>
+            <li><a href="#termination">Прекращение</a></li>
+            <li><a href="#changes">Изменения</a></li>
+            <li><a href="#law">Право и споры</a></li>
+            <li><a href="#operator">Реквизиты</a></li>
+          </ol>
+        </details>
+
+        <h2 id="general">1. Общие положения</h2>
+        <p>1.1. Соглашение определяет условия использования сервиса ScanFlow — сайта scanflow.ru, личного кабинета, API и&nbsp;обработки для 1С (далее — Сервис). Сервис предоставляет <!--LEGAL:operator-name--> (далее — Администрация), реквизиты указаны в&nbsp;разделе&nbsp;12.</p>
+        <p>1.2. Регистрируясь в&nbsp;Сервисе, пользователь принимает Соглашение полностью. Если вы&nbsp;не&nbsp;согласны с&nbsp;ним, не&nbsp;регистрируйтесь и&nbsp;не&nbsp;пользуйтесь Сервисом.</p>
+        <p>1.3. Пользоваться Сервисом могут дееспособные граждане, индивидуальные предприниматели и&nbsp;представители организаций. Регистрируясь от&nbsp;имени организации, пользователь подтверждает свои полномочия.</p>
+        <p>1.4. Обработка персональных данных описана в&nbsp;<a href="/privacy">Политике обработки персональных данных</a>; согласие на&nbsp;обработку данных аккаунта оформляется <a href="/consent">отдельно</a>.</p>
+
+        <h2 id="service">2. Что делает Сервис</h2>
+        <p>2.1. Распознаёт фото и&nbsp;PDF накладных, УПД, счетов и&nbsp;счетов-фактур, разбирает XML-документы из&nbsp;ЭДО, подбирает позиции справочника 1С, готовит приходные накладные для загрузки в&nbsp;1С:УНФ через обработку, создаёт черновики платёжных поручений в&nbsp;СберБизнесе и&nbsp;присылает уведомления.</p>
+        <p>2.2. Документы читает и&nbsp;позиции подбирает ИИ-модель, поэтому в&nbsp;результате возможны ошибки. Сервис сверяет арифметику строк и&nbsp;итогов и&nbsp;подсвечивает сомнительные места, но&nbsp;не&nbsp;гарантирует безошибочного результата. Пользователь проверяет данные перед отправкой в&nbsp;1С и&nbsp;перед подписанием платежа.</p>
+        <p>2.3. Сервис работает в&nbsp;режиме открытой бета-версии и&nbsp;предоставляется «как есть»: функции могут меняться, возможны перерывы в&nbsp;работе.</p>
+
+        <h2 id="price">3. Стоимость</h2>
+        <p>3.1. Во&nbsp;время открытой беты Сервис бесплатен, ограничения тарифов не&nbsp;применяются.</p>
+        <p>3.2. Платные тарифы будут предложены по&nbsp;отдельному договору-оферте. О&nbsp;начале платного периода Администрация сообщит пользователю по&nbsp;электронной почте заранее. Без согласия пользователя оплата не&nbsp;списывается.</p>
+
+        <h2 id="account">4. Аккаунт</h2>
+        <p>4.1. Регистрация — по&nbsp;адресу электронной почты: логин, пароль и&nbsp;ссылка для входа приходят письмом.</p>
+        <p>4.2. Пользователь хранит в&nbsp;тайне пароль, ключ API, коды подключения 1С и&nbsp;ключи интеграций. Действия, совершённые с&nbsp;ними, считаются действиями пользователя.</p>
+        <p>4.3. О&nbsp;доступе посторонних к&nbsp;аккаунту пользователь сразу сообщает на&nbsp;<!--LEGAL:email-->.</p>
+
+        <h2 id="data">5. Документы и данные пользователя</h2>
+        <p>5.1. Права на&nbsp;загруженные документы и&nbsp;данные остаются у&nbsp;пользователя. Администрация использует их&nbsp;только для работы Сервиса для этого пользователя и&nbsp;его компании.</p>
+        <p>5.2. Пользователь гарантирует, что вправе загружать документы и&nbsp;передавать содержащиеся в&nbsp;них сведения.</p>
+        <p>5.3. <strong>Поручение на&nbsp;обработку персональных данных.</strong> В&nbsp;документах бывают персональные данные третьих лиц: индивидуальных предпринимателей, подписантов, сотрудников. Оператором этих данных является пользователь. Загружая документы, он&nbsp;поручает Администрации их&nbsp;обработку (ч.&nbsp;3 ст.&nbsp;6 Федерального закона №&nbsp;152-ФЗ):</p>
+        <ul>
+          <li><strong>цели</strong> — распознавание документов, подбор позиций 1С, хранение, выгрузка в&nbsp;1С пользователя, черновики платёжных поручений, уведомления;</li>
+          <li><strong>действия</strong> — сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, передача получателям из&nbsp;раздела&nbsp;5 Политики (в&nbsp;том числе поставщику ИИ-модели за&nbsp;пределами России), блокирование, удаление, уничтожение;</li>
+          <li>Администрация соблюдает конфиденциальность этих данных, принимает меры защиты по&nbsp;ст.&nbsp;19 Закона и&nbsp;соблюдает требования ст.&nbsp;18.1 Закона;</li>
+          <li>по&nbsp;запросу пользователя Администрация подтверждает принятые меры и&nbsp;без промедления сообщает ему об&nbsp;инцидентах с&nbsp;этими данными;</li>
+          <li>пользователь отвечает за&nbsp;наличие законных оснований для передачи этих данных в&nbsp;Сервис.</li>
+        </ul>
+        <p>5.4. Сроки хранения — по&nbsp;Политике: фото и&nbsp;файлы — пока документ не&nbsp;отправлен в&nbsp;1С и&nbsp;ещё 90&nbsp;дней после отправки, распознанные данные — пока пользователь не&nbsp;удалит документ или аккаунт.</p>
+        <p>5.5. Сотрудники Администрации открывают документы пользователя только чтобы разобрать его обращение или устранить сбой.</p>
+
+        <h2 id="integrations">6. Интеграции</h2>
+        <p>6.1. <strong>1С.</strong> Данные попадают в&nbsp;1С только через обработку, которую пользователь сам установил в&nbsp;свою базу, и&nbsp;по&nbsp;её&nbsp;запросам. За&nbsp;настройки своей базы 1С отвечает пользователь.</p>
+        <p>6.2. <strong>СберБизнес.</strong> Сервис создаёт только черновики платёжных поручений. Подписывает и&nbsp;отправляет их&nbsp;пользователь в&nbsp;банке и&nbsp;перед этим проверяет получателя, реквизиты и&nbsp;сумму.</p>
+        <p>6.3. <strong>Telegram и&nbsp;почта</strong> подключаются по&nbsp;желанию пользователя. За&nbsp;работу сторонних сервисов Администрация не&nbsp;отвечает.</p>
+
+        <h2 id="rules">7. Правила использования</h2>
+        <p>7.1. Нельзя загружать вредоносные файлы, пытаться получить доступ к&nbsp;чужим данным или к&nbsp;инфраструктуре Сервиса, создавать чрезмерную нагрузку автоматическими запросами и&nbsp;использовать Сервис в&nbsp;незаконных целях.</p>
+        <p>7.2. При нарушении Администрация вправе приостановить доступ к&nbsp;Сервису и&nbsp;по&nbsp;возможности заранее сообщает об&nbsp;этом пользователю.</p>
+
+        <h2 id="liability">8. Ответственность</h2>
+        <p>8.1. Сервис бесплатен и&nbsp;предоставляется «как есть». Администрация не&nbsp;отвечает за&nbsp;убытки из-за ошибок распознавания, которые пользователь не&nbsp;проверил, за&nbsp;перерывы в&nbsp;работе Сервиса и&nbsp;за&nbsp;действия банков, 1С, мессенджеров и&nbsp;других сторонних сервисов.</p>
+        <p>8.2. Ограничения ответственности не&nbsp;применяются там, где их&nbsp;не&nbsp;допускает закон.</p>
+
+        <h2 id="termination">9. Прекращение</h2>
+        <p>9.1. Пользователь может в&nbsp;любой момент перестать пользоваться Сервисом и&nbsp;попросить удалить аккаунт письмом на&nbsp;<!--LEGAL:email-->. Аккаунт и&nbsp;данные удаляются в&nbsp;течение 30&nbsp;дней.</p>
+        <p>9.2. Администрация может прекратить работу Сервиса, предупредив пользователей по&nbsp;электронной почте не&nbsp;позднее чем за&nbsp;30&nbsp;дней.</p>
+
+        <h2 id="changes">10. Изменения Соглашения</h2>
+        <p>Новая редакция публикуется на&nbsp;этой странице и&nbsp;действует с&nbsp;момента публикации, если в&nbsp;ней не&nbsp;указано иное. О&nbsp;существенных изменениях Администрация сообщает по&nbsp;электронной почте. Если пользователь продолжает пользоваться Сервисом после вступления изменений в&nbsp;силу, он&nbsp;принимает новую редакцию.</p>
+
+        <h2 id="law">11. Право и споры</h2>
+        <p>К&nbsp;Соглашению применяется право Российской Федерации. Споры стороны сначала решают перепиской: претензию направляют на&nbsp;<!--LEGAL:email-->, ответ — в&nbsp;течение 30&nbsp;дней. Если договориться не&nbsp;удалось, спор рассматривает суд по&nbsp;месту нахождения Администрации, если закон не&nbsp;устанавливает иное.</p>
+
+        <h2 id="operator">12. Реквизиты</h2>
+        <!--LEGAL:operator-->
+      </article>
+
+      <aside class="article-toc" id="article-toc-desktop" aria-label="Содержание">
+        <div class="article-toc-label">Содержание</div>
+        <ol>
+          <li><a href="#general">Общие положения</a></li>
+          <li><a href="#service">Что делает сервис</a></li>
+          <li><a href="#price">Стоимость</a></li>
+          <li><a href="#account">Аккаунт</a></li>
+          <li><a href="#data">Документы и данные</a></li>
+          <li><a href="#integrations">Интеграции</a></li>
+          <li><a href="#rules">Правила использования</a></li>
+          <li><a href="#liability">Ответственность</a></li>
+          <li><a href="#termination">Прекращение</a></li>
+          <li><a href="#changes">Изменения</a></li>
+          <li><a href="#law">Право и споры</a></li>
+          <li><a href="#operator">Реквизиты</a></li>
+        </ol>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="logo" aria-label="ScanFlow — на главную">
+          <span class="logo-icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 64 64" fill="none">
+              <rect width="64" height="64" rx="16" fill="currentColor"/>
+              <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+              <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+              <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
+            </svg>
+          </span>
+          <span class="logo-text">ScanFlow</span>
+        </a>
+        <p>Распознавание накладных и&nbsp;выгрузка в&nbsp;1С:УНФ для малого и&nbsp;среднего бизнеса.</p>
+        <a class="footer-mail" href="mailto:hi@scanflow.ru">hi@scanflow.ru</a>
+      </div>
+      <div class="footer-links">
+        <div class="footer-col">
+          <h4>Продукт</h4>
+          <a href="/#demo">Как это работает</a>
+          <a href="/#features">Возможности</a>
+          <a href="/#pricing">Тарифы</a>
+          <a href="/#faq">Вопросы и&nbsp;ответы</a>
+          <a href="/app.html">Кабинет</a>
+        </div>
+        <div class="footer-col">
+          <h4>Как это устроено</h4>
+          <a href="/blog/perevod-paper-zacenok-v-1c-unf">Выгрузка в&nbsp;1С:УНФ</a>
+          <a href="/blog/avto-platezhka-v-sberbiznes">Платёжки в&nbsp;СберБизнесе</a>
+          <a href="/blog/dadata-i-kontragenty-po-inn">Поставщики по&nbsp;ИНН</a>
+          <a href="/blog/multi-page-nakladnye-sliyanie">Многостраничные накладные</a>
+          <a href="/blog">Все статьи</a>
+        </div>
+        <div class="footer-col">
+          <h4>Документы</h4>
+          <a href="/privacy">Политика обработки данных</a>
+          <a href="/consent">Согласие на&nbsp;обработку</a>
+          <a href="/terms">Пользовательское соглашение</a>
+          <button type="button" class="footer-cookie" data-cookie-settings hidden>Настройки cookie</button>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 ScanFlow</span>
+        <a href="/">На главную</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/js/landing.js"></script>
+  <script src="/js/article.js" defer></script>
+</body>
+</html>

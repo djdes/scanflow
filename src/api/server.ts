@@ -7,6 +7,7 @@ import fs from 'fs';
 import { loadArticles } from '../seo/articles';
 import { buildSitemapXml } from '../seo/sitemap';
 import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
+import { LEGAL_PAGES, LegalPage, legalOperator, renderLegalPage } from '../legal/documents';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth, requireAdmin } from './middleware/auth';
@@ -63,6 +64,14 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use((req, res, next) => {
     if (req.method === 'GET' && req.path === '/blog/') {
       return res.redirect(301, '/blog');
+    }
+    // Шаблоны правовых документов не отдаём как есть: в них нет реквизитов
+    // оператора, их подставляет маршрут /privacy, /consent, /terms ниже.
+    if (req.path.startsWith('/legal/')) {
+      const legal = /^\/legal\/([a-z]+)\.html$/.exec(req.path);
+      return legal && (LEGAL_PAGES as readonly string[]).includes(legal[1])
+        ? res.redirect(301, `/${legal[1]}`)
+        : res.status(404).sendFile(path.join(publicDir, '404.html'));
     }
     next();
   });
@@ -433,6 +442,22 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     if (!fs.existsSync(file)) return res.status(404).send('Not Found');
     res.sendFile(file);
   });
+
+  // Правовые документы: политика обработки ПДн, согласие, пользовательское
+  // соглашение. Шаблоны — public/legal/*.html; реквизиты оператора подставляются
+  // из env (LEGAL_OPERATOR_*, см. src/legal/documents.ts) — в репозитории их нет.
+  const legalHtmlCache = new Map<LegalPage, string>();
+  for (const slug of LEGAL_PAGES) {
+    app.get(`/${slug}`, (_req, res) => {
+      let html = legalHtmlCache.get(slug);
+      if (!html) {
+        const raw = fs.readFileSync(path.join(publicDir, 'legal', `${slug}.html`), 'utf8');
+        html = renderLegalPage(raw, legalOperator());
+        legalHtmlCache.set(slug, html);
+      }
+      res.type('html').send(html);
+    });
+  }
 
   // Build the landing HTML once at first GET / and cache it. Crawlers
   // see the three newest blog cards inline (good for internal linking).
