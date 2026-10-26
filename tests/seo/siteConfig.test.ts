@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { siteConfig, injectSiteConfig } from '../../src/seo/siteConfig';
+import { siteConfig, injectSiteConfig, applyHeroVariants } from '../../src/seo/siteConfig';
 
 vi.mock('../../src/database/db', () => ({ getDb: () => ({ prepare: () => ({ get: () => 1 }) }) }));
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
@@ -35,6 +35,15 @@ describe('siteConfig', () => {
   });
 });
 
+describe('hero headline variants', () => {
+  const h1 = '<h1>\n  <span class="gradient-text" data-hero-v="a">A</span>\n  <span class="gradient-text" data-hero-v="b">B</span>\n</h1>';
+
+  it('drops variant b unless the A/B is on', () => {
+    expect(applyHeroVariants(h1, {})).toBe('<h1>\n  <span class="gradient-text" data-hero-v="a">A</span>\n</h1>');
+    expect(applyHeroVariants(h1, { metrika: 1, heroAb: true })).toBe(h1);
+  });
+});
+
 describe('site config on public pages', () => {
   const saved = { ...process.env };
   afterEach(() => { process.env = { ...saved }; });
@@ -51,6 +60,17 @@ describe('site config on public pages', () => {
       expect(res.text, url).not.toContain('SITE-CONFIG');
       expect(res.text, url).not.toContain('window.SF_SITE=');
     }
+  });
+
+  it('the landing keeps only headline variant a without the A/B flag', async () => {
+    process.env.YANDEX_METRIKA_ID = '98765432';
+    delete process.env.SITE_HERO_AB;
+    const res = await request(app()).get('/');
+    expect(res.text).toContain('data-hero-v="a"');
+    expect(res.text).not.toContain('data-hero-v="b"');
+    process.env.SITE_HERO_AB = '1';
+    const ab = await request(app()).get('/');
+    expect(ab.text).toContain('data-hero-v="b"');
   });
 
   it('with a counter every public page gets window.SF_SITE', async () => {
