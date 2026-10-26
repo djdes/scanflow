@@ -1,9 +1,16 @@
 /* ============================================================
-   ScanFlow Landing — Interactions & Animations
+   ScanFlow — главная и страницы блога: поведение и анимации.
+   Блог подключает этот же файл, поэтому каждый блок проверяет,
+   что его разметка есть на странице.
    ============================================================ */
 
 (function () {
   'use strict';
+
+  // Сигнал инлайн-скрипту в <head>: скрипт загрузился, анимации появления
+  // можно оставлять. Если файл не загрузится, <head> через 3 с снимет класс js
+  // и всё содержимое станет видно без анимаций.
+  window.__sfLanding = true;
 
   // ========== Спасение старых ссылок из бота ==========
   // Уведомления долго рассылали ссылки вида scanflow.ru/#/invoices/704 — то
@@ -23,237 +30,521 @@
     }
   })();
 
-  // ========== Scroll Animations ==========
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const hasIO = 'IntersectionObserver' in window;
 
-  const animElements = document.querySelectorAll('[data-animate]');
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-          observer.unobserve(entry.target);
-        }
-      });
-    },
-    { threshold: 0.15, rootMargin: '0px 0px -40px 0px' }
-  );
-
-  animElements.forEach((el) => observer.observe(el));
-
-  // ========== Header Scroll ==========
-
-  const header = document.getElementById('site-header');
-  let lastScroll = 0;
-
-  window.addEventListener('scroll', () => {
-    const scrollY = window.scrollY;
-    if (scrollY > 40) {
-      header.classList.add('scrolled');
-    } else {
-      header.classList.remove('scrolled');
+  // ========== Появление секций при прокрутке ==========
+  // Один раз, через IntersectionObserver — без листенера scroll.
+  (function initReveal() {
+    const items = document.querySelectorAll('[data-animate]');
+    if (!items.length) return;
+    if (!hasIO) {
+      items.forEach((el) => el.classList.add('visible'));
+      return;
     }
-    lastScroll = scrollY;
-  }, { passive: true });
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('visible');
+        io.unobserve(entry.target);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+    items.forEach((el) => io.observe(el));
+  })();
 
-  // ========== Mobile Menu ==========
+  // ========== Шапка: плотнее после начала прокрутки ==========
+  // Вместо листенера scroll — наблюдатель за невидимой меткой в начале страницы.
+  (function initHeaderState() {
+    const header = document.getElementById('site-header');
+    if (!header || !hasIO) return;
+    const sentinel = document.createElement('div');
+    sentinel.className = 'scroll-sentinel';
+    sentinel.setAttribute('aria-hidden', 'true');
+    document.body.prepend(sentinel);
+    new IntersectionObserver(([entry]) => {
+      header.classList.toggle('scrolled', !entry.isIntersecting);
+    }).observe(sentinel);
+  })();
 
+  // ========== Меню на телефоне ==========
+  // Полноэкранная панель; кнопки «Войти / Попробовать» на время меню
+  // переезжают внутрь панели и возвращаются в шапку при закрытии.
   const menuBtn = document.getElementById('mobile-menu-btn');
   const mainNav = document.getElementById('main-nav');
-  const headerActions = document.querySelector('.header-actions');
-  // Remember the actions' original parent + position so we can put it back
-  // when the menu closes (or when viewport widens to desktop).
+  const headerActions = document.querySelector('.site-header .header-actions');
   const actionsHome = headerActions ? headerActions.parentElement : null;
   const actionsAnchor = headerActions ? headerActions.nextElementSibling : null;
 
   function moveActionsIntoNav() {
-    if (!headerActions || !mainNav) return;
-    if (headerActions.parentElement !== mainNav) mainNav.appendChild(headerActions);
+    if (headerActions && mainNav && headerActions.parentElement !== mainNav) mainNav.appendChild(headerActions);
   }
+
   function moveActionsBackToHeader() {
-    if (!headerActions || !actionsHome) return;
-    if (headerActions.parentElement !== actionsHome) {
-      if (actionsAnchor && actionsAnchor.parentElement === actionsHome) {
-        actionsHome.insertBefore(headerActions, actionsAnchor);
-      } else {
-        actionsHome.appendChild(headerActions);
-      }
+    if (!headerActions || !actionsHome || headerActions.parentElement === actionsHome) return;
+    if (actionsAnchor && actionsAnchor.parentElement === actionsHome) {
+      actionsHome.insertBefore(headerActions, actionsAnchor);
+    } else {
+      actionsHome.appendChild(headerActions);
     }
   }
 
-  function closeMobileMenu() {
+  function isMenuOpen() {
+    return !!mainNav && mainNav.classList.contains('open');
+  }
+
+  function openMobileMenu() {
+    if (!mainNav || !menuBtn) return;
+    moveActionsIntoNav();
+    mainNav.classList.add('open');
+    menuBtn.classList.add('active');
+    menuBtn.setAttribute('aria-expanded', 'true');
+    menuBtn.setAttribute('aria-label', 'Закрыть меню');
+    document.body.classList.add('menu-open');
+    const first = mainNav.querySelector('a');
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  function closeMobileMenu(returnFocus) {
+    if (!mainNav || !menuBtn) return;
     mainNav.classList.remove('open');
-    if (menuBtn) {
-      menuBtn.classList.remove('active');
-      menuBtn.setAttribute('aria-expanded', 'false');
-    }
+    menuBtn.classList.remove('active');
+    menuBtn.setAttribute('aria-expanded', 'false');
+    menuBtn.setAttribute('aria-label', 'Открыть меню');
+    document.body.classList.remove('menu-open');
     moveActionsBackToHeader();
+    if (returnFocus) menuBtn.focus();
   }
 
-  if (menuBtn) {
+  if (menuBtn && mainNav) {
     menuBtn.addEventListener('click', () => {
-      const opening = !mainNav.classList.contains('open');
-      mainNav.classList.toggle('open');
-      menuBtn.classList.toggle('active');
-      menuBtn.setAttribute('aria-expanded', opening ? 'true' : 'false');
-      if (opening) {
-        moveActionsIntoNav();
-      } else {
-        moveActionsBackToHeader();
-      }
+      if (isMenuOpen()) closeMobileMenu(false);
+      else openMobileMenu();
     });
 
-    // Close on any link tap inside the menu (nav links + action buttons)
+    // Любая ссылка внутри меню (пункты и кнопки) закрывает его.
     mainNav.addEventListener('click', (e) => {
-      if (e.target.closest('a')) closeMobileMenu();
+      if (e.target.closest('a') && isMenuOpen()) closeMobileMenu(false);
     });
 
-    // If user resizes back to desktop while menu is open, restore layout.
-    window.addEventListener('resize', () => {
-      if (window.innerWidth > 768 && mainNav.classList.contains('open')) {
-        closeMobileMenu();
-      }
+    window.matchMedia('(min-width: 861px)').addEventListener('change', (e) => {
+      if (e.matches && isMenuOpen()) closeMobileMenu(false);
     });
 
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && mainNav.classList.contains('open')) {
-        closeMobileMenu();
-        menuBtn.focus();
-      }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isMenuOpen()) closeMobileMenu(true);
     });
   }
 
-  // ========== Magnetic CTA ==========
-  // Subtle cursor-follow on .btn-magnetic — translates the button toward the
-  // pointer by ~12% of the offset from center. Disabled when the user prefers
-  // reduced motion.
-  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!prefersReduced) {
-    document.querySelectorAll('.btn-magnetic').forEach((btn) => {
-      btn.addEventListener('mousemove', (e) => {
-        const r = btn.getBoundingClientRect();
-        const dx = (e.clientX - r.left - r.width / 2) * 0.18;
-        const dy = (e.clientY - r.top - r.height / 2) * 0.28;
-        btn.style.transform = `translate(${dx}px, ${dy}px)`;
+  // ========== Подсветка текущей секции в меню ==========
+  (function initScrollSpy() {
+    if (!mainNav || !hasIO) return;
+    const links = Array.from(mainNav.querySelectorAll('a[href^="#"]'));
+    const pairs = links
+      .map((link) => [link, document.querySelector(link.getAttribute('href'))])
+      .filter(([, section]) => section);
+    if (!pairs.length) return;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const pair = pairs.find(([, section]) => section === entry.target);
+        if (!pair) return;
+        if (entry.isIntersecting) {
+          links.forEach((l) => l.removeAttribute('aria-current'));
+          pair[0].setAttribute('aria-current', 'true');
+        } else if (pair[0].hasAttribute('aria-current')) {
+          pair[0].removeAttribute('aria-current');
+        }
       });
-      btn.addEventListener('mouseleave', () => {
-        btn.style.transform = '';
-      });
-    });
-  }
+    }, { rootMargin: '-45% 0px -50% 0px' });
+    pairs.forEach(([, section]) => io.observe(section));
+  })();
 
-  // ========== FAQ Accordion ==========
-  document.querySelectorAll('.faq-item').forEach((item) => {
-    const trigger = item.querySelector('.faq-question');
-    if (!trigger) return;
-    trigger.addEventListener('click', () => {
-      const expanded = item.classList.toggle('open');
-      trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    });
-  });
+  // ========== Сцена героя: фото → подсветка полей → приходная → отправка ==========
+  // Цикл идёт, пока сцена на экране; вне экрана и при свёрнутой вкладке стоит
+  // на итоговом кадре. При prefers-reduced-motion — сразу итоговый кадр.
+  (function initHeroStage() {
+    const stage = document.querySelector('[data-hero-stage]');
+    if (!stage) return;
+    const statusEl = stage.querySelector('[data-stage-status]');
+    const PHASES = ['is-scan', 'is-doc', 'is-rows', 'is-total', 'is-sent', 'is-done', 'is-reset'];
+    let timers = [];
+    let running = false;
 
-  // ========== Counter Animation ==========
+    const at = (ms, fn) => timers.push(setTimeout(fn, ms));
+    const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
+    const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
 
-  function animateCounters() {
-    const counters = document.querySelectorAll('[data-count]');
-    counters.forEach((el) => {
-      const target = parseFloat(el.dataset.count);
-      const isFloat = target % 1 !== 0;
-      const duration = 2000;
-      const startTime = performance.now();
-
-      function tick(now) {
-        const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        // easeOutExpo
-        const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-        const current = eased * target;
-
-        if (isFloat) {
-          el.textContent = current.toFixed(1);
-        } else {
-          el.textContent = Math.floor(current).toLocaleString('ru-RU');
-        }
-
-        if (progress < 1) {
-          requestAnimationFrame(tick);
-        }
-      }
-
-      requestAnimationFrame(tick);
-    });
-  }
-
-  // Observe hero stats to trigger counter
-  const heroStats = document.querySelector('.hero-stats');
-  if (heroStats) {
-    const statsObserver = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          animateCounters();
-          statsObserver.disconnect();
-        }
-      },
-      { threshold: 0.5 }
-    );
-    statsObserver.observe(heroStats);
-  }
-
-  // ========== Pipeline-flow connector lines ==========
-  // Рисуем 4 кривые: source→brain (одна) и brain→каждый output (три).
-  // Используем cubic Bezier с горизонтальными контрольными точками — линии
-  // плавно расходятся, не пересекают друг друга.
-
-  function drawPipelineLines() {
-    const svg = document.querySelector('.pipeline-flow__lines');
-    const container = document.querySelector('.pipeline-flow');
-    if (!svg || !container) return;
-
-    const source = container.querySelector('[data-pf="source"]');
-    const brain = container.querySelector('[data-pf="brain"]');
-    const outputs = container.querySelectorAll('.pf-node--out');
-    if (!source || !brain || !outputs.length) return;
-
-    const cRect = container.getBoundingClientRect();
-    const rightOf = (el) => {
-      const r = el.getBoundingClientRect();
-      return { x: r.right - cRect.left, y: r.top + r.height / 2 - cRect.top };
-    };
-    const leftOf = (el) => {
-      const r = el.getBoundingClientRect();
-      return { x: r.left - cRect.left, y: r.top + r.height / 2 - cRect.top };
-    };
-
-    const paths = [];
-    // source → brain
-    {
-      const a = rightOf(source);
-      const b = leftOf(brain);
-      const cx = (a.x + b.x) / 2;
-      paths.push(`<path data-to="brain" d="M${a.x} ${a.y} C ${cx} ${a.y}, ${cx} ${b.y}, ${b.x} ${b.y}" />`);
+    function finalFrame() {
+      stage.classList.remove('is-reset');
+      stage.classList.add('is-scan', 'is-doc', 'is-rows', 'is-total', 'is-sent', 'is-done');
+      setStatus('Готово');
     }
-    // brain → каждый output
-    const brainRight = rightOf(brain);
-    outputs.forEach((out) => {
-      const target = leftOf(out);
-      const cx = (brainRight.x + target.x) / 2;
-      const key = out.dataset.pf || '';
-      paths.push(`<path data-to="${key}" d="M${brainRight.x} ${brainRight.y} C ${cx} ${brainRight.y}, ${cx} ${target.y}, ${target.x} ${target.y}" />`);
+
+    function cycle() {
+      clearTimers();
+      stage.classList.remove(...PHASES);
+      setStatus('Читаем фото');
+      void stage.offsetWidth; // перезапуск анимации луча
+      at(150, () => stage.classList.add('is-scan'));
+      at(2000, () => { stage.classList.add('is-doc'); setStatus('Сверяем суммы'); });
+      at(2300, () => stage.classList.add('is-rows'));
+      at(3300, () => stage.classList.add('is-total'));
+      at(3900, () => { stage.classList.add('is-sent'); setStatus('Отправляем'); });
+      at(5000, () => { stage.classList.add('is-done'); setStatus('Готово'); });
+      at(10500, () => stage.classList.add('is-reset'));
+      at(11200, cycle);
+    }
+
+    function start() {
+      if (running || reduceMotion.matches) return;
+      running = true;
+      cycle();
+    }
+
+    function stop() {
+      running = false;
+      clearTimers();
+      finalFrame();
+    }
+
+    if (reduceMotion.matches || !hasIO) {
+      finalFrame();
+      return;
+    }
+
+    let inView = false;
+    new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      if (inView && !document.hidden) start();
+      else stop();
+    }, { threshold: 0.25 }).observe(stage);
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stop();
+      else if (inView) start();
+    });
+    reduceMotion.addEventListener('change', () => { if (reduceMotion.matches) stop(); });
+
+    // Лёгкий параллакс слоёв за курсором (только мышь, на requestAnimationFrame).
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    let frame = 0;
+    let px = 0;
+    let py = 0;
+    const paint = () => {
+      frame = 0;
+      stage.style.setProperty('--px', px.toFixed(3));
+      stage.style.setProperty('--py', py.toFixed(3));
+    };
+    stage.addEventListener('pointermove', (e) => {
+      if (reduceMotion.matches) return;
+      const r = stage.getBoundingClientRect();
+      px = ((e.clientX - r.left) / r.width - 0.5) * 2;
+      py = ((e.clientY - r.top) / r.height - 0.5) * 2;
+      if (!frame) frame = requestAnimationFrame(paint);
+    });
+    stage.addEventListener('pointerleave', () => {
+      px = 0;
+      py = 0;
+      if (!frame) frame = requestAnimationFrame(paint);
+    });
+  })();
+
+  // ========== Слоган: слова загораются по одному ==========
+  // Один листенер scroll на requestAnimationFrame, включён только пока секция
+  // рядом с экраном. Слова, склеенные &nbsp;, загораются вместе.
+  (function initTagline() {
+    const el = document.querySelector('[data-tagline]');
+    if (!el) return;
+    const text = el.textContent.trim();
+    const parts = text.split(/ +/);
+    el.textContent = '';
+    const words = parts.map((part, i) => {
+      const span = document.createElement('span');
+      span.className = 'tagline__word';
+      span.textContent = part;
+      el.appendChild(span);
+      if (i < parts.length - 1) el.appendChild(document.createTextNode(' '));
+      return span;
     });
 
-    svg.setAttribute('viewBox', `0 0 ${cRect.width} ${cRect.height}`);
-    svg.innerHTML = paths.join('\n');
+    if (reduceMotion.matches || !hasIO) {
+      words.forEach((w) => w.classList.add('is-lit'));
+      return;
+    }
+
+    let ticking = false;
+    let lit = -1;
+    function update() {
+      ticking = false;
+      const rect = el.getBoundingClientRect();
+      const vh = window.innerHeight;
+      const progress = Math.min(1, Math.max(0, (vh * 0.8 - rect.top) / (rect.height + vh * 0.35)));
+      const count = Math.round(progress * words.length);
+      if (count === lit) return;
+      lit = count;
+      words.forEach((w, i) => w.classList.toggle('is-lit', i < count));
+    }
+    function onScroll() {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    }
+    new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        window.addEventListener('scroll', onScroll, { passive: true });
+        update();
+      } else {
+        window.removeEventListener('scroll', onScroll);
+        update();
+      }
+    }, { rootMargin: '20% 0px 20% 0px' }).observe(el);
+  })();
+
+  // ========== «Как это работает»: шаги и липкий визуал ==========
+  // На ПК визуал один и меняется по шагу, который пересекает середину экрана.
+  // На телефоне визуал стоит под каждым шагом и оживает, когда виден.
+  (function initSteps() {
+    const root = document.querySelector('[data-steps]');
+    if (!root || !hasIO) return;
+    const steps = Array.from(root.querySelectorAll('.how__step'));
+    const panels = Array.from(root.querySelectorAll('.how__panel'));
+    const mobile = window.matchMedia('(max-width: 767px)');
+
+    function activate(n) {
+      steps.forEach((s) => s.classList.toggle('is-active', s.dataset.step === n));
+      if (!mobile.matches) panels.forEach((p) => p.classList.toggle('is-active', p.dataset.panel === n));
+    }
+
+    const stepIO = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => { if (entry.isIntersecting) activate(entry.target.dataset.step); });
+    }, { rootMargin: '-45% 0px -50% 0px' });
+    steps.forEach((s) => stepIO.observe(s));
+
+    const panelIO = new IntersectionObserver((entries) => {
+      if (!mobile.matches) return;
+      entries.forEach((entry) => { if (entry.isIntersecting) entry.target.classList.add('is-active'); });
+    }, { threshold: 0.3 });
+    panels.forEach((p) => panelIO.observe(p));
+
+    mobile.addEventListener('change', () => {
+      if (mobile.matches) {
+        panels.forEach((p) => { panelIO.unobserve(p); panelIO.observe(p); });
+      } else {
+        const current = steps.find((s) => s.classList.contains('is-active'));
+        activate(current ? current.dataset.step : '1');
+      }
+    });
+  })();
+
+  // ========== Живые визуалы в плитках ==========
+  // Пока плитка на экране, её сюжет проигрывается по кругу; вне экрана — пауза.
+  (function initLiveTiles() {
+    const tiles = document.querySelectorAll('[data-live]');
+    if (!tiles.length) return;
+    if (reduceMotion.matches || !hasIO) {
+      tiles.forEach((t) => t.classList.add('is-playing'));
+      return;
+    }
+    const PLAY_MS = 5600;
+    const REST_MS = 900;
+    const state = new Map();
+
+    function loop(tile) {
+      const s = state.get(tile);
+      tile.classList.add('is-playing');
+      s.timer = setTimeout(() => {
+        tile.classList.remove('is-playing');
+        s.timer = setTimeout(() => loop(tile), REST_MS);
+      }, PLAY_MS);
+    }
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const tile = entry.target;
+        const s = state.get(tile);
+        if (entry.isIntersecting && !s.on) {
+          s.on = true;
+          loop(tile);
+        } else if (!entry.isIntersecting && s.on) {
+          s.on = false;
+          clearTimeout(s.timer);
+          tile.classList.add('is-playing');
+        }
+      });
+    }, { threshold: 0.35 });
+
+    tiles.forEach((tile) => {
+      state.set(tile, { on: false, timer: 0 });
+      io.observe(tile);
+    });
+  })();
+
+  // ========== Состояние входа (лендинг знает, что вы уже в кабинете) ==========
+
+  // Источник правды — тот же ключ, что читает кабинет; sessionStorage —
+  // запасной вариант на время миграции хранилища.
+  function readApiKey() {
+    return localStorage.getItem('apiKey') || sessionStorage.getItem('apiKey') || '';
   }
 
-  // Draw after layout
-  window.addEventListener('load', () => {
-    setTimeout(drawPipelineLines, 300);
+  // Показывает нужный вариант у элементов data-auth-state="in"/"out",
+  // меняет ссылку логотипа, имя в финальном блоке и надпись дока.
+  function applyAuthState() {
+    const authed = !!readApiKey();
+    document.querySelectorAll('[data-site-logo]').forEach((logo) => {
+      logo.setAttribute('href', authed ? '/app.html#/invoices' : '/');
+      logo.setAttribute('title', authed ? 'К накладным' : 'На главную');
+    });
+    document.querySelectorAll('[data-auth-state]').forEach((el) => {
+      const want = el.getAttribute('data-auth-state');
+      el.hidden = !((want === 'in' && authed) || (want === 'out' && !authed));
+    });
+    const userEl = document.getElementById('auth-cta-username');
+    if (userEl) {
+      userEl.textContent = localStorage.getItem('adminUsername')
+        || sessionStorage.getItem('adminUsername')
+        || 'пользователь';
+    }
+    const dock = document.getElementById('mobile-action-dock');
+    const dockLabel = document.getElementById('mobile-action-dock-label');
+    if (dock && dockLabel) {
+      dock.setAttribute('href', authed ? '/app.html#/invoices' : '#try');
+      dock.setAttribute('aria-label', authed ? 'Открыть накладные' : 'Попробовать ScanFlow бесплатно');
+      dockLabel.textContent = authed ? 'Открыть накладные' : 'Попробовать бесплатно';
+    }
+  }
+
+  applyAuthState();
+
+  // Другая вкладка вошла или вышла — отражаем здесь же.
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'apiKey' || e.key === 'adminUsername') applyAuthState();
   });
 
-  window.addEventListener('resize', () => {
-    clearTimeout(window._pfResize);
-    window._pfResize = setTimeout(drawPipelineLines, 200);
+  // На длинной странице держим одно полезное действие под пальцем. Док
+  // прячется, пока видны герой, пример результата или подвал.
+  (function setupMobileActionDock() {
+    const dock = document.getElementById('mobile-action-dock');
+    const hero = document.querySelector('.hero');
+    const demo = document.getElementById('try');
+    const footer = document.querySelector('.site-footer');
+    if (!dock || !hero || !hasIO) return;
+    const watched = [hero, demo, footer].filter(Boolean);
+    const visibility = new Map(watched.map((el) => [el, el === hero]));
+    const render = () => {
+      const blocked = watched.some((el) => visibility.get(el));
+      dock.classList.toggle('is-visible', !blocked);
+    };
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => visibility.set(entry.target, entry.isIntersecting));
+      render();
+    }, { threshold: 0.08 });
+    watched.forEach((el) => io.observe(el));
+    render();
+  })();
+
+  // ========== Проверка email ==========
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  function emailProblem(value) {
+    if (!value) return 'Введите email: на него придут логин и пароль.';
+    if (!EMAIL_RE.test(value)) return 'Проверьте адрес: в нём должны быть «@» и домен, например name@company.ru.';
+    return '';
+  }
+
+  // ========== Регистрация по email: форма в герое и в финальном блоке ==========
+  // Сервер /api/auth/register-email сам создаёт логин, пароль и ссылку для входа
+  // и присылает письмо. Здесь — проверка адреса, состояние кнопки и экран
+  // «письмо отправлено» в модалке.
+  function clearOnboardingFlags() {
+    localStorage.removeItem('sf-onboarding-done');
+    localStorage.removeItem('sf-onboarding-sber-skip');
+    localStorage.removeItem('sf-onboarding-1c-ok');
+  }
+
+  document.querySelectorAll('[data-register-form]').forEach((form) => {
+    const input = form.querySelector('input[type="email"]');
+    const submit = form.querySelector('button[type="submit"]');
+    const label = submit ? submit.querySelector('.signup__label') : null;
+    const errorEl = form.querySelector('.signup__error');
+    if (!input || !submit) return;
+
+    function showError(message) {
+      form.classList.toggle('is-invalid', !!message);
+      input.setAttribute('aria-invalid', message ? 'true' : 'false');
+      if (errorEl) {
+        errorEl.textContent = message;
+        errorEl.hidden = !message;
+      }
+    }
+
+    input.addEventListener('input', () => {
+      if (form.classList.contains('is-invalid')) showError('');
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = (input.value || '').trim();
+      const problem = emailProblem(email);
+      if (problem) {
+        showError(problem);
+        input.focus();
+        return;
+      }
+      showError('');
+      submit.disabled = true;
+      submit.setAttribute('aria-busy', 'true');
+      const idleLabel = label ? label.textContent : '';
+      if (label) label.textContent = 'Отправляем…';
+      try {
+        const resp = await fetch('/api/auth/register-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          showError(data.error || `Не получилось отправить письмо: сервер ответил ${resp.status}. Попробуйте ещё раз.`);
+          return;
+        }
+        clearOnboardingFlags();
+        form.reset();
+        openLogin('register');
+        showMailSentView(email, 'register');
+      } catch (err) {
+        showError('Нет связи с сервером. Проверьте интернет и отправьте ещё раз.');
+      } finally {
+        submit.disabled = false;
+        submit.removeAttribute('aria-busy');
+        if (label) label.textContent = idleLabel;
+      }
+    });
   });
+
+  // Кнопки «Создать аккаунт» (тарифы, приёмник файлов) — сразу модалка
+  // регистрации, без прокрутки к нижнему блоку.
+  document.querySelectorAll('[data-action="register"], [data-action="hero-register"]').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openLogin('register');
+    });
+  });
+
+  const ctaLoginBtn = document.getElementById('auth-cta-login');
+  if (ctaLoginBtn) ctaLoginBtn.addEventListener('click', () => openLogin('login'));
+
+  // Выход из финального блока: стираем ключи и перерисовываем состояние.
+  const ctaLogoutBtn = document.getElementById('auth-cta-logout');
+  if (ctaLogoutBtn) {
+    ctaLogoutBtn.addEventListener('click', () => {
+      ['apiKey', 'adminUsername', 'adminRole'].forEach((key) => {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      });
+      applyAuthState();
+    });
+  }
 
   // ========== Пример результата ==========
   // Анонимного распознавания нет: /api/upload требует ключ. Раньше лендинг слал
@@ -263,16 +554,14 @@
   const demoDropzone = document.getElementById('demo-dropzone');
   if (demoDropzone) {
     demoDropzone.addEventListener('click', (e) => {
-      if (e.target.closest('a')) return; // у ссылки «Создать аккаунт» свой обработчик
+      if (e.target.closest('a, button')) return; // у кнопки свой обработчик
       openLogin('register');
     });
     demoDropzone.addEventListener('dragover', (e) => {
       e.preventDefault();
       demoDropzone.classList.add('dragover');
     });
-    demoDropzone.addEventListener('dragleave', () => {
-      demoDropzone.classList.remove('dragover');
-    });
+    demoDropzone.addEventListener('dragleave', () => demoDropzone.classList.remove('dragover'));
     demoDropzone.addEventListener('drop', (e) => {
       e.preventDefault(); // иначе браузер откроет файл вместо страницы
       demoDropzone.classList.remove('dragover');
@@ -280,238 +569,41 @@
     });
   }
 
-  // ========== Auth Form ==========
+  // ========== Вкладки документов ==========
+  // role="tablist": клик, стрелки, Home/End; у неактивных вкладок tabindex=-1.
+  (function initDocTabs() {
+    const list = document.querySelector('.docs__tabs');
+    if (!list) return;
+    const tabs = Array.from(list.querySelectorAll('[role="tab"]'));
+    const panels = Array.from(document.querySelectorAll('.docs__panel'));
 
-  const authForm = document.getElementById('auth-form');
-  const authToggle = document.getElementById('auth-toggle-link');
-  const authSubmit = document.getElementById('auth-submit');
-
-  if (authToggle) {
-    let isLogin = false;
-    authToggle.addEventListener('click', (e) => {
-      e.preventDefault();
-      isLogin = !isLogin;
-      authSubmit.textContent = isLogin ? 'Войти' : 'Создать аккаунт';
-      authToggle.textContent = isLogin ? 'Зарегистрироваться' : 'Войти';
-      authToggle.closest('.auth-toggle').firstChild.textContent =
-        isLogin ? 'Нет аккаунта? ' : 'Уже есть аккаунт? ';
-    });
-  }
-
-  if (authForm) {
-    authForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Placeholder — will be connected to real auth later
-      const email = document.getElementById('auth-email').value;
-      if (!email) return;
-      alert('Регистрация пока недоступна. Скоро подключим!');
-    });
-  }
-
-  // ========== Smooth scroll for anchor links ==========
-
-  document.querySelectorAll('a[href^="#"]').forEach((a) => {
-    a.addEventListener('click', (e) => {
-      const href = a.getAttribute('href');
-      // Bare "#" is used by interactive triggers (login button, toggles) —
-      // don't try to scroll to it (querySelector('#') throws SyntaxError).
-      if (!href || href === '#') return;
-      const target = document.querySelector(href);
-      if (target) {
-        e.preventDefault();
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    });
-  });
-
-  // ========== Auth State (logged-in awareness across landing) ==========
-
-  // Read once at startup, then re-read on storage events / after login.
-  // Source of truth: the same persistent key the dashboard reads, with the
-  // legacy sessionStorage fallback kept during the storage migration.
-  function readApiKey() {
-    return localStorage.getItem('apiKey') || sessionStorage.getItem('apiKey') || '';
-  }
-
-  // Toggle every element marked with data-auth-state="in" / "out"
-  // — hide the "wrong" ones, show the right ones. Also fills the username
-  // hello-pill on the bottom CTA if present.
-  function applyAuthState() {
-    const authed = !!readApiKey();
-    document.querySelectorAll('[data-site-logo]').forEach((logo) => {
-      logo.setAttribute('href', authed ? '/app.html#/invoices' : '/');
-      logo.setAttribute('title', authed ? 'К накладным' : 'На главную');
-    });
-    document.querySelectorAll('[data-auth-state]').forEach((el) => {
-      const want = el.getAttribute('data-auth-state');
-      const show = (want === 'in' && authed) || (want === 'out' && !authed);
-      el.hidden = !show;
-    });
-    const userEl = document.getElementById('auth-cta-username');
-    if (userEl) {
-      const name = localStorage.getItem('adminUsername')
-        || sessionStorage.getItem('adminUsername')
-        || 'пользователь';
-      userEl.textContent = name;
-    }
-    const mobileDock = document.getElementById('mobile-action-dock');
-    const mobileDockLabel = document.getElementById('mobile-action-dock-label');
-    if (mobileDock && mobileDockLabel) {
-      mobileDock.setAttribute('href', authed ? '/app.html#/invoices' : '#try');
-      mobileDock.setAttribute('aria-label', authed ? 'Открыть накладные' : 'Попробовать ScanFlow бесплатно');
-      mobileDockLabel.textContent = authed ? 'Открыть накладные' : 'Попробовать бесплатно';
-    }
-  }
-
-  applyAuthState();
-
-  // Cross-tab sync: if другой таб разлогинился — отрази здесь же.
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'apiKey' || e.key === 'adminUsername') applyAuthState();
-  });
-
-  // On a long mobile landing keep one useful next action within thumb reach.
-  // It stays out of the way while the hero, upload demo or footer is visible.
-  (function setupMobileActionDock() {
-    const dock = document.getElementById('mobile-action-dock');
-    const hero = document.getElementById('main-content');
-    const demo = document.getElementById('try');
-    const footer = document.querySelector('.site-footer');
-    if (!dock || !hero || !('IntersectionObserver' in window)) return;
-
-    const visibility = new Map([[hero, true], [demo, false], [footer, false]]);
-    const render = () => {
-      const blocked = visibility.get(hero) || visibility.get(demo) || visibility.get(footer);
-      dock.classList.toggle('is-visible', !blocked);
-    };
-    const dockObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => visibility.set(entry.target, entry.isIntersecting));
-      render();
-    }, { threshold: 0.08 });
-    [hero, demo, footer].filter(Boolean).forEach((el) => dockObserver.observe(el));
-    render();
-  })();
-
-  // Bottom CTA (logged-out variant): «Создать аккаунт» → модалка с табой
-  // register; «Уже есть? Войти» → та же модалка с табой login.
-  // Залогиненный вариант «Открыть кабинет» — простой anchor, без JS.
-  const ctaRegisterBtn = document.getElementById('auth-cta-register');
-  if (ctaRegisterBtn) {
-    ctaRegisterBtn.addEventListener('click', () => openLogin('register'));
-  }
-  const ctaLoginBtn = document.getElementById('auth-cta-login');
-  if (ctaLoginBtn) {
-    ctaLoginBtn.addEventListener('click', () => openLogin('login'));
-  }
-
-  // Pricing card buttons «Зарегистрироваться» / «Начать работу» (href="#auth")
-  // — теперь открывают модалку регистрации напрямую, без скролла к секции
-  // с кнопкой (две клика — лишнее трение).
-  document.querySelectorAll('.pricing-card a[href="#auth"]').forEach((link) => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      openLogin('register');
-    });
-  });
-
-  // Hero CTA «Начать бесплатно» — открывает модалку регистрации.
-  document.querySelectorAll('[data-action="hero-register"]').forEach((link) => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      openLogin('register');
-    });
-  });
-
-  // Hero inline email-form: дублирует логику модальной регистрации, но без
-  // открытия модалки сначала. На успех — переключаем модалку в state mail-sent
-  // (через showMailSentView), чтобы пользователь увидел стандартный экран
-  // «проверь почту». Endpoint и поведение совпадают с register-form в модалке.
-  const heroEmailForm = document.getElementById('hero-email-form');
-  const heroEmailInput = document.getElementById('hero-email-input');
-  const heroEmailSubmit = document.getElementById('hero-email-submit');
-  const heroEmailError = document.getElementById('hero-email-error');
-  if (heroEmailForm) {
-    heroEmailForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = (heroEmailInput.value || '').trim();
-      if (!email) return;
-      if (!heroEmailForm.checkValidity()) {
-        heroEmailInput.reportValidity();
-        return;
-      }
-
-      heroEmailSubmit.disabled = true;
-      const originalLabel = heroEmailSubmit.textContent;
-      heroEmailSubmit.textContent = 'Отправляем…';
-      heroEmailError.hidden = true;
-
-      try {
-        const resp = await fetch('/api/auth/register-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-          heroEmailError.textContent = data.error || `Сервер вернул ошибку (${resp.status}).`;
-          heroEmailError.hidden = false;
-          return;
-        }
-        localStorage.removeItem('sf-onboarding-done');
-        localStorage.removeItem('sf-onboarding-sber-skip');
-        localStorage.removeItem('sf-onboarding-1c-ok');
-        heroEmailForm.reset();
-        openLogin('register');
-        showMailSentView(email, 'register');
-      } catch (err) {
-        heroEmailError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
-        heroEmailError.hidden = false;
-      } finally {
-        heroEmailSubmit.disabled = false;
-        heroEmailSubmit.textContent = originalLabel;
-      }
-    });
-  }
-
-  // Logout from the bottom CTA — clears creds and re-renders the CTA card.
-  const ctaLogoutBtn = document.getElementById('auth-cta-logout');
-  if (ctaLogoutBtn) {
-    ctaLogoutBtn.addEventListener('click', () => {
-      localStorage.removeItem('apiKey');
-      sessionStorage.removeItem('apiKey');
-      localStorage.removeItem('adminUsername');
-      sessionStorage.removeItem('adminUsername');
-      localStorage.removeItem('adminRole');
-      sessionStorage.removeItem('adminRole');
-      applyAuthState();
-    });
-  }
-
-  // ========== Scan-types tabs ==========
-  // Простое переключение табов: клик по кнопке → активный класс + показ
-  // соответствующего panel'а, остальные hidden. Keyboard accessible: стрелки
-  // в режиме role="tablist" не обязательны для MVP — клик/таб работают.
-  (function initScanTabs() {
-    const strip = document.querySelector('.scan-tabs__strip');
-    if (!strip) return;
-    const btns = strip.querySelectorAll('.scan-tabs__btn');
-    const panels = document.querySelectorAll('.scan-tabs__panel');
-    btns.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        btns.forEach((b) => {
-          const on = b === btn;
-          b.classList.toggle('active', on);
-          b.setAttribute('aria-selected', on ? 'true' : 'false');
-        });
-        panels.forEach((p) => {
-          p.hidden = p.dataset.panel !== tab;
-        });
+    function select(tab, focus) {
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
       });
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+      if (focus) tab.focus();
+      tab.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+    }
+
+    tabs.forEach((tab) => tab.addEventListener('click', () => select(tab, false)));
+    list.addEventListener('keydown', (e) => {
+      const i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      let next = null;
+      if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
+      else if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
+      else if (e.key === 'Home') next = tabs[0];
+      else if (e.key === 'End') next = tabs[tabs.length - 1];
+      if (!next) return;
+      e.preventDefault();
+      select(next, true);
     });
   })();
 
-  // ========== Login Modal ==========
+  // ========== Модалка входа, регистрации и восстановления ==========
 
   const loginModal = document.getElementById('login-modal');
   const loginOpenBtn = document.getElementById('btn-login-open');
@@ -520,28 +612,25 @@
   const loginPassword = document.getElementById('login-password');
   const loginSubmit = document.getElementById('login-submit');
   const loginError = document.getElementById('login-error');
+  let lastFocus = null;
 
-  // Tab switching inside the modal — login | register | recover | mail-sent
-  // Top-tabs подсвечиваются только для login/register. Остальные state'ы
-  // (recover, mail-sent) — оверлей-режимы внутри модалки, без активной табы.
+  // Вкладки login | register | recover | mail-sent. Верхние табы подсвечиваются
+  // только для login/register; recover и mail-sent — режимы внутри модалки.
   const VALID_VIEWS = ['login', 'register', 'recover', 'mail-sent'];
   function switchModalTab(mode) {
     if (!loginModal) return;
     const target = VALID_VIEWS.includes(mode) ? mode : 'login';
     loginModal.setAttribute('data-mode', target);
     loginModal.querySelectorAll('.login-modal__tabs button[role="tab"]').forEach((btn) => {
-      const isActive = btn.dataset.tab === target;
-      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      btn.setAttribute('aria-selected', btn.dataset.tab === target ? 'true' : 'false');
     });
     loginModal.querySelectorAll('.login-modal__view').forEach((view) => {
       view.hidden = view.dataset.view !== target;
     });
-    // clear any stale errors when switching
     ['login-error', 'register-error', 'recover-error'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) { el.hidden = true; el.textContent = ''; }
     });
-    // focus first empty input in the target view
     setTimeout(() => {
       const view = loginModal.querySelector(`[data-view="${target}"]`);
       const first = view && view.querySelector('input');
@@ -551,6 +640,8 @@
 
   function openLogin(mode) {
     if (!loginModal) return;
+    if (isMenuOpen()) closeMobileMenu(false);
+    if (!loginModal.classList.contains('open')) lastFocus = document.activeElement;
     loginModal.classList.add('open');
     loginModal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('login-open');
@@ -559,7 +650,7 @@
     if (savedUser && loginUsername) loginUsername.value = savedUser;
     setTimeout(() => {
       const target = (loginUsername && !loginUsername.value) ? loginUsername : loginPassword;
-      if (target && mode !== 'register') target.focus();
+      if (target && (mode || 'login') === 'login') target.focus();
     }, 50);
     if (loginError) {
       loginError.hidden = true;
@@ -572,18 +663,19 @@
     loginModal.classList.remove('open');
     loginModal.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('login-open');
+    if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus({ preventScroll: true });
   }
 
   if (loginOpenBtn) {
     loginOpenBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      openLogin();
+      openLogin('login');
     });
   }
 
-  // Dashboard / pricing redirects un-authed users here with ?login=1 (or
-  // ?login=1&mode=register для CTA «Создать аккаунт»). Авто-открываем модалку
-  // нужной табы и чистим query чтобы reload её не дёргал.
+  // Кабинет и тарифы отправляют сюда без ключа с ?login=1 (или
+  // ?login=1&mode=register для «Создать аккаунт»). Открываем нужную вкладку
+  // и чистим query, чтобы перезагрузка её не дёргала.
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.get('login') === '1' && !readApiKey()) {
@@ -604,23 +696,17 @@
     }
   } catch { /* URL API edge cases, не критично */ }
 
-  // Close on backdrop / close-button / hint-link click
   document.querySelectorAll('[data-close-login]').forEach((el) => {
     el.addEventListener('click', (e) => {
-      // Allow anchor-based hint link (#pricing) to scroll after closing
       closeLogin();
       if (el.tagName !== 'A') e.preventDefault();
     });
   });
 
-  // Escape to close
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && loginModal && loginModal.classList.contains('open')) {
-      closeLogin();
-    }
+    if (e.key === 'Escape' && loginModal && loginModal.classList.contains('open')) closeLogin();
   });
 
-  // Tab buttons + inline «Зарегистрироваться / Войти» switch links
   document.querySelectorAll('.login-modal__tabs button[role="tab"]').forEach((btn) => {
     btn.addEventListener('click', () => switchModalTab(btn.dataset.tab));
   });
@@ -631,8 +717,7 @@
     });
   });
 
-  // Eye-toggle: показать/скрыть пароль на всех `data-toggle-password` кнопках.
-  // Переключает type input'а и подменяет SVG (открытый глаз ↔ перечёркнутый).
+  // Показать/скрыть пароль: меняет type поля и иконку глаза.
   document.querySelectorAll('[data-toggle-password]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const target = document.getElementById(btn.getAttribute('data-toggle-password'));
@@ -642,33 +727,36 @@
       btn.setAttribute('aria-label', showing ? 'Показать пароль' : 'Скрыть пароль');
       const eye = btn.querySelector('.ico-eye');
       const eyeOff = btn.querySelector('.ico-eye-off');
-      if (eye) eye.style.display = showing ? '' : 'none';
-      if (eyeOff) eyeOff.style.display = showing ? 'none' : '';
+      if (eye) eye.hidden = !showing;
+      if (eyeOff) eyeOff.hidden = showing;
     });
   });
 
-  // Eye-toggle оставлен выше для login-формы (поле пароля).
-  // На регистрации/recover паролей нет — пользователь получит их в письме.
+  function showModalError(el, message) {
+    if (!el) return;
+    el.textContent = message;
+    el.hidden = !message;
+  }
 
-  // === Register form submission — email-only flow ===
-  // Сервер `/api/auth/register-email` сам генерит username/password/magic-token
-  // и отправляет welcome-email. Здесь мы только показываем mail-sent state с
-  // подставленным email. Никакого auto-login: пользователь должен пройти
-  // через email чтобы доказать что адрес рабочий.
+  // Регистрация в модалке — тот же поток, что у форм на странице.
   const registerForm = document.getElementById('register-form');
   const registerError = document.getElementById('register-error');
   const registerSubmit = document.getElementById('register-submit');
   if (registerForm) {
     registerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email = (document.getElementById('register-email').value || '').trim();
-      if (!email) return;
-
+      const input = document.getElementById('register-email');
+      const email = (input.value || '').trim();
+      const problem = emailProblem(email);
+      if (problem) {
+        showModalError(registerError, problem);
+        input.focus();
+        return;
+      }
       registerSubmit.disabled = true;
-      const originalLabel = registerSubmit.textContent;
+      const idleLabel = registerSubmit.textContent;
       registerSubmit.textContent = 'Отправляем письмо…';
-      registerError.hidden = true;
-
+      showModalError(registerError, '');
       try {
         const resp = await fetch('/api/auth/register-email', {
           method: 'POST',
@@ -677,75 +765,66 @@
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          registerError.textContent = data.error || `Сервер вернул ошибку (${resp.status}).`;
-          registerError.hidden = false;
+          showModalError(registerError, data.error || `Не получилось отправить письмо: сервер ответил ${resp.status}.`);
           return;
         }
-        // Чистим возможные старые «done» флаги от прошлых аккаунтов в этом
-        // браузере, чтобы wizard точно открылся когда пользователь перейдёт
-        // по magic-ссылке из письма.
-        localStorage.removeItem('sf-onboarding-done');
-        localStorage.removeItem('sf-onboarding-sber-skip');
-        localStorage.removeItem('sf-onboarding-1c-ok');
+        clearOnboardingFlags();
         showMailSentView(email, 'register');
       } catch (err) {
-        registerError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
-        registerError.hidden = false;
+        showModalError(registerError, 'Нет связи с сервером. Проверьте интернет и отправьте ещё раз.');
       } finally {
         registerSubmit.disabled = false;
-        registerSubmit.textContent = originalLabel;
+        registerSubmit.textContent = idleLabel;
       }
     });
   }
 
-  // === Recover form submission ===
-  // Анти-enumeration: сервер всегда отвечает 200 — мы показываем тот же
-  // mail-sent state даже если email не зарегистрирован.
+  // Восстановление: сервер всегда отвечает 200 (защита от перебора адресов),
+  // поэтому экран «письмо отправлено» показываем и для незнакомого email.
   const recoverForm = document.getElementById('recover-form');
   const recoverError = document.getElementById('recover-error');
   const recoverSubmit = document.getElementById('recover-submit');
   if (recoverForm) {
     recoverForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email = (document.getElementById('recover-email').value || '').trim();
-      if (!email) return;
-
+      const input = document.getElementById('recover-email');
+      const email = (input.value || '').trim();
+      const problem = emailProblem(email);
+      if (problem) {
+        showModalError(recoverError, problem);
+        input.focus();
+        return;
+      }
       recoverSubmit.disabled = true;
-      const originalLabel = recoverSubmit.textContent;
+      const idleLabel = recoverSubmit.textContent;
       recoverSubmit.textContent = 'Отправляем…';
-      recoverError.hidden = true;
-
+      showModalError(recoverError, '');
       try {
         const resp = await fetch('/api/auth/recover', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email }),
         });
-        // Не показываем error даже на 400 (только если 5xx) — анти-enum.
         if (resp.status >= 500) {
-          recoverError.textContent = 'Сервис временно недоступен. Попробуйте позже.';
-          recoverError.hidden = false;
+          showModalError(recoverError, 'Сервис временно недоступен. Попробуйте через несколько минут.');
           return;
         }
         if (resp.status === 400) {
           const data = await resp.json().catch(() => ({}));
-          recoverError.textContent = data.error || 'Проверьте формат email';
-          recoverError.hidden = false;
+          showModalError(recoverError, data.error || 'Проверьте формат email.');
           return;
         }
         showMailSentView(email, 'recover');
       } catch (err) {
-        recoverError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
-        recoverError.hidden = false;
+        showModalError(recoverError, 'Нет связи с сервером. Проверьте интернет и отправьте ещё раз.');
       } finally {
         recoverSubmit.disabled = false;
-        recoverSubmit.textContent = originalLabel;
+        recoverSubmit.textContent = idleLabel;
       }
     });
   }
 
-  // Показывает финальную страницу «письмо отправлено» с email-ом из формы
-  // и подменяет заголовок под контекст (welcome vs recover).
+  // Экран «письмо отправлено» с адресом из формы; заголовок под контекст.
   function showMailSentView(email, kind) {
     const title = document.getElementById('mail-sent-title');
     const emailSpan = document.getElementById('mail-sent-email');
@@ -759,12 +838,14 @@
       e.preventDefault();
       const username = (loginUsername.value || '').trim();
       const password = loginPassword.value || '';
-      if (!username || !password) return;
-
+      if (!username || !password) {
+        showModalError(loginError, !username ? 'Введите логин из письма.' : 'Введите пароль.');
+        (!username ? loginUsername : loginPassword).focus();
+        return;
+      }
       loginSubmit.disabled = true;
       loginSubmit.textContent = 'Проверяем…';
-      loginError.hidden = true;
-
+      showModalError(loginError, '');
       try {
         const resp = await fetch('/api/auth/login', {
           method: 'POST',
@@ -773,13 +854,11 @@
         });
         const data = await resp.json().catch(() => ({}));
         if (resp.status === 401) {
-          loginError.textContent = data.error || 'Неверный логин или пароль.';
-          loginError.hidden = false;
+          showModalError(loginError, data.error || 'Неверный логин или пароль.');
           return;
         }
         if (!resp.ok || !data.apiKey) {
-          loginError.textContent = data.error || `Сервер вернул ошибку (${resp.status}).`;
-          loginError.hidden = false;
+          showModalError(loginError, data.error || `Не получилось войти: сервер ответил ${resp.status}.`);
           return;
         }
         localStorage.setItem('apiKey', data.apiKey);
@@ -788,8 +867,7 @@
         applyAuthState();
         window.location.href = '/app.html';
       } catch (err) {
-        loginError.textContent = 'Не удалось связаться с сервером. Проверьте интернет.';
-        loginError.hidden = false;
+        showModalError(loginError, 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.');
       } finally {
         loginSubmit.disabled = false;
         loginSubmit.textContent = 'Войти';
@@ -797,10 +875,9 @@
     });
   }
 
-  // ========== Theme — как в системе пользователя (prefers-color-scheme) ==========
-  // Начальное значение ставит inline-скрипт в <head> (без мигания). Здесь —
-  // реакция на смену темы в системе без перезагрузки. Раньше тема шла по часам
-  // (с 19:00 до 7:00 — тёмная для всех), независимо от настроек пользователя.
+  // ========== Тема — как в системе пользователя (prefers-color-scheme) ==========
+  // Начальное значение ставит инлайн-скрипт в <head> (без мигания). Здесь —
+  // реакция на смену темы в системе без перезагрузки.
   (function setupSystemTheme() {
     const root = document.documentElement;
     const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -810,7 +887,7 @@
     apply();
     if (media && media.addEventListener) media.addEventListener('change', apply);
 
-    // One-time cleanup: legacy 'sf-theme' localStorage key from the old toggle.
+    // Разовая уборка: ключ 'sf-theme' от старого переключателя темы.
     try { localStorage.removeItem('sf-theme'); } catch (_) { /* ignore */ }
   })();
 
@@ -821,82 +898,72 @@
     if (!demo) return;
     const cta = document.getElementById('mapping-cta');
     const counterEl = document.getElementById('mapping-counter-num');
+    const label = cta ? cta.querySelector('.mapping-demo__cta-label') : null;
     const rows = Array.from(demo.querySelectorAll('.mapping-demo__row:not(.mapping-demo__row--head)'));
     const total = rows.length;
     const initiallyMatched = rows.filter((r) => r.dataset.matched === '1').length;
-
     let animating = false;
+
+    // Исходное состояние строк — чтобы демо можно было повторить.
+    rows.forEach((r) => r.setAttribute('data-original-matched', r.dataset.matched));
 
     function reset() {
       demo.classList.remove('is-matched', 'is-running');
-      rows.forEach((r, i) => {
-        // первая строка стартует уже сопоставленной — это нормально, fuzzy сработал.
-        // 0-я row (index) — это первая позиция; ее матч-статус определяется data-matched в HTML.
-        // Здесь восстанавливаем оригинальное состояние.
-        const original = r.getAttribute('data-original-matched') ?? r.dataset.matched;
-        r.dataset.matched = original;
-      });
+      rows.forEach((r) => { r.dataset.matched = r.getAttribute('data-original-matched'); });
       counterEl.textContent = String(initiallyMatched);
-      const label = cta.querySelector('.mapping-demo__cta-label');
       if (label) label.textContent = 'Подобрать из 1С';
     }
-
-    // Сохраняем исходное значение data-matched чтобы можно было сбросить демо после реплея.
-    rows.forEach((r) => r.setAttribute('data-original-matched', r.dataset.matched));
 
     function runDemo() {
       if (animating) return;
       animating = true;
-
-      // Если уже сопоставлено — это replay: сбрасываем, ждём один кадр, запускаем заново.
       if (demo.classList.contains('is-matched')) {
         reset();
-        // Force reflow so the transitions replay cleanly.
         void demo.offsetWidth;
       }
-
       demo.classList.add('is-running');
+      cta.setAttribute('aria-busy', 'true');
+      if (label) label.textContent = 'Подбираем…';
 
-      // Стадия 1: «обращение к ИИ» — 700 мс показываем спиннер
+      // Стадия 1: «ИИ смотрит в справочник» — скелетоны вместо результата.
       setTimeout(() => {
         demo.classList.remove('is-running');
         demo.classList.add('is-matched');
+        cta.removeAttribute('aria-busy');
 
-        // Стадия 2: строки переключаются последовательно (волной), счётчик растёт
-        const stagger = 120;
+        // Стадия 2: строки находят пары по очереди, счётчик растёт.
+        const stagger = 140;
         let matched = initiallyMatched;
         counterEl.textContent = String(matched);
-
+        let step = 0;
         rows.forEach((r) => {
-          if (r.dataset.matched === '1') return; // уже было сопоставлено
+          if (r.dataset.matched === '1') return;
+          step += 1;
           setTimeout(() => {
             r.dataset.matched = '1';
             matched += 1;
             counterEl.textContent = String(matched);
-          }, matched * stagger - initiallyMatched * stagger);
+          }, step * stagger);
         });
 
-        // По завершении: смена надписи кнопки + разблокировка
         setTimeout(() => {
-          const label = cta.querySelector('.mapping-demo__cta-label');
-          if (label) label.textContent = 'Сопоставлено · повторить';
+          if (label) label.textContent = 'Подобрано, повторить';
           animating = false;
         }, (total - initiallyMatched) * stagger + 400);
-      }, 700);
+      }, reduceMotion.matches ? 200 : 900);
     }
 
     cta.addEventListener('click', runDemo);
 
-    // Авто-запуск один раз когда блок попадает во вьюпорт — чтобы пользователь
-    // увидел «магию» без необходимости куда-то жать. Запоминаем что уже играли,
-    // чтобы скролл туда-сюда не дёргал заново.
+    // Один автозапуск, когда блок попадает на экран: сначала даём
+    // рассмотреть исходные строки, потом подбираем.
+    if (!hasIO) return;
     let autoplayed = false;
     const io = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (!entry.isIntersecting || autoplayed) return;
         autoplayed = true;
         io.unobserve(entry.target);
-        // Дать секцию рассмотреть в исходном виде, потом запустить.
         setTimeout(runDemo, 900);
       });
     }, { threshold: 0.35 });

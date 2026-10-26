@@ -32,7 +32,7 @@
 .blog-hero h1 {
   font-family: var(--font-display);
   font-size: clamp(36px, 6vw, 64px);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.02;
   letter-spacing: -0.03em;
   margin-bottom: 18px;
@@ -217,7 +217,7 @@
 .article-hero h1 {
   font-family: var(--font-display);
   font-size: clamp(32px, 5.5vw, 64px);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.06;
   letter-spacing: -0.025em;
   margin-bottom: 24px;
@@ -225,7 +225,7 @@
   overflow-wrap: break-word;
 }
 
-/* «Автоматическое», «Автозаполнение» в Unbounded при 32px шире экрана 360px. */
+/* «Автоматическое», «Автозаполнение» крупным кеглем при 32px шире экрана 360px. */
 @media (max-width: 420px) {
   .article-hero h1 { font-size: clamp(24px, 8vw, 32px); }
 }
@@ -451,7 +451,7 @@
   padding-left: 18px;
   margin: 1.4em 0;
   color: var(--text-dim);
-  font-style: italic;
+  font-style: normal;
 }
 
 .article-prose img { max-width: 100%; height: auto; border-radius: var(--radius); }
@@ -462,7 +462,7 @@
   color: var(--text-muted);
   text-align: center;
   margin-top: 8px;
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Callouts */
@@ -520,7 +520,7 @@
 }
 
 .article-cta {
-  background: linear-gradient(135deg, rgba(35,131,226,0.08), rgba(68,131,97,0.06));
+  background: var(--bg-surface);
   border: 1px solid var(--border-lit);
   border-radius: var(--radius-lg);
   padding: 32px 36px;
@@ -605,12 +605,12 @@
   gap: 16px;
   margin: 24px 0 32px;
   padding: 18px 22px;
-  background: linear-gradient(90deg, rgba(68,131,97,0.10), rgba(35,131,226,0.10));
+  background: var(--accent-soft);
   border: 1px solid rgba(68,131,97,0.35);
   border-radius: 12px;
 }
 [data-theme="light"] .compare-bottom-line {
-  background: linear-gradient(90deg, rgba(68,131,97,0.10), rgba(35,131,226,0.08));
+  background: var(--accent-soft);
 }
 .compare-bottom-line__icon {
   font-size: 32px;
@@ -688,7 +688,7 @@
 .cmp-mid { color: var(--accent-orange); font-size: 17px; font-weight: 700; }
 .cmp-no { color: var(--text-muted); font-size: 17px; }
 .compare-matrix tr.compare-matrix__us td {
-  background: linear-gradient(90deg, rgba(68,131,97,0.10), rgba(35,131,226,0.10));
+  background: var(--accent-soft);
   font-weight: 700;
 }
 .compare-matrix tr.compare-matrix__us td:first-child { color: var(--accent-green); }
@@ -795,13 +795,13 @@
 /* ScanFlow card highlighted */
 .compare-card--us {
   grid-column: 1 / -1;
-  background: linear-gradient(135deg, rgba(68,131,97,0.08) 0%, rgba(35,131,226,0.08) 100%);
+  background: var(--accent-soft);
   border: 1px solid rgba(68,131,97,0.40);
   padding: 22px 24px;
 }
 .compare-card__num--us {
   width: 36px; height: 36px;
-  background: linear-gradient(135deg, #2383e2, #1a72c9);
+  background: var(--accent);
   color: #fff;
   font-size: 16px;
 }
@@ -810,7 +810,7 @@
   font-size: 17px;
 }
 .compare-card__price--us {
-  background: linear-gradient(135deg, #2383e2, #1a72c9);
+  background: var(--accent);
   color: #fff;
   border-color: transparent;
   font-size: 12.5px;
@@ -900,11 +900,11 @@
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #2383e2, #1a72c9);
+  background: var(--accent);
   color: #fff;
   font-family: var(--font-display);
   font-size: 17px;
-  font-weight: 800;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
