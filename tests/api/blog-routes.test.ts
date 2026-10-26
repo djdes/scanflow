@@ -95,6 +95,25 @@ describe('Site icons', () => {
   });
 });
 
+describe('Landing media', () => {
+  // Запись кабинета на главной (#cabinet): видео и постер — настоящие файлы,
+  // а не HTML главной или 404 (правило 37).
+  it.each([
+    ['/video/cabinet-demo.mp4', /video\/mp4/],
+    ['/video/cabinet-demo-poster.jpg', /image\/jpeg/],
+  ])('GET %s is a real file', async (url, type) => {
+    const res = await request(app).get(url);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(type);
+  });
+
+  it('the landing references both files', async () => {
+    const res = await request(app).get('/');
+    expect(res.text).toContain('src="/video/cabinet-demo.mp4"');
+    expect(res.text).toContain('poster="/video/cabinet-demo-poster.jpg"');
+  });
+});
+
 describe('Self-hosted fonts', () => {
   // Шрифты сайта — с нашего домена, не из Google Fonts (правило 35).
   it('serves woff2 with a year-long immutable cache', async () => {

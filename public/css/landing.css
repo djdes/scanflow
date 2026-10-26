@@ -2861,6 +2861,132 @@ main > .tagline { padding-block: var(--s-800) var(--s-900); }
   font-weight: 600;
 }
 
+/* ========== Запись кабинета ========== */
+
+.cabinet__body {
+  display: grid;
+  grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  gap: var(--s-400);
+  align-items: start;
+}
+
+.cabinet__frame {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2xl);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.cabinet__video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Светлая запись на тёмной странице чуть приглушена, чтобы не слепила. */
+[data-theme="dark"] .cabinet__video { filter: brightness(0.92); }
+
+.cabinet__play {
+  position: absolute;
+  left: var(--s-200);
+  bottom: var(--s-200);
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-full);
+  background: rgba(23, 23, 23, 0.72);
+  color: #ffffff;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background-color var(--transition), transform var(--dur-move) var(--ease);
+}
+
+.cabinet__play:hover { background: rgba(23, 23, 23, 0.88); }
+.cabinet__play:active { transform: scale(0.94); }
+.cabinet__play svg { width: 18px; height: 18px; }
+.cabinet__icon-pause,
+.cabinet__body.is-playing .cabinet__icon-play { display: none; }
+.cabinet__body.is-playing .cabinet__icon-pause { display: block; }
+
+.cabinet__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(23, 23, 23, 0.08);
+}
+
+.cabinet__progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 250ms linear;
+}
+
+.cabinet__chapters {
+  display: grid;
+  gap: var(--s-50);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: chapter;
+}
+
+.cabinet__chapters button {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: var(--s-100);
+  row-gap: var(--s-25);
+  width: 100%;
+  padding: var(--s-200);
+  border: 1px solid transparent;
+  border-radius: var(--r-xl);
+  color: var(--text-dim);
+  text-align: left;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.cabinet__chapters button::before {
+  counter-increment: chapter;
+  content: counter(chapter, decimal-leading-zero);
+  grid-row: span 2;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 24px;
+  transition: color var(--transition);
+}
+
+.cabinet__chapters b {
+  color: var(--text);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+
+.cabinet__chapters span {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.cabinet__chapters button:hover { background: var(--surface-tint); }
+
+.cabinet__chapters button.is-current {
+  border-color: var(--border);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.cabinet__chapters button.is-current::before { color: var(--accent-text); }
+
 /* ========== Калькулятор экономии ========== */
 
 .calc {
@@ -3898,6 +4024,8 @@ body.login-open { overflow: hidden; }
 }
 
 @media (max-width: 960px) {
+  .cabinet__body { grid-template-columns: minmax(0, 1fr); gap: var(--s-200); }
+  .cabinet__chapters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .calc { grid-template-columns: minmax(0, 1fr); }
   .calc__result { border-left: 0; border-top: 1px solid var(--border); }
 }
@@ -4135,6 +4263,8 @@ body.login-open { overflow: hidden; }
   .signup__error,
   .signup__legal { padding-left: var(--s-100); }
   .result__run { flex-basis: 100%; margin-left: 0; }
+  .cabinet__chapters { grid-template-columns: minmax(0, 1fr); }
+  .cabinet__frame { border-radius: var(--r-xl); }
   .hero__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-200); }
   .hero__facts b { font-size: 18px; line-height: 28px; }
   .hero__facts span { font-size: 12px; line-height: 16px; }
