@@ -448,6 +448,42 @@
       </div>
     </section>
 
+    <!-- ========== КАБИНЕТ ИЗНУТРИ ==========
+         Запись настоящего кабинета на вымышленных данных (накладная № 2841,
+         «Зелёный ряд» — как в примерах выше), без ускорения. Видео грузится и
+         играет, только пока секция на экране (landing.js, initCabinetVideo). -->
+    <section class="cabinet" id="cabinet" aria-labelledby="cabinet-title">
+      <div class="container">
+        <header class="section-head" data-animate>
+          <p class="eyebrow">Кабинет</p>
+          <h2 class="section-title" id="cabinet-title">Сверка со&nbsp;сканом и&nbsp;отправка в&nbsp;1С</h2>
+          <p class="section-sub">Запись настоящего кабинета на&nbsp;вымышленных данных, без ускорения. Распознавание уже прошло, дальше работа человека: открыть накладную, сверить реквизиты со&nbsp;сканом и&nbsp;отправить в&nbsp;1С.</p>
+        </header>
+
+        <div class="cabinet__body" data-cabinet-video data-animate>
+          <div class="cabinet__frame">
+            <video class="cabinet__video" muted playsinline loop preload="none" width="1280" height="800"
+                   poster="/video/cabinet-demo-poster.jpg"
+                   aria-label="Запись кабинета ScanFlow: накладная № 2841 открывается из списка, шесть реквизитов сверяются со сканом, накладная уходит в очередь 1С">
+              <source src="/video/cabinet-demo.mp4" type="video/mp4">
+            </video>
+            <button type="button" class="cabinet__play" data-video-toggle aria-label="Смотреть запись">
+              <svg class="cabinet__icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a.5.5 0 0 0 .76.43l10.4-6.5a.5.5 0 0 0 0-.86L8.76 5.07A.5.5 0 0 0 8 5.5Z" fill="currentColor"/></svg>
+              <svg class="cabinet__icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+            </button>
+            <span class="cabinet__progress" aria-hidden="true"><span></span></span>
+          </div>
+
+          <ol class="cabinet__chapters" aria-label="Что происходит в записи">
+            <li><button type="button" data-at="0"><b>Открыть накладную</b><span>Список за&nbsp;день: номер, поставщик, сумма и&nbsp;где документ на&nbsp;пути в&nbsp;1С.</span></button></li>
+            <li><button type="button" data-at="3.3"><b>Сверить со&nbsp;сканом</b><span>Скан рядом с&nbsp;реквизитами. «Совпадает» отмечает реквизит и&nbsp;ведёт к&nbsp;следующему.</span></button></li>
+            <li><button type="button" data-at="21.3"><b>Отправить в&nbsp;1С</b><span>Накладная встаёт в&nbsp;очередь, обработка в&nbsp;1С заберёт её&nbsp;сама.</span></button></li>
+            <li><button type="button" data-at="28.2"><b>Проверить в&nbsp;списке</b><span>Статус «В&nbsp;очереди» держится до&nbsp;загрузки в&nbsp;1С.</span></button></li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
     <!-- ========== ВОЗМОЖНОСТИ (бенто с живыми визуалами) ========== -->
     <section class="features" id="features" aria-labelledby="features-title">
       <div class="container">

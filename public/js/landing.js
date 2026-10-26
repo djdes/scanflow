@@ -387,6 +387,74 @@
     });
   })();
 
+  // ========== Запись кабинета ==========
+  // Видео (≈650 КБ) начинает грузиться, только когда секция на экране, играет,
+  // пока она видна, и встаёт на паузу вне экрана и в фоновой вкладке. При
+  // prefers-reduced-motion само не стартует — только по кнопке или главе.
+  (function initCabinetVideo() {
+    const root = document.querySelector('[data-cabinet-video]');
+    if (!root) return;
+    const video = root.querySelector('video');
+    const toggle = root.querySelector('[data-video-toggle]');
+    const bar = root.querySelector('.cabinet__progress span');
+    const chapters = Array.from(root.querySelectorAll('[data-at]'));
+    if (!video || !toggle) return;
+    let userPaused = reduceMotion.matches;
+    let visible = false;
+    let started = false;
+
+    function play() {
+      video.preload = 'auto';
+      const pending = video.play();
+      if (pending && pending.catch) pending.catch(() => { /* автозапуск запрещён — ждём кнопку */ });
+      if (!started) { started = true; track('video_play'); }
+    }
+
+    function setPlaying(on) {
+      root.classList.toggle('is-playing', on);
+      toggle.setAttribute('aria-label', on ? 'Пауза' : 'Смотреть запись');
+    }
+
+    video.addEventListener('play', () => setPlaying(true));
+    video.addEventListener('pause', () => setPlaying(false));
+    video.addEventListener('timeupdate', () => {
+      const t = video.currentTime;
+      if (bar && video.duration) bar.style.transform = `scaleX(${t / video.duration})`;
+      let current = 0;
+      chapters.forEach((c, i) => { if (t >= Number(c.dataset.at)) current = i; });
+      chapters.forEach((c, i) => {
+        c.classList.toggle('is-current', i === current);
+        if (i === current) c.setAttribute('aria-current', 'step'); else c.removeAttribute('aria-current');
+      });
+    });
+
+    toggle.addEventListener('click', () => {
+      if (video.paused) { userPaused = false; play(); } else { userPaused = true; video.pause(); }
+    });
+
+    chapters.forEach((c) => c.addEventListener('click', () => {
+      const seek = () => { video.currentTime = Number(c.dataset.at); };
+      userPaused = false;
+      video.preload = 'auto';
+      if (video.readyState >= 1) seek(); else video.addEventListener('loadedmetadata', seek, { once: true });
+      play();
+    }));
+
+    if (hasIO) {
+      new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          visible = entry.isIntersecting;
+          if (visible && !userPaused) play();
+          else if (!visible && !video.paused) video.pause();
+        });
+      }, { threshold: 0.35 }).observe(video);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) video.pause();
+      else if (visible && !userPaused) play();
+    });
+  })();
+
   // ========== Калькулятор экономии ==========
   // Оценка по цифрам посетителя. Допущения те же, что в «Как считаем» под
   // ползунками: меняете число здесь — меняйте и текст там.
