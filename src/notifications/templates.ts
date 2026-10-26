@@ -44,7 +44,7 @@ function invoiceHeaderHtml(p: EventPayload, baseUrl: string): string {
   const supplier = p.supplier ? escapeHtml(String(p.supplier)) : '—';
   const link = `${baseUrl}/app.html#/invoices/${p.invoice_id}`;
   return `
-    <p style="margin:0 0 8px"><b>Накладная:</b> <a href="${link}" style="color:#2563eb">№ ${num}</a></p>
+    <p style="margin:0 0 8px"><b>Накладная:</b> <a href="${link}" style="color:#1a6ed8">№ ${num}</a></p>
     <p style="margin:0 0 8px"><b>Поставщик:</b> ${supplier}</p>
     <p style="margin:0 0 8px"><b>Сумма:</b> ${fmtMoney(p.total_sum as number | null | undefined)}</p>
   `;
@@ -77,18 +77,18 @@ export function renderRealtime(eventType: EventType, payload: EventPayload, base
       const dev = Math.round(it.deviation_pct);
       const color = it.deviation_pct > 50 ? '#b91c1c' : it.deviation_pct > 25 ? '#c2410c' : '#b45309';
       return `<tr>
-        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7">${escapeHtml(it.name)}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7;text-align:right;white-space:nowrap">${fmtMoney(it.price)}${unit}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7;text-align:right;white-space:nowrap;color:#64748b">${fmtMoney(it.median_price)}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eef2f7;text-align:right;font-weight:700;color:${color}">+${dev}%</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #e8e8e8">${escapeHtml(it.name)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:right;white-space:nowrap">${fmtMoney(it.price)}${unit}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:right;white-space:nowrap;color:#737373">${fmtMoney(it.median_price)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:right;font-weight:700;color:${color}">+${dev}%</td>
       </tr>`;
     }).join('');
-    const more = items.length > sorted.length ? `<p style="margin:6px 0 0;font-size:12px;color:#94a3b8">… и ещё ${items.length - sorted.length}</p>` : '';
+    const more = items.length > sorted.length ? `<p style="margin:6px 0 0;font-size:12px;color:#737373">… и ещё ${items.length - sorted.length}</p>` : '';
     extra = `
       <p style="margin:12px 0 6px;color:#b45309"><b>Найдено ${items.length} ${pluralRu(items.length, 'позиция', 'позиции', 'позиций')} дороже обычного:</b></p>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e8e8e8;border-radius:8px;overflow:hidden">
         <thead>
-          <tr style="background:#f8fafc;color:#64748b;text-transform:uppercase;font-size:11px;letter-spacing:0.4px">
+          <tr style="background:#f4f4f4;color:#737373;text-transform:uppercase;font-size:11px;letter-spacing:0.4px">
             <th style="padding:8px 10px;text-align:left">Товар</th>
             <th style="padding:8px 10px;text-align:right">Цена</th>
             <th style="padding:8px 10px;text-align:right">Обычно</th>
@@ -101,10 +101,10 @@ export function renderRealtime(eventType: EventType, payload: EventPayload, base
 
   const html = `
     <div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px">
-      <h3 style="color:#0f172a;margin:0 0 12px">${label}</h3>
+      <h3 style="color:#171717;margin:0 0 12px">${label}</h3>
       ${headerHtml}
       ${extra}
-      <p style="color:#94a3b8;font-size:12px;margin-top:16px">ScanFlow · ${new Date().toLocaleString('ru-RU')}</p>
+      <p style="color:#737373;font-size:12px;margin-top:16px">ScanFlow · ${new Date().toLocaleString('ru-RU')}</p>
     </div>
   `;
   return { subject: label, html };
@@ -119,23 +119,23 @@ const BATCH_EMAIL_MAX_ROWS = 50;
 
 /** Письмо-сводка пакетной загрузки (п.19) — пара к Telegram-сводке, одно на пачку. */
 export function renderBatchSummary(s: BatchSummary, baseUrl = 'https://scanflow.ru'): RenderedEmail {
-  const td = 'padding:6px 10px;border-bottom:1px solid #eef2f7';
+  const td = 'padding:6px 10px;border-bottom:1px solid #e8e8e8';
   const rows = s.invoices.slice(0, BATCH_EMAIL_MAX_ROWS).map(inv => {
     const link = `${baseUrl}/app.html#/invoices/${inv.id}`;
     const flags = inv.flags.map(f => BATCH_FLAG_LABELS[f]).join(', ');
     return `<tr>
-        <td style="${td};white-space:nowrap"><a href="${link}" style="color:#2563eb">${escapeHtml(batchInvoiceLabel(inv))}</a></td>
+        <td style="${td};white-space:nowrap"><a href="${link}" style="color:#1a6ed8">${escapeHtml(batchInvoiceLabel(inv))}</a></td>
         <td style="${td}">${inv.supplier ? escapeHtml(inv.supplier) : '—'}</td>
         <td style="${td};color:#b45309">${escapeHtml(flags)}</td>
       </tr>`;
   }).join('');
   const more = s.invoices.length > BATCH_EMAIL_MAX_ROWS
-    ? `<p style="margin:6px 0 0;font-size:12px;color:#94a3b8">… и ещё ${s.invoices.length - BATCH_EMAIL_MAX_ROWS}</p>`
+    ? `<p style="margin:6px 0 0;font-size:12px;color:#737373">… и ещё ${s.invoices.length - BATCH_EMAIL_MAX_ROWS}</p>`
     : '';
   const table = rows ? `
-      <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e2e8f0">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e8e8e8">
         <thead>
-          <tr style="background:#f8fafc;color:#64748b;text-transform:uppercase;font-size:11px;letter-spacing:0.4px">
+          <tr style="background:#f4f4f4;color:#737373;text-transform:uppercase;font-size:11px;letter-spacing:0.4px">
             <th style="padding:8px 10px;text-align:left">Накладная</th>
             <th style="padding:8px 10px;text-align:left">Поставщик</th>
             <th style="padding:8px 10px;text-align:left">Внимание</th>
@@ -145,10 +145,10 @@ export function renderBatchSummary(s: BatchSummary, baseUrl = 'https://scanflow.
       </table>${more}` : '';
   const html = `
     <div style="font-family:system-ui,-apple-system,sans-serif;max-width:640px">
-      <h3 style="color:#0f172a;margin:0 0 12px">Пакетная загрузка</h3>
+      <h3 style="color:#171717;margin:0 0 12px">Пакетная загрузка</h3>
       <p style="margin:0 0 12px">${escapeHtml(batchHeadline(s))}</p>
       ${table}
-      <p style="color:#94a3b8;font-size:12px;margin-top:16px">Уведомления по этим накладным собраны в одну сводку. ScanFlow · ${new Date().toLocaleString('ru-RU')}</p>
+      <p style="color:#737373;font-size:12px;margin-top:16px">Уведомления по этим накладным собраны в одну сводку. ScanFlow · ${new Date().toLocaleString('ru-RU')}</p>
     </div>
   `;
   return { subject: `Пакетная загрузка: ${s.uploaded} фото`, html };
@@ -172,16 +172,16 @@ export function renderDigest(groups: DigestGroup[], baseUrl = 'https://scanflow.
       const link = `${baseUrl}/app.html#/invoices/${ev.payload.invoice_id}`;
       return `
         <tr>
-          <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><a href="${link}" style="color:#2563eb">${num}</a></td>
-          <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${supplier}</td>
-          <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right">${fmtMoney(ev.payload.total_sum as number | null | undefined)}</td>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e8e8"><a href="${link}" style="color:#1a6ed8">${num}</a></td>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e8e8">${supplier}</td>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e8e8;text-align:right">${fmtMoney(ev.payload.total_sum as number | null | undefined)}</td>
         </tr>
       `;
     }).join('');
     return `
-      <h4 style="margin:16px 0 8px;color:#0f172a">${EVENT_LABELS[g.event_type]} (${g.events.length})</h4>
+      <h4 style="margin:16px 0 8px;color:#171717">${EVENT_LABELS[g.event_type]} (${g.events.length})</h4>
       <table style="border-collapse:collapse;width:100%;font-size:14px">
-        <thead><tr style="background:#f8fafc"><th style="padding:6px 12px;text-align:left">№</th><th style="padding:6px 12px;text-align:left">Поставщик</th><th style="padding:6px 12px;text-align:right">Сумма</th></tr></thead>
+        <thead><tr style="background:#f4f4f4"><th style="padding:6px 12px;text-align:left">№</th><th style="padding:6px 12px;text-align:left">Поставщик</th><th style="padding:6px 12px;text-align:right">Сумма</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
@@ -189,10 +189,10 @@ export function renderDigest(groups: DigestGroup[], baseUrl = 'https://scanflow.
 
   const html = `
     <div style="font-family:system-ui,-apple-system,sans-serif;max-width:720px">
-      <h2 style="margin:0 0 8px;color:#0f172a">Дайджест ScanFlow</h2>
-      <p style="margin:0 0 16px;color:#64748b">Всего событий: ${totalEvents}</p>
+      <h2 style="margin:0 0 8px;color:#171717">Дайджест ScanFlow</h2>
+      <p style="margin:0 0 16px;color:#737373">Всего событий: ${totalEvents}</p>
       ${sectionsHtml}
-      <p style="color:#94a3b8;font-size:12px;margin-top:24px">ScanFlow · ${new Date().toLocaleString('ru-RU')}</p>
+      <p style="color:#737373;font-size:12px;margin-top:24px">ScanFlow · ${new Date().toLocaleString('ru-RU')}</p>
     </div>
   `;
   return { subject: `Дайджест (${totalEvents} событий)`, html };

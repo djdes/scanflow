@@ -229,75 +229,80 @@ function renderAuthEmailHtml(opts: {
     : 'Мы получили запрос на восстановление пароля. Старый пароль больше не действует — используйте новые данные ниже.';
 
   // Inline-стили — email-клиенты типа Gmail/mail.ru вырезают <style> и не
-  // поддерживают CSS-vars. Брендовый голубой #3b82f6 — то же значение что
-  // var(--accent-blue) в landing.css.
+  // поддерживают CSS-vars. Цвета — из дизайн-системы сайта (landing.css):
+  // акцент #1a6ed8, текст #171717 / #525252 / #737373, фон #fafafa, линии
+  // #e8e8e8. Шрифт системный: веб-шрифты в почте почти нигде не работают.
+  const font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+  const mono = "ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace";
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
   <title>${escapeHtml(heading)}</title>
 </head>
-<body style="margin:0;padding:0;background:#f7f9fc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a1f2e;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f9fc;padding:40px 16px;">
+<body style="margin:0;padding:0;background:#fafafa;font-family:${font};color:#171717;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fafafa;padding:40px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(15,23,42,0.08);">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border:1px solid #e8e8e8;border-radius:16px;">
           <tr>
-            <td style="padding:32px 32px 8px 32px;">
+            <td style="padding:32px 32px 0 32px;">
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="padding-right:10px;vertical-align:middle;">
-                    <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <rect x="2" y="2" width="36" height="36" rx="8" stroke="#3b82f6" stroke-width="2.5"/>
-                      <line x1="10" y1="14" x2="30" y2="14" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
-                      <line x1="10" y1="20" x2="26" y2="20" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-opacity="0.6"/>
-                      <line x1="10" y1="26" x2="22" y2="26" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-opacity="0.35"/>
+                  <td style="padding-right:8px;vertical-align:middle;">
+                    <svg width="28" height="28" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <rect width="64" height="64" rx="16" fill="#1a6ed8"/>
+                      <path d="M17 21.5h30" stroke="#ffffff" stroke-width="5.5" stroke-linecap="round"/>
+                      <path d="M17 32h23" stroke="#ffffff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+                      <path d="M17 42.5h16" stroke="#ffffff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
                     </svg>
                   </td>
-                  <td style="font-size:18px;font-weight:700;color:#1a1f2e;letter-spacing:-0.3px;">ScanFlow</td>
+                  <td style="vertical-align:middle;font-family:${font};font-size:18px;line-height:28px;font-weight:600;color:#171717;letter-spacing:-0.3px;">ScanFlow</td>
                 </tr>
               </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:8px 32px 0 32px;">
-              <h1 style="margin:24px 0 8px;font-size:24px;font-weight:700;letter-spacing:-0.4px;color:#1a1f2e;">${escapeHtml(heading)}</h1>
-              <p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">${escapeHtml(intro)}</p>
             </td>
           </tr>
           <tr>
             <td style="padding:24px 32px 0 32px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5fb;border-radius:12px;border:1px solid #e2e8f0;">
+              <h1 style="margin:0 0 8px;font-family:${font};font-size:24px;line-height:32px;font-weight:600;letter-spacing:-0.5px;color:#171717;">${escapeHtml(heading)}</h1>
+              <p style="margin:0;font-family:${font};font-size:16px;line-height:24px;color:#525252;">${escapeHtml(intro)}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 32px 0 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;border:1px solid #e8e8e8;border-radius:12px;">
                 <tr>
-                  <td style="padding:18px 22px;">
-                    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.8px;color:#64748b;margin-bottom:4px;">Логин</div>
-                    <div style="font-family:'JetBrains Mono',Menlo,Consolas,monospace;font-size:15px;font-weight:600;color:#1a1f2e;word-break:break-all;">${escapeHtml(opts.username)}</div>
+                  <td style="padding:16px 24px 8px 24px;">
+                    <div style="font-family:${font};font-size:12px;line-height:16px;color:#737373;margin-bottom:4px;">Логин</div>
+                    <div style="font-family:${mono};font-size:16px;line-height:24px;font-weight:500;color:#171717;word-break:break-all;">${escapeHtml(opts.username)}</div>
                   </td>
                 </tr>
                 <tr>
-                  <td style="padding:0 22px 18px 22px;">
-                    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.8px;color:#64748b;margin-bottom:4px;">Пароль</div>
-                    <div style="font-family:'JetBrains Mono',Menlo,Consolas,monospace;font-size:15px;font-weight:600;color:#1a1f2e;word-break:break-all;">${escapeHtml(opts.password)}</div>
+                  <td style="padding:8px 24px 16px 24px;">
+                    <div style="font-family:${font};font-size:12px;line-height:16px;color:#737373;margin-bottom:4px;">Пароль</div>
+                    <div style="font-family:${mono};font-size:16px;line-height:24px;font-weight:500;color:#171717;word-break:break-all;">${escapeHtml(opts.password)}</div>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
           <tr>
-            <td align="center" style="padding:28px 32px 8px 32px;">
-              <a href="${escapeHtml(opts.magicUrl)}" style="display:inline-block;background:#1a6dff;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:10px;box-shadow:0 2px 12px rgba(26,109,255,0.35);">Открыть кабинет →</a>
+            <td align="center" style="padding:32px 32px 8px 32px;">
+              <a href="${escapeHtml(opts.magicUrl)}" style="display:inline-block;background:#1a6ed8;color:#ffffff;text-decoration:none;font-family:${font};font-size:16px;line-height:24px;font-weight:600;padding:12px 32px;border-radius:9999px;">Открыть кабинет&nbsp;→</a>
             </td>
           </tr>
           <tr>
             <td style="padding:8px 32px 24px 32px;">
-              <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.55;text-align:center;">Кнопка ведёт в ваш кабинет без ввода пароля и действует один раз в течение 24 часов. Если она не работает — войдите вручную с указанными данными на <a href="https://scanflow.ru" style="color:#1a6dff;text-decoration:none;">scanflow.ru</a>.</p>
+              <p style="margin:0;font-family:${font};font-size:14px;line-height:20px;color:#737373;text-align:center;">Кнопка ведёт в&nbsp;ваш кабинет без ввода пароля и&nbsp;действует один раз в&nbsp;течение 24&nbsp;часов. Если она не&nbsp;работает, войдите вручную с&nbsp;этими данными на&nbsp;<a href="https://scanflow.ru" style="color:#1a6ed8;text-decoration:none;">scanflow.ru</a>.</p>
             </td>
           </tr>
           <tr>
             <td style="padding:0 32px 32px 32px;">
-              <hr style="border:none;border-top:1px solid #eef2f7;margin:0 0 16px 0;">
-              <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.55;">Это автоматическое письмо. Не отвечайте на него — мы не читаем входящие на noreply. По вопросам пишите на <a href="mailto:bugdenes@gmail.com" style="color:#64748b;">bugdenes@gmail.com</a>.</p>
+              <hr style="border:none;border-top:1px solid #e8e8e8;margin:0 0 16px 0;">
+              <p style="margin:0;font-family:${font};font-size:12px;line-height:16px;color:#737373;">Это автоматическое письмо, отвечать на&nbsp;него не&nbsp;нужно: входящие на&nbsp;noreply никто не&nbsp;читает. По&nbsp;вопросам пишите на&nbsp;<a href="mailto:bugdenes@gmail.com" style="color:#525252;">bugdenes@gmail.com</a>.</p>
             </td>
           </tr>
         </table>
