@@ -78,12 +78,16 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // next reload (the browser still revalidates via ETag → cheap 304 when
   // unchanged). Without this the dashboard kept serving stale invoices.js /
   // style.css after deploys, hiding new features until a manual Ctrl+F5.
+  // Шрифты в public/fonts несут версию в имени (geist-v5-*.woff2) — их можно
+  // кешировать навсегда: новая версия придёт под новым именем.
   app.use(express.static(publicDir, {
     redirect: false,
     index: false,
     setHeaders: (res, filePath) => {
       if (/\.(html|js|css)$/i.test(filePath)) {
         res.setHeader('Cache-Control', 'no-cache');
+      } else if (/\.woff2$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
     },
   }));
