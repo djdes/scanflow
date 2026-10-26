@@ -2548,6 +2548,28 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    version: 89,
+    name: 'pd_consents — согласия на обработку персональных данных',
+    // 152-ФЗ, ст. 9 ч. 3: доказать получение согласия обязан оператор. Форма
+    // регистрации отмечает его галочкой; здесь — когда, на какую редакцию
+    // текста /consent, с какого адреса и браузера оно дано.
+    detect: (exec) => hasTable(exec, 'pd_consents'),
+    run: async (exec) => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS pd_consents (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NULL,
+        email VARCHAR(255) NOT NULL,
+        document VARCHAR(32) NOT NULL,
+        version VARCHAR(32) NOT NULL,
+        ip VARCHAR(64) NULL,
+        user_agent VARCHAR(512) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_pd_consents_user (user_id),
+        INDEX idx_pd_consents_email (email)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

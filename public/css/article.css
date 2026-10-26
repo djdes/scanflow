@@ -910,3 +910,119 @@
   justify-content: center;
 }
 .compare-strategy li b { color: var(--text); font-weight: 700; }
+
+/* ────────────── Правовые документы (/privacy, /consent, /terms) ────────────── */
+
+/* Переключатель между тремя документами под заголовком. */
+.legal-docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-75);
+  margin-top: var(--s-300);
+}
+
+.legal-docs a {
+  padding: var(--s-75) var(--s-200);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 20px;
+  text-decoration: none;
+  transition: color var(--transition), border-color var(--transition), background-color var(--transition);
+}
+
+.legal-docs a:hover { color: var(--text); border-color: var(--border-lit); }
+
+.legal-docs a[aria-current="page"] {
+  color: var(--text);
+  background: var(--bg-surface);
+  border-color: var(--border-lit);
+}
+
+/* В политике и соглашении первый абзац — пункт 1.1, а не вводный текст статьи. */
+.article-prose.legal-prose > p:first-of-type {
+  margin-bottom: 1.2em;
+  color: var(--text);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Документ без оглавления сбоку (согласие короткое). */
+.article-layout--single { grid-template-columns: minmax(0, 740px); }
+
+/* «Коротко» — пересказ перед полным текстом. */
+.legal-summary {
+  margin-bottom: var(--s-600);
+  padding: var(--s-300);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2xl);
+  background: var(--bg-surface);
+}
+
+.article-prose .legal-summary h2 {
+  margin: 0 0 var(--s-100);
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.article-prose .legal-summary ul { margin-bottom: var(--s-100); }
+
+.article-prose .legal-summary li { margin-bottom: var(--s-75); }
+
+.article-prose .legal-summary p {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* «Данные / Цель / Основание / Срок» по каждой цели обработки. */
+.legal-facts {
+  display: grid;
+  margin: 0 0 var(--s-400);
+  border-top: 1px solid var(--border);
+}
+
+.legal-facts > div,
+.legal-operator > div {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: var(--s-200);
+  padding: var(--s-100) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-facts dt,
+.legal-operator dt {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 28px;
+}
+
+.legal-facts dd {
+  font-size: 16px;
+  line-height: 28px;
+}
+
+/* Реквизиты оператора: из env, см. src/legal/documents.ts. */
+dl.legal-operator {
+  margin: 0 0 var(--s-300);
+  border-top: 1px solid var(--border);
+}
+
+.legal-operator dd {
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 28px;
+}
+
+p.legal-operator { color: var(--text-dim); }
+
+@media (max-width: 640px) {
+  .legal-facts > div,
+  .legal-operator > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .legal-summary { padding: var(--s-200); }
+}

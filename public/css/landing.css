@@ -788,6 +788,76 @@ main > .hero { padding-bottom: var(--s-800); }
 
 .signup__error[hidden] { display: none; }
 
+/* Согласие на обработку ПДн (152-ФЗ): своя галочка, по умолчанию снята,
+   и строка о пользовательском соглашении — отдельно от неё. */
+.signup__legal {
+  display: grid;
+  gap: var(--s-50);
+  margin-top: var(--s-100);
+  padding-left: var(--s-200);
+}
+
+.consent {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--s-100);
+  justify-self: start;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.consent__input {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.consent__box {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 1px solid var(--border-lit);
+  border-radius: var(--r-xs);
+  background: var(--bg-surface);
+  color: var(--on-accent);
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.consent__box .ico { width: 12px; height: 12px; opacity: 0; transition: opacity var(--transition); }
+
+.consent__input:checked + .consent__box { background: var(--accent); border-color: var(--accent); }
+.consent__input:checked + .consent__box .ico { opacity: 1; }
+.consent__input:focus-visible + .consent__box { box-shadow: 0 0 0 4px var(--accent-soft); border-color: var(--accent); }
+.consent.is-invalid .consent__box { border-color: var(--danger); box-shadow: 0 0 0 4px var(--danger-soft); }
+
+.consent a,
+.signup__terms a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border-lit);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--transition), color var(--transition);
+}
+
+.consent a:hover,
+.signup__terms a:hover { color: var(--text); text-decoration-color: currentColor; }
+
+.signup__terms {
+  padding-left: var(--s-300);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .hero__note {
   max-width: 520px;
   margin-top: var(--s-200);
@@ -2992,7 +3062,7 @@ main > .cta { padding-bottom: var(--s-900); }
 
 .footer-inner {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
   gap: var(--s-600);
 }
 
@@ -3025,7 +3095,7 @@ main > .cta { padding-bottom: var(--s-900); }
 
 .footer-links {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s-400);
 }
 
@@ -3053,6 +3123,23 @@ main > .cta { padding-bottom: var(--s-900); }
 }
 
 .footer-col a:hover { color: var(--text); }
+
+/* «Настройки cookie» — кнопка в виде ссылки; видна, только если на сайте
+   включена Яндекс Метрика (landing.js). */
+.footer-cookie {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.footer-cookie:hover { color: var(--text); }
 
 .footer-bottom {
   grid-column: 1 / -1;
@@ -3255,6 +3342,8 @@ main > .cta { padding-bottom: var(--s-900); }
   gap: var(--s-100);
   text-align: left;
 }
+
+.login-modal__form .signup__legal { margin: 0 0 var(--s-75); padding-left: var(--s-50); }
 
 .auth-field { position: relative; display: flex; align-items: center; }
 
@@ -3608,7 +3697,8 @@ body.login-open { overflow: hidden; }
   }
   .signup__input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
   .signup.is-invalid .signup__input { border-color: var(--danger); }
-  .signup__error { padding-left: var(--s-100); }
+  .signup__error,
+  .signup__legal { padding-left: var(--s-100); }
   .hero__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-200); }
   .hero__facts b { font-size: 18px; line-height: 28px; }
   .hero__facts span { font-size: 12px; line-height: 16px; }

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Шаблон. Страницу отдаёт маршрут /privacy (src/legal/documents.ts):
+       метки «LEGAL:…» в комментариях заменяются реквизитами оператора из env. -->
+  <title>Политика обработки персональных данных — ScanFlow</title>
+  <meta name="description" content="Какие персональные данные обрабатывает ScanFlow, зачем, на каком основании, кому передаёт и сколько хранит. Права субъекта и как их реализовать.">
+  <link rel="canonical" href="https://scanflow.ru/privacy">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Политика обработки персональных данных — ScanFlow">
+  <meta property="og:url" content="https://scanflow.ru/privacy">
+  <meta property="og:image" content="https://scanflow.ru/og/default.png">
+  <meta property="og:site_name" content="ScanFlow">
+  <meta property="og:locale" content="ru_RU">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+  <link rel="preload" href="/fonts/geist-v5-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/geist-v5-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/article.css">
+
+  <script>
+    (function () {
+      var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+</head>
+<body class="article-page legal-page">
+  <div class="read-progress" id="read-progress" aria-hidden="true"></div>
+  <div class="grain-overlay" aria-hidden="true"></div>
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo" aria-label="ScanFlow — на главную">
+        <span class="logo-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="16" fill="currentColor"/>
+            <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+            <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+            <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
+          </svg>
+        </span>
+        <span class="logo-text">ScanFlow</span>
+      </a>
+      <nav class="main-nav" id="main-nav" aria-label="Основное меню">
+        <a href="/#demo">Как работает</a>
+        <a href="/#features">Возможности</a>
+        <a href="/#pricing">Тарифы</a>
+        <a href="/#faq">Вопросы</a>
+        <a href="/blog">Блог</a>
+      </nav>
+      <div class="header-actions">
+        <a href="/?login=1" class="btn-ghost">Войти</a>
+        <a href="/#try" class="btn-primary-sm">Попробовать</a>
+      </div>
+      <button class="mobile-menu-btn" id="mobile-menu-btn" type="button" aria-label="Открыть меню" aria-controls="main-nav" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="article-hero">
+      <div class="container">
+        <nav class="article-breadcrumb" aria-label="Хлебные крошки">
+          <a href="/">Главная</a>
+          <span class="article-breadcrumb-sep">/</span>
+          <span>Документы</span>
+        </nav>
+        <h1>Политика обработки персональных данных</h1>
+        <div class="article-meta">
+          <span>Редакция от <b>26 октября 2026</b></span>
+          <span class="sep">·</span>
+          <span>действует с момента публикации</span>
+        </div>
+        <nav class="legal-docs" aria-label="Документы">
+          <a href="/privacy" aria-current="page">Политика</a>
+          <a href="/consent">Согласие на обработку</a>
+          <a href="/terms">Пользовательское соглашение</a>
+        </nav>
+      </div>
+    </section>
+
+    <div class="container article-layout">
+      <article class="article-prose legal-prose">
+        <details class="article-toc-mobile">
+          <summary>Содержание</summary>
+          <ol>
+            <li><a href="#general">Общие положения</a></li>
+            <li><a href="#subjects">Чьи данные</a></li>
+            <li><a href="#purposes">Цели, данные и сроки</a></li>
+            <li><a href="#processing">Как обрабатываем</a></li>
+            <li><a href="#recipients">Кому передаём</a></li>
+            <li><a href="#transfer">Передача за рубеж</a></li>
+            <li><a href="#instruction">Данные в документах</a></li>
+            <li><a href="#cookies">Cookie и аналитика</a></li>
+            <li><a href="#rights">Ваши права</a></li>
+            <li><a href="#withdrawal">Отзыв согласия</a></li>
+            <li><a href="#security">Защита данных</a></li>
+            <li><a href="#operator">Оператор</a></li>
+          </ol>
+        </details>
+
+        <section class="legal-summary" aria-labelledby="summary-title">
+          <h2 id="summary-title">Коротко</h2>
+          <ul>
+            <li>Для работы нужен только адрес электронной почты. Остальное — документы, которые вы загружаете сами.</li>
+            <li>Данные хранятся на&nbsp;сервере в&nbsp;России. Чтобы прочитать фото, изображение документа передаётся ИИ-модели за&nbsp;рубежом (раздел&nbsp;6).</li>
+            <li>Данные не&nbsp;продаём и&nbsp;не&nbsp;используем для рекламы.</li>
+            <li>Аналитика сайта включается, только если вы согласились на&nbsp;cookie.</li>
+            <li>Удалить аккаунт и&nbsp;данные — письмом на&nbsp;<!--LEGAL:email-->.</li>
+          </ul>
+          <p>Это пересказ. Действует полный текст ниже.</p>
+        </section>
+
+        <h2 id="general">1. Общие положения</h2>
+        <p>1.1. Политика определяет, как <!--LEGAL:operator-name--> (далее — Оператор) обрабатывает персональные данные при работе сайта scanflow.ru и&nbsp;сервиса ScanFlow — личного кабинета, API и&nbsp;обработки для 1С (далее — Сервис). Политика составлена по&nbsp;Федеральному закону от&nbsp;27.07.2006 №&nbsp;152-ФЗ «О&nbsp;персональных данных» (далее — Закон), термины используются в&nbsp;его значении.</p>
+        <p>1.2. Политика опубликована в&nbsp;свободном доступе по&nbsp;адресу <a href="https://scanflow.ru/privacy">scanflow.ru/privacy</a>. Отдельно от&nbsp;неё действуют <a href="/consent">Согласие на&nbsp;обработку персональных данных</a> и&nbsp;<a href="/terms">Пользовательское соглашение</a>.</p>
+        <p>1.3. Реквизиты Оператора — в&nbsp;разделе&nbsp;12.</p>
+
+        <h2 id="subjects">2. Чьи данные мы обрабатываем</h2>
+        <ul>
+          <li><strong>Пользователи</strong> — люди, зарегистрированные в&nbsp;Сервисе.</li>
+          <li><strong>Посетители сайта.</strong></li>
+          <li><strong>Люди, чьи данные есть в&nbsp;документах пользователей</strong>: индивидуальные предприниматели — поставщики, представители и&nbsp;сотрудники поставщиков и&nbsp;самого пользователя. Эти данные мы обрабатываем по&nbsp;поручению пользователя (раздел&nbsp;7).</li>
+          <li><strong>Люди, которые пишут нам</strong> на&nbsp;электронную почту.</li>
+        </ul>
+
+        <h2 id="purposes">3. Цели, данные, основания и сроки</h2>
+
+        <h3>3.1. Регистрация и доступ к Сервису</h3>
+        <dl class="legal-facts">
+          <div><dt>Данные</dt><dd>адрес электронной почты; логин; пароль (храним только хеш); ключ доступа к API; роль; даты регистрации и входа; отметка о согласии — дата, редакция текста, IP-адрес и сведения о браузере.</dd></div>
+          <div><dt>Основание</dt><dd>согласие (п.&nbsp;1 ч.&nbsp;1 ст.&nbsp;6 Закона) и исполнение Пользовательского соглашения (п.&nbsp;5 ч.&nbsp;1 ст.&nbsp;6 Закона).</dd></div>
+          <div><dt>Срок</dt><dd>пока существует аккаунт. После удаления аккаунта или отзыва согласия данные уничтожаются в&nbsp;течение 30&nbsp;дней; отметка о&nbsp;согласии хранится как доказательство законности прошлой обработки.</dd></div>
+        </dl>
+
+        <h3>3.2. Письма и уведомления</h3>
+        <dl class="legal-facts">
+          <div><dt>Данные</dt><dd>адрес электронной почты; если вы подключили уведомления в&nbsp;Telegram — идентификаторы чатов и&nbsp;токен вашего бота; выбранные типы уведомлений.</dd></div>
+          <div><dt>Цель</dt><dd>письма для входа и&nbsp;восстановления доступа, уведомления о&nbsp;накладных, служебные сообщения о&nbsp;работе Сервиса.</dd></div>
+          <div><dt>Основание</dt><dd>исполнение Пользовательского соглашения и&nbsp;согласие.</dd></div>
+          <div><dt>Срок</dt><dd>пока уведомления подключены и&nbsp;существует аккаунт.</dd></div>
+        </dl>
+
+        <h3>3.3. Обработка документов пользователя</h3>
+        <dl class="legal-facts">
+          <div><dt>Данные</dt><dd>фото, PDF и&nbsp;XML документов (накладные, УПД, счета, счета-фактуры) и&nbsp;сведения из&nbsp;них: фамилия, имя, отчество и&nbsp;ИНН индивидуальных предпринимателей, их&nbsp;адреса и&nbsp;банковские реквизиты; фамилии, должности и&nbsp;подписи людей на&nbsp;документе.</dd></div>
+          <div><dt>Цель</dt><dd>распознать документ, подобрать позиции справочника 1С, выгрузить приходную в&nbsp;1С, подготовить черновик платёжного поручения, отправить уведомление.</dd></div>
+          <div><dt>Основание</dt><dd>поручение пользователя, который является оператором этих данных (ч.&nbsp;3 ст.&nbsp;6 Закона, раздел&nbsp;7).</dd></div>
+          <div><dt>Срок</dt><dd>фото и&nbsp;файлы — пока документ не&nbsp;отправлен в&nbsp;1С и&nbsp;ещё 90&nbsp;дней после отправки; распознанные данные — пока пользователь не&nbsp;удалит документ или аккаунт.</dd></div>
+        </dl>
+
+        <h3>3.4. Безопасность и работоспособность</h3>
+        <dl class="legal-facts">
+          <div><dt>Данные</dt><dd>IP-адрес, сведения о&nbsp;браузере, адрес запроса, время и&nbsp;результат запроса.</dd></div>
+          <div><dt>Цель</dt><dd>защита от&nbsp;злоупотреблений и&nbsp;подбора паролей, разбор сбоев.</dd></div>
+          <div><dt>Основание</dt><dd>законный интерес Оператора (п.&nbsp;7 ч.&nbsp;1 ст.&nbsp;6 Закона).</dd></div>
+          <div><dt>Срок</dt><dd>журнал запросов к&nbsp;API — 7&nbsp;дней, журналы приложения — 30&nbsp;дней.</dd></div>
+        </dl>
+
+        <h3>3.5. Аналитика сайта</h3>
+        <dl class="legal-facts">
+          <div><dt>Данные</dt><dd>идентификаторы cookie, IP-адрес, сведения о&nbsp;браузере и&nbsp;устройстве, просмотренные страницы и&nbsp;действия на&nbsp;сайте — без содержимого форм.</dd></div>
+          <div><dt>Цель</dt><dd>понять, какие разделы сайта полезны, и&nbsp;улучшить его.</dd></div>
+          <div><dt>Основание</dt><dd>согласие, которое посетитель даёт в&nbsp;сообщении о&nbsp;cookie.</dd></div>
+          <div><dt>Срок</dt><dd>до отзыва согласия; хранение данных у&nbsp;Яндекса — по&nbsp;условиям сервиса Яндекс&nbsp;Метрика.</dd></div>
+        </dl>
+
+        <h3>3.6. Обращения</h3>
+        <dl class="legal-facts">
+          <div><dt>Данные</dt><dd>адрес электронной почты, имя, если вы его указали, текст письма и&nbsp;вложения.</dd></div>
+          <div><dt>Основание</dt><dd>согласие — вы сами пишете нам — и&nbsp;исполнение Пользовательского соглашения.</dd></div>
+          <div><dt>Срок</dt><dd>до решения вопроса, но&nbsp;не&nbsp;дольше одного года после последнего письма.</dd></div>
+        </dl>
+
+        <h2 id="processing">4. Как мы обрабатываем данные</h2>
+        <p>4.1. Действия с&nbsp;данными: сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, передача (предоставление, доступ), блокирование, удаление, уничтожение. Обработка ведётся с&nbsp;использованием средств автоматизации.</p>
+        <p>4.2. Запись, систематизация, накопление, хранение, уточнение и&nbsp;извлечение персональных данных граждан России ведутся в&nbsp;базах данных на&nbsp;территории Российской Федерации.</p>
+        <p>4.3. Мы не&nbsp;принимаем решений, которые порождают для человека юридические последствия, только на&nbsp;основании автоматической обработки. Результат распознавания проверяет пользователь.</p>
+        <p>4.4. Мы не&nbsp;продаём персональные данные, не&nbsp;используем их&nbsp;для рекламы и&nbsp;не&nbsp;передаём никому, кроме получателей из&nbsp;раздела&nbsp;5. Специальные категории персональных данных и&nbsp;биометрические данные мы не&nbsp;обрабатываем.</p>
+
+        <h2 id="recipients">5. Кому мы передаём данные</h2>
+        <p>Только тем, без кого не&nbsp;работает функция, и&nbsp;только в&nbsp;нужном объёме:</p>
+        <ul>
+          <li><strong>Поставщик ИИ-модели — OpenAI (США)</strong>: изображения и&nbsp;тексты документов, названия товаров — чтобы прочитать документ и&nbsp;подобрать позиции 1С. Если основной поставщик недоступен, Оператор может включить резервного: Anthropic (США) или Google Cloud Vision (США).</li>
+          <li><strong>Мессенджер Telegram</strong> — если вы подключили уведомления или присылаете документы в&nbsp;Telegram: текст уведомлений (номер, поставщик, сумма документа) и&nbsp;присланные файлы.</li>
+          <li><strong>Почтовый сервис</strong>, через который уходят письма: адрес получателя и&nbsp;текст письма.</li>
+          <li><strong>DaData (Россия)</strong> — ИНН и&nbsp;название поставщика, когда вы нажимаете «Заполнить по&nbsp;ИНН».</li>
+          <li><strong>ПАО Сбербанк</strong> — реквизиты поставщика и&nbsp;сумма, когда вы создаёте черновик платёжного поручения в&nbsp;СберБизнесе.</li>
+          <li><strong>Ваша база 1С</strong> — данные документа по&nbsp;запросу обработки, которую вы установили.</li>
+          <li><strong>ООО «Яндекс»</strong> — данные аналитики из&nbsp;пункта&nbsp;3.5, только после вашего согласия.</li>
+          <li><strong>Провайдер хостинга</strong> — размещение сервера Сервиса.</li>
+          <li><strong>Государственные органы</strong> — по&nbsp;запросу, если его&nbsp;требует закон.</li>
+        </ul>
+
+        <h2 id="transfer">6. Передача данных за рубеж</h2>
+        <p>6.1. Изображения и&nbsp;тексты документов передаются поставщику ИИ-модели в&nbsp;США, уведомления — в&nbsp;Telegram, серверы которого находятся за&nbsp;пределами России. Эти страны не&nbsp;входят в&nbsp;перечень обеспечивающих адекватную защиту прав субъектов персональных данных.</p>
+        <p>6.2. Трансграничная передача ведётся по&nbsp;правилам ст.&nbsp;12 Закона и&nbsp;только для целей пунктов&nbsp;3.2 и&nbsp;3.3. Уведомления в&nbsp;Telegram можно не&nbsp;подключать. Без передачи изображения ИИ-модели распознать фото нельзя.</p>
+
+        <h2 id="instruction">7. Данные в документах пользователя</h2>
+        <p>7.1. Оператором персональных данных, которые есть в&nbsp;загруженных документах, является пользователь. Загружая документы, он&nbsp;поручает Оператору их&nbsp;обработку (ч.&nbsp;3 ст.&nbsp;6 Закона) на&nbsp;условиях раздела&nbsp;5 <a href="/terms#data">Пользовательского соглашения</a>: для целей пункта&nbsp;3.3 и&nbsp;с&nbsp;действиями из&nbsp;пункта&nbsp;4.1.</p>
+        <p>7.2. Оператор соблюдает конфиденциальность этих данных, защищает их&nbsp;по&nbsp;ст.&nbsp;19 Закона и&nbsp;по&nbsp;запросу пользователя подтверждает принятые меры.</p>
+        <p>7.3. Пользователь отвечает за&nbsp;то, что у&nbsp;него есть законные основания передать эти данные в&nbsp;Сервис. Запрос человека о&nbsp;его данных из&nbsp;таких документов мы передаём пользователю, загрузившему документ.</p>
+
+        <h2 id="cookies">8. Cookie и аналитика</h2>
+        <p>8.1. <strong>Необходимые.</strong> Сайт и&nbsp;кабинет хранят в&nbsp;браузере ключ входа и&nbsp;настройки: тему, поворот фото, ваш выбор о&nbsp;cookie. Без них не&nbsp;работает вход, поэтому согласия на&nbsp;них не&nbsp;спрашиваем.</p>
+        <p>8.2. <strong>Аналитические.</strong> Яндекс Метрика ставит cookie <code>_ym_*</code> и&nbsp;загружается, только если вы нажали «Принять» в&nbsp;сообщении о&nbsp;cookie. Запись действий посетителя (Вебвизор) не&nbsp;включена, содержимое форм не&nbsp;собирается.</p>
+        <p>8.3. Изменить решение можно в&nbsp;любой момент: ссылка «Настройки cookie» внизу каждой страницы.</p>
+
+        <h2 id="rights">9. Ваши права</h2>
+        <ul>
+          <li>получить сведения об&nbsp;обработке своих данных (ч.&nbsp;7 ст.&nbsp;14 Закона);</li>
+          <li>потребовать уточнить, заблокировать или уничтожить данные, если они неполные, устарели, неточны, получены незаконно или не&nbsp;нужны для заявленной цели;</li>
+          <li>отозвать согласие на&nbsp;обработку;</li>
+          <li>обжаловать действия Оператора в&nbsp;Роскомнадзоре или в&nbsp;суде.</li>
+        </ul>
+        <p>Напишите на&nbsp;<!--LEGAL:email--> с&nbsp;адреса, к&nbsp;которому привязан аккаунт, или пришлите письменный запрос по&nbsp;адресу Оператора. В&nbsp;запросе укажите, как вы связаны с&nbsp;Сервисом, — например, адрес электронной почты аккаунта. Отвечаем в&nbsp;течение 10&nbsp;рабочих дней; срок может быть продлён на&nbsp;5&nbsp;рабочих дней, о&nbsp;чём сообщим с&nbsp;объяснением причины.</p>
+
+        <h2 id="withdrawal">10. Отзыв согласия и удаление аккаунта</h2>
+        <p>10.1. Чтобы отозвать согласие или удалить аккаунт, напишите на&nbsp;<!--LEGAL:email-->. Мы прекратим обработку и&nbsp;уничтожим данные в&nbsp;течение 30&nbsp;дней, если закон не&nbsp;разрешает или не&nbsp;обязывает хранить их&nbsp;дольше.</p>
+        <p>10.2. Без адреса электронной почты Сервис работать не&nbsp;может, поэтому отзыв согласия на&nbsp;обработку данных аккаунта означает удаление аккаунта вместе с&nbsp;документами компании.</p>
+        <p>10.3. Резервные копии базы данных хранятся 14&nbsp;дней и&nbsp;затем перезаписываются; удалённые данные исчезают из&nbsp;них в&nbsp;этот срок.</p>
+
+        <h2 id="security">11. Как мы защищаем данные</h2>
+        <ul>
+          <li>сайт и&nbsp;кабинет работают только по&nbsp;защищённому соединению (HTTPS);</li>
+          <li>пароли хранятся только в&nbsp;виде хеша (scrypt), секретные ключи подключений к&nbsp;банку и&nbsp;к&nbsp;ИИ-модели — в&nbsp;зашифрованном виде;</li>
+          <li>данные компаний разделены: пользователь видит документы и&nbsp;справочники только своей компании;</li>
+          <li>ручные правки документов записываются в&nbsp;журнал;</li>
+          <li>резервная копия базы данных создаётся ежедневно;</li>
+          <li>доступ к&nbsp;серверу есть только у&nbsp;уполномоченных Оператором людей.</li>
+        </ul>
+
+        <h2 id="operator">12. Оператор и контакты</h2>
+        <!--LEGAL:operator-->
+        <p>Политику мы&nbsp;можем менять. Новая редакция действует с&nbsp;момента публикации на&nbsp;этой странице, если в&nbsp;ней не&nbsp;указано иное. Предыдущие редакции пришлём по&nbsp;запросу.</p>
+      </article>
+
+      <aside class="article-toc" id="article-toc-desktop" aria-label="Содержание">
+        <div class="article-toc-label">Содержание</div>
+        <ol>
+          <li><a href="#general">Общие положения</a></li>
+          <li><a href="#subjects">Чьи данные</a></li>
+          <li><a href="#purposes">Цели, данные и сроки</a></li>
+          <li><a href="#processing">Как обрабатываем</a></li>
+          <li><a href="#recipients">Кому передаём</a></li>
+          <li><a href="#transfer">Передача за рубеж</a></li>
+          <li><a href="#instruction">Данные в документах</a></li>
+          <li><a href="#cookies">Cookie и аналитика</a></li>
+          <li><a href="#rights">Ваши права</a></li>
+          <li><a href="#withdrawal">Отзыв согласия</a></li>
+          <li><a href="#security">Защита данных</a></li>
+          <li><a href="#operator">Оператор</a></li>
+        </ol>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="logo" aria-label="ScanFlow — на главную">
+          <span class="logo-icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 64 64" fill="none">
+              <rect width="64" height="64" rx="16" fill="currentColor"/>
+              <path d="M17 21.5h30" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+              <path d="M17 32h23" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.78"/>
+              <path d="M17 42.5h16" stroke="#fff" stroke-width="5.5" stroke-linecap="round" opacity="0.56"/>
+            </svg>
+          </span>
+          <span class="logo-text">ScanFlow</span>
+        </a>
+        <p>Распознавание накладных и&nbsp;выгрузка в&nbsp;1С:УНФ для малого и&nbsp;среднего бизнеса.</p>
+        <a class="footer-mail" href="mailto:hi@scanflow.ru">hi@scanflow.ru</a>
+      </div>
+      <div class="footer-links">
+        <div class="footer-col">
+          <h4>Продукт</h4>
+          <a href="/#demo">Как это работает</a>
+          <a href="/#features">Возможности</a>
+          <a href="/#pricing">Тарифы</a>
+          <a href="/#faq">Вопросы и&nbsp;ответы</a>
+          <a href="/app.html">Кабинет</a>
+        </div>
+        <div class="footer-col">
+          <h4>Как это устроено</h4>
+          <a href="/blog/perevod-paper-zacenok-v-1c-unf">Выгрузка в&nbsp;1С:УНФ</a>
+          <a href="/blog/avto-platezhka-v-sberbiznes">Платёжки в&nbsp;СберБизнесе</a>
+          <a href="/blog/dadata-i-kontragenty-po-inn">Поставщики по&nbsp;ИНН</a>
+          <a href="/blog/multi-page-nakladnye-sliyanie">Многостраничные накладные</a>
+          <a href="/blog">Все статьи</a>
+        </div>
+        <div class="footer-col">
+          <h4>Документы</h4>
+          <a href="/privacy">Политика обработки данных</a>
+          <a href="/consent">Согласие на&nbsp;обработку</a>
+          <a href="/terms">Пользовательское соглашение</a>
+          <button type="button" class="footer-cookie" data-cookie-settings hidden>Настройки cookie</button>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 ScanFlow</span>
+        <a href="/">На главную</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/js/landing.js"></script>
+  <script src="/js/article.js" defer></script>
+</body>
+</html>

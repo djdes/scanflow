@@ -452,6 +452,21 @@
     return '';
   }
 
+  // Согласие на обработку ПДн (152-ФЗ) — отдельная галочка в каждой форме
+  // регистрации, по умолчанию снята. Сервер без pd_consent: true аккаунт не создаёт.
+  const CONSENT_PROBLEM = 'Отметьте согласие на обработку персональных данных — без него мы не можем создать аккаунт.';
+
+  function markConsent(box, missing) {
+    if (!box) return;
+    box.setAttribute('aria-invalid', missing ? 'true' : 'false');
+    const row = box.closest('.consent');
+    if (row) row.classList.toggle('is-invalid', missing);
+  }
+
+  document.querySelectorAll('.consent__input').forEach((box) => {
+    box.addEventListener('change', () => { if (box.checked) markConsent(box, false); });
+  });
+
   // ========== Регистрация по email: форма в герое и в финальном блоке ==========
   // Сервер /api/auth/register-email сам создаёт логин, пароль и ссылку для входа
   // и присылает письмо. Здесь — проверка адреса, состояние кнопки и экран
@@ -464,14 +479,17 @@
 
   document.querySelectorAll('[data-register-form]').forEach((form) => {
     const input = form.querySelector('input[type="email"]');
+    const consent = form.querySelector('.consent__input');
     const submit = form.querySelector('button[type="submit"]');
     const label = submit ? submit.querySelector('.signup__label') : null;
     const errorEl = form.querySelector('.signup__error');
     if (!input || !submit) return;
 
-    function showError(message) {
-      form.classList.toggle('is-invalid', !!message);
-      input.setAttribute('aria-invalid', message ? 'true' : 'false');
+    // invalidEmail = false — ошибка не про адрес (согласие, ответ сервера):
+    // рамку поля email не красим.
+    function showError(message, invalidEmail = true) {
+      form.classList.toggle('is-invalid', !!message && invalidEmail);
+      input.setAttribute('aria-invalid', message && invalidEmail ? 'true' : 'false');
       if (errorEl) {
         errorEl.textContent = message;
         errorEl.hidden = !message;
@@ -481,6 +499,11 @@
     input.addEventListener('input', () => {
       if (form.classList.contains('is-invalid')) showError('');
     });
+    if (consent) {
+      consent.addEventListener('change', () => {
+        if (consent.checked && errorEl && errorEl.textContent === CONSENT_PROBLEM) showError('');
+      });
+    }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -489,6 +512,12 @@
       if (problem) {
         showError(problem);
         input.focus();
+        return;
+      }
+      if (consent && !consent.checked) {
+        showError(CONSENT_PROBLEM, false);
+        markConsent(consent, true);
+        consent.focus();
         return;
       }
       showError('');
@@ -500,11 +529,11 @@
         const resp = await fetch('/api/auth/register-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({ email, pd_consent: true }),
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          showError(data.error || `Не получилось отправить письмо: сервер ответил ${resp.status}. Попробуйте ещё раз.`);
+          showError(data.error || `Не получилось отправить письмо: сервер ответил ${resp.status}. Попробуйте ещё раз.`, resp.status === 400 && data.code !== 'pd_consent_required');
           return;
         }
         clearOnboardingFlags();
@@ -743,6 +772,12 @@
   const registerError = document.getElementById('register-error');
   const registerSubmit = document.getElementById('register-submit');
   if (registerForm) {
+    const registerConsent = document.getElementById('register-consent');
+    if (registerConsent) {
+      registerConsent.addEventListener('change', () => {
+        if (registerConsent.checked && registerError && registerError.textContent === CONSENT_PROBLEM) showModalError(registerError, '');
+      });
+    }
     registerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('register-email');
@@ -753,6 +788,12 @@
         input.focus();
         return;
       }
+      if (registerConsent && !registerConsent.checked) {
+        showModalError(registerError, CONSENT_PROBLEM);
+        markConsent(registerConsent, true);
+        registerConsent.focus();
+        return;
+      }
       registerSubmit.disabled = true;
       const idleLabel = registerSubmit.textContent;
       registerSubmit.textContent = 'Отправляем письмо…';
@@ -761,7 +802,7 @@
         const resp = await fetch('/api/auth/register-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({ email, pd_consent: true }),
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {

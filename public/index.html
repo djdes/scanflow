@@ -181,6 +181,14 @@
                 <svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg>
               </button>
             </div>
+            <div class="signup__legal">
+              <label class="consent" for="hero-consent">
+                <input type="checkbox" id="hero-consent" name="pd_consent" class="consent__input">
+                <span class="consent__box" aria-hidden="true"><svg class="ico"><use href="#i-check"/></svg></span>
+                <span class="consent__text">Даю <a href="/consent" target="_blank" rel="noopener">согласие на&nbsp;обработку персональных данных</a></span>
+              </label>
+              <p class="signup__terms">Регистрируясь, вы&nbsp;принимаете <a href="/terms" target="_blank" rel="noopener">пользовательское соглашение</a>.</p>
+            </div>
             <p class="signup__error" id="hero-email-error" role="alert" hidden></p>
           </form>
           <p class="hero__note" data-animate data-delay="3">
@@ -911,7 +919,7 @@
           </article>
           <article class="qa" data-animate>
             <h3>Куда уходят фото моих накладных?</h3>
-            <p>Фото хранятся на&nbsp;наших серверах в&nbsp;РФ. Распознаёт их внешняя модель ИИ: изображение передаётся ей по&nbsp;защищённому соединению. К&nbsp;каждому документу в&nbsp;1С автоматически прикрепляется оригинал фото. Фото накладной, которая ещё не&nbsp;ушла в&nbsp;1С, не&nbsp;удаляется; после отправки оно хранится 90 дней, дальше остаётся распознанная структура. Базу копируем автоматически каждый день, копии храним 14 дней.</p>
+            <p>Фото хранятся на&nbsp;наших серверах в&nbsp;РФ. Распознаёт их внешняя модель ИИ: изображение передаётся ей по&nbsp;защищённому соединению. К&nbsp;каждому документу в&nbsp;1С автоматически прикрепляется оригинал фото. Фото накладной, которая ещё не&nbsp;ушла в&nbsp;1С, не&nbsp;удаляется; после отправки оно хранится 90 дней, дальше остаётся распознанная структура. Базу копируем автоматически каждый день, копии храним 14 дней. Подробнее — в&nbsp;<a class="text-link" href="/privacy">политике обработки персональных данных</a>.</p>
           </article>
           <article class="qa" data-animate>
             <h3>Можно добавить своих сотрудников?</h3>
@@ -953,6 +961,14 @@
                   <span class="signup__label">Получить доступ</span>
                   <svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg>
                 </button>
+              </div>
+              <div class="signup__legal">
+                <label class="consent" for="cta-consent">
+                  <input type="checkbox" id="cta-consent" name="pd_consent" class="consent__input">
+                  <span class="consent__box" aria-hidden="true"><svg class="ico"><use href="#i-check"/></svg></span>
+                  <span class="consent__text">Даю <a href="/consent" target="_blank" rel="noopener">согласие на&nbsp;обработку персональных данных</a></span>
+                </label>
+                <p class="signup__terms">Регистрируясь, вы&nbsp;принимаете <a href="/terms" target="_blank" rel="noopener">пользовательское соглашение</a>.</p>
               </div>
               <p class="signup__error" role="alert" hidden></p>
             </form>
@@ -1035,6 +1051,14 @@
             <span class="auth-field__icon"><svg class="ico" aria-hidden="true"><use href="#i-envelope-simple"/></svg></span>
             <input type="email" id="register-email" placeholder="ваш@email.com" autocomplete="email" inputmode="email" aria-label="Email" required>
           </div>
+          <div class="signup__legal">
+            <label class="consent" for="register-consent">
+              <input type="checkbox" id="register-consent" name="pd_consent" class="consent__input">
+              <span class="consent__box" aria-hidden="true"><svg class="ico"><use href="#i-check"/></svg></span>
+              <span class="consent__text">Даю <a href="/consent" target="_blank" rel="noopener">согласие на&nbsp;обработку персональных данных</a></span>
+            </label>
+            <p class="signup__terms">Регистрируясь, вы&nbsp;принимаете <a href="/terms" target="_blank" rel="noopener">пользовательское соглашение</a>.</p>
+          </div>
           <button type="submit" class="btn btn--primary btn--lg btn--block" id="register-submit">Получить доступ</button>
           <div class="login-modal__error" id="register-error" role="alert" hidden></div>
           <div class="login-modal__hint">Уже есть аккаунт? <a href="#" data-switch-tab="login">Войти</a></div>
@@ -1116,6 +1140,13 @@
           <a href="/blog/multi-page-nakladnye-sliyanie">Многостраничные накладные</a>
           <a href="/blog">Все статьи</a>
         </div>
+        <div class="footer-col">
+          <h4>Документы</h4>
+          <a href="/privacy">Политика обработки данных</a>
+          <a href="/consent">Согласие на&nbsp;обработку</a>
+          <a href="/terms">Пользовательское соглашение</a>
+          <button type="button" class="footer-cookie" data-cookie-settings hidden>Настройки cookie</button>
+        </div>
       </div>
       <div class="footer-bottom">
         <span>&copy; 2026 ScanFlow</span>
@@ -1165,7 +1196,7 @@
         {
           "@type": "Question",
           "name": "Куда уходят фото моих накладных?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Фото хранятся на наших серверах в РФ. Распознаёт их внешняя модель ИИ: изображение передаётся ей по защищённому соединению. К каждому документу в 1С автоматически прикрепляется оригинал фото. Фото накладной, которая ещё не ушла в 1С, не удаляется; после отправки оно хранится 90 дней, дальше остаётся распознанная структура. Базу копируем автоматически каждый день, копии храним 14 дней." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Фото хранятся на наших серверах в РФ. Распознаёт их внешняя модель ИИ: изображение передаётся ей по защищённому соединению. К каждому документу в 1С автоматически прикрепляется оригинал фото. Фото накладной, которая ещё не ушла в 1С, не удаляется; после отправки оно хранится 90 дней, дальше остаётся распознанная структура. Базу копируем автоматически каждый день, копии храним 14 дней. Подробнее — в политике обработки персональных данных." }
         },
         {
           "@type": "Question",
