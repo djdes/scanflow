@@ -73,6 +73,8 @@
   }
   </script>
 
+  <!-- Сервер подставляет сюда window.SF_SITE: номер Яндекс Метрики и флаг A/B (src/seo/siteConfig.ts) -->
+  <!--SITE-CONFIG-->
   <script>
     // Тема — как в системе пользователя (prefers-color-scheme). Выполняется до
     // отрисовки <body>, чтобы не мигало; /js/landing.js следит за сменой темы.
@@ -82,6 +84,18 @@
       var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
       root.setAttribute('data-theme', dark ? 'dark' : 'light');
       root.classList.add('js');
+      // A/B заголовка героя (env SITE_HERO_AB): вариант выбирается один раз и
+      // живёт в браузере, чтобы не мигал при следующих заходах. В Метрику он
+      // уходит параметром визита — только после согласия на cookie.
+      if (window.SF_SITE && window.SF_SITE.heroAb) {
+        var v = null;
+        try { v = localStorage.getItem('sf-hero-ab'); } catch (e) {}
+        if (v !== 'a' && v !== 'b') {
+          v = Math.random() < 0.5 ? 'a' : 'b';
+          try { localStorage.setItem('sf-hero-ab', v); } catch (e) {}
+        }
+        root.setAttribute('data-hero', v);
+      }
       // landing.js не загрузился за 3 с — показываем всё без анимаций.
       setTimeout(function () { if (!window.__sfLanding) root.classList.remove('js'); }, 3000);
     })();
@@ -164,7 +178,8 @@
             Распознавание накладных для&nbsp;1С:УНФ
           </p>
           <h1 class="hero__title" id="hero-title" data-animate data-delay="1">
-            <span class="gradient-text">Накладные в&nbsp;1С<br> без ручного ввода</span>
+            <span class="gradient-text" data-hero-v="a">Накладные в&nbsp;1С<br> без ручного ввода</span>
+            <span class="gradient-text" data-hero-v="b">Приходная в&nbsp;1С<br> прямо с&nbsp;фото</span>
           </h1>
           <p class="hero__lead" data-animate data-delay="2">
             Сфотографируйте ТОРГ-12, УПД или счёт. Примерно через полминуты в&nbsp;1С готова приходная
@@ -654,7 +669,7 @@
         <header class="section-head" data-animate>
           <p class="eyebrow">Документы и&nbsp;пример результата</p>
           <h2 class="section-title" id="docs-title">ТОРГ-12, УПД, счёт и&nbsp;счёт-фактура</h2>
-          <p class="section-sub">Тип документа ScanFlow определяет сам. Слева то, что напечатано на&nbsp;бумаге, справа то, что уйдёт дальше.</p>
+          <p class="section-sub">Тип документа ScanFlow определяет сам. Выберите документ и&nbsp;нажмите «Распознать пример»: слева бумага, справа то, что уйдёт дальше.</p>
         </header>
 
         <div class="docs__tabs" role="tablist" aria-label="Тип документа" data-animate>
@@ -673,8 +688,9 @@
         </div>
 
         <!-- ТОРГ-12 -->
-        <div class="docs__panel" role="tabpanel" id="panel-torg12" aria-labelledby="tab-torg12" data-panel="torg12" tabindex="0">
+        <div class="docs__panel" role="tabpanel" id="panel-torg12" aria-labelledby="tab-torg12" data-panel="torg12" data-sandbox tabindex="0">
           <div class="paper" aria-hidden="true">
+            <span class="sheet__beam" aria-hidden="true"></span>
             <p class="paper__head">Товарная накладная № 2841</p>
             <p class="paper__row"><span>от 21.10.2026</span><span>ТОРГ-12</span></p>
             <hr>
@@ -689,7 +705,7 @@
             <p class="paper__row paper__row--total"><span>Итого</span><span>22&nbsp;893,00</span></p>
           </div>
           <div class="result">
-            <div class="result__head"><span class="flag">Пример</span><span class="result__type">ТОРГ-12 · распознано</span></div>
+            <div class="result__head"><span class="flag">Пример</span><span class="result__type" data-type="ТОРГ-12">ТОРГ-12 · распознано</span><button type="button" class="btn btn--primary result__run" data-run hidden><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg><span>Распознать пример</span></button></div>
             <dl class="result__fields">
               <div><dt>Номер</dt><dd>2841</dd></div>
               <div><dt>Дата</dt><dd>21.10.2026</dd></div>
@@ -706,13 +722,24 @@
               </tbody>
             </table>
             <p class="result__total"><span>Итого</span><b>22&nbsp;893,00&nbsp;₽</b></p>
+            <ul class="result__checks" aria-label="Проверки">
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Количество × цена = сумма в&nbsp;каждой строке</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Сумма строк сходится с&nbsp;итогом 22&nbsp;893,00&nbsp;₽</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Номера строк 1–14 без пропусков: все листы на&nbsp;месте</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Товары подобраны из&nbsp;справочника 1С</span></li>
+            </ul>
             <p class="result__out"><svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg>1С:УНФ: приходная накладная с&nbsp;фото во&nbsp;вложении</p>
+            <div class="result__next" data-run-next hidden>
+              <p>Пример ускорен: настоящее распознавание занимает около 30&nbsp;секунд, и&nbsp;результат проверяете вы.</p>
+              <a href="#auth" class="text-link" data-action="register">Распознать своё фото <svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+            </div>
           </div>
         </div>
 
         <!-- УПД -->
-        <div class="docs__panel" role="tabpanel" id="panel-upd" aria-labelledby="tab-upd" data-panel="upd" tabindex="0" hidden>
+        <div class="docs__panel" role="tabpanel" id="panel-upd" aria-labelledby="tab-upd" data-panel="upd" data-sandbox tabindex="0" hidden>
           <div class="paper" aria-hidden="true">
+            <span class="sheet__beam" aria-hidden="true"></span>
             <p class="paper__head">Универсальный передаточный документ</p>
             <p class="paper__row"><span>Счёт-фактура № 1093</span><span>от 20.10.2026</span></p>
             <p class="paper__row paper__row--dim"><span>Статус</span><b>1</b></p>
@@ -726,7 +753,7 @@
             <p class="paper__row paper__row--total"><span>Всего с&nbsp;НДС</span><span>35&nbsp;269,50</span></p>
           </div>
           <div class="result">
-            <div class="result__head"><span class="flag">Пример</span><span class="result__type">УПД · распознано</span></div>
+            <div class="result__head"><span class="flag">Пример</span><span class="result__type" data-type="УПД">УПД · распознано</span><button type="button" class="btn btn--primary result__run" data-run hidden><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg><span>Распознать пример</span></button></div>
             <dl class="result__fields">
               <div><dt>Номер и&nbsp;статус</dt><dd>1093, статус 1</dd></div>
               <div><dt>Дата</dt><dd>20.10.2026</dd></div>
@@ -735,13 +762,23 @@
               <div><dt>НДС 22%</dt><dd>6&nbsp;360,07&nbsp;₽</dd></div>
               <div><dt>Всего с&nbsp;НДС</dt><dd>35&nbsp;269,50&nbsp;₽</dd></div>
             </dl>
+            <ul class="result__checks" aria-label="Проверки">
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Количество × цена = сумма в&nbsp;каждой строке</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>НДС по&nbsp;ставкам строк сходится с&nbsp;итогом</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Номер, дата и&nbsp;статус УПД прочитаны</span></li>
+            </ul>
             <p class="result__out"><svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg>1С:УНФ: приходная накладная, НДС по&nbsp;ставкам строк</p>
+            <div class="result__next" data-run-next hidden>
+              <p>Пример ускорен: настоящее распознавание занимает около 30&nbsp;секунд, и&nbsp;результат проверяете вы.</p>
+              <a href="#auth" class="text-link" data-action="register">Распознать своё фото <svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+            </div>
           </div>
         </div>
 
         <!-- Счёт -->
-        <div class="docs__panel" role="tabpanel" id="panel-schet" aria-labelledby="tab-schet" data-panel="schet" tabindex="0" hidden>
+        <div class="docs__panel" role="tabpanel" id="panel-schet" aria-labelledby="tab-schet" data-panel="schet" data-sandbox tabindex="0" hidden>
           <div class="paper" aria-hidden="true">
+            <span class="sheet__beam" aria-hidden="true"></span>
             <p class="paper__head">Счёт на оплату № 247</p>
             <p class="paper__row"><span>от 22.10.2026</span></p>
             <hr>
@@ -756,7 +793,7 @@
             <p class="paper__row paper__row--total"><span>К оплате</span><span>8&nbsp;120,00</span></p>
           </div>
           <div class="result">
-            <div class="result__head"><span class="flag">Пример</span><span class="result__type">Счёт · распознано</span></div>
+            <div class="result__head"><span class="flag">Пример</span><span class="result__type" data-type="Счёт">Счёт · распознано</span><button type="button" class="btn btn--primary result__run" data-run hidden><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg><span>Распознать пример</span></button></div>
             <dl class="result__fields">
               <div><dt>Получатель</dt><dd>ООО «Хлебная линия»</dd></div>
               <div><dt>ИНН</dt><dd>5410297736</dd></div>
@@ -765,13 +802,23 @@
               <div><dt>К оплате</dt><dd>8&nbsp;120,00&nbsp;₽</dd></div>
               <div><dt>Назначение</dt><dd>Оплата по&nbsp;счёту № 247 от&nbsp;22.10.2026</dd></div>
             </dl>
+            <ul class="result__checks" aria-label="Проверки">
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Сумма к&nbsp;оплате сходится со&nbsp;строками</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Реквизиты получателя для платёжки: счёт, банк, БИК</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Назначение платежа — по&nbsp;вашему шаблону</span></li>
+            </ul>
             <p class="result__out"><svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg>СберБизнес: черновик платёжного поручения, подпись за&nbsp;вами</p>
+            <div class="result__next" data-run-next hidden>
+              <p>Пример ускорен: настоящее распознавание занимает около 30&nbsp;секунд, и&nbsp;результат проверяете вы.</p>
+              <a href="#auth" class="text-link" data-action="register">Распознать своё фото <svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+            </div>
           </div>
         </div>
 
         <!-- Счёт-фактура -->
-        <div class="docs__panel" role="tabpanel" id="panel-sf" aria-labelledby="tab-sf" data-panel="sf" tabindex="0" hidden>
+        <div class="docs__panel" role="tabpanel" id="panel-sf" aria-labelledby="tab-sf" data-panel="sf" data-sandbox tabindex="0" hidden>
           <div class="paper" aria-hidden="true">
+            <span class="sheet__beam" aria-hidden="true"></span>
             <p class="paper__head">Счёт-фактура № 518</p>
             <p class="paper__row"><span>от 19.10.2026</span></p>
             <hr>
@@ -784,7 +831,7 @@
             <p class="paper__row paper__row--total"><span>Сумма НДС</span><span>7&nbsp;124,18</span></p>
           </div>
           <div class="result">
-            <div class="result__head"><span class="flag">Пример</span><span class="result__type">Счёт-фактура · распознано</span></div>
+            <div class="result__head"><span class="flag">Пример</span><span class="result__type" data-type="Счёт-фактура">Счёт-фактура · распознано</span><button type="button" class="btn btn--primary result__run" data-run hidden><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg><span>Распознать пример</span></button></div>
             <dl class="result__fields">
               <div><dt>Номер</dt><dd>518</dd></div>
               <div><dt>Дата</dt><dd>19.10.2026</dd></div>
@@ -793,7 +840,16 @@
               <div><dt>Ставки НДС</dt><dd>10% и&nbsp;22% по&nbsp;строкам</dd></div>
               <div><dt>Сумма НДС</dt><dd>7&nbsp;124,18&nbsp;₽</dd></div>
             </dl>
+            <ul class="result__checks" aria-label="Проверки">
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>НДС по&nbsp;ставкам 10% и&nbsp;22% сходится с&nbsp;итогом</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Количество × цена = сумма в&nbsp;каждой строке</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>Продавец и&nbsp;грузополучатель прочитаны</span></li>
+            </ul>
             <p class="result__out"><svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg>1С:УНФ: приходная накладная с&nbsp;суммой НДС</p>
+            <div class="result__next" data-run-next hidden>
+              <p>Пример ускорен: настоящее распознавание занимает около 30&nbsp;секунд, и&nbsp;результат проверяете вы.</p>
+              <a href="#auth" class="text-link" data-action="register">Распознать своё фото <svg class="ico ico--go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+            </div>
           </div>
         </div>
 
@@ -806,6 +862,68 @@
             <p>Создайте аккаунт и&nbsp;загрузите фото в&nbsp;кабинете: с&nbsp;телефона, с&nbsp;компьютера, через Telegram или почту. JPG, PNG, PDF или XML из&nbsp;ЭДО до&nbsp;20&nbsp;МБ.</p>
           </div>
           <a href="#auth" class="btn btn--secondary" data-action="register">Создать аккаунт</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== КАЛЬКУЛЯТОР ЭКОНОМИИ ==========
+         Оценка по цифрам посетителя: допущения — в «Как считаем», расчёт —
+         landing.js (initSavings). Цен и обещаний сверх тарифов здесь нет. -->
+    <section class="savings" id="savings" aria-labelledby="savings-title">
+      <div class="container">
+        <header class="section-head" data-animate>
+          <p class="eyebrow">Калькулятор</p>
+          <h2 class="section-title" id="savings-title">Сколько часов уходит на&nbsp;ввод накладных</h2>
+          <p class="section-sub">Подставьте свои цифры: считаем ручной ввод приходной в&nbsp;1С и&nbsp;проверку готовой приходной в&nbsp;ScanFlow.</p>
+        </header>
+
+        <div class="calc" data-calc data-animate>
+          <form class="calc__inputs" aria-label="Ваши цифры">
+            <div class="calc__field">
+              <label class="calc__name" for="calc-invoices">Накладных в&nbsp;месяц</label>
+              <output class="calc__value" for="calc-invoices" data-out="invoices">150</output>
+              <input class="calc__range" type="range" id="calc-invoices" name="invoices" min="10" max="1500" step="10" value="150">
+            </div>
+            <div class="calc__field">
+              <label class="calc__name" for="calc-lines">Строк в&nbsp;накладной</label>
+              <output class="calc__value" for="calc-lines" data-out="lines">12</output>
+              <input class="calc__range" type="range" id="calc-lines" name="lines" min="1" max="60" step="1" value="12">
+            </div>
+            <div class="calc__field">
+              <label class="calc__name" for="calc-seconds">Ввод одной строки вручную</label>
+              <output class="calc__value" for="calc-seconds" data-out="seconds">30&nbsp;с</output>
+              <input class="calc__range" type="range" id="calc-seconds" name="seconds" min="10" max="120" step="5" value="30">
+            </div>
+            <div class="calc__field">
+              <label class="calc__name" for="calc-rate">Час работы сотрудника</label>
+              <output class="calc__value" for="calc-rate" data-out="rate">400&nbsp;₽</output>
+              <input class="calc__range" type="range" id="calc-rate" name="rate" min="200" max="2000" step="50" value="400">
+            </div>
+            <details class="calc__how">
+              <summary>Как считаем</summary>
+              <p>Вручную: 3&nbsp;минуты на&nbsp;шапку (поставщик, номер, дата, итог) и&nbsp;ввод каждой строки. В&nbsp;ScanFlow: минута на&nbsp;проверку шапки и&nbsp;одобрение и&nbsp;2&nbsp;секунды на&nbsp;взгляд на&nbsp;строку. Это оценки, а&nbsp;не&nbsp;замеры, — сдвиньте ползунки под свою работу.</p>
+            </details>
+          </form>
+
+          <div class="calc__result">
+            <p class="calc__label">Экономия в&nbsp;месяц</p>
+            <p class="calc__big"><b data-out="saved-hours">19</b><span>ч</span></p>
+            <p class="calc__money">≈&nbsp;<b data-out="saved-money">7&nbsp;600</b>&nbsp;₽ по&nbsp;цене часа сотрудника</p>
+            <div class="calc__bars" aria-hidden="true">
+              <div class="calc__bar">
+                <span class="calc__bar-name">Вручную</span>
+                <span class="calc__bar-track"><span class="calc__bar-fill" data-bar="manual"></span></span>
+                <span class="calc__bar-val" data-out="manual-hours">23&nbsp;ч</span>
+              </div>
+              <div class="calc__bar calc__bar--scan">
+                <span class="calc__bar-name">ScanFlow</span>
+                <span class="calc__bar-track"><span class="calc__bar-fill" data-bar="scan"></span></span>
+                <span class="calc__bar-val" data-out="scan-hours">3,5&nbsp;ч</span>
+              </div>
+            </div>
+            <p class="calc__plan">Если накладная на&nbsp;одном листе, это <b data-out="pages">150</b>&nbsp;страниц в&nbsp;месяц: подойдёт <a class="text-link" href="#pricing" data-out="plan">Pro</a> <span data-out="plan-price">(990&nbsp;₽ в&nbsp;месяц после беты)</span>. Сейчас всё бесплатно.</p>
+            <p class="sr-only" aria-live="polite" data-out="summary"></p>
+          </div>
         </div>
       </div>
     </section>

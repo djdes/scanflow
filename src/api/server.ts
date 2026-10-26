@@ -8,6 +8,7 @@ import { loadArticles } from '../seo/articles';
 import { buildSitemapXml } from '../seo/sitemap';
 import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
 import { LEGAL_PAGES, LegalPage, legalOperator, renderLegalPage } from '../legal/documents';
+import { injectSiteConfig } from '../seo/siteConfig';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth, requireAdmin } from './middleware/auth';
@@ -428,19 +429,26 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.get('/blog', (_req, res) => {
     if (!listingHtmlCache) {
       const raw = fs.readFileSync(path.join(publicDir, 'blog/index.html'), 'utf8');
-      listingHtmlCache = renderListingHtml(raw, loadArticles());
+      listingHtmlCache = injectSiteConfig(renderListingHtml(raw, loadArticles()));
     }
     res.type('html').send(listingHtmlCache);
   });
 
   // GET /blog/:slug — serve the matching article HTML or 404. Slug must be
-  // safe (lowercase ascii + hyphens) to avoid path-traversal.
+  // safe (lowercase ascii + hyphens) to avoid path-traversal. Статья кешируется
+  // в памяти вместе с подставленными настройками страницы (siteConfig).
+  const articleHtmlCache = new Map<string, string>();
   app.get('/blog/:slug', (req, res) => {
     const slug = req.params.slug;
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) return res.status(404).send('Not Found');
-    const file = path.join(publicDir, 'blog', `${slug}.html`);
-    if (!fs.existsSync(file)) return res.status(404).send('Not Found');
-    res.sendFile(file);
+    let html = articleHtmlCache.get(slug);
+    if (!html) {
+      const file = path.join(publicDir, 'blog', `${slug}.html`);
+      if (!fs.existsSync(file)) return res.status(404).send('Not Found');
+      html = injectSiteConfig(fs.readFileSync(file, 'utf8'));
+      articleHtmlCache.set(slug, html);
+    }
+    res.type('html').send(html);
   });
 
   // Правовые документы: политика обработки ПДн, согласие, пользовательское
@@ -452,7 +460,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
       let html = legalHtmlCache.get(slug);
       if (!html) {
         const raw = fs.readFileSync(path.join(publicDir, 'legal', `${slug}.html`), 'utf8');
-        html = renderLegalPage(raw, legalOperator());
+        html = injectSiteConfig(renderLegalPage(raw, legalOperator()));
         legalHtmlCache.set(slug, html);
       }
       res.type('html').send(html);
@@ -466,7 +474,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   function getLandingHtml(): string {
     if (landingHtmlCache) return landingHtmlCache;
     const raw = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-    landingHtmlCache = renderPreviewHtml(raw, loadArticles()) || raw;
+    landingHtmlCache = injectSiteConfig(renderPreviewHtml(raw, loadArticles()) || raw);
     return landingHtmlCache;
   }
 
