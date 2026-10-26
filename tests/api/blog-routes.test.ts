@@ -95,6 +95,29 @@ describe('Site icons', () => {
   });
 });
 
+describe('Self-hosted fonts', () => {
+  // Шрифты сайта — с нашего домена, не из Google Fonts (правило 35).
+  it('serves woff2 with a year-long immutable cache', async () => {
+    const res = await request(app).get('/fonts/geist-v5-cyrillic.woff2');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/woff2/);
+    expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('serves the @font-face stylesheet without long caching', async () => {
+    const res = await request(app).get('/css/fonts.css');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/css/);
+    expect(res.headers['cache-control']).toBe('no-cache');
+  });
+
+  it('the landing does not call Google Fonts', async () => {
+    const res = await request(app).get('/');
+    expect(res.text).not.toContain('fonts.googleapis.com');
+    expect(res.text).toContain('/css/fonts.css');
+  });
+});
+
 describe('Blog listing rendering', () => {
   // This assumes articles.json has at least one article. If it's still empty
   // from Task 0.1, the test is no-op. Once Task 4.1 adds the first article,
