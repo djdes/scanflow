@@ -18,11 +18,13 @@ vi.mock('../../src/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
+vi.mock('../../src/services/recognitionQueue', () => ({ enqueueRecognitionFile: vi.fn(async (_path: string, file: string) => ({ id: 1, file_name: file, state: 'queued', invoice_id: null })) }));
 
 import uploadRouter, { setFileWatcher, uploadExtension } from '../../src/api/routes/upload';
 import { config } from '../../src/config';
+import { enqueueRecognitionFile } from '../../src/services/recognitionQueue';
 
-const fw = { markProcessing: vi.fn(), processFile: vi.fn(async () => 1) };
+const fw = { markProcessing: vi.fn(), unmarkProcessing: vi.fn(), processFile: vi.fn(async () => 1) };
 setFileWatcher(fw as never);
 
 const XML = fs.readFileSync(path.join(__dirname, '..', 'xml', 'fixtures', 'upd_503_ul_win1251.xml'));
@@ -60,14 +62,15 @@ describe('POST /api/upload — XML из ЭДО', () => {
       .attach('file', XML, { filename: 'ON_NSCHFDOPPR_2BM_20260928.XML', contentType: 'application/octet-stream' });
     expect(res.status).toBe(202);
     const stored = res.body.file_name as string;
-    expect(stored).toMatch(/^upload-\d+-\d+\.xml$/);
+    expect(stored).toMatch(/^upload-7-\d+-[a-f0-9-]+\.xml$/);
     const storedPath = path.join(config.inboxDir, stored);
     expect(fs.readFileSync(storedPath).equals(XML)).toBe(true);   // байты как есть: windows-1251 не перекодируется
     expect(fw.markProcessing).toHaveBeenCalledWith(storedPath);     // правило 6
-    await vi.waitFor(() => expect(fw.processFile).toHaveBeenCalledTimes(1));
-    expect(fw.processFile).toHaveBeenCalledWith(storedPath, stored, undefined, expect.objectContaining({
+    expect(enqueueRecognitionFile).toHaveBeenCalledWith(storedPath, stored, undefined, expect.objectContaining({
       source: 'web', ownerUserId: 7,
-    }));
+    }), 'ON_NSCHFDOPPR_2BM_20260928.XML');
+    expect(res.body.job_id).toBe(1);
+    expect(fw.processFile).not.toHaveBeenCalled();
   });
 
   it('XML без расширения узнаётся по MIME text/xml', async () => {

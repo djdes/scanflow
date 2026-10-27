@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/css/sidebar.css">
   <link rel="stylesheet" href="/css/billing.css">
   <link rel="stylesheet" href="/css/unit-cost.css">
+  <link rel="stylesheet" href="/css/recognition-queue.css">
 </head>
 <body>
 
@@ -134,6 +135,7 @@
       </div>
       <div class="ai-status-banner" id="ai-status-banner" role="status" hidden></div>
       <div id="invoices-list">
+        <div id="recognition-queue-banner" class="recognition-queue-banner" role="status" hidden></div>
         <div id="unit-cost-alerts" class="unit-cost-alerts" aria-live="polite" hidden></div>
         <div class="invoice-summary" id="invoices-summary" role="group" aria-label="Быстрые фильтры: сводка по всем накладным компании"></div>
         <div class="invoice-list-workspace">
@@ -378,6 +380,7 @@
         <div id="upload-counter" class="upload-counter"></div>
         <div id="upload-history"></div>
       </div>
+      <div id="recognition-queue-list" class="recognition-queue" aria-live="polite"></div>
     </section>
 
     <!-- Mappings Section -->
@@ -1115,7 +1118,9 @@
 <script src="/js/invoice-photo-viewer.js"></script>
 <script src="/js/invoices.js"></script>
 <script src="/js/nomenclature-picker.js"></script>
+<script src="/js/invoice-merge.js"></script>
 <script src="/js/unit-cost.js"></script>
+<script src="/js/recognition-queue.js"></script>
 <script src="/js/invoice-review.js"></script>
 <script src="/js/invoice-card.js"></script>
 <script src="/js/upload.js"></script>

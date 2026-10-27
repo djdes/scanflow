@@ -42,6 +42,7 @@ import learningRouter from './routes/learning';
 import analyticsRouter from './routes/analytics';
 import billingRouter, { robokassaCallbackRouter } from './routes/billing';
 import unitCostRouter from './routes/unitCost';
+import recognitionQueueRouter from './routes/recognitionQueue';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
@@ -302,6 +303,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.use('/api/profile', apiKeyAuth, profileRouter);
   app.use('/api/billing', apiKeyAuth, billingRouter);
   app.use('/api/unit-cost', apiKeyAuth, unitCostRouter);
+  app.use('/api/recognition-queue', apiKeyAuth, recognitionQueueRouter);
   app.use('/api/sber', apiKeyAuth, sberRouter);
   app.use('/api/suppliers', apiKeyAuth, suppliersRouter);
   app.use('/api/integrations', apiKeyAuth, integrationsRouter);

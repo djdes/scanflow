@@ -22,6 +22,11 @@
 .nom-picker-open:hover { background: #e0ecfc; border-color: #96b9e5; }
 .nomenclature-picker-dialog { width: min(760px, calc(100% - 32px)); margin: auto; padding: 24px; max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: var(--card); font-family: var(--font); box-shadow: var(--shadow-lg); }
 .nomenclature-picker-dialog::backdrop { background: rgb(25 23 30 / 45%); }
+.invoice-merge-preview { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 16px; font-size: 13px; line-height: 1.7; }
+.invoice-merge-preview[hidden] { display: none; }
+.invoice-merge-preview h3 { font-size: 16px; margin-bottom: 10px; }
+.invoice-merge-preview p, .invoice-merge-preview label { display: block; margin-bottom: 10px; }
+.invoice-merge-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .nom-choice-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .nom-choice-header h2 { font-size: 21px; font-weight: 600; }
 .nom-choice-close { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 6px; background: var(--bg); color: var(--text-secondary); font-size: 24px; cursor: pointer; flex-shrink: 0; }

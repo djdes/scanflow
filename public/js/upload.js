@@ -76,9 +76,14 @@ const Upload = {
         this._acquireWakeLock();
       }
     });
+    window.addEventListener('online', () => {
+      this.history.forEach((h, idx) => { if (h.status === 'error' && h.autoRetry && !h.rateLimited) this.retry(idx); });
+    });
 
     // Открыть БД и догрузить незавершённые
-    this.openDb().then(() => this.migrateLegacyDb()).then(() => this.retryPending());
+    this._dbReady = this.openDb().then(() => this.migrateLegacyDb()).then(() => this.retryPending()).catch(error => {
+      console.error('Local upload queue unavailable', error);
+    });
   },
 
   async _addMultiple(files) {
@@ -156,8 +161,9 @@ const Upload = {
       const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
       const store = tx.objectStore(this.STORE_NAME);
       const req = store.add({ blob, name, createdAt: Date.now() });
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error || req.error);
+      tx.onabort = () => reject(tx.error || new Error('Фото не сохранено на устройстве'));
     });
   },
 
@@ -265,6 +271,7 @@ const Upload = {
 
     let dbId = null;
     try {
+      if (this._dbReady) await this._dbReady;
       dbId = await this.dbPut(blob, name);
     } catch (e) {
       console.error('Failed to save to IndexedDB', e);
@@ -277,6 +284,8 @@ const Upload = {
       name,
       status: 'queued',
       progress: 0,
+      _blob: blob,
+      localWarning: dbId ? null : 'Не удалось сохранить копию на устройстве. Не закрывайте вкладку до приёма сервером.',
     });
     this.renderHistory();
     this.updateCounter();
@@ -374,9 +383,17 @@ const Upload = {
         if (xhr.status >= 200 && xhr.status < 300) {
           this.totalUploaded++;
           this.history[idx].progress = 100;
-          if (dbId) this.dbDelete(dbId).catch(() => {});
-
-          if (data.invoice_id) {
+          if (data.job_id) {
+            // Only this receipt proves that the server committed a durable job.
+            if (dbId) this.dbDelete(dbId).catch(() => {});
+            this.history[idx].jobId = data.job_id;
+            this.history[idx].invoiceId = data.invoice_id || null;
+            this.history[idx].status = data.queued === false ? 'ok' : 'server_queued';
+            this.history[idx]._blob = null;
+            App.notify('Фото сохранено на сервере. Обработка продолжится автоматически.', 'success');
+            if (typeof RecognitionQueue !== 'undefined') RecognitionQueue.refresh();
+          } else if (data.invoice_id) {
+            if (dbId) this.dbDelete(dbId).catch(() => {});
             // Sync upload (legacy path) — invoice_id уже есть.
             this.history[idx].status = 'ok';
             this.history[idx].invoiceId = data.invoice_id;
@@ -388,9 +405,9 @@ const Upload = {
             App.notify(`«${this.history[idx].name}» в очереди на обработку`, 'info');
             this._pollForInvoiceId(idx, data.file_name);
           } else {
-            // Неожиданный response — считаем успехом без ID.
-            this.history[idx].status = 'ok';
-            App.notify(`«${this.history[idx].name}» загружено`, 'success');
+            this.history[idx].status = 'error';
+            this.history[idx].error = 'Сервер не подтвердил сохранение. Фото остаётся на устройстве';
+            this.scheduleAutoRetry(idx);
           }
         } else if (xhr.status === 429) {
           const retryAfter = parseInt(
@@ -399,10 +416,13 @@ const Upload = {
           this.history[idx].status = 'error';
           this.history[idx].error = `Слишком много загрузок, подожди ${retryAfter}с`;
           this.history[idx]._retryAfterMs = Math.max(1, retryAfter) * 1000;
+          this.history[idx].rateLimited = true;
+          this.scheduleAutoRetry(idx, this.history[idx]._retryAfterMs);
           App.notify(this.history[idx].error, 'error');
         } else {
           this.history[idx].status = 'error';
           this.history[idx].error = data.error || `HTTP ${xhr.status}`;
+          if (xhr.status >= 500 || xhr.status === 408) this.scheduleAutoRetry(idx);
           App.notify('Ошибка: ' + this.history[idx].error, 'error');
         }
         this.renderHistory();
@@ -412,11 +432,18 @@ const Upload = {
       xhr.addEventListener('error', () => {
         this.history[idx].status = 'error';
         this.history[idx].error = 'Ошибка сети';
+        this.scheduleAutoRetry(idx);
         this.renderHistory();
         this.updateCounter();
         App.notify('Ошибка сети', 'error');
         resolve();
       });
+      xhr.addEventListener('timeout', () => {
+        this.history[idx].status = 'error';
+        this.history[idx].error = 'Сервер не подтвердил приём вовремя. Фото сохранено для повторной отправки';
+        this.scheduleAutoRetry(idx); this.renderHistory(); this.updateCounter(); resolve();
+      });
+      xhr.timeout = 90000;
       xhr.open('POST', App.baseUrl + '/upload');
       xhr.setRequestHeader('X-API-Key', App.apiKey);
       xhr.send(formData);
@@ -446,6 +473,7 @@ const Upload = {
             // Финал: invoice появился в БД. Если status уже 'processed' —
             // показываем как ok; иначе оставляем processing с подсказкой.
             if (invoice.status === 'processed') {
+              if (h.id) this.dbDelete(h.id).catch(() => {});
               this.history[idx].status = 'ok';
               this.history[idx].invoiceId = invoice.id;
               // Проверяем повышенные цены сразу при распознавании —
@@ -465,6 +493,7 @@ const Upload = {
               return;
             }
             if (invoice.status === 'waiting_ai') {
+              if (h.id) this.dbDelete(h.id).catch(() => {});
               // Фото принято, GPT сейчас недоступен — накладная распознается сама.
               this.history[idx].status = 'ok';
               this.history[idx].invoiceId = invoice.id;
@@ -538,6 +567,8 @@ const Upload = {
   async retry(idx) {
     const h = this.history[idx];
     if (!h || h.status !== 'error') return;
+    clearTimeout(h._retryTimer);
+    h.autoRetry = false;
     const waitMs = h._retryAfterMs || 0;
     h.status = 'queued';
     h.error = null;
@@ -557,10 +588,25 @@ const Upload = {
         return;
       }
     }
+    if (h._blob) { this._scheduleUpload(idx, h._blob); return; }
     h.status = 'lost';
     h.error = 'Файл утерян, сделайте/выберите снова';
     this.renderHistory();
     this.updateCounter();
+  },
+  scheduleAutoRetry(idx, requestedDelay) {
+    const h = this.history[idx];
+    if (!h) return;
+    clearTimeout(h._retryTimer);
+    h.autoRetry = true;
+    h.retryAttempts = (h.retryAttempts || 0) + 1;
+    const delay = requestedDelay || Math.min(60000, 2000 * 2 ** Math.min(5, h.retryAttempts - 1));
+    h._retryAt = Date.now() + delay;
+    h._retryTimer = setTimeout(() => {
+      if (h.status !== 'error') return;
+      h._retryAfterMs = 0;
+      this.retry(idx);
+    }, delay);
   },
 
   async retryAllErrors() {
@@ -587,6 +633,7 @@ const Upload = {
   async remove(idx) {
     const h = this.history[idx];
     if (!h) return;
+    clearTimeout(h._retryTimer);
     h.status = 'removed';
     if (h.url) { try { URL.revokeObjectURL(h.url); } catch {} }
     if (h.id && this.db) { try { await this.dbDelete(h.id); } catch {} }
@@ -634,6 +681,9 @@ const Upload = {
       let actionsHtml = '';
       if (h.status === 'queued') {
         statusHtml = '<span class="upload-status upload-status-queued">В очереди…</span>';
+      } else if (h.status === 'server_queued') {
+        statusHtml = `<span class="upload-status upload-status-queued">Фото сохранено на сервере · ${h.serverState === 'processing' ? 'распознаётся' : 'ждёт обработки'}</span>${h.invoiceId ? ` <a href="#/invoices/${Number(h.invoiceId)}">Накладная #${Number(h.invoiceId)}</a>` : ''}`;
+        if (h.queueError) statusHtml += `<div class="upload-error-detail">${esc(h.queueError)}. Повторная попытка будет автоматически.</div>`;
       } else if (h.status === 'processing') {
         // Файл загружен на сервер, watcher распознаёт (Claude API ~10-30 сек,
         // multi-page до минуты). При наличии invoiceId показываем линк сразу.
@@ -665,6 +715,9 @@ const Upload = {
             </div>`;
         }
         actionsHtml = `<button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Убрать</button>`;
+      } else if (h.status === 'cancelled') {
+        statusHtml = '<span class="upload-status">Задание отменено при удалении накладной</span>';
+        actionsHtml = `<button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Убрать</button>`;
       } else if (h.status === 'lost') {
         statusHtml = `<span class="upload-status upload-status-error">Фото утеряно</span>
           <div class="upload-error-detail">${esc(h.error || 'Файл больше не доступен')}.</div>`;
@@ -672,6 +725,7 @@ const Upload = {
       } else {
         statusHtml = `<span class="upload-status upload-status-error">Ошибка</span>`;
         if (h.error) statusHtml += `<div class="upload-error-detail">${esc(h.error)}</div>`;
+        if (h.autoRetry) statusHtml += '<div class="upload-error-detail">Фото остаётся на устройстве. Отправка повторится автоматически.</div>';
         actionsHtml = `
           <button class="btn btn-sm btn-primary" onclick="Upload.retry(${h.idx})">↻ Повторить</button>
           <button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Удалить</button>
@@ -687,6 +741,7 @@ const Upload = {
         ${preview}
         <div class="upload-history-info">
           <div class="upload-history-name">${esc(h.name)}</div>
+          ${h.localWarning ? `<div class="upload-error-detail">${esc(h.localWarning)}</div>` : ''}
           ${statusHtml}
           ${actionsHtml ? `<div class="upload-actions">${actionsHtml}</div>` : ''}
         </div>

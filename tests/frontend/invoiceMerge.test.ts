@@ -13,6 +13,12 @@ beforeEach(() => {
 });
 
 describe('manual page merge from the invoice list', () => {
+  it('opens the manual picker even when automatic sibling detection has no match', async () => {
+    const picker = { open: vi.fn() };
+    const value = runInNewContext(`${script}\nInvoices;`, { App: app, InvoiceMerge: picker });
+    await value.mergePagesFromList(895);
+    expect(picker.open).toHaveBeenCalledWith(895); expect(app.apiJson).not.toHaveBeenCalled();
+  });
   it('offers the matching invoice returned by the server', async () => {
     app.apiJson.mockResolvedValue({ data: { id: 52, possible_siblings: [{ id: 51 }] } });
     await invoices.mergePagesFromList(52);
@@ -47,5 +53,21 @@ describe('manual page merge from the invoice list', () => {
     await invoices.mergePagesFromList(52);
     expect(invoices.mergeSibling).not.toHaveBeenCalled();
     expect(app.notify).toHaveBeenCalledWith(expect.stringContaining('timeout'), 'error');
+  });
+});
+
+describe('manual merge selection', () => {
+  const picker = runInNewContext(readFileSync('public/js/invoice-merge.js', 'utf8') + '\nInvoiceMerge;', { App: { isXmlInvoice: (v: any) => String(v.file_name || '').endsWith('.xml') } });
+  const first = { id: 893, invoice_number: '1/567558', supplier_inn: '123', invoice_date: '2026-10-19' };
+  const second = { id: 895, invoice_number: null, supplier_inn: '123', invoice_date: null };
+  it('allows a continuation without number/date and prefers the numbered main page', () => {
+    expect(picker.compatible(second, first)).toBe(true);
+    expect(picker.preferredTarget(second, first)).toEqual(first);
+    expect(picker.preferredTarget({ ...second, id: 891 }, first)).toEqual(first);
+  });
+  it('rejects another known number, date, company, self, XML or duplicate', () => {
+    for (const change of [{ invoice_number: 'OTHER' }, { invoice_date: '2026-10-20' }, { supplier_inn: '456' }, { id: 893 }, { file_name: 'a.xml' }, { duplicate_of: 5 }]) {
+      expect(picker.compatible(first, { ...first, id: 895, ...change })).toBe(false);
+    }
   });
 });

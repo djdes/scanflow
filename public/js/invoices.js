@@ -1932,6 +1932,7 @@ const Invoices = {
   },
 
   async mergePagesFromList(id) {
+    if (typeof InvoiceMerge !== 'undefined') return InvoiceMerge.open(id);
     return this._withGuard(`merge-candidates:${id}`, async () => {
       try {
         const { data } = await App.apiJson(`/invoices/${id}`);

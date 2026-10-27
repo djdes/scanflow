@@ -6,7 +6,7 @@ import { initDb, closeDb } from './database/db';
 import { OcrManager } from './ocr/ocrManager';
 import { NomenclatureMapper } from './mapping/nomenclatureMapper';
 import { FileWatcher } from './watcher/fileWatcher';
-import { recoverStaleInvoices, retryStaleInvoices } from './watcher/crashRecovery';
+import { startRecognitionQueue, stopRecognitionQueue } from './services/recognitionQueue';
 import { startAiResume } from './services/aiResume';
 import { pruneSendLog } from './notifications/rateLimit';
 import { startServer } from './api/server';
@@ -65,37 +65,15 @@ async function main(): Promise<void> {
   // distinction is load-bearing.
   fileWatcher = new FileWatcher(ocrManager, mapper);
 
-  // Recover from crashes / interrupted deploys. Returns the ids that still need
-  // an OCR re-run; those are slow (Claude calls), so they're kicked off after
-  // the HTTP server is listening rather than blocking startup.
-  let staleToRetry: number[] = [];
-  try {
-    staleToRetry = await recoverStaleInvoices(fileWatcher);
-
-    // Catch-all for rows recovery doesn't see: a row that died between INSERT
-    // and its first status flip is still 'new', not 'ocr_processing'. Rows
-    // queued for an in-place retry are excluded — they sit in 'ocr_processing'
-    // on purpose and are about to be re-driven.
-    const fallback = await invoiceRepo.markStaleAsFailed(1, staleToRetry);
-    if (fallback > 0) {
-      logger.warn('Marked remaining stale as error', { count: fallback });
-    }
-  } catch (e) {
-    logger.error('Startup stale-invoice recovery failed', { error: (e as Error).message });
-  }
-
   fileWatcher.start();
   logger.info('File watcher ready');
 
   // Start REST API server
   httpServer = startServer(fileWatcher, mapper);
 
-  // Now that we're serving, re-drive the stale invoices in the background —
-  // one at a time (concurrent Claude image calls are what blew the memory
-  // ceiling and started the restart loop this recovery path exists to end).
-  if (staleToRetry.length > 0) {
-    void retryStaleInvoices(fileWatcher, staleToRetry);
-  }
+  // Durable receipts survive deploys. Failed/stale initial recognition is retried in place,
+  // without exhausting an attempt limit or promoting an incomplete item list to processed.
+  await startRecognitionQueue(fileWatcher);
 
   // Накладные, ждавшие модель (waiting_ai: лимит подписки ChatGPT, вход, связь),
   // распознаются сами, когда модель снова доступна — по одной.
@@ -241,6 +219,7 @@ async function main(): Promise<void> {
 
 // Graceful shutdown
 async function shutdown(): Promise<void> {
+  stopRecognitionQueue();
   logger.info('Shutting down...');
 
   // Stop new intake first (watcher), then drain in-flight HTTP requests before

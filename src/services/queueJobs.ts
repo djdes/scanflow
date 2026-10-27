@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger';
 import { AiUnavailableError } from '../ai/errors';
 import { reportAiOutage } from './aiOutage';
+import { acquireRecognitionActivity } from './recognitionActivity';
 
 /**
  * Фоновые задачи «Очереди в 1С»: перераспознавание очереди и массовый подбор
@@ -90,6 +91,7 @@ export class QueueStartError extends Error {
 }
 
 let active: QueueJob | null = null;
+let releaseActivity: (() => void) | null = null;
 let seq = 0;
 const lastByOwnerKind = new Map<string, QueueJob>();
 /** Задачи на паузе из-за недоступной модели: как продолжить с оставшихся накладных. */
@@ -117,6 +119,9 @@ export function startQueueJob(opts: {
   // Проверка и захват — синхронно, без await между ними: второй одновременный
   // запуск гарантированно получит «занято».
   assertQueueJobFree(opts.ownerUserId);
+  const release = acquireRecognitionActivity();
+  if (!release) throw new QueueStartError(409, 'Сейчас распознаётся загруженная фотография. Дождитесь окончания и повторите');
+  releaseActivity = release;
   const job: QueueJob = {
     id: ++seq,
     kind: opts.kind,
@@ -177,6 +182,8 @@ export function startQueueJob(opts: {
       job.error = ((err as Error).message || String(err)).slice(0, 500);
       logger.error('Queue job crashed', { jobId: job.id, kind: job.kind, error: job.error });
     } finally {
+      release();
+      if (releaseActivity === release) releaseActivity = null;
       job.currentInvoiceId = null;
       job.finishedAt = new Date().toISOString();
       if (active === job) active = null;
@@ -252,6 +259,7 @@ export async function resumePausedQueueJobs(): Promise<boolean> {
 
 /** Только для тестов: сбросить состояние модуля. */
 export function resetQueueJobsForTests(): void {
+  releaseActivity?.(); releaseActivity = null;
   active = null;
   lastByOwnerKind.clear();
   paused.clear();

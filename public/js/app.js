@@ -372,6 +372,8 @@ const App = {
       // the very next API call will 401 and api() will redirect to /?login=1.
       const appEl = document.getElementById('app');
       if (appEl) appEl.style.display = 'block';
+      if (typeof Upload !== 'undefined') Upload.init();
+      if (typeof RecognitionQueue !== 'undefined') RecognitionQueue.refresh();
       this.route();
       // Onboarding gate: для новых аккаунтов без накладных и без подключённого
       // Сбера перевести на #/onboarding. У существующих пользователей с

@@ -95,7 +95,7 @@ describe('состояния шагов', () => {
 describe('меню «⋯»', () => {
   const ids = (inv: any) => card.menuItems(inv).map((x: any) => (x ? x.id : '—'));
   it('фото: пересканировать, добавить страницы, позиции, реквизиты, эталон, удалить — с разделителями', () => {
-    expect(ids(base())).toEqual(['rescan', 'addPages', '—', 'remapMissing', 'remapAll', 'llm', 'confirmMappings', '—', 'editHeader', 'compare', 'golden', '—', 'delete']);
+    expect(ids(base())).toEqual(['rescan', 'addPages', 'mergePages', '—', 'remapMissing', 'remapAll', 'llm', 'confirmMappings', '—', 'editHeader', 'compare', 'golden', '—', 'delete']);
     expect(card.menuItems(base()).at(-1)).toMatchObject({ danger: true });
   });
   it('XML: «Перечитать XML», без страниц и эталона; в 1С — «Сбросить статус»', () => {

@@ -1146,7 +1146,10 @@ export const invoiceRepo = {
   /** Ждущие модель накладные всех компаний — по порядку загрузки. */
   async listWaitingAiIds(limit: number = 200): Promise<number[]> {
     const n = Math.max(1, Math.min(1000, Math.trunc(limit)));
-    const rows = await getDb().prepare(`SELECT id FROM invoices WHERE status = 'waiting_ai' ORDER BY id LIMIT ${n}`).all<{ id: number }>();
+    const rows = await getDb().prepare(`SELECT i.id FROM invoices i WHERE i.status = 'waiting_ai'
+      AND NOT EXISTS (SELECT 1 FROM recognition_jobs j WHERE j.state IN ('queued','processing','retry')
+        AND (j.invoice_id = i.id OR (j.owner_user_id = i.owner_user_id AND j.file_hash = i.file_hash)))
+      ORDER BY i.id LIMIT ${n}`).all<{ id: number }>();
     return rows.map(r => Number(r.id));
   },
 
@@ -1602,8 +1605,7 @@ export const invoiceRepo = {
    * добавить/удалить строку) не меняет НДС «как в документе»; его человек
    * правит в реквизитах сам.
    */
-  async recalculateTotal(id: number, opts: { forceDerive?: boolean; keepVat?: boolean } = {}): Promise<void> {
-    const db = getDb();
+  async recalculateTotal(id: number, opts: { forceDerive?: boolean; keepVat?: boolean } = {}, db = getDb()): Promise<void> {
     const items = await db.prepare(
       'SELECT total, vat_rate FROM invoice_items WHERE invoice_id = ?'
     ).all<{ total: number | null; vat_rate: number | null }>(id);

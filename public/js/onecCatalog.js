@@ -64,6 +64,9 @@ const OnecCatalog = {
     if (!q) return [];
     const qNorm = this._normalize(q);
     const tokens = qNorm.split(' ').filter((t) => t.length > 0);
+    const queryCode = this._codeKey(query);
+    const codeQuery = this.isCodeQuery(query);
+    const queryDigits = codeQuery ? queryCode.replace(/^\D+/, '').replace(/^0+(?=\d)/, '') : '';
 
     const seen = new Set();
     const hits = [];
@@ -71,21 +74,29 @@ const OnecCatalog = {
     for (const item of this.items) {
       const name = (item.name || '').toLowerCase();
       const full = (item.full_name || '').toLowerCase();
-      const code = (item.code || '').toLowerCase();
+      const code = String(item.code || '').toLowerCase();
+      const codeKey = this._codeKey(code);
+      const digits = codeKey.replace(/^\D+/, '').replace(/^0+(?=\d)/, '');
       const nameNorm = this._normalize(name);
       const fullNorm = this._normalize(full);
 
       let score = 0;
+      let codeRank = 0;
+      if (queryCode && codeKey === queryCode) { codeRank = 3; score = 1; }
+      else if (queryCode && codeKey.includes(queryCode)) { codeRank = 2; score = 0.95; }
+      else if (queryDigits && digits === queryDigits) { codeRank = 1; score = 0.9; }
 
       // (1) whole-query substring — strongest signal.
-      if (name.startsWith(q) || nameNorm.startsWith(qNorm)) score = 1.0;
-      else if (new RegExp('(^|\\s)' + this._escapeRegex(qNorm)).test(nameNorm)) score = 0.9;
-      else if (nameNorm.includes(qNorm)) score = 0.8;
-      else if (fullNorm.includes(qNorm)) score = 0.65;
+      if (!codeRank && !codeQuery) {
+        if (name.startsWith(q) || (qNorm && nameNorm.startsWith(qNorm))) score = 1.0;
+        else if (qNorm && new RegExp('(^|\\s)' + this._escapeRegex(qNorm)).test(nameNorm)) score = 0.9;
+        else if (qNorm && nameNorm.includes(qNorm)) score = 0.8;
+        else if (qNorm && fullNorm.includes(qNorm)) score = 0.65;
+      }
 
       // (2) token-prefix: every token must appear as a word-prefix somewhere
       // in name or full_name. Lets stems match inflected forms.
-      if (score === 0 && tokens.length >= 1) {
+      if (score === 0 && !codeQuery && tokens.length >= 1) {
         const nameTokens = nameNorm.split(' ');
         const fullTokens = fullNorm.split(' ');
         const allHit = tokens.every(
@@ -111,15 +122,16 @@ const OnecCatalog = {
           unit: item.unit,
           code: item.code,
           confidence: score,
+          _codeRank: codeRank,
         });
         seen.add(item.guid);
       }
     }
 
-    hits.sort((a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name));
+    hits.sort((a, b) => b._codeRank - a._codeRank || b.confidence - a.confidence || a.name.localeCompare(b.name));
 
     // (4) fuse.js fuzzy for typos, only if we still have headroom.
-    if (hits.length < limit && this.fuse) {
+    if (!codeQuery && hits.length < limit && this.fuse) {
       const fuseHits = this.fuse.search(q, { limit: limit * 2 });
       for (const r of fuseHits) {
         if (seen.has(r.item.guid)) continue;
@@ -136,6 +148,13 @@ const OnecCatalog = {
     }
 
     return hits.slice(0, limit);
+  },
+  _codeKey(value) {
+    const equivalents = { А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', Х: 'X', У: 'Y', Ф: 'F' };
+    return String(value ?? '').normalize('NFKC').toUpperCase().replace(/[АВЕКМНОРСТХУФ]/g, letter => equivalents[letter]).replace(/[^\p{L}\p{N}]/gu, '');
+  },
+  isCodeQuery(value) {
+    return /^[\p{L}]{0,4}[\s\-–—‑−]*\d[\d\s\-–—‑−]*$/u.test(String(value).trim()) && (String(value).match(/\d/g) || []).length >= 4;
   },
 
   // Strip noisy scan-side prefixes ("М/с", "Ч/с", "с/с", "м/с") and collapse

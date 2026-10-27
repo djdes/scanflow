@@ -84,6 +84,9 @@ export async function resetDb(): Promise<mysql.Pool> {
     'onec_pairing_codes',
     'onec_connections',
     'invoice_source_regions',
+    'invoice_merges',
+    'recognition_jobs',
+    'recognition_worker_lease',
     'item_cost_decisions',
     'item_cost_rules',
     'invoice_items',
@@ -119,6 +122,7 @@ export async function resetDb(): Promise<mysql.Pool> {
     await pool.query(`TRUNCATE TABLE \`${t}\``);
   }
   await pool.query('SET FOREIGN_KEY_CHECKS = 1');
+  await pool.query('INSERT INTO recognition_worker_lease (id) VALUES (1)');
 
   // Re-seed singleton config rows the app expects. analyzer_config is still a
   // real platform-wide singleton, so its row has to come back.

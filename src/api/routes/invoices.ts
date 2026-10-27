@@ -29,6 +29,8 @@ import { sanitizeItemVatPerItem } from '../../parser/itemSanitizer';
 import { llmRemapInvoice } from '../../services/llmRemap';
 import { emit as emitNotification } from '../../notifications/events';
 import { itemCostViews } from '../../services/itemUnitCost';
+import { recognitionJobRepo } from '../../database/repositories/recognitionJobRepo';
+import { acquireRecognitionActivity } from '../../services/recognitionActivity';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { randomUUID } from 'node:crypto';
 import { sberTokenRepo } from '../../database/repositories/sberTokenRepo';
@@ -65,6 +67,7 @@ import { snapshotRepo, headerRestorePatch, RESTORABLE_HEADER_FIELDS, type Restor
 import { invoiceFileKind, isXmlFileName, isXmlInvoice, xmlDownloadName } from '../../xml';
 import { AiUnavailableError } from '../../ai/errors';
 import { mergeBlockedByNumber } from '../../services/mergeDecision';
+import { mergeInvoicePages, ManualMergeError } from '../../services/manualInvoiceMerge';
 import { aiEngineState } from '../../ai/engine';
 
 /**
@@ -994,32 +997,20 @@ router.post('/:id/merge-into/:targetId', async (req: Request, res: Response) => 
   }
 
   try {
-    const grand = Math.max(source.total_sum ?? 0, target.total_sum ?? 0);
-    // Move items first, then carry the photo(s), then drop the now-empty source.
-    await invoiceRepo.moveItemsToInvoice(sourceId, targetId);
-    const files = (source.file_name ?? '').split(',').map(s => s.trim()).filter(Boolean);
-    for (const f of files) await invoiceRepo.appendFileName(targetId, f);
-    if (source.raw_text) await invoiceRepo.appendRawText(targetId, source.raw_text);
-    // Связь пишем ДО удаления: ссылки на исходную накладную (из бота, из
-    // закладок) должны продолжать работать и вести на приёмник.
-    await invoiceRepo.recordMerge(sourceId, targetId);
-    await invoiceRepo.delete(sourceId);
-    if (grand > 0) await invoiceRepo.updateInvoiceData(targetId, { total_sum: grand });
-    // forceDerive: the target's stored vat_sum covered only its own pages; after
-    // folding in the source's items it's stale, so recompute VAT from all items.
-    await invoiceRepo.recalculateTotal(targetId, { forceDerive: true });
+    const result = await mergeInvoicePages(sourceId, targetId, req.user!.id);
 
     await logEdit({
       ownerUserId: target.owner_user_id, userId: req.user?.id ?? null, invoiceId: targetId,
       entity: 'invoice', field: 'merge_pages',
       oldValue: { ids: [targetId, sourceId], files: target.file_name },
-      newValue: { id: targetId, files: (await invoiceRepo.getById(targetId))?.file_name },
+      newValue: { id: targetId, files: result.files },
     });
 
-    logger.info('Manual invoice merge', { sourceId, targetId, grand });
+    logger.info('Manual invoice merge', { sourceId, targetId });
     const merged = await invoiceRepo.getWithItems(targetId);
     res.json({ data: merged });
   } catch (err) {
+    if (err instanceof ManualMergeError) { res.status(err.status).json({ error: err.message }); return; }
     logger.error('Failed to merge invoices', { sourceId, targetId, error: (err as Error).message });
     res.status(500).json({ error: 'Ошибка объединения накладных' });
   }
@@ -1265,7 +1256,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 
   try {
+    if (invoice.owner_user_id != null && await recognitionJobRepo.processingInvoice(id, invoice.owner_user_id, invoice.file_hash)) {
+      return res.status(409).json({ error: 'Накладная сейчас распознаётся. Дождитесь завершения обработки' });
+    }
     const { file_name } = await invoiceRepo.delete(id);
+    if (invoice.owner_user_id != null) await recognitionJobRepo.cancelInvoice(id, invoice.owner_user_id, invoice.file_hash);
 
     deleteStoredInvoiceFiles(file_name);
 
@@ -1348,7 +1343,10 @@ router.post('/delete-batch', async (req: Request, res: Response) => {
 
   for (const id of ids) {
     try {
+      const invoice = await invoiceRepo.getById(id);
+      if (invoice?.owner_user_id != null && await recognitionJobRepo.processingInvoice(id, invoice.owner_user_id, invoice.file_hash)) continue;
       const { file_name } = await invoiceRepo.delete(id);
+      if (invoice?.owner_user_id != null) await recognitionJobRepo.cancelInvoice(id, invoice.owner_user_id, invoice.file_hash);
       deleteStoredInvoiceFiles(file_name);
       deleted++;
     } catch (err) {
@@ -2169,7 +2167,9 @@ router.post('/:id/rescan', async (req: Request, res: Response) => {
     const state = await aiEngineState();
     if (!state.available) return res.status(503).json({ error: `Распознавание сейчас недоступно: ${state.text}` });
   }
-
+  if (await recognitionJobRepo.ownsInvoice(id)) return res.status(409).json({ error: 'Накладная находится в постоянной очереди распознавания. Она будет обработана автоматически' });
+  const release = acquireRecognitionActivity();
+  if (!release) return res.status(409).json({ error: 'Сейчас распознаётся другая фотография. Повторите после завершения' });
   try {
     await fileWatcher.reprocessInvoice(id);
     return res.json({ success: true });
@@ -2179,7 +2179,7 @@ router.post('/:id/rescan', async (req: Request, res: Response) => {
     }
     logger.error('Rescan failed', { id, error: (err as Error).message });
     return res.status(502).json({ error: (err as Error).message });
-  }
+  } finally { release(); }
 });
 
 // POST /api/invoices/:id/unlink-duplicate — отметить накладную как «не дубликат».

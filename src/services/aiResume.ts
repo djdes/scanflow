@@ -5,6 +5,7 @@ import { aiEngineState, type AiEngineState } from '../ai/engine';
 import { testChatgpt } from '../chatgpt/connection';
 import { reportAiResumed } from './aiOutage';
 import { activeQueueJob, resumePausedQueueJobs } from './queueJobs';
+import { acquireRecognitionActivity } from './recognitionActivity';
 
 /**
  * Возобновление после недоступности модели (подписка ChatGPT: лимит, вход, связь).
@@ -96,7 +97,10 @@ export async function runAiResumePass(
     let resumed = 0;
     for (const id of ids) {
       await (deps.waitForIdle ?? waitForRecognitionIdle)();
-      const outcome = await watcher.resumeWaitingInvoice(id);
+      const release = acquireRecognitionActivity();
+      if (!release) return { resumed, stopped: false };
+      let outcome;
+      try { outcome = await watcher.resumeWaitingInvoice(id); } finally { release(); }
       if (outcome === 'waiting') {
         logger.warn('AI resume: model unavailable again, pass stopped', { invoiceId: id, resumed });
         const again = await aiEngineState().catch(() => null);

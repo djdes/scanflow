@@ -3,6 +3,7 @@ import request from 'supertest';
 import express from 'express';
 import { resetDb, closeTestDb } from '../helpers/db';
 import { getDb } from '../../src/database/db';
+import { invoiceRepo } from '../../src/database/repositories/invoiceRepo';
 
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
 vi.mock('../../src/mapping/nomenclatureMapper', () => ({ NomenclatureMapper: class {} }));
@@ -85,6 +86,47 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('POST /api/invoices
     const target = await createInvoiceWithItems({ file: 'p1.jpg', supplier: 'X', number: 'N', total: 100, items: [{ total: 100, row_no: 1 }] });
     const res = await request(app).post(`/api/invoices/999999/merge-into/${target}`).set('X-API-Key', key);
     expect(res.status).toBe(404);
+  });
+
+  it('keeps the numbered page as the main document and preserves both pages even when the continuation has no number', async () => {
+    const key = await setupUser();
+    const target = await createInvoiceWithItems({ file: 'opticom1.jpg', supplier: 'ОПТИКОМ', number: '1/567558', total: 19898.24, items: [{ total: 19898.24, row_no: 1 }] });
+    const source = await createInvoiceWithItems({ file: 'opticom2.jpg', supplier: 'ОПТИКОМ', number: null, total: 20282.24, items: [{ total: 384, row_no: 2 }] });
+    await getDb().prepare('UPDATE invoices SET raw_text = ? WHERE id = ?').run('page-one', target);
+    await getDb().prepare('UPDATE invoices SET raw_text = ? WHERE id = ?').run('page-two', source);
+    const response = await request(app).post(`/api/invoices/${source}/merge-into/${target}`).set('X-API-Key', key);
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({ id: target, invoice_number: '1/567558', total_sum: 20282.24 });
+    expect(response.body.data.items).toHaveLength(2);
+    expect(response.body.data.raw_text).toContain('page-one'); expect(response.body.data.raw_text).toContain('page-two');
+    expect(await invoiceRepo.resolveMergeTarget(source)).toBe(target);
+    expect((await request(app).post(`/api/invoices/${source}/merge-into/${target}`).set('X-API-Key', key)).status).toBe(404);
+    expect(await itemCount(target)).toBe(2);
+  });
+
+  it('rolls back the entire merge if recalculation fails', async () => {
+    const key = await setupUser();
+    const target = await createInvoiceWithItems({ file: 'p1.jpg', supplier: 'X', number: 'N', total: 100, items: [{ total: 100, row_no: 1 }] });
+    const source = await createInvoiceWithItems({ file: 'p2.jpg', supplier: 'X', number: null, total: 120, items: [{ total: 20, row_no: 2 }] });
+    const fail = vi.spyOn(invoiceRepo, 'recalculateTotal').mockRejectedValueOnce(Error('database interrupted'));
+    try {
+      const response = await request(app).post(`/api/invoices/${source}/merge-into/${target}`).set('X-API-Key', key);
+      expect(response.status).toBe(500);
+      expect(await itemCount(source)).toBe(1); expect(await itemCount(target)).toBe(1);
+      expect((await getInvoice(target))?.file_name).toBe('p1.jpg');
+      expect(await getInvoice(source)).toBeDefined(); expect(await invoiceRepo.resolveMergeTarget(source)).toBeNull();
+    } finally { fail.mockRestore(); }
+  });
+
+  it.each(['payment', 'paid', 'queue', 'number'])('does not merge pages with %s conflicts', async (conflict) => {
+    const key = await setupUser();
+    const target = await createInvoiceWithItems({ file: 'p1.jpg', supplier: 'X', number: 'N', total: 100, items: [{ total: 100, row_no: 1 }] });
+    const source = await createInvoiceWithItems({ file: 'p2.jpg', supplier: 'X', number: conflict === 'number' ? 'OTHER' : null, total: 120, items: [{ total: 20, row_no: 2 }] });
+    if (conflict === 'paid') await getDb().prepare('UPDATE invoices SET paid_externally = 1 WHERE id = ?').run(source);
+    if (conflict === 'payment') await getDb().prepare("INSERT INTO sber_payments (invoice_id, external_id, status, payment_purpose, amount, payer_account, payee_inn) VALUES (?, 'fixture-merge', 'created', 'Оплата', 120, '40702810000000000000', '1234567890')").run(source);
+    if (conflict === 'queue') await getDb().prepare("INSERT INTO recognition_jobs (owner_user_id, file_name, file_path, file_hash, original_name, invoice_id) VALUES (1, 'p2.jpg', '/t/p2.jpg', ?, 'p2.jpg', ?)").run('a'.repeat(64), source);
+    const response = await request(app).post(`/api/invoices/${source}/merge-into/${target}`).set('X-API-Key', key);
+    expect(response.status).toBe(409); expect(await itemCount(source)).toBe(1); expect(await itemCount(target)).toBe(1);
   });
 
   it('rejects merging an invoice into itself with 400', async () => {

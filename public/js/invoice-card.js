@@ -112,6 +112,7 @@ const InvoiceCard = {
     const items = [
       { id: 'rescan', label: xml ? 'Перечитать XML' : 'Пересканировать фото' },
       xml ? null : { id: 'addPages', label: 'Добавить страницы' },
+      xml ? null : { id: 'mergePages', label: 'Объединить с другой накладной' },
       null,
       unmapped ? { id: 'remapMissing', label: 'Подобрать недостающие позиции 1С' } : null,
       { id: 'remapAll', label: 'Подобрать позиции 1С заново' },
@@ -340,6 +341,7 @@ const InvoiceCard = {
       notDuplicate: () => Invoices.unlinkDuplicate(inv.id),
       rescan: (ev) => Invoices.rescan(inv.id, ev, App.isXmlInvoice(inv)),
       addPages: (ev) => Invoices.addPages(inv.id, ev),
+      mergePages: () => Invoices.mergePagesFromList(inv.id),
       remapMissing: (ev) => Invoices.remap(inv.id, false, ev),
       remapAll: (ev) => Invoices.remap(inv.id, true, ev),
       llm: (ev) => Invoices.llmRemap(inv.id, this.unmappedCount(inv) === 0, ev),

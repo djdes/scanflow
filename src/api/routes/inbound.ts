@@ -9,6 +9,7 @@ import { logger } from '../../utils/logger';
 import { inboundChannelRepo } from '../../database/repositories/inboundChannelRepo';
 import { userRepo } from '../../database/repositories/userRepo';
 import { isXmlFileName, isXmlMimeType } from '../../xml';
+import { enqueueRecognitionFile } from '../../services/recognitionQueue';
 
 export const inboundPublicRouter = Router();
 export const inboundConfigRouter = Router();
@@ -65,13 +66,11 @@ async function queueBuffer(
   await fs.promises.mkdir(config.inboxDir, { recursive: true });
   await fs.promises.writeFile(filePath, buffer, { flag: 'wx' });
   fileWatcher.markProcessing(filePath);
-  void fileWatcher.processFile(filePath, fileName, undefined, {
+  try { await enqueueRecognitionFile(filePath, fileName, undefined, {
     source,
     userAgent: source === 'telegram' ? 'Telegram Bot API' : 'Email inbound webhook',
     ownerUserId,
-  }).catch(error => logger.error('Inbound document processing failed', {
-    source, ownerUserId, fileName, error: (error as Error).message,
-  }));
+  }, originalName); } finally { fileWatcher.unmarkProcessing(filePath); }
   return fileName;
 }
 

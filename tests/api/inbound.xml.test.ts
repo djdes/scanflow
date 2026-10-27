@@ -18,6 +18,7 @@ vi.mock('../../src/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
+vi.mock('../../src/services/recognitionQueue', () => ({ enqueueRecognitionFile: vi.fn(async () => ({ id: 1 })) }));
 vi.mock('../../src/database/db', () => ({
   getDb: () => { throw new Error('почтовый канал ходит в БД только через репозитории'); },
 }));
@@ -31,9 +32,10 @@ vi.mock('../../src/database/repositories/userRepo', () => ({
 import { inboundPublicRouter, setInboundFileWatcher, safeExtension } from '../../src/api/routes/inbound';
 import { inboundChannelRepo } from '../../src/database/repositories/inboundChannelRepo';
 import { config } from '../../src/config';
+import { enqueueRecognitionFile } from '../../src/services/recognitionQueue';
 
 const TOKEN = 'inbound-secret';
-const fw = { markProcessing: vi.fn(), processFile: vi.fn(async () => 1) };
+const fw = { markProcessing: vi.fn(), unmarkProcessing: vi.fn(), processFile: vi.fn(async () => 1) };
 setInboundFileWatcher(fw as never);
 
 const XML = fs.readFileSync(path.join(__dirname, '..', 'xml', 'fixtures', 'upd_501_ip_utf8.xml'));
@@ -80,9 +82,9 @@ describe('POST /api/inbound/public/email/:userId — XML-вложения', () =
     const stored = path.join(config.inboxDir, res.body.accepted[0]);
     expect(fs.readFileSync(stored).equals(XML)).toBe(true);
     expect(fw.markProcessing).toHaveBeenCalledWith(stored);
-    expect(fw.processFile).toHaveBeenCalledWith(stored, res.body.accepted[0], undefined, expect.objectContaining({
+    expect(enqueueRecognitionFile).toHaveBeenCalledWith(stored, res.body.accepted[0], undefined, expect.objectContaining({
       source: 'email', ownerUserId: 5,
-    }));
+    }), 'ON_NSCHFDOPPR_2BE_20260929.xml');
   });
 
   it('неверный токен — 404, файл не принимается', async () => {

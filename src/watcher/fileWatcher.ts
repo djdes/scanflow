@@ -7,6 +7,7 @@ import { OcrManager } from '../ocr/ocrManager';
 import { parseInvoiceText } from '../parser/invoiceParser';
 import { NomenclatureMapper } from '../mapping/nomenclatureMapper';
 import { invoiceRepo, DuplicateFileHashError, type Invoice } from '../database/repositories/invoiceRepo';
+import { getDb } from '../database/db';
 import { userRepo } from '../database/repositories/userRepo';
 import { mappingRepo } from '../database/repositories/mappingRepo';
 import { onecNomenclatureRepo, OnecNomenclatureRow } from '../database/repositories/onecNomenclatureRepo';
@@ -39,6 +40,7 @@ import { autoSendSberForInvoice } from '../services/autoSendSber';
 import { mergeBlockedByNumber, mergeLostData } from '../services/mergeDecision';
 import { ocrCorrectionRepo } from '../database/repositories/ocrCorrectionRepo';
 import { webhookConfigRepo } from '../database/repositories/webhookConfigRepo';
+import { enqueueRecognitionFile } from '../services/recognitionQueue';
 
 /**
  * Переписать телеграм-пузырь склеенной страницы.
@@ -82,7 +84,7 @@ async function notifyPageMerged(
 }
 
 // .xml — электронные УПД/ТОРГ-12 из ЭДО (src/xml): их тоже можно положить в inbox/.
-const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.xml'];
+const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.pdf', '.xml'];
 
 /** Строк XML не больше — выбор ИИ одним запросом сопоставления (llmPicksForXml). */
 const XML_LLM_MAP_MAX_ITEMS = 150;
@@ -109,6 +111,8 @@ export interface UploadMeta {
   // Owning tenant for multi-tenant isolation. Set by /api/upload (req.user.id).
   // Undefined for watcher-detected inbox files (no user context) → NULL owner.
   ownerUserId?: number | null;
+  durableQueue?: boolean;
+  onCreated?: (id: number) => Promise<void>;
 }
 
 export class FileWatcher {
@@ -177,18 +181,6 @@ export class FileWatcher {
     this.processing.add(normalizedPath);
     const fileName = path.basename(filePath);
 
-    // DB-level dedup: check if this file was already processed recently (within 5 min)
-    const recentDuplicate = await invoiceRepo.findRecentByFileName(fileName, 5);
-    if (recentDuplicate) {
-      logger.warn('File already processed recently, skipping duplicate', {
-        fileName,
-        existingId: recentDuplicate.id,
-        existingStatus: recentDuplicate.status,
-      });
-      this.processing.delete(normalizedPath);
-      return;
-    }
-
     logger.info('New invoice image detected', { fileName });
 
     // Файл, положенный прямо в inbox/, приходит без пользовательского контекста.
@@ -196,13 +188,10 @@ export class FileWatcher {
     // по компаниям это ломало всё, что владельца требует: справочник поставщиков
     // не подставлялся, отправка в Сбер отклонялась, уведомление уходило не туда.
     // Папка inbox/ на сервере принадлежит оператору платформы — им и помечаем.
-    const inboxOwnerId = await userRepo.firstUserId();
-    if (inboxOwnerId == null) {
-      logger.warn('Inbox file detected but there is no user to own it', { fileName });
-    }
-
     try {
-      await this.processFile(filePath, fileName, undefined, { ownerUserId: inboxOwnerId });
+      const encodedOwner = /^(?:upload|telegram|email)-(\d+)-\d+-/.exec(fileName);
+      const inboxOwnerId = encodedOwner ? Number(encodedOwner[1]) : await userRepo.firstUserId();
+      await enqueueRecognitionFile(filePath, fileName, undefined, { ownerUserId: inboxOwnerId });
     } catch (err) {
       logger.error('Failed to process invoice', { fileName, error: (err as Error).message });
     } finally {
@@ -212,6 +201,37 @@ export class FileWatcher {
 
   markProcessing(filePath: string): void {
     this.processing.add(path.resolve(filePath).toLowerCase());
+  }
+  unmarkProcessing(filePath: string): void { this.processing.delete(path.resolve(filePath).toLowerCase()); }
+
+  /** Recover a file saved before a DB outage or crash, even without a new filesystem add event. */
+  async reconcileInbox(): Promise<void> {
+    for (const entry of await fs.promises.readdir(config.inboxDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !SUPPORTED_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) continue;
+      const file = path.join(config.inboxDir, entry.name);
+      try {
+        if (Date.now() - (await fs.promises.stat(file)).mtimeMs < 5000) continue;
+        await this.onFileAdded(file);
+      } catch (error) { logger.warn('Inbox recovery deferred', { fileName: entry.name, error: (error as Error).message }); }
+    }
+  }
+
+  async processQueuedInvoice(invoiceId: number, engine?: string): Promise<number> {
+    const inv = await invoiceRepo.getById(invoiceId);
+    if (!inv) throw new Error('Накладная не найдена');
+    if (['processed', 'sent_to_1c', 'duplicate'].includes(inv.status)) return inv.id;
+    const payment = await getDb().prepare("SELECT id FROM sber_payments WHERE invoice_id = ? AND status <> 'failed' LIMIT 1").get(inv.id);
+    if (inv.approved_for_1c || inv.paid_externally || payment) throw new Error('Документ закрыт для автоматического распознавания');
+    const files = inv.file_name.split(',').map(file => file.trim()).filter(Boolean);
+    if (files.length > 1) { await this.reprocessInvoice(inv.id); return inv.id; }
+    const name = files[0];
+    if (!name || path.basename(name) !== name) throw new Error('Не найдено имя исходной фотографии');
+    const file = [config.processedDir, config.failedDir, config.inboxDir].map(dir => path.join(dir, name)).find(file => fs.existsSync(file));
+    if (!file) throw new Error('Фото не найдено на сервере. Нужна повторная загрузка фотографии');
+    // Failed initial attempts may have written only a prefix of the item list.
+    await invoiceRepo.deleteItems(inv.id);
+    await invoiceRepo.clearErrorMessage(inv.id);
+    return this.recognizeCreatedInvoice(inv, file, name, engine, { anchor: inv.created_at, quietFailure: true });
   }
 
   /**
@@ -774,6 +794,7 @@ export class FileWatcher {
       throw err;
     }
 
+    await meta?.onCreated?.(invoice.id);
     // Fire-and-forget: notify that a new invoice row was created.
     emitNotification('photo_uploaded', {
       invoice_id: invoice.id,
@@ -782,7 +803,7 @@ export class FileWatcher {
       total_sum: invoice.total_sum,
     }, null).catch(() => {});
 
-    return this.recognizeCreatedInvoice(invoice, filePath, fileName, forceEngine);
+    return this.recognizeCreatedInvoice(invoice, filePath, fileName, forceEngine, { quietFailure: meta?.durableQueue });
   }
 
   /**
@@ -802,7 +823,7 @@ export class FileWatcher {
     filePath: string,
     fileName: string,
     forceEngine?: string,
-    opts: { anchor?: string | null } = {},
+    opts: { anchor?: string | null; quietFailure?: boolean } = {},
   ): Promise<number> {
     // Каталог и сопоставления пер-тенантные: весь разбор этого файла идёт в
     // области владельца созданной накладной. Объявлено здесь, а не ниже, потому
@@ -1566,7 +1587,7 @@ export class FileWatcher {
       logger.error('Invoice processing failed', { id: invoice.id, fileName, error: errorMsg });
 
       // Fire-and-forget notification for recognition failure.
-      emitNotification('recognition_error', {
+      if (!opts.quietFailure) emitNotification('recognition_error', {
         invoice_id: invoice.id,
         invoice_number: invoice.invoice_number,
         supplier: invoice.supplier,
@@ -1577,7 +1598,7 @@ export class FileWatcher {
       // Email notification. Непригодный XML (не тот документ, оборванный файл) —
       // ошибка пользователя, а не сбой сервиса: владелец и так видит её в
       // накладной и в уведомлении выше, администратору письмо не нужно.
-      if (!(err instanceof FnsXmlError)) {
+      if (!opts.quietFailure && !(err instanceof FnsXmlError)) {
         sendErrorEmail(
           `Ошибка обработки накладной: ${fileName}`,
           `Файл: ${fileName}\nID: ${invoice.id}\n\nОшибка:\n${errorMsg}\n\nStack:\n${(err as Error).stack || '—'}`

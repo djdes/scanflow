@@ -36,6 +36,21 @@ describe('доступность справочника 1С', () => {
     expect(await c.load()).toBe(true);
     expect(c.search('000123')[0].guid).toBe('a');
   });
+  it('находит полный код 1С с разными дефисами, пробелами, похожими буквами и по цифровой части', async () => {
+    const { c } = catalog(vi.fn().mockResolvedValue({ data: [
+      { guid: 'sauce', name: 'Соусник с верхним закрытием круглый 30мл', code: 'НФ-00002140', unit: 'шт' },
+      { guid: 'other', name: 'Другой товар 2140', code: 'НФ-00009999', unit: 'шт' },
+      { guid: 'napkins', name: 'Салфетка 2000', code: 'НФ-00007777', unit: 'шт' },
+    ] }));
+    await c.load();
+    for (const query of ['НФ-00002140', 'нф 00002140', 'НФ–00002140', 'НФ—00002140', 'НФ‑00002140', 'HФ-00002140', '00002140', '2140', 'NF00002140']) {
+      expect(c.search(query)[0]?.guid, query).toBe('sauce');
+    }
+    expect(c.search('НФ-00008888')).toHaveLength(0);
+    expect(c.search('салфетка 2000')[0]?.guid).toBe('napkins');
+    c.fuse = { search: () => [{ item: { guid: 'wrong', name: 'Другой', code: 'НФ-99999' }, score: 0.1 }] };
+    expect(c.search('НФ-00008888')).toHaveLength(0);
+  });
 
   it('ошибка загрузки отличается от пустого каталога и допускает повторную попытку', async () => {
     const api = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ data: [] });

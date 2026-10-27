@@ -12,6 +12,7 @@ vi.mock('../../src/database/db', () => ({
 }));
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
 vi.mock('../../src/database/repositories/editLogRepo', () => ({ logEdit: vi.fn(), editLogRepo: {} }));
+vi.mock('../../src/services/manualInvoiceMerge', () => ({ mergeInvoicePages: vi.fn(async () => ({ files: 'p1.jpg,p2.jpg' })), ManualMergeError: class extends Error {} }));
 vi.mock('../../src/database/repositories/invoiceRepo', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/database/repositories/invoiceRepo')>();
   return {
@@ -25,6 +26,7 @@ vi.mock('../../src/database/repositories/invoiceRepo', async (importOriginal) =>
 
 import invoicesRouter from '../../src/api/routes/invoices';
 import { invoiceRepo } from '../../src/database/repositories/invoiceRepo';
+import { mergeInvoicePages } from '../../src/services/manualInvoiceMerge';
 
 const repo = vi.mocked(invoiceRepo);
 const invoices: Record<number, Record<string, unknown>> = {
@@ -52,7 +54,7 @@ describe('POST /api/invoices/:id/merge-into/:targetId — владелец пр�
   it('своя накладная в свою — объединяется', async () => {
     const res = await request(app()).post('/api/invoices/2/merge-into/4');
     expect(res.status).toBe(200);
-    expect(repo.moveItemsToInvoice).toHaveBeenCalledWith(2, 4);
+    expect(mergeInvoicePages).toHaveBeenCalledWith(2, 4, 2);
   });
 
   it('своя накладная в чужую → 404, ничего не двигается и не удаляется', async () => {
@@ -78,6 +80,6 @@ describe('POST /api/invoices/:id/merge-into/:targetId — владелец пр�
     repo.getById.mockImplementation(async (id: number) => ({ ...invoices[id], raw_text: id === 2 ? 'page-two-json' : 'page-one-json' }) as never);
     const res = await request(app()).post('/api/invoices/2/merge-into/4');
     expect(res.status).toBe(200);
-    expect(repo.appendRawText).toHaveBeenCalledWith(4, 'page-two-json');
+    expect(mergeInvoicePages).toHaveBeenCalledWith(2, 4, 2);
   });
 });

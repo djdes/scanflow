@@ -2570,6 +2570,41 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    version: 90,
+    name: 'Durable recognition queue: leases, unlimited retries and upload receipts',
+    detect: async exec => (await hasTable(exec, 'recognition_jobs')) && (await hasTable(exec, 'recognition_worker_lease')),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS recognition_jobs (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        owner_user_id INT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        file_hash CHAR(64) NOT NULL,
+        original_name VARCHAR(500) NOT NULL,
+        source VARCHAR(32) NOT NULL DEFAULT 'web',
+        user_agent VARCHAR(512) NULL,
+        force_engine VARCHAR(32) NULL,
+        invoice_id INT NULL,
+        state VARCHAR(16) NOT NULL DEFAULT 'queued',
+        attempts INT NOT NULL DEFAULT 0,
+        next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_error TEXT NULL,
+        lease_token CHAR(36) NULL,
+        lease_expires_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME NULL,
+        UNIQUE KEY uq_recognition_content (owner_user_id, file_hash),
+        INDEX idx_recognition_due (state, next_attempt_at),
+        INDEX idx_recognition_owner (owner_user_id, state, id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await exec.query(`CREATE TABLE IF NOT EXISTS recognition_worker_lease (
+        id INT PRIMARY KEY, token CHAR(36) NULL, expires_at DATETIME NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await exec.query('INSERT IGNORE INTO recognition_worker_lease (id) VALUES (1)');
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import { config } from '../../config';
 import { FileWatcher } from '../../watcher/fileWatcher';
 import { logger } from '../../utils/logger';
 import { inferUploadSource } from '../../utils/uploadSource';
 import { isXmlMimeType } from '../../xml';
+import { enqueueRecognitionFile } from '../../services/recognitionQueue';
 
 const router = Router();
 let fileWatcher: FileWatcher;
@@ -35,15 +37,10 @@ const storage = multer.diskStorage({
     cb(null, config.inboxDir);
   },
   filename: (req, file, cb) => {
-    // Allow custom filename via query param (used by mobile camera page for multi-page merge)
-    const customName = req.query.filename as string | undefined;
-    if (customName && /^photo_\d+_[\w-]+\.\w+$/.test(customName)) {
-      cb(null, customName);
-    } else {
-      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-      const ext = uploadExtension(file.originalname, file.mimetype) ?? path.extname(file.originalname);
-      cb(null, `upload-${uniqueSuffix}${ext}`);
-    }
+    // Owner survives a crash between saving the photo and committing its queue receipt.
+    // Never reuse a client filename: a retry must not overwrite an unprocessed photo.
+    const ext = uploadExtension(file.originalname, file.mimetype) ?? path.extname(file.originalname);
+    cb(null, `upload-${req.user!.id}-${Date.now()}-${randomUUID()}${ext}`);
   },
 });
 
@@ -71,7 +68,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
 
   const filePath = req.file.path;
   const fileName = req.file.filename;
-  const forceEngine = req.query.engine as string | undefined;
+  const forceEngine = typeof req.query.engine === 'string' ? req.query.engine : undefined;
   const uploadSource = inferUploadSource(req.query.filename as string | undefined);
   const userAgent = ((req.headers['user-agent'] as string | undefined) ?? '').slice(0, 512) || null;
   logger.info('File uploaded via API', { fileName, originalName: req.file.originalname, forceEngine });
@@ -79,29 +76,16 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   // Prevent file watcher from also processing this file
   fileWatcher.markProcessing(filePath);
 
-  // Fire-and-forget: client gets a fast 202 with the file_name and polls
-  // GET /api/invoices?file_name=X until the invoice row appears (watcher
-  // INSERTs it within 1-2s of starting). Synchronous await on processFile
-  // would block for OCR+Claude+possible multi-page merge (60s+), causing
-  // nginx upstream timeout → 502 на клиенте при загрузке нескольких подряд.
-  void (async () => {
-    try {
-      await fileWatcher.processFile(filePath, fileName, forceEngine, {
-        source: uploadSource,
-        userAgent,
-        ownerUserId: req.user?.id ?? null,
-      });
-    } catch (err) {
-      logger.error('Background processFile failed', {
-        fileName, error: (err as Error).message,
-      });
-    }
-  })();
-
-  res.status(202).json({
-    message: 'Invoice queued for processing',
-    file_name: fileName,
-  });
+  try {
+    const job = await enqueueRecognitionFile(filePath, fileName, forceEngine, {
+      source: uploadSource, userAgent, ownerUserId: req.user?.id ?? null,
+    }, req.file.originalname);
+    res.status(202).json({ message: 'Фотография сохранена в постоянной очереди', job_id: job.id,
+      file_name: job.file_name, invoice_id: job.invoice_id, queued: job.state !== 'completed' });
+  } catch (error) {
+    logger.error('Could not persist upload receipt', { fileName, error: (error as Error).message });
+    res.status(503).json({ error: 'Не удалось подтвердить сохранение задания. Фото оставлено для повторной отправки' });
+  } finally { fileWatcher.unmarkProcessing(filePath); }
 });
 
 export default router;

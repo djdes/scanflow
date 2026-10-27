@@ -59,8 +59,9 @@ const NomenclaturePicker = {
         const query = search.value.trim();
         const matches = query ? catalog.search(query, 40) : catalog.items.slice(0, 40);
         status.textContent = `В справочнике ${catalog.items.length} позиций · Показано ${matches.length}${query ? ' вариантов по запросу' : ''}`;
+        if (catalog.lastSyncedAt) status.textContent += ` · Каталог от ${App.formatDate(catalog.lastSyncedAt)}`;
         results.innerHTML = matches.length ? matches.map(row => `<button type="button" class="nom-choice-result" data-guid="${App.esc(row.guid)}"><span class="nom-choice-result-copy"><strong>${App.esc(row.name)}</strong><small>${row.code ? `Код: ${App.esc(row.code)}` : ''}${row.code && row.unit ? ' · ' : ''}${row.unit ? `Ед.: ${App.esc(row.unit)}` : ''}</small></span><span class="nom-choice-result-action">Выбрать</span></button>`).join('')
-          : '<div class="nom-choice-empty"><h3>По этому запросу ничего не найдено</h3><p>Попробуйте часть названия или код товара. Если позиции нет в справочнике, обновите выгрузку из 1С или укажите ниже название нового товара.</p></div>';
+          : `<div class="nom-choice-empty"><h3>${catalog.isCodeQuery(query) ? `Код «${App.esc(query)}» не найден в загруженном справочнике` : 'По этому запросу ничего не найдено'}</h3><p>Можно искать полный код или его цифровую часть, например 2140. Если товара нет в загруженном каталоге, выгрузите свежий справочник из 1С и нажмите «Обновить список».</p></div>`;
       }
       results.setAttribute('aria-busy', 'false');
       syncDisabled();

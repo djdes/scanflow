@@ -1,0 +1,17 @@
+.recognition-queue-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 14px 18px; margin-bottom: 18px; border: 1px solid #d6e5f4; border-radius: var(--radius-lg); background: var(--primary-soft); font-size: 13px; }
+.recognition-queue-banner[hidden], .recognition-queue [hidden] { display: none !important; }
+.recognition-queue-banner span { color: var(--text-secondary); }
+.recognition-queue-banner a { margin-left: auto; color: var(--primary-hover); }
+.recognition-queue { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 20px; margin-top: 20px; }
+.recognition-queue-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.recognition-queue-heading h3 { font-size: 17px; font-weight: 600; }
+.recognition-queue-help { font-size: 13px; color: var(--text-secondary); line-height: 1.7; margin: 12px 0; }
+.recognition-queue-reason { padding: 12px; margin: 14px 0; background: var(--warning-soft); border-radius: 6px; font-size: 13px; }
+.recognition-queue-job { display: flex; justify-content: space-between; gap: 16px; padding: 16px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.recognition-queue-job > div { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.recognition-queue-job > div:last-child { flex-shrink: 0; }
+.recognition-queue-job strong, .recognition-queue-job p { overflow-wrap: anywhere; line-height: 1.6; }
+.recognition-queue-job span, .recognition-queue-job small { color: var(--text-secondary); line-height: 1.6; }
+.recognition-queue-job a { color: var(--primary-hover); }
+.recognition-queue-action-error { color: var(--error); font-size: 13px; margin-top: 12px; }
+@media (max-width: 600px) { .recognition-queue { padding: 16px; } .recognition-queue-job { flex-direction: column; } .recognition-queue-job > div:last-child { flex-direction: row; flex-wrap: wrap; align-items: center; } }
