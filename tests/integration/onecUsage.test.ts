@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildUsageCode, getOnecUsage, parseUsageRows, parseUsageRpc, resetOnecUsageCache, usageSource } from '../../src/integration/onecUsage';
+import { buildUsageCode, buildUsageHttpQuery, getOnecUsage, parseUsageRows, parseUsageRpc, resetOnecUsageCache, usageSource } from '../../src/integration/onecUsage';
+import { onecNomenclatureRepo } from '../../src/database/repositories/onecNomenclatureRepo';
 
 vi.mock('../../src/utils/logger', () => ({ logger: { warn: vi.fn() } }));
 const A = '11111111-1111-1111-1111-111111111111';
@@ -18,7 +19,7 @@ beforeEach(() => {
       : body.method === 'initialize' ? JSON.stringify({ result: {} }) : '', { status: 200, headers: { 'mcp-session-id': 'test' } });
   }));
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('MCP statistics', () => {
   it('caches counts and genuine zeroes; separates owners even with the same endpoint', async () => {
@@ -79,5 +80,32 @@ describe('MCP statistics', () => {
     expect(code).not.toContain('Дата >');
     expect(() => buildUsageCode(['"; Выполнить("bad")'])).toThrow();
     expect(() => buildUsageCode(Array(41).fill(A))).toThrow();
+  });
+  it('supports feenlace/mcp-1c HTTP /query sources by item code', async () => {
+    vi.stubEnv('ONEC_USAGE_MCP_CONFIG', JSON.stringify({
+      1: { url: 'http://onec-mag.test/mcp-1c/hs/mcp-1c', user: 'Админ' },
+    }));
+    vi.spyOn(onecNomenclatureRepo, 'listItems').mockResolvedValue([
+      { guid: A, code: '00-00000846', name: 'Бекон' },
+      { guid: B, code: '00-00000185', name: 'Молоко' },
+    ] as never);
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      expect(String(url)).toBe('http://onec-mag.test/mcp-1c/hs/mcp-1c/query');
+      const body = JSON.parse(init.body);
+      expect(body.query).toContain('"00-00000846"');
+      return new Response(JSON.stringify({
+        columns: ['guid', 'kind', 'count'],
+        rows: [
+          [A.toUpperCase(), 1, 2],
+          [A.toUpperCase(), 2, 3],
+        ],
+        row_count: 2,
+      }), { status: 200 });
+    }));
+    const snap = await getOnecUsage(1, [A, B]);
+    expect(snap.available).toBe(true);
+    expect(snap.rows.get(A)).toMatchObject({ specifications: 2, receipts: 3 });
+    expect(snap.rows.get(B)).toMatchObject({ specifications: 0, receipts: 0 });
+    expect(() => buildUsageHttpQuery(['bad"code'])).toThrow();
   });
 });

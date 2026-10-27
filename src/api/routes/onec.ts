@@ -16,6 +16,7 @@ import { logger } from '../../utils/logger';
 import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
 import { onCatalogChanged } from '../../services/catalogSyncWatcher';
 import { getOnecUsage, usageSource, USAGE_BATCH_SIZE } from '../../integration/onecUsage';
+import { catalogMcpSource, syncCatalogFromMcp } from '../../integration/onecCatalogMcp';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -27,6 +28,14 @@ export const onecAdminRouter = Router();
 export const onecExchangeRouter = Router();
 export const onecUserRouter = Router();
 export const onecPairRouter = Router();
+
+function hasMcpCatalog(ownerUserId: number): boolean {
+  try {
+    return !!catalogMcpSource(ownerUserId);
+  } catch {
+    return false;
+  }
+}
 
 // ПУБЛИЧНЫЙ: обменивает одноразовый код на scoped-токен подключения 1С.
 onecPairRouter.post('/', async (req: Request, res: Response) => {
@@ -125,7 +134,7 @@ onecAdminRouter.get('/connections', async (req: Request, res: Response) => {
     syncStateRepo.getNomenclatureSyncState(ownerUserId),
     integrationEventRepo.last1cPollAt(),
   ]);
-  res.json({ data: { connections, catalog, sync_state: syncState, last_poll_at: lastPoll } });
+  res.json({ data: { connections, catalog, sync_state: syncState, last_poll_at: lastPoll, mcp_configured: hasMcpCatalog(ownerUserId) } });
 });
 
 /** Диагностика своего источника. Даже администратор не получает строки чужого каталога. */
@@ -276,6 +285,12 @@ onecExchangeRouter.post('/invoices/:id/status', async (req: Request, res: Respon
     await invoiceRepo.markSent(id);
     await getDb().prepare(`UPDATE invoices SET approved_for_1c = 0, onec_status = ?, onec_document_ref = ?, onec_error = NULL, onec_updated_at = NOW() WHERE id = ?`)
       .run(status, documentRef, id);
+    const owner = catalogOwner(req);
+    if (hasMcpCatalog(owner)) {
+      void syncCatalogFromMcp(owner, mapper, 'invoice_status').catch(err =>
+        logger.warn('Background MCP catalog sync after invoice status failed', { ownerUserId: owner, error: (err as Error).message }),
+      );
+    }
   } else {
     await getDb().prepare(`UPDATE invoices SET onec_status = ?, onec_document_ref = ?, onec_error = ?, onec_updated_at = NOW(),
       onec_pulled_at = NULL, approved_for_1c = CASE WHEN ? = 'rejected' THEN 0 ELSE approved_for_1c END WHERE id = ?`)
@@ -291,8 +306,19 @@ onecExchangeRouter.post('/invoices/:id/status', async (req: Request, res: Respon
 });
 
 onecExchangeRouter.delete('/nomenclature', async (req: Request, res: Response) => {
-  const deleted = await onecNomenclatureRepo.clearAll(catalogOwner(req));
-  mapper?.invalidateCache(catalogOwner(req));
+  const owner = catalogOwner(req);
+  // Если для компании настроен прямой MCP-источник 1С, не даём внешней обработке
+  // очищать каталог перед частичной выгрузкой 4 категорий — вместо этого запускаем
+  // полную синхронизацию по MCP.
+  if (hasMcpCatalog(owner)) {
+    void syncCatalogFromMcp(owner, mapper, 'onec_exchange_delete').catch(err =>
+      logger.warn('Background MCP catalog sync after 1C exchange DELETE failed', { ownerUserId: owner, error: (err as Error).message }),
+    );
+    res.json({ data: { deleted: 0, mcp_managed: true } });
+    return;
+  }
+  const deleted = await onecNomenclatureRepo.clearAll(owner);
+  mapper?.invalidateCache(owner);
   res.json({ data: { deleted } });
 });
 
@@ -317,7 +343,15 @@ onecExchangeRouter.post('/nomenclature/sync', async (req: Request, res: Response
 });
 
 onecExchangeRouter.get('/nomenclature/sync-flag', async (req: Request, res: Response) => {
-  const state = await syncStateRepo.getNomenclatureSyncState(catalogOwner(req));
+  const owner = catalogOwner(req);
+  const state = await syncStateRepo.getNomenclatureSyncState(owner);
+  if (state.requested && hasMcpCatalog(owner)) {
+    void syncCatalogFromMcp(owner, mapper, 'sync_flag').catch(err =>
+      logger.warn('Background MCP catalog sync on sync-flag poll failed', { ownerUserId: owner, error: (err as Error).message }),
+    );
+    res.json({ data: { requested: false, since: null, nomenclature_sync_requested: false, mcp_managed: true } });
+    return;
+  }
   res.json({ data: { ...state, nomenclature_sync_requested: state.requested } });
 });
 

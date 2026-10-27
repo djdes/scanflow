@@ -10,6 +10,7 @@ import { parseCatalogSpreadsheet } from '../../integration/catalogSpreadsheet';
 import { onCatalogChanged } from '../../services/catalogSyncWatcher';
 import { saveCatalogAliases, removeCatalogAlias, AliasError } from '../../services/catalogAliases';
 import { logEdit } from '../../database/repositories/editLogRepo';
+import { catalogMcpSource, setCatalogMcpMapper, syncCatalogFromMcp } from '../../integration/onecCatalogMcp';
 
 const router = Router();
 
@@ -19,6 +20,15 @@ function ownerOf(req: Request): number {
   if (id == null) throw new Error('nomenclature route reached without an authenticated user');
   return id;
 }
+
+function hasMcpSource(ownerUserId: number): boolean {
+  try {
+    return !!catalogMcpSource(ownerUserId);
+  } catch {
+    return false;
+  }
+}
+
 const catalogUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
 function receiveCatalogFile(req: Request, res: Response, next: NextFunction): void {
@@ -39,7 +49,24 @@ function receiveCatalogFile(req: Request, res: Response, next: NextFunction): vo
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
+  setCatalogMcpMapper(m);
 }
+
+// POST /api/nomenclature/sync-mcp — прямая синхронизация полного каталога 1С по MCP
+router.post('/sync-mcp', async (req: Request, res: Response) => {
+  const owner = ownerOf(req);
+  if (!hasMcpSource(owner)) {
+    res.status(400).json({ error: 'Для вашей компании не настроен прямой MCP-источник 1С' });
+    return;
+  }
+  try {
+    const result = await syncCatalogFromMcp(owner, mapper, 'manual');
+    res.json({ data: result });
+  } catch (err) {
+    logger.error('Manual 1C MCP catalog sync failed', { ownerUserId: owner, error: (err as Error).message });
+    res.status(502).json({ error: 'Не удалось синхронизировать справочник из 1С: ' + (err as Error).message });
+  }
+});
 
 // POST /api/nomenclature/import — one-time XLSX/CSV/TSV import for a simple
 // first start without installing the 1C external processing.
@@ -134,14 +161,20 @@ router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
 });
 
 // DELETE /api/nomenclature — clear catalog before a full re-sync from 1C.
-// Called by the BSL "Выгрузить номенклатуру" command to evict stale rows
-// (e.g. finished products after switching to a purchase-documents-only query).
+// When MCP catalog sync is configured for this company, do not wipe the catalog
+// (prevents legacy 4-category .epf exports from truncating the full MCP catalog).
 router.delete('/', requireAdmin, async (req: Request, res: Response) => {
+  const owner = ownerOf(req);
+  if (hasMcpSource(owner)) {
+    void syncCatalogFromMcp(owner, mapper, 'delete_intercept').catch(err =>
+      logger.warn('Background MCP catalog sync after DELETE failed', { ownerUserId: owner, error: (err as Error).message }),
+    );
+    res.json({ data: { deleted: 0, mcp_managed: true } });
+    return;
+  }
   try {
-    const deleted = await onecNomenclatureRepo.clearAll(ownerOf(req));
-    // Don't removeOrphaned here — catalog is temporarily empty,
-    // POST /sync will refill it and clean orphans after.
-    if (mapper) mapper.invalidateCache(ownerOf(req));
+    const deleted = await onecNomenclatureRepo.clearAll(owner);
+    if (mapper) mapper.invalidateCache(owner);
     logger.info('Nomenclature catalog cleared', { deleted });
     res.json({ data: { deleted } });
   } catch (err) {
@@ -162,12 +195,18 @@ router.get('/', async (req: Request, res: Response) => {
     const names = byGuid.get(alias.onec_guid!) ?? [];
     names.push(alias.scanned_name); byGuid.set(alias.onec_guid!, names);
   }
-  res.json({ data: items.map(item => ({ ...item, aliases: byGuid.get(item.guid) ?? [] })), count: items.length, last_synced_at: stats.last_synced_at });
+  res.json({
+    data: items.map(item => ({ ...item, aliases: byGuid.get(item.guid) ?? [] })),
+    count: items.length,
+    last_synced_at: stats.last_synced_at,
+    mcp_configured: hasMcpSource(ownerOf(req)),
+  });
 });
 
 // GET /api/nomenclature/stats
 router.get('/stats', async (req: Request, res: Response) => {
-  res.json({ data: await onecNomenclatureRepo.stats(ownerOf(req)) });
+  const stats = await onecNomenclatureRepo.stats(ownerOf(req));
+  res.json({ data: { ...stats, mcp_configured: hasMcpSource(ownerOf(req)) } });
 });
 
 router.get('/:guid/aliases', async (req, res) => {

@@ -1,13 +1,17 @@
 import { closeDb } from '../database/db';
 import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureRepo';
-import { getOnecUsage, usageSource } from '../integration/onecUsage';
+import { catalogMcpSource, syncCatalogFromMcp } from '../integration/onecCatalogMcp';
+import { configuredUsageOwners, getOnecUsage, usageSource } from '../integration/onecUsage';
 
-/** Проверка перед перезапуском при выкладке. Только чтение, без отправки уведомлений. */
+/** Проверка и синхронизация каталогов перед перезапуском при выкладке. */
 async function main(): Promise<void> {
-  const sources = JSON.parse(process.env.ONEC_USAGE_MCP_CONFIG || '{}') as Record<string, unknown>;
-  for (const key of Object.keys(sources)) {
-    const owner = Number(key);
+  const owners = configuredUsageOwners();
+  for (const owner of owners) {
     if (!Number.isSafeInteger(owner) || owner <= 0 || !usageSource(owner)) throw new Error('Invalid 1C usage owner/source');
+    if (catalogMcpSource(owner)) {
+      const synced = await syncCatalogFromMcp(owner, null, 'deploy');
+      console.log(`1C catalog MCP: company ${owner} synced (${synced.items} items, ${synced.folders} folders)`);
+    }
     const catalog = await onecNomenclatureRepo.listItems({ ownerUserId: owner, excludeFolders: true, limit: 1 });
     if (!catalog.length) throw new Error(`1C usage: company ${owner} has no catalog`);
     const snapshot = await getOnecUsage(owner, [catalog[0].guid]);

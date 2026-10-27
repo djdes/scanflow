@@ -518,6 +518,23 @@ const Mappings = {
   // --- Catalog tab ---
   filterCatalog(query) { this.renderCatalog(query); },
 
+  async syncFromMcp() {
+    const btn = document.getElementById('catalog-sync-mcp-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Синхронизация...'; }
+    try {
+      const { data } = await App.apiJson('/nomenclature/sync-mcp', { method: 'POST' });
+      OnecCatalog.loaded = false;
+      await OnecCatalog.load();
+      this.updateCatalogStatus();
+      this.renderCatalog(document.getElementById('catalog-search')?.value || '');
+      App.notify(`Справочник 1С синхронизирован по MCP: ${data.items} товаров, ${data.folders} папок`, 'success');
+    } catch (e) {
+      App.notify(e.message || 'Не удалось синхронизировать с 1С', 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Синхронизировать с 1С'; }
+    }
+  },
+
   renderCatalog(filterQuery = '') {
     const tbody = document.getElementById('catalog-tbody');
     if (!tbody) return;

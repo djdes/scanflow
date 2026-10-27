@@ -462,6 +462,7 @@
         <div class="filters" style="display:flex; gap:12px; align-items:center">
           <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)" style="flex:1" autocomplete="off" name="catalog-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
           <div class="field-hint" id="catalog-sync-info" style="white-space:nowrap"></div>
+          <button type="button" class="btn btn-outline btn-sm" id="catalog-sync-mcp-btn" onclick="Mappings.syncFromMcp()">Синхронизировать с 1С</button>
         </div>
         <div class="field-hint" style="margin-bottom:12px; color:var(--text-muted)">
           Первый запуск без программиста: выгрузите список товаров из 1С в XLSX/CSV или скопируйте таблицу — это занимает примерно 2–10 минут.

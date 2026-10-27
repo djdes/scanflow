@@ -24,6 +24,7 @@ import { runNightlyLearning } from './learning/learningService';
 import { keepSberTokensAlive, warnSberSecretExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
 import { checkOnecStall } from './services/companyHealth';
 import { sendWeeklyPriceDigests } from './notifications/priceDigest';
+import { syncAllCatalogsFromMcp } from './integration/onecCatalogMcp';
 
 let ocrManager: OcrManager;
 let fileWatcher: FileWatcher;
@@ -70,6 +71,14 @@ async function main(): Promise<void> {
 
   // Start REST API server
   httpServer = startServer(fileWatcher, mapper);
+
+  // Прямая синхронизация каталогов номенклатуры из 1С по MCP при старте и каждые 30 минут
+  syncAllCatalogsFromMcp(mapper, 'startup')
+    .catch(err => logger.error('startup 1C catalog MCP sync failed', { error: (err as Error).message }));
+  cron.schedule('*/30 * * * *', () => {
+    syncAllCatalogsFromMcp(mapper, 'cron')
+      .catch(err => logger.error('scheduled 1C catalog MCP sync failed', { error: (err as Error).message }));
+  });
 
   // Durable receipts survive deploys. Failed/stale initial recognition is retried in place,
   // without exhausting an attempt limit or promoting an incomplete item list to processed.
