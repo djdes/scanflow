@@ -146,6 +146,13 @@ export const mappingRepo = {
       .all<NomenclatureMapping>(ownerUserId);
   },
 
+  async listAliases(ownerUserId: number, guid?: string) {
+    return getDb().prepare(`SELECT id, scanned_name, onec_guid, confirmed_at FROM nomenclature_mapping_cards
+      WHERE owner_user_id = ? AND confirmed_at IS NOT NULL AND orphaned_at IS NULL
+        AND onec_guid IS NOT NULL AND onec_guid != '' ${guid ? 'AND onec_guid = ?' : ''}
+      ORDER BY scanned_name`).all<Pick<NomenclatureMapping, 'id' | 'scanned_name' | 'onec_guid' | 'confirmed_at'>>(...(guid ? [ownerUserId, guid] : [ownerUserId]));
+  },
+
   async update(id: number, ownerUserId: number, data: Partial<CreateMappingData>): Promise<void> {
     const fields: string[] = [];
     const values: Record<string, unknown> = { id, ownerUserId };

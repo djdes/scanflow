@@ -415,20 +415,23 @@ export class NomenclatureMapper {
     };
     const base = { ...ordinary, mapping_reason: ordinary.mapping_reason ?? notes[ordinary.source] };
     if (ordinary.source === 'supplier') return base;
+    const confirmed = await mappingRepo.getConfirmed(scannedName, ownerUserId);
+    if (confirmed?.onec_guid) {
+      const row = await onecNomenclatureRepo.getByGuid(confirmed.onec_guid, ownerUserId);
+      const same = ordinary.onec_guid === row?.guid;
+      const rulePack = confirmed.pack_size && confirmed.pack_size > 0 && confirmed.pack_unit;
+      if (row) return {
+        ...base, mapped_name: row.name, onec_guid: row.guid, confidence: 1, source: 'learned', mapping_id: confirmed.id,
+        pack_size: rulePack ? confirmed.pack_size : same ? ordinary.pack_size : null,
+        pack_unit: rulePack ? confirmed.pack_unit : same ? ordinary.pack_unit : null,
+        mapping_reason: 'По сопоставлению, подтверждённому человеком.',
+        confirmed_by_user: true,
+      };
+    }
     try {
       if (!usageSource(ownerUserId)) return base;
     } catch {
       return { ...base, mapping_reason: `${base.mapping_reason} Статистика 1С недоступна.` };
-    }
-    const confirmed = await mappingRepo.getConfirmed(scannedName, ownerUserId);
-    if (confirmed?.onec_guid) {
-      const row = await onecNomenclatureRepo.getByGuid(confirmed.onec_guid, ownerUserId);
-      if (row) return {
-        ...base, mapped_name: row.name, onec_guid: row.guid, confidence: 1, source: 'learned', mapping_id: confirmed.id,
-        pack_size: confirmed.pack_size, pack_unit: confirmed.pack_unit,
-        mapping_reason: 'По сопоставлению, подтверждённому человеком.',
-        confirmed_by_user: true,
-      };
     }
     const candidates = await this.usageCandidates(scannedName, ownerUserId);
     if (candidates.length < 2) return base;
@@ -805,7 +808,11 @@ export class NomenclatureMapper {
     const scanAttrs = extractAttrs(scannedName);
     const results = fuse.search(normalizeName(scannedName) || scannedName, { limit: limit * 3 });
     const out: Array<{ guid: string; name: string; unit: string | null; confidence: number; conflict: string | null }> = [];
+    const confirmed = await mappingRepo.getConfirmed(scannedName, ownerUserId);
+    const remembered = confirmed?.onec_guid ? await onecNomenclatureRepo.getByGuid(confirmed.onec_guid, ownerUserId) : null;
+    if (remembered) out.push({ guid: remembered.guid, name: remembered.name, unit: remembered.unit, confidence: 1, conflict: null });
     for (const r of results) {
+      if (r.item.guid === remembered?.guid) continue;
       if (rejected.has(r.item.guid)) continue;
       // Совсем далёкие варианты («Вкладыш» → «Крышка», 0,22) — не подсказка, а шум.
       if (1 - (r.score ?? 1) < 0.35) continue;
@@ -817,17 +824,20 @@ export class NomenclatureMapper {
       if (out.length >= limit) break;
     }
     // Без противоречий — первыми.
-    return out.sort((a, b) => Number(!!a.conflict) - Number(!!b.conflict) || b.confidence - a.confidence);
+    return out.sort((a, b) => Number(!!a.conflict) - Number(!!b.conflict) || b.confidence - a.confidence).slice(0, Math.max(0, limit));
   }
 
   async getSuggestions(scannedName: string, ownerUserId: number, limit: number = 5): Promise<Array<{ guid: string; name: string; confidence: number }>> {
     const fuse = await this.ensureIndex(ownerUserId);
     const results = fuse.search(normalizeName(scannedName) || scannedName, { limit });
-    return results.map(r => ({
+    const confirmed = await mappingRepo.getConfirmed(scannedName, ownerUserId);
+    const remembered = confirmed?.onec_guid ? await onecNomenclatureRepo.getByGuid(confirmed.onec_guid, ownerUserId) : null;
+    const ordinary = results.filter(r => r.item.guid !== remembered?.guid).map(r => ({
       guid: r.item.guid,
       name: r.item.name,
       confidence: 1 - (r.score || 1),
     }));
+    return [...(remembered ? [{ guid: remembered.guid, name: remembered.name, confidence: 1 }] : []), ...ordinary].slice(0, limit);
   }
 }
 

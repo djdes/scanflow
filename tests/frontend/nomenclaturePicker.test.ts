@@ -21,6 +21,17 @@ const invoices = (apiJson = vi.fn().mockResolvedValue({ success: true }), extra 
 };
 
 describe('доступность справочника 1С', () => {
+  it('находит названия из накладных по подтверждённым синонимам, сохраняя настоящие названия 1С', async () => {
+    const { c } = catalog(vi.fn().mockResolvedValue({ data: [
+      { guid: 'hot', name: 'Майонез недорогой 67% (гор цех. основной)', code: 'НФ-00001477', aliases: ['Майонез Махеевъ Провансаль 50,5% 9,4кг Ведро'] },
+      { guid: 'cold', name: 'Майонез МЖК (хол.цех)', code: 'НФ-00000018', aliases: ['Майонез Московский Провансаль Классический 67% 10л/9,6кг'] },
+    ] }));
+    await c.load();
+    expect(c.search('Майонез Махеевъ Провансаль 50,5% 9,4кг Ведро')[0]).toMatchObject({ guid: 'hot', confidence: 1, matched_alias: 'Майонез Махеевъ Провансаль 50,5% 9,4кг Ведро' });
+    expect(c.search('Московский Провансаль')[0].guid).toBe('cold');
+    expect(c.search('НФ-00001477')[0].guid).toBe('hot');
+    expect(c.search('НФ-99999999')).toHaveLength(0);
+  });
   it('поиск по части названия, нескольким основам и коду работает без Fuse/CDN', async () => {
     const { c } = catalog();
     expect(await c.load()).toBe(true);

@@ -71,6 +71,8 @@ export async function resetDb(): Promise<mysql.Pool> {
     // nomenclature_mapping_cards внешним ключом.
     'mapping_supplier_usage_cards',
     'supplier_nomenclature_mapping_cards',
+    'mapping_rejections',
+    'edit_log',
     'nomenclature_mapping_cards',
     'nomenclature_price_stat_cards',
     'onec_nomenclature_cards',

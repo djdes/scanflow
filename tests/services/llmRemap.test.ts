@@ -211,15 +211,25 @@ describe('проверки v2 (mapping_v2)', () => {
     expect(out.ok && out.guarded).toBe(1);
   });
 
-  it('при выключенном mapping_v2 — прежнее поведение: выбор ИИ ставится как есть', async () => {
+  it('при выключенном mapping_v2 и без подтверждённого синонима выбор ИИ ставится без проверки атрибутов', async () => {
     h.flags = { units_v2: false, mapping_v2: false };
     repo.getItems.mockResolvedValue([item(1, { original_name: 'Молоко 3,2% 1л' })] as never);
     h.mapItems.mockResolvedValue({ success: true, matched: new Map([['1', hit('g-milk2')]]) });
     rej.guidsFor.mockResolvedValue(new Set(['g-milk2']));
     const out = await llmRemapInvoice(INVOICE, { includeAll: false });
     expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk2', 'Молоко 3,2% 2л', 1.0, 'По выбору ИИ из каталога 1С.');
-    expect(maps.getConfirmed).not.toHaveBeenCalled();
+    expect(maps.getConfirmed).toHaveBeenCalledWith('Молоко 3,2% 1л', 3);
+    expect(rej.guidsFor).not.toHaveBeenCalled();
     expect(out.ok && out.guarded).toBe(0);
+  });
+
+  it('подтверждённый синоним важнее ИИ и при выключенном mapping_v2', async () => {
+    h.flags = { units_v2: false, mapping_v2: false };
+    repo.getItems.mockResolvedValue([item(1, { original_name: 'Молоко 3,2% 1л' })] as never);
+    h.mapItems.mockResolvedValue({ success: true, matched: new Map([['1', hit('g-milk2')]]) });
+    maps.getConfirmed.mockResolvedValue({ id: 40, onec_guid: 'g-milk1', confirmed_at: '2026-09-01', pack_size: null, pack_unit: null } as never);
+    await llmRemapInvoice(INVOICE, { includeAll: false });
+    expect(repo.updateItemMapping).toHaveBeenCalledWith(1, 'g-milk1', 'Молоко 3,2% 1л', 1, 'По сопоставлению, подтверждённому человеком.');
   });
 
   it('includeAll: ИИ ничего не нашёл для сопоставленной строки — позиция остаётся', async () => {

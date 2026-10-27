@@ -22,6 +22,13 @@
 .nom-picker-open:hover { background: #e0ecfc; border-color: #96b9e5; }
 .nomenclature-picker-dialog { width: min(760px, calc(100% - 32px)); margin: auto; padding: 24px; max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: var(--card); font-family: var(--font); box-shadow: var(--shadow-lg); }
 .nomenclature-picker-dialog::backdrop { background: rgb(25 23 30 / 45%); }
+.catalog-aliases-list { margin: 16px 0; max-height: 32dvh; overflow: auto; }
+.catalog-aliases-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 10px 0; font-size: 13px; }
+.catalog-aliases-row span { min-width: 0; overflow-wrap: anywhere; }
+.catalog-aliases-row .btn { flex-shrink: 0; }
+.catalog-aliases-form { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.catalog-aliases-form textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-hover); border-radius: 6px; font: inherit; font-size: 16px; color: var(--text); background: var(--card); resize: vertical; }
+.catalog-aliases-form .btn { align-self: flex-start; }
 .invoice-merge-preview { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 16px; font-size: 13px; line-height: 1.7; }
 .invoice-merge-preview[hidden] { display: none; }
 .invoice-merge-preview h3 { font-size: 16px; margin-bottom: 10px; }

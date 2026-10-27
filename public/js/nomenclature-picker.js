@@ -19,6 +19,7 @@ const NomenclaturePicker = {
     dialog.innerHTML = `<div class="nom-choice-header"><h2 id="nom-choice-title">Выбрать товар из 1С</h2><button type="button" class="nom-choice-close" aria-label="Закрыть выбор товара">×</button></div>
       <p class="nom-choice-source">Как в накладной: <strong>${App.esc(item.original_name || '')}</strong></p>
       ${item.onec_guid ? `<p class="nom-choice-current">Сейчас выбрано: ${App.esc(item.mapped_name || '')}</p>` : ''}
+      ${item.onec_guid ? '<button type="button" class="btn btn-outline btn-sm" data-aliases>Синонимы этого товара</button>' : ''}
       <div class="nom-choice-search"><label for="nom-choice-query">Поиск по названию или коду товара</label><input id="nom-choice-query" type="search" autocomplete="off" placeholder="Например: сахар, этикетка или код товара"><button type="button" class="btn btn-outline btn-sm" data-refresh>Обновить список</button></div>
       <p class="nom-choice-warning" role="status" hidden></p><p class="nom-choice-status" aria-live="polite"></p>
       <div class="nom-choice-results" aria-label="Товары вашей компании из 1С" aria-busy="true"></div>
@@ -60,7 +61,7 @@ const NomenclaturePicker = {
         const matches = query ? catalog.search(query, 40) : catalog.items.slice(0, 40);
         status.textContent = `В справочнике ${catalog.items.length} позиций · Показано ${matches.length}${query ? ' вариантов по запросу' : ''}`;
         if (catalog.lastSyncedAt) status.textContent += ` · Каталог от ${App.formatDate(catalog.lastSyncedAt)}`;
-        results.innerHTML = matches.length ? matches.map(row => `<button type="button" class="nom-choice-result" data-guid="${App.esc(row.guid)}"><span class="nom-choice-result-copy"><strong>${App.esc(row.name)}</strong><small>${row.code ? `Код: ${App.esc(row.code)}` : ''}${row.code && row.unit ? ' · ' : ''}${row.unit ? `Ед.: ${App.esc(row.unit)}` : ''}</small></span><span class="nom-choice-result-action">Выбрать</span></button>`).join('')
+        results.innerHTML = matches.length ? matches.map(row => `<button type="button" class="nom-choice-result" data-guid="${App.esc(row.guid)}"><span class="nom-choice-result-copy"><strong>${App.esc(row.name)}</strong><small>${row.code ? `Код: ${App.esc(row.code)}` : ''}${row.code && row.unit ? ' · ' : ''}${row.unit ? `Ед.: ${App.esc(row.unit)}` : ''}</small>${row.matched_alias ? `<small>По синониму: ${App.esc(row.matched_alias)}</small>` : ''}</span><span class="nom-choice-result-action">Выбрать</span></button>`).join('')
           : `<div class="nom-choice-empty"><h3>${catalog.isCodeQuery(query) ? `Код «${App.esc(query)}» не найден в загруженном справочнике` : 'По этому запросу ничего не найдено'}</h3><p>Можно искать полный код или его цифровую часть, например 2140. Если товара нет в загруженном каталоге, выгрузите свежий справочник из 1С и нажмите «Обновить список».</p></div>`;
       }
       results.setAttribute('aria-busy', 'false');
@@ -119,6 +120,7 @@ const NomenclaturePicker = {
       else buttons[index + (event.key === 'ArrowDown' ? 1 : -1)]?.focus();
     });
     refreshButton.onclick = () => refresh(true);
+    dialog.querySelector('[data-aliases]')?.addEventListener('click', () => { if (!busy && !loading) CatalogAliases.open(item.onec_guid, item.original_name, render); });
     closeButton.onclick = () => dialog.close();
     newName.addEventListener('input', syncDisabled);
     createButton.onclick = () => save(null, newName.value.trim());

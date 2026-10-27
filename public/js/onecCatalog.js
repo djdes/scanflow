@@ -20,7 +20,7 @@ const OnecCatalog = {
         let fuse = null;
         try {
           if (typeof Fuse === 'function') fuse = new Fuse(data, {
-            keys: ['name', 'full_name'], threshold: 0.5, minMatchCharLength: 1,
+            keys: ['name', 'full_name', 'aliases'], threshold: 0.5, minMatchCharLength: 1,
             ignoreLocation: true, includeScore: true,
           });
         } catch (error) { console.warn('Fuzzy search unavailable; using catalog text search', error); }
@@ -79,9 +79,11 @@ const OnecCatalog = {
       const digits = codeKey.replace(/^\D+/, '').replace(/^0+(?=\d)/, '');
       const nameNorm = this._normalize(name);
       const fullNorm = this._normalize(full);
+      const aliases = Array.isArray(item.aliases) ? item.aliases.filter(value => typeof value === 'string') : [];
 
       let score = 0;
       let codeRank = 0;
+      let matchedAlias = null;
       if (queryCode && codeKey === queryCode) { codeRank = 3; score = 1; }
       else if (queryCode && codeKey.includes(queryCode)) { codeRank = 2; score = 0.95; }
       else if (queryDigits && digits === queryDigits) { codeRank = 1; score = 0.9; }
@@ -92,6 +94,15 @@ const OnecCatalog = {
         else if (qNorm && new RegExp('(^|\\s)' + this._escapeRegex(qNorm)).test(nameNorm)) score = 0.9;
         else if (qNorm && nameNorm.includes(qNorm)) score = 0.8;
         else if (qNorm && fullNorm.includes(qNorm)) score = 0.65;
+      }
+
+      if (!codeQuery && !codeRank && qNorm) {
+        for (const alias of aliases) {
+          const normalized = this._normalize(alias);
+          const aliasScore = normalized === qNorm ? 1 : normalized.startsWith(qNorm) ? 0.98 : normalized.includes(qNorm) ? 0.85
+            : tokens.every(token => normalized.split(' ').some(word => word.startsWith(token))) ? 0.76 : 0;
+          if (aliasScore > score) { score = aliasScore; matchedAlias = alias; }
+        }
       }
 
       // (2) token-prefix: every token must appear as a word-prefix somewhere
@@ -123,6 +134,7 @@ const OnecCatalog = {
           code: item.code,
           confidence: score,
           _codeRank: codeRank,
+          matched_alias: matchedAlias,
         });
         seen.add(item.guid);
       }

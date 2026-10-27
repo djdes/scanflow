@@ -8,6 +8,8 @@ import { logIntegrationEvent } from '../../integration/integrationLog';
 import { requireAdmin } from '../middleware/auth';
 import { parseCatalogSpreadsheet } from '../../integration/catalogSpreadsheet';
 import { onCatalogChanged } from '../../services/catalogSyncWatcher';
+import { saveCatalogAliases, removeCatalogAlias, AliasError } from '../../services/catalogAliases';
+import { logEdit } from '../../database/repositories/editLogRepo';
 
 const router = Router();
 
@@ -154,13 +156,50 @@ router.get('/', async (req: Request, res: Response) => {
   const search = req.query.search as string | undefined;
   const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
   const items = await onecNomenclatureRepo.listItems({ ownerUserId: ownerOf(req), excludeFolders, search, limit });
-  const stats = await onecNomenclatureRepo.stats(ownerOf(req));
-  res.json({ data: items, count: items.length, last_synced_at: stats.last_synced_at });
+  const [stats, aliases] = await Promise.all([onecNomenclatureRepo.stats(ownerOf(req)), mappingRepo.listAliases(ownerOf(req))]);
+  const byGuid = new Map<string, string[]>();
+  for (const alias of aliases) {
+    const names = byGuid.get(alias.onec_guid!) ?? [];
+    names.push(alias.scanned_name); byGuid.set(alias.onec_guid!, names);
+  }
+  res.json({ data: items.map(item => ({ ...item, aliases: byGuid.get(item.guid) ?? [] })), count: items.length, last_synced_at: stats.last_synced_at });
 });
 
 // GET /api/nomenclature/stats
 router.get('/stats', async (req: Request, res: Response) => {
   res.json({ data: await onecNomenclatureRepo.stats(ownerOf(req)) });
+});
+
+router.get('/:guid/aliases', async (req, res) => {
+  const item = await onecNomenclatureRepo.getByGuid(String(req.params.guid), ownerOf(req));
+  if (!item) return res.status(404).json({ error: 'Товар не найден в каталоге вашей компании.' });
+  return res.json({ data: await mappingRepo.listAliases(ownerOf(req), item.guid), item: { guid: item.guid, name: item.name, code: item.code } });
+});
+
+router.post('/:guid/aliases', async (req, res) => {
+  const owner = ownerOf(req), guid = String(req.params.guid);
+  try {
+    const aliases = await saveCatalogAliases(owner, owner, guid, req.body?.aliases);
+    mapper?.invalidateCache(owner);
+    await logEdit({ ownerUserId: owner, userId: owner, entity: 'mapping', field: 'aliases', oldValue: null, newValue: { guid, names: req.body.aliases } });
+    return res.json({ data: aliases });
+  } catch (error) {
+    if (error instanceof AliasError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+});
+
+router.delete('/:guid/aliases/:id', async (req, res) => {
+  const owner = ownerOf(req), guid = String(req.params.guid), id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Неверный номер синонима.' });
+  try {
+    await removeCatalogAlias(owner, guid, id); mapper?.invalidateCache(owner);
+    await logEdit({ ownerUserId: owner, userId: owner, entity: 'mapping', field: 'alias_deleted', oldValue: { guid, id }, newValue: null });
+    return res.json({ success: true });
+  } catch (error) {
+    if (error instanceof AliasError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
 });
 
 

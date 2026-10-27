@@ -948,6 +948,7 @@ const Invoices = {
               ${badge}
               <span class="nom-picker-current">${item.onec_guid || item.name_overridden ? safeName : 'Товар из 1С не выбран'}</span>
               <button type="button" class="nom-picker-open" onclick="NomenclaturePicker.open(${data.id}, ${item.id})" aria-label="${item.onec_guid ? 'Изменить' : 'Выбрать'} позицию 1С для строки ${no}">${item.onec_guid ? 'Изменить' : 'Выбрать из 1С'}</button>
+              ${item.onec_guid ? `<button type="button" class="nom-picker-open" onclick="CatalogAliases.openFromInvoice(${data.id}, ${item.id})">Синонимы</button>` : ''}
             </div>
             ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
               ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`

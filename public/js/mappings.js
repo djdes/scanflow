@@ -279,11 +279,12 @@ const Mappings = {
       const scanned = input.value.trim();
       if (!scanned) { App.notify('Введите название', 'error'); return; }
       try {
-        await App.apiJson('/mappings', {
+        await App.apiJson(`/nomenclature/${encodeURIComponent(guid)}/aliases`, {
           method: 'POST',
-          body: { scanned_name: scanned, mapped_name_1c: mappedName, onec_guid: guid },
+          body: { aliases: [scanned] },
         });
-        App.notify('Вариант добавлен', 'success');
+        await OnecCatalog.load(true);
+        App.notify('Синоним сохранён и подтверждён', 'success');
         this.loadGrouped();
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
@@ -532,7 +533,8 @@ const Mappings = {
       items = items.filter(it =>
         (it.name || '').toLowerCase().includes(q) ||
         (it.full_name || '').toLowerCase().includes(q) ||
-        (it.code || '').toLowerCase().includes(q)
+        (it.code || '').toLowerCase().includes(q) ||
+        (it.aliases || []).some(alias => alias.toLowerCase().includes(q))
       );
     }
     if (items.length === 0) {
@@ -548,7 +550,7 @@ const Mappings = {
       return `<tr>
         <td data-label="#">${i + 1}</td>
         <td data-label="Код">${esc(it.code) || '—'}</td>
-        <td data-label="Наименование"><strong>${esc(it.name)}</strong></td>
+        <td data-label="Наименование"><strong>${esc(it.name)}</strong><br><button type="button" class="btn btn-outline btn-sm" data-alias-guid="${esc(it.guid)}" onclick="CatalogAliases.open(this.dataset.aliasGuid)">Синонимы · ${(it.aliases || []).length}</button></td>
         <td data-label="Полное">${esc(it.full_name) || '—'}</td>
         <td data-label="Ед.">${esc(it.unit) || '—'}</td>
         <td data-label="GUID"><code style="font-size:11px" title="${esc(it.guid)}">${guidShort}</code></td>
