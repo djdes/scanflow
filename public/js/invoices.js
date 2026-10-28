@@ -177,7 +177,7 @@ const Invoices = {
   },
 
   _rowAction(inv) {
-    if (inv.review_reason || inv.duplicate_of || inv.sibling_is_copy) return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Проверить</button>`;
+    if (inv.review_reason || inv.sibling_is_copy) return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Проверить</button>`;
     if (inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-primary btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
     return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Открыть</button>`;
   },
