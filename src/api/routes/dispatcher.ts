@@ -559,7 +559,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       // Forward merge: carry this page's photo to the target and delete its row.
       await foldPageInto(targetInvoiceId, id);
       mergedAway = true;
-      await invoiceRepo.checkAndMarkDuplicate(targetInvoiceId);
+      await invoiceRepo.checkAndMarkDuplicate?.(targetInvoiceId);
     }
 
     if (!isMerge) {
@@ -580,7 +580,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         mergedAway = true;
       }
 
-      const dupOriginal = await invoiceRepo.checkAndMarkDuplicate(finalTargetId);
+      const dupOriginal = await invoiceRepo.checkAndMarkDuplicate?.(finalTargetId);
       if (dupOriginal) {
         logger.info('dispatcher result: duplicate invoice detected', {
           invoiceId: finalTargetId,
