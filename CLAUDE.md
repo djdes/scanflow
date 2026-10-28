@@ -110,6 +110,15 @@ GitHub secrets needed: `SSH_PRIVATE_KEY`, `SSH_HOST=magday.ru`, `SSH_USER=magday
 
 ⚠️ **Всё — только через `main`.** Выкладка GitHub Actions копирует код из `main` поверх сервера: правка, выложенная на сервер напрямую (по SSH, мимо `main`), стирается первой же штатной выкладкой. 2026-10-09 так дважды пропадали исправления (полнота накладной, склейка страниц, загрузка с iPhone, накладная 781) — вернулись коммитом в `main` 2026-10-10.
 
+⚠️ **Обязательная актуализация Git (`git fetch`, коммиты и ветки).** Так как работа ведётся с нескольких машин (локальный ПК, сервер `BSQL` `C:\www\ScanFlow`, облачные ворктри), **перед началом любой задачи и перед каждым коммитом/пушем** обязательно выполняйте:
+```bash
+git fetch --all --prune
+git status -sb
+git branch -vv
+git checkout main && git pull --ff-only origin main
+```
+Если работа велась в фича-ветке (например, `feat/*`), перед пушем обязательно актуализируйте её относительно `origin/main` (`git rebase origin/main`) и после пуша синхронизируйте локальную ветку `main` (в т.ч. на `BSQL` в `C:\www\ScanFlow`), чтобы локальные ветки не отставали от `origin/main`. См. также [`AGENTS.md`](AGENTS.md).
+
 Миграции на проде применяются **на старте процесса** (`pm2 restart` в конце деплоя), отдельного шага миграций в пайплайне нет.
 Шаг деплоя дописывает в серверный `.env` `DATA_SCOPING_ENABLED=true` — мёртвая настройка, код её больше не читает (см. правило 19). Удалять из workflow безопасно.
 
@@ -184,6 +193,8 @@ First start with empty `users` table prints a one-time random admin password to 
 45. **Правовые документы и согласие на обработку ПДн (152-ФЗ).** `/privacy`, `/consent`, `/terms` — шаблоны `public/legal/*.html`, маршруты в `server.ts` (сырой `/legal/*.html` — 301 на чистый адрес). Реквизиты оператора подставляются из env `LEGAL_OPERATOR_NAME|INN|OGRN|ADDRESS` и `LEGAL_CONTACT_EMAIL` (`src/legal/documents.ts`): в репозитории их нет — не выдумывать; пока они пусты, документы говорят «реквизиты по запросу». Регистрация (`/api/auth/register-email`, `/register`) без `pd_consent: true` — 400 `pd_consent_required`. Согласие — отдельная галочка, по умолчанию снята, не одной галочкой с соглашением (с 01.09.2025 согласие оформляется отдельно от других документов). Каждое согласие пишется в `pd_consents` (миграция 89: кто, когда, редакция `PD_CONSENT_VERSION`, IP, браузер) — доказательство по ст. 9 ч. 3, вместе с пользователем строки не удалять. Меняете текст `/consent` — меняйте `PD_CONSENT_VERSION` и дату редакции на странице. Политика перечисляет реальных получателей данных и сроки (фото — правило 30, резервные копии 14 дней, журнал запросов 7 дней, логи 30 дней): новый внешний сервис или новый срок хранения — правка `/privacy` в том же изменении. Черновик оферты для платных тарифов — `docs/legal/oferta-draft.md`.
 46. **Яндекс Метрика — только после согласия на cookie.** Номер счётчика — env `YANDEX_METRIKA_ID`; сервер подставляет `window.SF_SITE` в метку `<!--SITE-CONFIG-->` главной, блога и правовых страниц (`src/seo/siteConfig.ts`; в кабинете и на 404 счётчика нет). Нет номера — нет ни счётчика, ни сообщения о cookie. Счётчик (`tag.js`, Вебвизор выключен) грузится только после «Принять»; «Только необходимые» выставляет `disableYaCounter<номер>` и стирает cookie `_ym*`; выбор — `localStorage['sf-cookie-consent']`, сменить — «Настройки cookie» в подвале. Цели — JavaScript-события, их заводят в интерфейсе Метрики: `register_open` (`from`: `plan-*`, `sandbox`, `dropzone`, `other`), `register_submit` и `register_success` (`form`: `hero`, `cta`, `modal`), `login_open`, `login_success`, `try_click`, `sandbox_run` (`doc`), `calc_used`, `file_drop`, `video_play`. A/B заголовка героя — env `SITE_HERO_AB=1` (только вместе со счётчиком): вариант выбирает инлайн-скрипт в `<head>` до отрисовки (`localStorage['sf-hero-ab']`), в Метрику он уходит параметром визита `hero_variant`. Новая цель или новые данные в Метрике — правка `/privacy` (пункты 3.5 и 8).
 
+47. **Синхронизация каталогов 1С (`admin` и `zakupki`) — напрямую через MCP (`src/integration/onecCatalogMcp.ts`).** Компания `1` (`admin`) синхронизируется с базой **1С MAG** (`/mcp-1c/hs/mcp-1c`, пользователь `Админ`), компания `3` (`zakupki`) — с базой **1С SUB** (`/mcp-1c-subprod/hs/mcp-1c`, пользователь `Директор`). Синхронизация идёт автоматически при деплое (`check-onec-usage.ts`), при старте сервера, каждые 30 минут по расписанию, после создания документа в 1С и по кнопке «Синхронизировать с 1С» (`POST /api/nomenclature/sync-mcp`). Выгружаются все рабочие категории и все папки (`ЭтоГруппа = Истина`), кроме помеченных на удаление и 5 архивных категорий (`Списанное`, `Резерв Сезонное`, `SubExpress-Архив`, `РЕЗЕРВ`, `ПРОРАБОТКА`). Если для компании настроен MCP-источник, `DELETE /api/onec/exchange/nomenclature` от старой внешней обработки `.epf` перехватывается и не стирает полный справочник.
+
 ## API surface (mounted in `src/api/server.ts`)
 
 | Path | Auth | Purpose |
@@ -242,6 +253,7 @@ First start with empty `users` table prints a one-time random admin password to 
 
 ## Workflow conventions
 
+- **Всегда начинайте работу с `git fetch --all --prune` и актуализации веток/коммитов** (`git checkout main && git pull --ff-only origin main`). Никогда не начинайте правки на устаревшей локальной ветке без сверки с `origin/main` (см. [`AGENTS.md`](AGENTS.md)).
 - New SQL changes go as a new migration object in `src/database/migrations.ts` — never edit a previous one. Always include a `detect()` for backfill.
 - New tests live next to source under `tests/<dir>/<file>.test.ts`. Mock external services (`vi.mock('../../src/utils/mailer')` etc.) — never hit real SMTP/Telegram from tests.
 - Spec-driven feature work is recorded in `docs/superpowers/specs/YYYY-MM-DD-*-design.md` (design) and `docs/superpowers/plans/YYYY-MM-DD-*.md` (implementation plan). Both get committed before code.
