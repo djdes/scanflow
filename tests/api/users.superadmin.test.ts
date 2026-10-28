@@ -151,6 +151,15 @@ app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/users', apiKeyAuth, usersRouter);
 app.use('/api/billing', apiKeyAuth, billingRouter);
+app.get('/api/invoices/:id/photos/:filename', apiKeyAuth, (_req, res) => {
+  res.json({ ok: true, kind: 'photo' });
+});
+app.get('/api/invoices/:id/review/image/:filename', apiKeyAuth, (_req, res) => {
+  res.json({ ok: true, kind: 'review_image' });
+});
+app.get('/api/invoices/:id/review', apiKeyAuth, (_req, res) => {
+  res.json({ ok: true, kind: 'review_state' });
+});
 
 describe('Superadmin account, impersonation, access and tariffs', () => {
   beforeEach(() => {
@@ -313,5 +322,21 @@ describe('Superadmin account, impersonation, access and tariffs', () => {
       monthlyPriceKopecks: 499000,
       pageLimit: 15000,
     });
+
+    // Scan images and PDFs use ?key=... in <img>/<iframe>/<a> tags
+    const scanPhotoRes = await request(app).get(
+      `/api/invoices/898/photos/scan.pdf?key=${encodeURIComponent(impRes.body.data.apiKey)}`,
+    );
+    expect(scanPhotoRes.status).toBe(200);
+
+    const scanReviewRes = await request(app).get(
+      `/api/invoices/897/review/image/scan.jpg?key=${encodeURIComponent(impRes.body.data.apiKey)}`,
+    );
+    expect(scanReviewRes.status).toBe(200);
+
+    const nonWhitelistedQueryKeyRes = await request(app).get(
+      `/api/invoices/897/review?key=${encodeURIComponent(impRes.body.data.apiKey)}`,
+    );
+    expect(nonWhitelistedQueryKeyRes.status).toBe(401);
   });
 });

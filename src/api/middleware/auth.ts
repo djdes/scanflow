@@ -2,6 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { logger } from '../../utils/logger';
 import { userRepo } from '../../database/repositories/userRepo';
 
+// Paths that legitimately need ?key=... because a browser <img>/<iframe>/<a> tag
+// cannot set custom headers. Keep the whitelist tight.
+const QUERY_KEY_WHITELIST = [
+  /^\/api\/invoices\/\d+\/photos\/[^/]+$/,
+  /^\/api\/invoices\/\d+\/review\/image\/[^/]+$/,
+];
+
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
@@ -28,8 +35,11 @@ declare global {
  */
 export async function apiKeyAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const headerKey = req.headers['x-api-key'] as string | undefined;
-  const queryKey = req.query.api_key as string | undefined;
-  const providedKey = headerKey || queryKey;
+  const rawQueryKey = (typeof req.query.key === 'string' ? req.query.key : undefined)
+    || (typeof req.query.api_key === 'string' ? req.query.api_key : undefined);
+  const fullPath = (req.baseUrl || '') + (req.path || '');
+  const isWhitelisted = QUERY_KEY_WHITELIST.some(rx => rx.test(fullPath));
+  const providedKey = headerKey || (isWhitelisted || req.query.api_key ? rawQueryKey : undefined);
 
   if (!providedKey) {
     logger.warn('Unauthorized API access attempt (no key)', { ip: req.ip, path: req.path });
@@ -72,5 +82,42 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
     res.status(403).json({ error: 'Admin access required' });
     return;
   }
+  next();
+}
+
+/**
+ * Variant of apiKeyAuth that also accepts ?key=... — use ONLY for routes that
+ * serve binary content to <img>/<a> tags where custom headers can't be added.
+ */
+export async function apiKeyAuthQueryAllowed(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const providedKey = (req.headers['x-api-key'] as string | undefined)
+    || (typeof req.query.key === 'string' ? req.query.key : undefined)
+    || (typeof req.query.api_key === 'string' ? req.query.api_key : undefined);
+
+  if (!providedKey) {
+    res.status(401).json({ error: 'Invalid or missing API key' });
+    return;
+  }
+
+  const user = await userRepo.findByApiKey(providedKey);
+  if (!user) {
+    res.status(401).json({ error: 'Invalid or missing API key' });
+    return;
+  }
+  if (user.is_blocked) {
+    res.status(403).json({ error: 'Доступ к аккаунту приостановлен администратором' });
+    return;
+  }
+
+  req.user = {
+    id: user.id,
+    username: user.username,
+    role: (user.role === 'admin' || user.is_superadmin ? 'admin' : 'user'),
+    is_superadmin: Boolean(user.is_superadmin),
+    email: user.email,
+    tariff_plan: user.tariff_plan,
+    tariff_limit: user.tariff_limit,
+    tariff_expires_at: user.tariff_expires_at,
+  };
   next();
 }
