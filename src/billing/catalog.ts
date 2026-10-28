@@ -1,5 +1,5 @@
 // Published plans from public/index.html. These are previews during open beta;
-// this catalog does not impose quotas or activate paid entitlements.
+// superadmins can also assign specific plans/limits per account.
 export const billingPlans = [
   { id: 'start', name: 'Старт', monthlyPriceKopecks: 0, pagesPerMonth: 50,
     description: 'Для небольшого потока документов',
@@ -12,11 +12,50 @@ export const billingPlans = [
     features: ['Всё из тарифа Pro', 'Webhook на свои события', 'Помощь с настройкой 1С', 'Расширенное сопровождение'] },
 ] as const;
 
-export function getBillingOverview() {
+export interface BillingUserContext {
+  tariff_plan?: string | null;
+  tariff_limit?: number | null;
+  tariff_expires_at?: string | null;
+}
+
+export function getBillingOverview(user?: BillingUserContext) {
+  const rawPlan = user?.tariff_plan && user.tariff_plan !== 'beta' ? user.tariff_plan : null;
+  const matchedPlan = rawPlan ? billingPlans.find((p) => p.id === rawPlan) : undefined;
+
+  let subscription = {
+    planId: null as string | null,
+    name: 'Открытая бета',
+    monthlyPriceKopecks: 0,
+    nextPaymentAt: user?.tariff_expires_at ?? null,
+    autoRenewal: false,
+    pageLimit: user?.tariff_limit ?? null,
+  };
+
+  if (matchedPlan) {
+    subscription = {
+      planId: matchedPlan.id,
+      name: matchedPlan.name,
+      monthlyPriceKopecks: matchedPlan.monthlyPriceKopecks,
+      nextPaymentAt: user?.tariff_expires_at ?? null,
+      autoRenewal: false,
+      pageLimit: user?.tariff_limit !== undefined && user?.tariff_limit !== null
+        ? user.tariff_limit
+        : matchedPlan.pagesPerMonth,
+    };
+  } else if (rawPlan === 'unlimited') {
+    subscription = {
+      planId: 'unlimited',
+      name: 'Безлимит',
+      monthlyPriceKopecks: 0,
+      nextPaymentAt: user?.tariff_expires_at ?? null,
+      autoRenewal: false,
+      pageLimit: user?.tariff_limit ?? null,
+    };
+  }
+
   return {
     mode: 'beta', currency: 'RUB',
-    subscription: { planId: null, name: 'Открытая бета', monthlyPriceKopecks: 0,
-      nextPaymentAt: null, autoRenewal: false, pageLimit: null },
+    subscription,
     payments: { enabled: false, provider: 'robokassa', connected: false },
     plans: billingPlans,
     // No payment ledger exists yet. Never synthesize transactions or receipts.

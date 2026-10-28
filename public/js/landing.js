@@ -1160,7 +1160,8 @@
           return;
         }
         localStorage.setItem('apiKey', data.apiKey);
-        localStorage.setItem('adminUsername', username);
+        localStorage.setItem('adminUsername', data.username || username);
+        localStorage.removeItem('superadminSession');
         localStorage.setItem('adminRole', data.role || 'user');
         applyAuthState();
         track('login_success');

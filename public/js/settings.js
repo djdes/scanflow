@@ -4,6 +4,7 @@ const Settings = {
   /** Режим из настроек: сохраняем его как есть — смена режима только кнопкой «Перейти на GPT». */
   _mode: 'gpt',
   _canEdit: false,
+  _usersCache: [],
 
   async load() {
     if (this.loaded) return;
@@ -165,9 +166,19 @@ const Settings = {
     });
   },
 
-  // Admin-only "Команда и роли" card. Always asks the backend: a 200 means the
-  // caller is admin (render the card); a 403 means non-admin (render nothing).
-  // requireAdmin on /api/users is the real enforcement — this is just UI gating.
+  _tariffLabel(plan, limit) {
+    const map = {
+      beta: 'Открытая бета',
+      start: 'Старт (50 стр.)',
+      pro: 'Pro (1 000 стр.)',
+      business: 'Бизнес (10 000 стр.)',
+      unlimited: 'Безлимит',
+    };
+    const base = map[plan] || plan || 'Открытая бета';
+    return limit != null ? `${base} · до ${Number(limit).toLocaleString('ru-RU')} стр.` : base;
+  },
+
+  // Admin/Superadmin "Аккаунты, доступы и тарифы" card.
   async _renderUsers() {
     const host = document.getElementById('settings-users');
     if (!host) return;
@@ -175,35 +186,303 @@ const Settings = {
       const res = await App.api('/users');
       if (!res.ok) { host.innerHTML = ''; return; }
       const { data } = await res.json();
+      this._usersCache = Array.isArray(data) ? data : [];
       const esc = (s) => App.esc(String(s ?? ''));
-      const rows = (data || []).map((u) => `
-        <tr>
-          <td>${u.id}</td>
-          <td><strong>${esc(u.username)}</strong></td>
-          <td>${esc(u.email || '—')}</td>
-          <td>${u.last_login_at ? esc(u.last_login_at) : '<span class="muted">—</span>'}</td>
+      const rows = this._usersCache.map((u) => {
+        const roleBadge = u.is_superadmin
+          ? '<span class="badge badge-sent" title="Корневой суперадмин">Суперадмин</span>'
+          : u.role === 'admin'
+            ? '<span class="badge badge-processed">Администратор</span>'
+            : '<span class="badge badge-new">Пользователь</span>';
+        const statusBadge = u.is_blocked
+          ? '<span class="badge badge-error">Заблокирован</span>'
+          : '<span class="badge badge-sent">Активен</span>';
+        const companySub = u.company_name
+          ? `<div class="muted" style="font-size:12px">${esc(u.company_name)}</div>`
+          : '';
+        const emailSub = u.email
+          ? `<div class="muted" style="font-size:12px">${esc(u.email)}</div>`
+          : '<div class="muted" style="font-size:12px">без email</div>';
+        const expSub = u.tariff_expires_at
+          ? `<div class="muted" style="font-size:12px">до ${esc(App.formatDate(u.tariff_expires_at))}</div>`
+          : '';
+        return `
+        <tr style="${u.is_blocked ? 'opacity:0.65' : ''}">
+          <td>${Number(u.id)}</td>
           <td>
-            <select class="role-select" data-prev="${esc(u.role)}" onchange="Settings.changeRole(${u.id}, this.value, this)">
-              <option value="user"${u.role !== 'admin' ? ' selected' : ''}>Пользователь</option>
-              <option value="admin"${u.role === 'admin' ? ' selected' : ''}>Администратор</option>
-            </select>
+            <div><strong>${esc(u.username)}</strong></div>
+            ${companySub}
+            ${emailSub}
           </td>
-        </tr>`).join('');
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+              ${roleBadge}
+              ${statusBadge}
+            </div>
+          </td>
+          <td>
+            <div>${esc(this._tariffLabel(u.tariff_plan, u.tariff_limit))}</div>
+            ${expSub}
+          </td>
+          <td>
+            <div>${Number(u.invoice_count || 0)} накл.</div>
+            <div class="muted" style="font-size:12px">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
+          </td>
+          <td>${u.last_login_at ? esc(App.formatDateTime(u.last_login_at)) : '<span class="muted">—</span>'}</td>
+          <td style="white-space:nowrap">
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button type="button" class="btn btn-primary btn-sm" onclick="App.impersonateUser(${Number(u.id)})" title="Войти в кабинет этого пользователя в 1 клик">Войти в аккаунт</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="Settings.openUserModal(${Number(u.id)})">Изменить</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
       host.innerHTML = `
         <div class="card" style="margin-top:24px">
-          <h3 style="margin-bottom:6px">Команда и роли</h3>
-          <p class="field-hint" style="margin-bottom:16px">Администратор управляет настройками и интеграциями; пользователь видит накладные своей компании.</p>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+            <div>
+              <h3 style="margin-bottom:6px">Суперадмин · Аккаунты, доступы и тарифы</h3>
+              <p class="field-hint" style="margin:0">Входите в любой кабинет в 1 клик, меняйте логин, email, пароль, роль, блокировку, тариф и настройки компании.</p>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="Settings.openUserModal(null)">+ Создать аккаунт</button>
+          </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Логин</th><th>Email</th><th>Последний вход</th><th>Роль</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Аккаунт / Email</th>
+                  <th>Роль и доступ</th>
+                  <th>Тариф и лимит</th>
+                  <th>Данные</th>
+                  <th>Последний вход</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
-        </div>`;
+        </div>
+        <div id="superadmin-user-modal" class="modal-overlay" style="display:none"></div>`;
     } catch (e) {
       host.innerHTML = '';
       console.error('Failed to load users', e);
     }
+  },
+
+  openUserModal(userId) {
+    const modal = document.getElementById('superadmin-user-modal');
+    if (!modal) return;
+    const isCreate = userId === null || userId === undefined;
+    const u = isCreate
+      ? {
+          id: null,
+          username: '',
+          email: '',
+          company_name: '',
+          role: 'user',
+          is_superadmin: false,
+          is_blocked: false,
+          tariff_plan: 'beta',
+          tariff_limit: null,
+          tariff_expires_at: null,
+          units_all_kg: false,
+          telegram_chat_id: '',
+          telegram_bot_token_set: false,
+          sber_purpose_template: '',
+        }
+      : this._usersCache.find((x) => Number(x.id) === Number(userId));
+    if (!u) return;
+
+    const esc = (s) => App.esc(String(s ?? ''));
+    const roleVal = u.is_superadmin ? 'superadmin' : (u.role === 'admin' ? 'admin' : 'user');
+    const expDate = u.tariff_expires_at ? String(u.tariff_expires_at).slice(0, 10) : '';
+
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="modal-box" style="max-width:620px;width:95%;max-height:90vh;overflow-y:auto;text-align:left">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div class="modal-title" style="margin:0">${isCreate ? 'Создать новый аккаунт' : `Редактирование аккаунта #${Number(u.id)} (${esc(u.username)})`}</div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="Settings.closeUserModal()">✕</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-username">Логин *</label>
+            <input type="text" id="sa-user-username" value="${esc(u.username)}" placeholder="например, zakupki или admin@scanflow.ru" autocomplete="off">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-email">Email</label>
+            <input type="email" id="sa-user-email" value="${esc(u.email || '')}" placeholder="user@company.ru" autocomplete="off">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-company">Название компании / заметка</label>
+            <input type="text" id="sa-user-company" value="${esc(u.company_name || '')}" placeholder="ООО Компания" autocomplete="off">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-password">${isCreate ? 'Пароль (пусто — сгенерируется)' : 'Новый пароль (оставьте пустым, чтобы не менять)'}</label>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="sa-user-password" value="" placeholder="${isCreate ? 'Сгенерировать автоматически' : 'Введите новый пароль'}" autocomplete="new-password" style="flex:1;min-width:0">
+              <button type="button" class="btn btn-outline btn-sm" onclick="Settings.generateModalPassword()">Сгенерировать</button>
+            </div>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-role">Уровень прав (Роль)</label>
+            <select id="sa-user-role">
+              <option value="user"${roleVal === 'user' ? ' selected' : ''}>Пользователь (своя компания)</option>
+              <option value="admin"${roleVal === 'admin' ? ' selected' : ''}>Администратор</option>
+              <option value="superadmin"${roleVal === 'superadmin' ? ' selected' : ''}>Суперадмин (полный доступ)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-blocked">Доступ к сервису</label>
+            <select id="sa-user-blocked">
+              <option value="0"${!u.is_blocked ? ' selected' : ''}>Активен (вход разрешён)</option>
+              <option value="1"${u.is_blocked ? ' selected' : ''}>Заблокирован (доступ закрыт)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-tariff">Тарифный план</label>
+            <select id="sa-user-tariff">
+              <option value="beta"${u.tariff_plan === 'beta' ? ' selected' : ''}>Открытая бета (бесплатно)</option>
+              <option value="start"${u.tariff_plan === 'start' ? ' selected' : ''}>Старт (0 ₽ / 50 стр.)</option>
+              <option value="pro"${u.tariff_plan === 'pro' ? ' selected' : ''}>Pro (990 ₽ / 1 000 стр.)</option>
+              <option value="business"${u.tariff_plan === 'business' ? ' selected' : ''}>Бизнес (4 990 ₽ / 10 000 стр.)</option>
+              <option value="unlimited"${u.tariff_plan === 'unlimited' ? ' selected' : ''}>Безлимит (индивидуальный)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-limit">Индивидуальный лимит страниц / мес.</label>
+            <input type="number" id="sa-user-limit" min="0" value="${u.tariff_limit != null ? Number(u.tariff_limit) : ''}" placeholder="По умолчанию для тарифа">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-expires">Тариф действует до</label>
+            <input type="date" id="sa-user-expires" value="${esc(expDate)}">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="sa-user-tg-chat">Telegram Chat ID</label>
+            <input type="text" id="sa-user-tg-chat" value="${esc(u.telegram_chat_id || '')}" placeholder="-100... или ID чата">
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="sa-user-units-kg" ${u.units_all_kg ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+            <span>Переводить все товары в килограммы («Всё в кг»)</span>
+          </div>
+        </div>
+        ${!isCreate ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+            <button type="button" class="btn btn-outline btn-sm" onclick="App.impersonateUser(${Number(u.id)})">👁 Войти в этот аккаунт</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="Settings.regenerateUserApiKey(${Number(u.id)})">🔑 Перевыпустить API-ключ</button>
+            <span id="sa-user-apikey-out" class="field-hint" style="word-break:break-all"></span>
+          </div>
+        ` : ''}
+        <div id="sa-user-error" class="field-hint" style="color:var(--error);margin-top:10px"></div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button type="button" class="btn btn-outline" onclick="Settings.closeUserModal()">Отмена</button>
+          <button type="button" class="btn btn-primary" onclick="Settings.saveUserModal(${isCreate ? 'null' : Number(u.id)}, this)">${isCreate ? 'Создать аккаунт' : 'Сохранить изменения'}</button>
+        </div>
+      </div>`;
+  },
+
+  closeUserModal() {
+    const modal = document.getElementById('superadmin-user-modal');
+    if (modal) {
+      modal.style.display = 'none';
+      modal.innerHTML = '';
+    }
+  },
+
+  generateModalPassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#';
+    let out = '';
+    for (let i = 0; i < 12; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    const inp = document.getElementById('sa-user-password');
+    if (inp) inp.value = out;
+  },
+
+  async regenerateUserApiKey(userId) {
+    if (!confirm('Перевыпустить API-ключ пользователя? Старый ключ перестанет работать.')) return;
+    try {
+      const res = await App.api(`/users/${Number(userId)}/regenerate-key`, { method: 'POST' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        App.notify(d.error || 'Не удалось обновить ключ', 'error');
+        return;
+      }
+      const out = document.getElementById('sa-user-apikey-out');
+      if (out && d.data?.apiKey) out.textContent = `Новый API-ключ: ${d.data.apiKey}`;
+      App.notify('API-ключ обновлён', 'success');
+    } catch (e) {
+      App.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  async saveUserModal(userId, btn) {
+    const errEl = document.getElementById('sa-user-error');
+    if (errEl) errEl.textContent = '';
+
+    const username = (document.getElementById('sa-user-username')?.value || '').trim();
+    const email = (document.getElementById('sa-user-email')?.value || '').trim();
+    const company_name = (document.getElementById('sa-user-company')?.value || '').trim();
+    const password = document.getElementById('sa-user-password')?.value || '';
+    const roleSelect = document.getElementById('sa-user-role')?.value || 'user';
+    const is_superadmin = roleSelect === 'superadmin';
+    const role = is_superadmin ? 'admin' : roleSelect;
+    const is_blocked = document.getElementById('sa-user-blocked')?.value === '1';
+    const tariff_plan = document.getElementById('sa-user-tariff')?.value || 'beta';
+    const rawLimit = document.getElementById('sa-user-limit')?.value;
+    const tariff_limit = rawLimit === '' || rawLimit === undefined ? null : Number(rawLimit);
+    const tariff_expires_at = document.getElementById('sa-user-expires')?.value || null;
+    const telegram_chat_id = (document.getElementById('sa-user-tg-chat')?.value || '').trim();
+    const units_all_kg = !!document.getElementById('sa-user-units-kg')?.checked;
+
+    if (!username) {
+      if (errEl) errEl.textContent = 'Укажите логин аккаунта';
+      return;
+    }
+
+    const body = {
+      username,
+      email: email || null,
+      company_name: company_name || null,
+      role,
+      is_superadmin,
+      is_blocked,
+      tariff_plan,
+      tariff_limit,
+      tariff_expires_at,
+      telegram_chat_id: telegram_chat_id || null,
+      units_all_kg,
+    };
+    if (password) body.password = password;
+
+    const isCreate = userId === null || userId === undefined;
+    await App.withBusyButton(btn, async () => {
+      try {
+        const res = await App.api(isCreate ? '/users' : `/users/${Number(userId)}`, {
+          method: isCreate ? 'POST' : 'PATCH',
+          body,
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (errEl) errEl.textContent = d.error || 'Не удалось сохранить аккаунт';
+          return;
+        }
+        this.closeUserModal();
+        if (isCreate && d.generatedPassword) {
+          App.notify(`Аккаунт ${username} создан. Пароль: ${d.generatedPassword}`, 'success');
+        } else {
+          App.notify(isCreate ? `Аккаунт ${username} создан` : `Аккаунт ${username} обновлён`, 'success');
+        }
+        await this._renderUsers();
+        await this._renderCompanies();
+      } catch (e) {
+        if (errEl) errEl.textContent = 'Ошибка: ' + e.message;
+      }
+    });
   },
 
   // «Компании» (только администратор): кто чем пользуется, очередь в 1С,
@@ -222,7 +501,12 @@ const Settings = {
         const stalled = c.last_sent_at && c.sent_7d === 0 && c.invoices_7d > 0 && c.queue_count > 0;
         return `
         <tr>
-          <td><strong>${esc(c.username || ('#' + c.owner_user_id))}</strong></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <strong>${esc(c.username || ('#' + c.owner_user_id))}</strong>
+              <button type="button" class="btn btn-outline btn-sm" onclick="App.impersonateUser(${Number(c.owner_user_id)})">Войти</button>
+            </div>
+          </td>
           <td>${c.invoices_30d} <span class="muted">/ ${c.invoices_total}</span></td>
           <td>${date(c.last_upload_at)}</td>
           <td>${date(c.last_sent_at)}${stalled ? ' <span class="badge badge-error" title="За неделю есть новые накладные, но в 1С ничего не ушло">стоит</span>' : ''}</td>

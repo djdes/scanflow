@@ -2605,6 +2605,40 @@ const MIGRATIONS: Migration[] = [
       await exec.query('INSERT IGNORE INTO recognition_worker_lease (id) VALUES (1)');
     },
   },
+  {
+    version: 91,
+    name: 'users: суперадмин, управление доступом и тарифными планами',
+    detect: async (exec) =>
+      (await hasColumn(exec, 'users', 'is_superadmin'))
+      && (await hasColumn(exec, 'users', 'is_blocked'))
+      && (await hasColumn(exec, 'users', 'tariff_plan'))
+      && (await hasColumn(exec, 'users', 'tariff_limit'))
+      && (await hasColumn(exec, 'users', 'tariff_expires_at'))
+      && (await hasColumn(exec, 'users', 'company_name')),
+    run: async (exec) => {
+      const cols: Array<[string, string]> = [
+        ['is_superadmin', 'TINYINT(1) NOT NULL DEFAULT 0'],
+        ['is_blocked', 'TINYINT(1) NOT NULL DEFAULT 0'],
+        ['tariff_plan', "VARCHAR(32) NOT NULL DEFAULT 'beta'"],
+        ['tariff_limit', 'INT NULL'],
+        ['tariff_expires_at', 'DATETIME NULL'],
+        ['company_name', 'VARCHAR(255) NULL'],
+      ];
+      for (const [name, def] of cols) {
+        if (!(await hasColumn(exec, 'users', name))) {
+          await exec.query(`ALTER TABLE users ADD COLUMN ${name} ${def}`);
+        }
+      }
+      await exec.query(
+        `UPDATE users
+            SET role = 'admin',
+                is_superadmin = 1
+          WHERE username = 'admin'
+             OR email = 'admin@scanflow.ru'
+             OR username = 'admin@scanflow.ru'`
+      );
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

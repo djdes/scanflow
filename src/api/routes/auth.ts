@@ -73,8 +73,8 @@ async function reserveUsernameFromEmail(email: string): Promise<string> {
   return `${base.slice(0, 22)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// POST /api/auth/login — exchange username/password for the caller's per-user
-// API key. The API key remains the real auth mechanism for /api/* routes;
+// POST /api/auth/login — exchange username/email + password for the caller's
+// per-user API key. The API key remains the real auth mechanism for /api/* routes;
 // login is a UX wrapper so users don't have to paste a raw key.
 router.post('/login', async (req: Request, res: Response) => {
   const { username, password } = (req.body ?? {}) as { username?: string; password?: string };
@@ -84,7 +84,7 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
-  const user = await userRepo.findByUsername(username);
+  const user = await userRepo.findByLogin(username);
   if (!user) {
     res.status(401).json({ error: 'Неверный логин или пароль' });
     return;
@@ -95,13 +95,24 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
+  if (user.is_blocked) {
+    res.status(403).json({ error: 'Доступ к аккаунту приостановлен администратором' });
+    return;
+  }
+
   try {
     await userRepo.touchLastLogin(user.id);
   } catch (e) {
     logger.warn('Failed to update last_login_at', { userId: user.id, error: (e as Error).message });
   }
 
-  res.json({ apiKey: user.api_key, username: user.username, role: user.role });
+  res.json({
+    apiKey: user.api_key,
+    username: user.username,
+    email: user.email,
+    role: user.role === 'admin' || user.is_superadmin ? 'admin' : user.role,
+    isSuperadmin: Boolean(user.is_superadmin),
+  });
 });
 
 // POST /api/auth/register — self-service signup. Creates a `user`-role

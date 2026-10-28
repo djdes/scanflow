@@ -298,13 +298,82 @@ const App = {
     sessionStorage.removeItem('apiKey');
     localStorage.removeItem('adminRole');
     sessionStorage.removeItem('adminRole');
+    localStorage.removeItem('superadminSession');
     // adminUsername оставляем — пригодится для prefill в форме входа.
     const params = new URLSearchParams({ login: '1' });
     if (reason) params.set('reason', reason);
     window.location.replace('/?' + params.toString());
   },
 
+  async impersonateUser(userId) {
+    try {
+      const res = await this.api(`/users/${Number(userId)}/impersonate`, { method: 'POST' });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload.data || !payload.data.apiKey) {
+        this.notify(payload.error || 'Не удалось войти в аккаунт пользователя', 'error');
+        return;
+      }
+      const target = payload.data;
+      if (!localStorage.getItem('superadminSession')) {
+        localStorage.setItem('superadminSession', JSON.stringify({
+          apiKey: this.apiKey,
+          username: localStorage.getItem('adminUsername') || 'admin',
+          role: localStorage.getItem('adminRole') || 'admin',
+        }));
+      }
+      this.apiKey = target.apiKey;
+      localStorage.setItem('apiKey', target.apiKey);
+      localStorage.setItem('adminUsername', target.username || '');
+      localStorage.setItem('adminRole', target.role || 'user');
+      window.location.hash = '#/invoices';
+      window.location.reload();
+    } catch (e) {
+      this.notify('Ошибка: ' + e.message, 'error');
+    }
+  },
+
+  exitImpersonation() {
+    try {
+      const raw = localStorage.getItem('superadminSession');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      localStorage.removeItem('superadminSession');
+      if (saved && saved.apiKey) {
+        this.apiKey = saved.apiKey;
+        localStorage.setItem('apiKey', saved.apiKey);
+        localStorage.setItem('adminUsername', saved.username || 'admin');
+        localStorage.setItem('adminRole', saved.role || 'admin');
+        window.location.hash = '#/settings';
+        window.location.reload();
+      }
+    } catch (e) {
+      localStorage.removeItem('superadminSession');
+      window.location.reload();
+    }
+  },
+
+  renderImpersonationBanner() {
+    const existing = document.getElementById('impersonation-banner');
+    if (existing) existing.remove();
+    const raw = localStorage.getItem('superadminSession');
+    if (!raw) return;
+    let saved = null;
+    try { saved = JSON.parse(raw); } catch { return; }
+    if (!saved || !saved.apiKey) return;
+    const main = document.getElementById('app-main');
+    if (!main) return;
+    const currentUsername = localStorage.getItem('adminUsername') || 'пользователь';
+    const bar = document.createElement('div');
+    bar.id = 'impersonation-banner';
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px;border-radius:10px;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.4);color:var(--text-primary);font-size:14px;';
+    bar.innerHTML = `<span>👁 Вы просматриваете кабинет от лица аккаунта <strong>${this.esc(currentUsername)}</strong> (вход из суперадмина <strong>${this.esc(saved.username || 'admin')}</strong>)</span>`
+      + `<button type="button" class="btn btn-outline btn-sm" onclick="App.exitImpersonation()">← Вернуться в суперадмин</button>`;
+    main.prepend(bar);
+  },
+
   init() {
+    this.renderImpersonationBanner();
     window.addEventListener('hashchange', () => this.route());
 
     // The left panel becomes a dismissible drawer on phones and tablets.

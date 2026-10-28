@@ -8,6 +8,13 @@ export interface User {
   password_hash: string;
   api_key: string;
   role: string;
+  is_superadmin?: number;
+  is_blocked?: number;
+  tariff_plan?: string;
+  tariff_limit?: number | null;
+  tariff_expires_at?: string | null;
+  company_name?: string | null;
+  units_all_kg?: number;
   created_at: string;
   last_login_at: string | null;
   email: string | null;
@@ -18,12 +25,58 @@ export interface User {
   sber_purpose_template: string;
 }
 
+export interface AdminUserListItem {
+  id: number;
+  username: string;
+  role: string;
+  email: string | null;
+  company_name: string | null;
+  is_superadmin: boolean;
+  is_blocked: boolean;
+  tariff_plan: string;
+  tariff_limit: number | null;
+  tariff_expires_at: string | null;
+  units_all_kg: boolean;
+  telegram_chat_id: string | null;
+  telegram_bot_token_set: boolean;
+  sber_purpose_template: string;
+  invoice_count: number;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface UpdateUserFields {
+  username?: string;
+  email?: string | null;
+  company_name?: string | null;
+  password_hash?: string;
+  api_key?: string;
+  role?: string;
+  is_superadmin?: boolean;
+  is_blocked?: boolean;
+  tariff_plan?: string;
+  tariff_limit?: number | null;
+  tariff_expires_at?: string | null;
+  units_all_kg?: boolean;
+  telegram_chat_id?: string | null;
+  telegram_bot_token?: string | null;
+  sber_purpose_template?: string;
+}
+
 export const userRepo = {
   // utf8mb4_unicode_ci is case-insensitive by default — no COLLATE NOCASE needed.
   async findByUsername(username: string): Promise<User | undefined> {
     return getDb()
       .prepare('SELECT * FROM users WHERE username = ?')
       .get<User>(username);
+  },
+
+  async findByLogin(login: string): Promise<User | undefined> {
+    const trimmed = login.trim();
+    if (!trimmed) return undefined;
+    const byUsername = await this.findByUsername(trimmed);
+    if (byUsername) return byUsername;
+    return this.findByEmail(trimmed.toLowerCase());
   },
 
   async findByApiKey(apiKey: string): Promise<User | undefined> {
@@ -38,6 +91,13 @@ export const userRepo = {
     api_key: string;
     role?: string;
     email?: string | null;
+    company_name?: string | null;
+    is_superadmin?: boolean | number;
+    is_blocked?: boolean | number;
+    tariff_plan?: string;
+    tariff_limit?: number | null;
+    tariff_expires_at?: string | null;
+    units_all_kg?: boolean | number;
   }): Promise<number> {
     // notify_events is NOT NULL with no DEFAULT (migration 18 cross-DB fix
     // dropped the literal default for MySQL compat). Provide a seed value
@@ -59,7 +119,27 @@ export const userRepo = {
         data.email ?? null,
         defaultNotifyEvents,
       );
-    return Number(result.lastInsertRowid);
+    const id = Number(result.lastInsertRowid);
+    if (
+      data.company_name !== undefined
+      || data.is_superadmin !== undefined
+      || data.is_blocked !== undefined
+      || data.tariff_plan !== undefined
+      || data.tariff_limit !== undefined
+      || data.tariff_expires_at !== undefined
+      || data.units_all_kg !== undefined
+    ) {
+      await this.updateUser(id, {
+        company_name: data.company_name,
+        is_superadmin: data.is_superadmin !== undefined ? Boolean(data.is_superadmin) : undefined,
+        is_blocked: data.is_blocked !== undefined ? Boolean(data.is_blocked) : undefined,
+        tariff_plan: data.tariff_plan,
+        tariff_limit: data.tariff_limit,
+        tariff_expires_at: data.tariff_expires_at,
+        units_all_kg: data.units_all_kg !== undefined ? Boolean(data.units_all_kg) : undefined,
+      });
+    }
+    return id;
   },
 
   async updatePasswordHash(id: number, password_hash: string): Promise<void> {
@@ -68,6 +148,76 @@ export const userRepo = {
 
   async updateApiKey(id: number, api_key: string): Promise<void> {
     await getDb().prepare('UPDATE users SET api_key = ? WHERE id = ?').run(api_key, id);
+  },
+
+  async updateUser(id: number, fields: UpdateUserFields): Promise<void> {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+
+    if (fields.username !== undefined) {
+      sets.push('username = ?');
+      vals.push(fields.username);
+    }
+    if (fields.email !== undefined) {
+      sets.push('email = ?');
+      vals.push(fields.email);
+    }
+    if (fields.company_name !== undefined) {
+      sets.push('company_name = ?');
+      vals.push(fields.company_name);
+    }
+    if (fields.password_hash !== undefined) {
+      sets.push('password_hash = ?');
+      vals.push(fields.password_hash);
+    }
+    if (fields.api_key !== undefined) {
+      sets.push('api_key = ?');
+      vals.push(fields.api_key);
+    }
+    if (fields.role !== undefined) {
+      sets.push('role = ?');
+      vals.push(fields.role);
+    }
+    if (fields.is_superadmin !== undefined) {
+      sets.push('is_superadmin = ?');
+      vals.push(fields.is_superadmin ? 1 : 0);
+    }
+    if (fields.is_blocked !== undefined) {
+      sets.push('is_blocked = ?');
+      vals.push(fields.is_blocked ? 1 : 0);
+    }
+    if (fields.tariff_plan !== undefined) {
+      sets.push('tariff_plan = ?');
+      vals.push(fields.tariff_plan);
+    }
+    if (fields.tariff_limit !== undefined) {
+      sets.push('tariff_limit = ?');
+      vals.push(fields.tariff_limit);
+    }
+    if (fields.tariff_expires_at !== undefined) {
+      sets.push('tariff_expires_at = ?');
+      vals.push(fields.tariff_expires_at);
+    }
+    if (fields.units_all_kg !== undefined) {
+      sets.push('units_all_kg = ?');
+      vals.push(fields.units_all_kg ? 1 : 0);
+    }
+    if (fields.telegram_chat_id !== undefined) {
+      sets.push('telegram_chat_id = ?');
+      vals.push(fields.telegram_chat_id);
+    }
+    if (fields.telegram_bot_token !== undefined) {
+      sets.push('telegram_bot_token = ?');
+      vals.push(fields.telegram_bot_token);
+    }
+    if (fields.sber_purpose_template !== undefined) {
+      sets.push('sber_purpose_template = ?');
+      vals.push(fields.sber_purpose_template);
+    }
+
+    if (sets.length === 0) return;
+    vals.push(id);
+    await getDb().prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   },
 
   async findByEmail(email: string): Promise<User | undefined> {
@@ -134,10 +284,38 @@ export const userRepo = {
 
   // Admin user-management list. Safe fields only — never expose password_hash
   // or api_key here.
-  async listAll(): Promise<Array<{ id: number; username: string; role: string; email: string | null; created_at: string; last_login_at: string | null }>> {
-    return getDb()
-      .prepare('SELECT id, username, role, email, created_at, last_login_at FROM users ORDER BY id')
-      .all<{ id: number; username: string; role: string; email: string | null; created_at: string; last_login_at: string | null }>();
+  async listAll(): Promise<AdminUserListItem[]> {
+    const rows = await getDb()
+      .prepare(
+        `SELECT u.id, u.username, u.role, u.email, u.company_name,
+                u.is_superadmin, u.is_blocked,
+                u.tariff_plan, u.tariff_limit, u.tariff_expires_at,
+                u.units_all_kg, u.telegram_chat_id, u.telegram_bot_token,
+                u.sber_purpose_template, u.created_at, u.last_login_at,
+                (SELECT COUNT(*) FROM invoices i WHERE i.owner_user_id = u.id) AS invoice_count
+           FROM users u
+          ORDER BY u.id`
+      )
+      .all<Record<string, unknown>>();
+    return rows.map((r) => ({
+      id: Number(r.id),
+      username: String(r.username),
+      role: String(r.role || 'user'),
+      email: r.email != null ? String(r.email) : null,
+      company_name: r.company_name != null ? String(r.company_name) : null,
+      is_superadmin: Boolean(r.is_superadmin),
+      is_blocked: Boolean(r.is_blocked),
+      tariff_plan: String(r.tariff_plan || 'beta'),
+      tariff_limit: r.tariff_limit != null ? Number(r.tariff_limit) : null,
+      tariff_expires_at: r.tariff_expires_at != null ? String(r.tariff_expires_at) : null,
+      units_all_kg: Boolean(r.units_all_kg),
+      telegram_chat_id: r.telegram_chat_id != null ? String(r.telegram_chat_id) : null,
+      telegram_bot_token_set: Boolean(r.telegram_bot_token),
+      sber_purpose_template: String(r.sber_purpose_template || ''),
+      invoice_count: Number(r.invoice_count ?? 0),
+      created_at: String(r.created_at),
+      last_login_at: r.last_login_at != null ? String(r.last_login_at) : null,
+    }));
   },
 
   async setRole(id: number, role: string): Promise<void> {
@@ -146,7 +324,14 @@ export const userRepo = {
 
   async countAdmins(): Promise<number> {
     const row = await getDb()
-      .prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'")
+      .prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin' AND COALESCE(is_blocked, 0) = 0")
+      .get<{ cnt: number }>();
+    return row?.cnt ?? 0;
+  },
+
+  async countSuperadmins(): Promise<number> {
+    const row = await getDb()
+      .prepare('SELECT COUNT(*) as cnt FROM users WHERE COALESCE(is_superadmin, 0) = 1 AND COALESCE(is_blocked, 0) = 0')
       .get<{ cnt: number }>();
     return row?.cnt ?? 0;
   },

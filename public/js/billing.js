@@ -19,6 +19,9 @@ const Billing = {
         throw new Error('Не удалось получить сведения об оплате');
       }
       this.data = data;
+      if (data.subscription?.planId && data.plans.some(p => p.id === data.subscription.planId)) {
+        this.selectedPlanId = data.subscription.planId;
+      }
       this.render();
     } catch (error) {
       if (requestId !== this.requestId) return;
@@ -85,13 +88,23 @@ const Billing = {
     const state = new URLSearchParams(location.hash.split('?')[1] || '').get('payment');
     const returnNote = ['returned', 'cancelled'].includes(state)
       ? '<div class="billing-return" role="status">Вы вернулись в раздел оплаты. Приём платежей ещё не открыт; статус доступа не изменился.</div>' : '';
+    const sub = this.data.subscription || {};
+    const hasCustomPlan = !!sub.planId;
+    const accessTitle = hasCustomPlan ? `Тариф «${e(sub.name)}»` : 'Пользуйтесь бесплатно';
+    const limitNote = sub.pageLimit != null
+      ? `Лимит вашего аккаунта: ${e(new Intl.NumberFormat('ru-RU').format(sub.pageLimit))} страниц в месяц.`
+      : 'Во время открытой беты все возможности ScanFlow доступны без оплаты и лимита страниц. О переходе на платные тарифы предупредим заранее.';
+    const nextDateLabel = sub.nextPaymentAt ? App.formatDate(sub.nextPaymentAt) : 'Не назначено';
+    const nextDateSub = sub.nextPaymentAt ? 'Срок действия текущего тарифа' : 'Платная подписка не оформлена';
+    const priceRub = sub.monthlyPriceKopecks ? new Intl.NumberFormat('ru-RU').format(sub.monthlyPriceKopecks / 100) : '0';
+
     container.innerHTML = `${returnNote}
       <div class="billing-access">
-        <div class="billing-access-main"><span class="billing-access-label">Ваш текущий доступ</span><h2>Пользуйтесь бесплатно</h2><p>Во время открытой беты все возможности ScanFlow доступны без оплаты и лимита страниц. О переходе на платные тарифы предупредим заранее.</p><a href="#/upload" class="btn btn-outline">Загрузить накладную</a></div>
-        <div class="billing-access-price"><strong>0 <span>₽</span></strong><span>за использование сервиса</span><span class="billing-free-tag">Доступ открыт</span></div>
+        <div class="billing-access-main"><span class="billing-access-label">Ваш текущий доступ</span><h2>${accessTitle}</h2><p>${limitNote}</p><a href="#/upload" class="btn btn-outline">Загрузить накладную</a></div>
+        <div class="billing-access-price"><strong>${e(priceRub)} <span>₽</span></strong><span>за использование сервиса</span><span class="billing-free-tag">Доступ открыт</span></div>
       </div>
       <div class="billing-facts">
-        <div><span>Следующее списание</span><strong>Не назначено</strong><small>Платная подписка не оформлена</small></div>
+        <div><span>Следующее списание</span><strong>${e(nextDateLabel)}</strong><small>${e(nextDateSub)}</small></div>
         <div><span>Автопродление</span><strong>Выключено</strong><small>Регулярные списания не подключены</small></div>
         <div><span>Способ оплаты</span><strong>Не добавлен</strong><small>Станет доступен после запуска оплаты</small></div>
       </div>

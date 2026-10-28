@@ -29,6 +29,10 @@ router.get('/', async (req: Request, res: Response) => {
 
   res.json({
     data: {
+      id: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      is_superadmin: Boolean(req.user.is_superadmin),
       // Legacy email fields — kept in API for back-compat. UI ignores them.
       email: cfg.email,
       notify_mode: cfg.notify_mode,
