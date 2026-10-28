@@ -27,4 +27,36 @@ describe('extended duplicate scoring', () => {
     });
     expect(result.score).toBeLessThan(0.86);
   });
+
+  it('detects 4-key exact match (number + supplier + date + sum) and partial-page re-uploads', () => {
+    const exact4 = scoreDuplicate({
+      invoice_number: '1395', invoice_date: '2026-10-08', supplier: 'ИП Кнутова Александра Сергеевна',
+      supplier_inn: '940504779259', total_sum: 11591,
+      items: [{ name: 'Капуста китайская', quantity: 16.5, total: 1980 }],
+    }, {
+      invoice_number: '1395', invoice_date: '2026-10-08', supplier: 'ИП Кнутова Александра Сергеевна',
+      supplier_inn: '940504779259', total_sum: 11591,
+      items: [{ original_name: 'Капуста пекинская', quantity: 1, total: 500 }],
+    });
+    expect(exact4.score).toBeGreaterThanOrEqual(0.86);
+
+    const partialPage = scoreDuplicate({
+      invoice_number: '17-0608760', invoice_date: '2026-10-06', supplier: 'СВИТ ЛАЙФ ФУДСЕРВИС',
+      supplier_inn: '5258068806', total_sum: 117320.23,
+      items: [
+        { name: 'Сыр Моцарелла', quantity: 10, total: 5000 },
+        { name: 'Ветчина классическая', quantity: 5, total: 2500 },
+      ],
+    }, {
+      invoice_number: '17-0608760', invoice_date: '2026-10-06', supplier: 'СВИТ ЛАЙФ ФУДСЕРВИС',
+      supplier_inn: '5258068806', total_sum: 171218.05,
+      items: [
+        { original_name: 'Сыр Моцарелла', quantity: 10, total: 5000 },
+        { original_name: 'Ветчина классическая', quantity: 5, total: 2500 },
+        { original_name: 'Соус сырный', quantity: 3, total: 1500 },
+      ],
+    });
+    expect(partialPage.score).toBeGreaterThanOrEqual(0.86);
+    expect(partialPage.reasons).toContain('Позиции входят в ранее загруженную накладную');
+  });
 });

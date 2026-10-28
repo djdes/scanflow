@@ -142,6 +142,91 @@ async function attachElevatedPriceCount<T extends { id: number }>(invoices: T[])
   return invoices.map(inv => ({ ...inv, elevated_price_count: map.get(inv.id) ?? 0 }));
 }
 
+/**
+ * Attach live sibling/duplicate cross-references to a batch of invoices for the
+ * list view (#/invoices), even when `duplicate_of` was not set on one of the rows.
+ * Matches by normalized invoice_number + invoice_date + supplier_inn/supplier
+ * within the same company (`owner_user_id`).
+ */
+async function attachSiblingDuplicates<T extends {
+  id: number;
+  owner_user_id?: number | null;
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  supplier?: string | null;
+  supplier_inn?: string | null;
+  total_sum?: number | null;
+  status?: string;
+  duplicate_of?: number | null;
+  review_reason?: string | null;
+}>(invoices: T[], ownerUserId?: number): Promise<(T & {
+  sibling_duplicate_id: number | null;
+  sibling_duplicate_status: string | null;
+  sibling_is_copy: boolean;
+})[]> {
+  if (invoices.length === 0) return [];
+  const numbers = [...new Set(
+    invoices
+      .map(i => (i.invoice_number || '').trim())
+      .filter(Boolean),
+  )];
+  if (numbers.length === 0) {
+    return invoices.map(inv => ({
+      ...inv,
+      sibling_duplicate_id: null,
+      sibling_duplicate_status: null,
+      sibling_is_copy: false,
+    }));
+  }
+  const placeholders = numbers.map(() => '?').join(',');
+  const ownerClause = ownerUserId != null ? ` AND owner_user_id = ${Number(ownerUserId)}` : '';
+  const candidates = await getDb().prepare(
+    `SELECT id, owner_user_id, invoice_number, invoice_date, supplier, supplier_inn, total_sum, status, duplicate_of
+       FROM invoices
+      WHERE TRIM(invoice_number) IN (${placeholders})
+        AND status NOT IN ('error', 'failed')${ownerClause}
+      ORDER BY (status = 'sent_to_1c') DESC, id ASC`
+  ).all<{
+    id: number;
+    owner_user_id: number | null;
+    invoice_number: string | null;
+    invoice_date: string | null;
+    supplier: string | null;
+    supplier_inn: string | null;
+    total_sum: number | null;
+    status: string;
+    duplicate_of: number | null;
+  }>(...numbers);
+
+  return invoices.map(inv => {
+    const num = (inv.invoice_number || '').trim().toLowerCase();
+    if (!num || !inv.invoice_date) {
+      return { ...inv, sibling_duplicate_id: null, sibling_duplicate_status: null, sibling_is_copy: false };
+    }
+    const matches = candidates.filter(c =>
+      c.id !== inv.id &&
+      (c.owner_user_id ?? null) === (inv.owner_user_id ?? null) &&
+      (c.invoice_number || '').trim().toLowerCase() === num &&
+      c.invoice_date === inv.invoice_date &&
+      (inv.supplier_inn && c.supplier_inn
+        ? inv.supplier_inn === c.supplier_inn
+        : suppliersMatch(inv.supplier ?? null, c.supplier ?? null)),
+    );
+    if (matches.length === 0) {
+      return { ...inv, sibling_duplicate_id: null, sibling_duplicate_status: null, sibling_is_copy: false };
+    }
+    const best = matches[0];
+    const isCopy = inv.status !== 'sent_to_1c' && (best.status === 'sent_to_1c' || best.id < inv.id);
+    return {
+      ...inv,
+      review_reason: inv.review_reason || (isCopy && inv.status === 'processed' ? 'duplicate' : inv.review_reason ?? null),
+      sibling_duplicate_id: best.id,
+      sibling_duplicate_status: best.status,
+      sibling_is_copy: isCopy,
+    };
+  });
+}
+
 let mapper: NomenclatureMapper | null = null;
 export function setMapper(m: NomenclatureMapper): void {
   mapper = m;
@@ -326,7 +411,8 @@ router.get('/', async (req: Request, res: Response) => {
   });
   const enriched = await Promise.all(rawInvoices.map(enrichInvoiceWithSupplier));
   const withSber = await attachSberStatus(enriched);
-  const invoices = await attachElevatedPriceCount(withSber);
+  const withPrices = await attachElevatedPriceCount(withSber);
+  const invoices = await attachSiblingDuplicates(withPrices, ownerScopeFor(req));
   const total = await invoiceRepo.countList(status, ownerScopeFor(req), {
     q, from, to, number, supplier, sumFrom, sumTo, sber, view,
   });

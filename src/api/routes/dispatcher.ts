@@ -559,6 +559,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       // Forward merge: carry this page's photo to the target and delete its row.
       await foldPageInto(targetInvoiceId, id);
       mergedAway = true;
+      await invoiceRepo.checkAndMarkDuplicate(targetInvoiceId);
     }
 
     if (!isMerge) {
@@ -579,10 +580,18 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         mergedAway = true;
       }
 
+      const dupOriginal = await invoiceRepo.checkAndMarkDuplicate(finalTargetId);
+      if (dupOriginal) {
+        logger.info('dispatcher result: duplicate invoice detected', {
+          invoiceId: finalTargetId,
+          originalId: dupOriginal.id,
+        });
+      }
+
       // Telegram notifications (background context → recipient = first user).
       // Skip when this page merged away or absorbed siblings silently — the
       // canonical page is what the user already saw / will see.
-      if (!mergedAway) {
+      if (!mergedAway && !dupOriginal) {
         const finalInvoice = await invoiceRepo.getById(id);
         if (finalInvoice) {
           emitNotification('invoice_recognized', {

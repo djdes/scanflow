@@ -133,5 +133,16 @@ export function scoreDuplicate(incoming: DuplicateDocumentLike, candidate: Dupli
     && incoming.supplier_bik === candidate.supplier_bik;
   if (accountMatch || bicMatch) { score += 0.05; reasons.push('Совпадают банковские реквизиты'); }
 
+  const exactNumber = Boolean(aNumber && aNumber === bNumber);
+  const sumMatches = incoming.total_sum != null && candidate.total_sum != null
+    && Math.abs(incoming.total_sum - candidate.total_sum) <= Math.max(2, Math.abs(incoming.total_sum) * 0.005);
+  if (exactNumber && supplierMatches && dateDistance === 0 && sumMatches) {
+    score = Math.max(score, 0.88);
+  }
+  if (exactNumber && supplierMatches && dateDistance === 0 && !sumMatches && items != null && items >= 0.75) {
+    score = Math.max(score, 0.88);
+    reasons.push('Позиции входят в ранее загруженную накладную');
+  }
+
   return { score: Math.min(1, score), reasons, item_similarity: items };
 }

@@ -4,6 +4,7 @@ import {
   normalizeInvoiceNumber,
   extractDigitSequence,
   suppliersMatch,
+  canonicalizeSupplierName,
 } from '../../utils/invoiceNumber';
 import { recomputeMedianForGuids } from '../../pricing/priceStats';
 import { deriveVatSum, isStatedVatConsistent } from '../../parser/itemSanitizer';
@@ -1278,7 +1279,7 @@ export const invoiceRepo = {
     supplierName: string | null,
     invoiceDate: string | null,
     totalSum: number | null,
-    days: number = 30,
+    days: number = 365,
     incomingItems: DuplicateItemLike[] = [],
     bank?: { account?: string | null; bic?: string | null },
   ): Promise<Invoice | undefined> {
@@ -1295,13 +1296,13 @@ export const invoiceRepo = {
        WHERE id != ?
          AND ((? IS NULL AND owner_user_id IS NULL) OR owner_user_id = ?)
          AND duplicate_of IS NULL
-         AND status NOT IN ('duplicate', 'failed')
+         AND status NOT IN ('duplicate', 'failed', 'error')
          AND invoice_number IS NOT NULL
          AND invoice_date IS NOT NULL
          AND total_sum IS NOT NULL
-         AND created_at > (NOW() - INTERVAL ${days} DAY)
-       ORDER BY created_at DESC`
-    ).all<Invoice>(excludeId, ownerUserId, ownerUserId);
+         AND (created_at > (NOW() - INTERVAL ${days} DAY) OR invoice_date = ?)
+       ORDER BY (status = 'sent_to_1c') DESC, id ASC`
+    ).all<Invoice>(excludeId, ownerUserId, ownerUserId, invoiceDate);
 
     let best: Invoice | undefined;
     let bestScore = 0;
@@ -1356,6 +1357,35 @@ export const invoiceRepo = {
     await getDb().prepare(
       `UPDATE invoices SET duplicate_of = NULL, duplicate_score = NULL, duplicate_reasons = NULL, status = 'processed' WHERE id = ?`
     ).run(id);
+  },
+
+  /**
+   * Evaluate an existing invoice (with its stored header + items) against all
+   * candidates for the same company and mark it as duplicate if matched.
+   * Used after multi-page merges, dispatcher results, rescans, and page appends.
+   */
+  async checkAndMarkDuplicate(id: number): Promise<Invoice | undefined> {
+    const inv = await this.getById(id);
+    if (!inv || inv.status === 'sent_to_1c' || inv.status === 'duplicate' || inv.duplicate_of != null) {
+      return undefined;
+    }
+    const items = await this.getItems(id);
+    const dupOriginal = await this.findDuplicateOriginal(
+      id,
+      inv.invoice_number ?? null,
+      inv.supplier_inn ?? null,
+      inv.supplier ? canonicalizeSupplierName(inv.supplier) : null,
+      inv.invoice_date ?? null,
+      inv.total_sum ?? null,
+      365,
+      items,
+      { account: inv.supplier_account, bic: inv.supplier_bik },
+    );
+    if (dupOriginal) {
+      await this.markAsDuplicate(id, dupOriginal.id, dupOriginal.duplicate_score, dupOriginal.duplicate_reasons);
+      return dupOriginal;
+    }
+    return undefined;
   },
 
   async findMostRecentProcessedForContinuation(excludeId: number, withinMinutes: number = 2, ownerUserId?: number | null, anchor?: string | null): Promise<Invoice | undefined> {

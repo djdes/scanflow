@@ -2639,6 +2639,47 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 92,
+    name: 'backfill unflagged multi-page and re-uploaded duplicate invoices',
+    detect: async () => false,
+    run: async (exec) => {
+      await exec.query(`
+        UPDATE invoices dup
+          JOIN invoices orig
+            ON orig.id <> dup.id
+           AND orig.owner_user_id <=> dup.owner_user_id
+           AND orig.duplicate_of IS NULL
+           AND orig.status NOT IN ('duplicate', 'error', 'failed')
+           AND TRIM(orig.invoice_number) = TRIM(dup.invoice_number)
+           AND orig.invoice_date = dup.invoice_date
+           AND (
+             (COALESCE(TRIM(dup.supplier_inn), '') <> '' AND orig.supplier_inn = dup.supplier_inn)
+             OR (COALESCE(TRIM(dup.supplier), '') <> '' AND orig.supplier = dup.supplier)
+           )
+           AND (
+             ABS(COALESCE(dup.total_sum, 0) - COALESCE(orig.total_sum, 0)) <= 1
+             OR orig.status = 'sent_to_1c'
+           )
+           AND (orig.status = 'sent_to_1c' OR orig.id < dup.id)
+           SET dup.duplicate_of = orig.id,
+               dup.status = 'duplicate',
+               dup.duplicate_score = CASE
+                 WHEN ABS(COALESCE(dup.total_sum, 0) - COALESCE(orig.total_sum, 0)) <= 1 THEN 0.95
+                 ELSE 0.90
+               END,
+               dup.duplicate_reasons = CASE
+                 WHEN ABS(COALESCE(dup.total_sum, 0) - COALESCE(orig.total_sum, 0)) <= 1
+                   THEN '["Совпадает номер","Совпадает поставщик","Совпадает дата","Совпадает сумма"]'
+                 ELSE '["Совпадает номер","Совпадает поставщик","Совпадает дата","Оригинал уже отправлен в 1С"]'
+               END
+         WHERE dup.status = 'processed'
+           AND dup.duplicate_of IS NULL
+           AND COALESCE(TRIM(dup.invoice_number), '') <> ''
+           AND dup.invoice_date IS NOT NULL
+      `);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

@@ -13,7 +13,24 @@ export const FAILED_PAYMENT_SQL = `invoices.paid_externally = 0 AND EXISTS (
 export const REVIEW_REASON_SQL = `CASE
   WHEN invoices.status = 'error' THEN 'error'
   WHEN invoices.status = 'duplicate'
-    OR (invoices.status = 'processed' AND invoices.duplicate_of IS NOT NULL) THEN 'duplicate'
+    OR (invoices.status = 'processed' AND invoices.duplicate_of IS NOT NULL)
+    OR (invoices.status = 'processed'
+        AND COALESCE(TRIM(invoices.invoice_number), '') <> ''
+        AND invoices.invoice_date IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM invoices dup
+           WHERE dup.id <> invoices.id
+             AND dup.owner_user_id <=> invoices.owner_user_id
+             AND dup.status NOT IN ('error', 'failed', 'duplicate')
+             AND dup.duplicate_of IS NULL
+             AND TRIM(dup.invoice_number) = TRIM(invoices.invoice_number)
+             AND dup.invoice_date = invoices.invoice_date
+             AND (
+               (COALESCE(TRIM(invoices.supplier_inn), '') <> '' AND dup.supplier_inn = invoices.supplier_inn)
+               OR (COALESCE(TRIM(invoices.supplier), '') <> '' AND dup.supplier = invoices.supplier)
+             )
+             AND (dup.status = 'sent_to_1c' OR dup.id < invoices.id)
+        )) THEN 'duplicate'
   WHEN invoices.status = 'processed' AND ${incompleteInvoiceSql()} THEN 'incomplete_pages'
   WHEN invoices.status = 'processed' AND invoices.items_total_mismatch = 1
     AND invoices.attr_checked_total = 0 THEN 'total'

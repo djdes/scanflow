@@ -588,6 +588,7 @@ export class FileWatcher {
     await snapshotRepo.record(invoiceId, 'recognized');
     await linkApprovedSupplier(invoiceId);
     await invoiceRepo.updateStatus(invoiceId, 'processed');
+    await invoiceRepo.checkAndMarkDuplicate(invoiceId);
 
     // The invoice is 'processed' now — relocate any page photos still sitting in
     // failedDir into processedDir so the file location matches the status and
@@ -659,6 +660,7 @@ export class FileWatcher {
     await invoiceRepo.appendFileName(invoiceId, fileName);
 
     const added = await this.appendParsedPage(invoiceId, parsed);
+    await invoiceRepo.checkAndMarkDuplicate(invoiceId);
     logger.info('Page added to invoice', { invoiceId, fileName, itemsAdded: added, engine: ocrResult.engine });
     return added;
   }
@@ -1329,6 +1331,16 @@ export class FileWatcher {
               await snapshotRepo.record(targetInvoiceId, 'recognized');
               await linkApprovedSupplier(targetInvoiceId);
               await invoiceRepo.updateStatus(targetInvoiceId, 'processed');
+              const dupAfterMerge = await invoiceRepo.checkAndMarkDuplicate(targetInvoiceId);
+              if (dupAfterMerge) {
+                logger.info('Duplicate invoice detected after multi-page merge', {
+                  newId: targetInvoiceId,
+                  originalId: dupAfterMerge.id,
+                  invoiceNumber: unifiedParsed.invoice_number,
+                  supplier: unifiedParsed.supplier,
+                  totalSum: unifiedParsed.total_sum,
+                });
+              }
 
               const totalItems = await invoiceRepo.getItems(targetInvoiceId);
               logger.info('Multi-page invoice merged via combined OCR text', {
@@ -1337,7 +1349,9 @@ export class FileWatcher {
                 totalSum: unifiedParsed.total_sum,
               });
 
-              await this.emitRecognizedNotifications(targetInvoiceId);
+              if (!dupAfterMerge) {
+                await this.emitRecognizedNotifications(targetInvoiceId);
+              }
 
               // Move file to processed
               if (!config.dryRun) {
@@ -1363,6 +1377,7 @@ export class FileWatcher {
             });
             try {
               const appended = await this.appendParsedPage(targetInvoiceId, parsed);
+              await invoiceRepo.checkAndMarkDuplicate(targetInvoiceId);
               logger.info('Multi-page merged via append fallback', { targetInvoiceId, itemsAppended: appended });
             } catch (appendErr) {
               logger.error('Multi-page append fallback ALSO failed — page data may be incomplete', {
@@ -1530,6 +1545,7 @@ export class FileWatcher {
       //    we don't need to delete it again here.)
       if (isMergedPage) {
         await invoiceRepo.recalculateTotal(targetInvoiceId);
+        await invoiceRepo.checkAndMarkDuplicate(targetInvoiceId);
 
         const existingItems = await invoiceRepo.getItems(targetInvoiceId);
         logger.info('Invoice pages merged successfully (append mode)', {
@@ -1550,14 +1566,18 @@ export class FileWatcher {
         await snapshotRepo.record(invoice.id, 'recognized');
         await linkApprovedSupplier(invoice.id);
         await invoiceRepo.updateStatus(invoice.id, 'processed');
+        const dupPost = await invoiceRepo.checkAndMarkDuplicate(invoice.id);
         logger.info('Invoice processed successfully', {
           id: invoice.id,
           fileName,
           itemsCount: parsed.items.length,
           engine: ocrResult.engine,
+          duplicateOf: dupPost?.id ?? null,
         });
 
-        await this.emitRecognizedNotifications(invoice.id);
+        if (!dupPost) {
+          await this.emitRecognizedNotifications(invoice.id);
+        }
       }
 
       // 8. Auto-send hooks (если включены в Настройках). Skip для duplicate
@@ -1805,6 +1825,7 @@ export class FileWatcher {
 
     await this.saveXmlItems(invoice.id, parsed, invoice.owner_user_id ?? -1);
     await this.finishXmlInvoice(invoice.id, parsed);
+    await invoiceRepo.checkAndMarkDuplicate(invoice.id);
     logger.info('XML invoice processed', {
       id: invoice.id,
       fileName,
@@ -1843,6 +1864,7 @@ export class FileWatcher {
     }
     await this.saveXmlItems(invoice.id, parsed, invoice.owner_user_id ?? -1);
     await this.finishXmlInvoice(invoice.id, parsed);
+    await invoiceRepo.checkAndMarkDuplicate(invoice.id);
     // Накладная снова 'processed' — файл из failed/ туда же, где обработанные.
     if (name && filePath === path.join(config.failedDir, name)) {
       this.moveInvoiceFile(filePath, name, config.processedDir);
