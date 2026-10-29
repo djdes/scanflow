@@ -261,6 +261,7 @@ First start with empty `users` table prints a one-time random admin password to 
 ## Workflow conventions
 
 - **Всегда начинайте работу с `git fetch --all --prune` и актуализации веток/коммитов** (`git checkout main && git pull --ff-only origin main`). Никогда не начинайте правки на устаревшей локальной ветке без сверки с `origin/main` (см. [`AGENTS.md`](AGENTS.md)).
+- **«Сразу в прод» в задаче — мержить самому.** Если в первоначальной задаче владелец просит «сразу в прод» (или так же прямо — выкатить на прод), PR после зелёных проверок мержится в `main` — ветку с автодеплоем (push запускает «Deploy to scanflow.ru»), отдельного «мержи» не ждать. После мержа дождаться деплоя и проверить `https://scanflow.ru/health`. Без такой просьбы PR ждёт решения владельца.
 - New SQL changes go as a new migration object in `src/database/migrations.ts` — never edit a previous one. Always include a `detect()` for backfill.
 - New tests live next to source under `tests/<dir>/<file>.test.ts`. Mock external services (`vi.mock('../../src/utils/mailer')` etc.) — never hit real SMTP/Telegram from tests.
 - Spec-driven feature work is recorded in `docs/superpowers/specs/YYYY-MM-DD-*-design.md` (design) and `docs/superpowers/plans/YYYY-MM-DD-*.md` (implementation plan). Both get committed before code.
