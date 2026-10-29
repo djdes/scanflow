@@ -86,7 +86,7 @@ const repoPath = (p) => `repos/${CONFIG.repo}/${p}`;
 
 // ---------- шифрование ----------
 function serverPub() {
-  if (!fs.existsSync(PUB_FILE)) fail(`нет ${path.relative(ROOT, PUB_FILE)}: сначала node ${path.relative(ROOT, path.join(HERE, 'ops.mjs'))} pubkey --save`);
+  if (!fs.existsSync(PUB_FILE)) fail(`нет ${path.relative(ROOT, PUB_FILE)}: node ${path.relative(ROOT, path.join(HERE, 'ops.mjs'))} pubkey --save`);
   const der = Buffer.from(fs.readFileSync(PUB_FILE, 'utf8').trim().split(/\s+/)[0], 'base64');
   return { der, key: crypto.createPublicKey({ key: der, format: 'der', type: 'spki' }) };
 }
@@ -231,6 +231,11 @@ function writeResult(state, res) {
 }
 
 async function execute(script, opts, label) {
+  // Первый запуск после выкладки workflow: ключа сервера ещё нет — берём его сами.
+  if (!fs.existsSync(PUB_FILE)) {
+    log('ops: server.pub нет, запрашиваю ключ сервера (один раз)…');
+    await fetchPubkey(true);
+  }
   const id = newId();
   const req = { v: 1, id, ts: Date.now(), script, timeout: Number(opts.timeout) || 300, cwd: opts.cwd || CONFIG.appDir, label };
   const sealed = sealRequest(req);
@@ -307,6 +312,22 @@ function logsScript(opts) {
   return `pm2 logs ${q(name)} --nostream --lines ${lines} ${which} 2>&1 | sed -e 's/\\x1b\\[[0-9;]*m//g'`;
 }
 
+// Открытый ключ сервера: агент создаёт его при первом запросе и печатает в журнал.
+async function fetchPubkey(save) {
+  const state = { id: newId(), mode: 'pubkey', armored: '', timeout: 60, label: 'pubkey' };
+  const rt = await roundTrip(state);
+  if (rt.err) fail(rt.err);
+  if (!rt.pub) fail(`ключа нет в журнале run ${rt.runId} (conclusion=${rt.run.conclusion})`);
+  const der = fromAP(rt.pub.split(/\s+/)[1]);
+  const fp = crypto.createHash('sha256').update(der).digest('hex').slice(0, 16);
+  const line = `${der.toString('base64')} ${fp} ${CONFIG.project} ${new Date().toISOString().slice(0, 10)}\n`;
+  if (save) {
+    fs.writeFileSync(PUB_FILE, line);
+    log(`ops: ключ сервера сохранён в ${path.relative(process.cwd(), PUB_FILE)} (отпечаток ${fp}) — закоммитьте файл`);
+  }
+  return line;
+}
+
 // ---------- main ----------
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
@@ -316,19 +337,8 @@ async function main() {
     return;
   }
   if (cmd === 'pubkey') {
-    const id = newId();
-    const state = { id, mode: 'pubkey', armored: '', timeout: 60, label: 'pubkey' };
-    const rt = await roundTrip(state);
-    if (rt.err) fail(rt.err);
-    if (!rt.pub) fail(`ключа нет в журнале run ${rt.runId} (conclusion=${rt.run.conclusion})`);
-    const [, ap, fp] = rt.pub.split(/\s+/);
-    const der = fromAP(ap);
-    const line = `${der.toString('base64')} ${fp} ${CONFIG.project} ${new Date().toISOString().slice(0, 10)}\n`;
+    const line = await fetchPubkey(!!opts.save);
     process.stdout.write(line);
-    if (opts.save) {
-      fs.writeFileSync(PUB_FILE, line);
-      log(`ops: сохранено в ${path.relative(process.cwd(), PUB_FILE)} — закоммитьте его`);
-    }
     return;
   }
   if (cmd === 'collect') {

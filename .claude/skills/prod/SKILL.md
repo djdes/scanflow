@@ -50,8 +50,9 @@ node .claude/skills/prod/ops.mjs sql --write "UPDATE ..."    # только по
 
 ## Первый запуск и поломки
 
-- `нет …/server.pub`: один раз выполнить `node .claude/skills/prod/ops.mjs pubkey --save`
-  и закоммитить `server.pub` (это открытый ключ, секрета в нём нет).
+- Первый запрос после выкладки workflow сам получает ключ сервера и сохраняет его в
+  `.claude/skills/prod/server.pub`. Этот файл нужно закоммитить: он открытый, секрета в нём нет.
+  Явно получить ключ: `node .claude/skills/prod/ops.mjs pubkey --save`.
 - `run «claude-ops …» не появился`: workflow ещё не в `main`, его нужно смержить.
 - `request does not decrypt`: ключ сервера пересоздан, повторите `pubkey --save`.
 - Ошибка 403 на `dispatches`: у `gh` нет права запускать workflow. Обходной путь:
