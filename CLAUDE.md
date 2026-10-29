@@ -139,6 +139,13 @@ First start with empty `users` table prints a one-time random admin password to 
 ⚠️ `npm run dev` — это не «read-only просмотр». На старте он: (а) **накатывает миграции текущей ветки** на базу из вашего `.env`; (б) поднимает file watcher над `data/inbox/`; (в) заводит кроны (в т.ч. бэкап сразу на старте); (г) сидит admin-пользователя. Локальная база от прода отделена (см. секцию Tech stack), так что это безопасно — но помните, что ветка с новой миграцией меняет схему локальной БД, и откатa нет.
 Существующий `.env` `API_KEY` может **не совпадать** с `users.api_key` в вашей локальной базе (сид отрабатывает только на пустой таблице). Если нужен рабочий ключ для curl/скриптов — берите его из БД: `SELECT api_key FROM users WHERE role='admin'`.
 
+### Облачные сессии Claude (claude.ai/code, приложение на телефоне)
+
+Контейнер облака — Ubuntu 24.04 с Node 22 и Playwright. Наружу он пускает только 80/443, SSH на `magday.ru` оттуда не открыть. Для работы есть три скилла в `.claude/skills/`. `.claude/` лежит в `.gitignore`, кроме `skills/`, `agents/` и `settings.json`.
+- **`dev-stand`** — `bash .claude/skills/dev-stand/stand.sh` поднимает MariaDB 10.11 (МСК, та же сборка, что на проде), базу `scanflow_dev` с демо-накладными и `npm run dev` на `127.0.0.1:8899`. Вход: `admin` / `DemoPass1`. **`stand.sh test` гоняет `npm test` на отдельной базе `scanflow_dev_test`**: страж правила 17 её пропускает (127.0.0.1 и «test» в имени), и тесты с базой работают в облаке.
+- **`visual-check`** — снимки Playwright на ПК и телефоне, в светлой и тёмной теме. Ловит ошибки консоли, упавшие запросы и горизонтальную прокрутку, собирает общий лист `contact-sheet*.png`. Снимает стенд и прод (`--base https://scanflow.ru`).
+- **`prod`** — сервер (`magday@`) и боевая база через мостик `claude-ops`: `.github/workflows/claude-ops.yml` на секретах деплоя. Запрос и ответ зашифрованы: репозиторий публичный, в журнале Actions только шифротекст. Команды: `node .claude/skills/prod/ops.mjs status|logs|run|sql`, SQL по умолчанию только на чтение. Любое изменение на проде — только после явного «да» владельца.
+
 ## Things future-Claude must not break
 
 1. **Don't delete the `skipKeywords` regex in `invoiceParser.ts`.** Each word there blocks a real OCR false-positive caught in production.

@@ -1,0 +1,27 @@
+{
+  "base": "http://127.0.0.1:8899",
+  "timeout": 60000,
+  "wait": 900,
+  "loginPath": "/",
+  "presets": {
+    "public": [
+      { "path": "/", "name": "home" },
+      { "path": "/blog", "name": "blog" },
+      { "path": "/blog/ocr-nakladnyh-kak-rabotaet", "name": "blog-post" },
+      { "path": "/privacy", "name": "privacy" },
+      { "path": "/?login=1", "name": "login-modal" },
+      { "path": "/net-takoy-stranicy", "name": "not-found", "expectStatus": 404 }
+    ],
+    "app": [
+      { "path": "/app.html#/invoices", "name": "invoices", "login": true },
+      { "path": "/app.html#/invoices/1", "name": "invoice-card", "login": true },
+      { "path": "/app.html#/queue", "name": "queue", "login": true },
+      { "path": "/app.html#/upload", "name": "upload", "login": true },
+      { "path": "/app.html#/suppliers", "name": "suppliers", "login": true },
+      { "path": "/app.html#/mappings", "name": "mappings", "login": true },
+      { "path": "/app.html#/analytics/prices", "name": "prices", "login": true },
+      { "path": "/app.html#/settings", "name": "settings", "login": true },
+      { "path": "/app.html#/profile", "name": "profile", "login": true }
+    ]
+  }
+}

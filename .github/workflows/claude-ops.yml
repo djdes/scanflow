@@ -1,0 +1,88 @@
+# Мостик Claude → прод-сервер (инструкция: .claude/skills/prod/SKILL.md).
+#
+# Облачная сессия Claude не может открыть SSH: из её контейнера наружу открыты
+# только 80/443. Поэтому команда приходит сюда зашифрованной на ключ сервера,
+# едет на сервер по SSH с теми же секретами, что и деплой, а ответ печатается
+# в журнал тоже зашифрованным (на одноразовый ключ клиента). В журнале — только
+# шифротекст, поэтому workflow безопасен и в публичном репозитории.
+#
+# Запускает ops.mjs через `gh api` (или инструмент GitHub в сессии Claude).
+# Запуск разрешён только владельцу: djdes и yesbeat (аккаунт GitHub, под которым
+# работает Claude). Сменился аккаунт — поправьте список ниже.
+name: claude-ops
+run-name: claude-ops ${{ inputs.id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "Идентификатор запроса (ставит ops.mjs)"
+        required: true
+        type: string
+      mode:
+        description: "run — выполнить запрос; pubkey — напечатать открытый ключ сервера"
+        required: true
+        default: run
+        type: choice
+        options: [run, pubkey]
+      req:
+        description: "Зашифрованный запрос (ставит ops.mjs)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ops:
+    if: contains(fromJSON('["djdes","yesbeat"]'), github.actor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .claude/skills/prod
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Run on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Входы читаются из файла события, а не подстановкой ${{ }}: так их
+          # значения не печатаются в заголовке шага.
+          ID="$(jq -r '.inputs.id' "$GITHUB_EVENT_PATH")"
+          MODE="$(jq -r '.inputs.mode // "run"' "$GITHUB_EVENT_PATH")"
+          [[ "$ID" =~ ^[a-z0-9-]{6,64}$ ]] || { echo "::error::bad request id"; exit 1; }
+          jq -r '.inputs.req // ""' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/req.txt"
+
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          SSH_OPTS=(-p "${SSH_PORT:-22}" -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ConnectTimeout=20 -o LogLevel=ERROR)
+          if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
+            printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/ops_key
+            chmod 600 ~/.ssh/ops_key
+            SSH=(ssh -i ~/.ssh/ops_key -o BatchMode=yes "${SSH_OPTS[@]}")
+          elif [ -n "${SSHPASS:-}" ]; then
+            command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; } >/dev/null
+            SSH=(sshpass -e ssh -o PubkeyAuthentication=no "${SSH_OPTS[@]}")
+          else
+            echo "::error::нет секрета SSH_PRIVATE_KEY или SSH_PASSWORD"; exit 1
+          fi
+          TARGET="$SSH_USER@$SSH_HOST"
+          NODE='export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1; command -v node >/dev/null || PATH="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1):$PATH"'
+
+          # Агент кладётся при каждом запуске: на сервере всегда версия из main.
+          tar -C .claude/skills/prod -cf - agent.mjs sql.cjs \
+            | "${SSH[@]}" "$TARGET" 'umask 077; mkdir -p "$HOME/.claude-ops/bin" && tar -xf - -C "$HOME/.claude-ops/bin"'
+
+          if [ "$MODE" = pubkey ]; then
+            "${SSH[@]}" "$TARGET" "$NODE; node \"\$HOME/.claude-ops/bin/agent.mjs\" pubkey"
+          else
+            "${SSH[@]}" "$TARGET" "$NODE; node \"\$HOME/.claude-ops/bin/agent.mjs\" run $ID" < "$RUNNER_TEMP/req.txt"
+          fi
