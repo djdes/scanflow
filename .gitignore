@@ -20,7 +20,12 @@ logs/
 logs/.*-audit.json
 
 # Dev artifacts
-.claude/
+# Claude Code: локальное состояние не коммитим, а общие скиллы — да:
+# облачные сессии видят только то, что лежит в репозитории.
+.claude/*
+!.claude/skills/
+!.claude/agents/
+!.claude/settings.json
 .playwright-mcp/
 .vscode/
 nul
@@ -67,3 +72,6 @@ src/scripts/test-claude-direct.ts
 
 # Приватные рабочие отчёты расследований (данные накладных, пути сервера) — не публиковать
 docs/investigations/
+
+# Снимки, ответы мостика к проду, логи дев-стенда (.claude/skills/*)
+/output/
