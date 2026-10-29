@@ -55,8 +55,9 @@ jobs:
           SSHPASS: ${{ secrets.SSH_PASSWORD }}
         run: |
           set -euo pipefail
-          # Входы читаются из файла события, а не подстановкой ${{ }}: так их
-          # значения не печатаются в заголовке шага.
+          # Входы читаются из файла события, а не подстановкой выражений GitHub:
+          # так их значения не печатаются в заголовке шага. Выражения GitHub
+          # разбирает и в комментариях run, поэтому здесь их нет даже в тексте.
           ID="$(jq -r '.inputs.id' "$GITHUB_EVENT_PATH")"
           MODE="$(jq -r '.inputs.mode // "run"' "$GITHUB_EVENT_PATH")"
           [[ "$ID" =~ ^[a-z0-9-]{6,64}$ ]] || { echo "::error::bad request id"; exit 1; }
