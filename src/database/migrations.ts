@@ -594,6 +594,10 @@ const MIGRATIONS: Migration[] = [
           updated_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
+      // Пересчёт идёт текущим кодом, а он читает invoices.owner_user_id (миграция
+      // 41+). На новой базе колонки ещё нет, строк тоже — пересчитывать нечего,
+      // а запрос падал и не давал приложению стартовать вовсе.
+      if (!(await hasColumn(exec, 'invoices', 'owner_user_id'))) return;
       const { backfillAllStats } = await import('../pricing/priceStats');
       await backfillAllStats();
     },

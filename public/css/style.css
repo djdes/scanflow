@@ -2326,8 +2326,15 @@ tr.inv-visited:hover td { opacity: 1; }
   gap: 8px;
   border-bottom: 1px solid var(--border, #e9e9e7);
   padding-bottom: 0;
+  /* На узком телефоне три вкладки «Номенклатуры» не помещались, и последняя
+     («Справочник 1С») уходила за край экрана — теперь ряд листается пальцем. */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.tabs::-webkit-scrollbar { display: none; }
 .tab-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
   background: transparent;
   border: none;
   padding: 10px 16px;
