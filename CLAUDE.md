@@ -110,14 +110,16 @@ GitHub secrets needed: `SSH_PRIVATE_KEY`, `SSH_HOST=magday.ru`, `SSH_USER=magday
 
 ⚠️ **Всё — только через `main`.** Выкладка GitHub Actions копирует код из `main` поверх сервера: правка, выложенная на сервер напрямую (по SSH, мимо `main`), стирается первой же штатной выкладкой. 2026-10-09 так дважды пропадали исправления (полнота накладной, склейка страниц, загрузка с iPhone, накладная 781) — вернулись коммитом в `main` 2026-10-10.
 
-⚠️ **Обязательная актуализация Git (`git fetch`, коммиты и ветки).** Так как работа ведётся с нескольких машин (локальный ПК, сервер `BSQL` `C:\www\ScanFlow`, облачные ворктри), **перед началом любой задачи и перед каждым коммитом/пушем** обязательно выполняйте:
+⚠️ **Обязательная актуализация Git при КАЖДОЙ задаче агента.** Так как работа ведётся с нескольких машин (локальный ПК, сервер `BSQL` `C:\www\ScanFlow`, облачные ворктри), **каждую новую задачу, включая анализ без правок и документацию, начинайте с команд ниже**. Повторяйте после длительного перерыва, перед новым этапом длительной работы, каждым коммитом и каждым пушем. Проверка из предыдущей задачи не считается:
 ```bash
 git fetch --all --prune
 git status -sb
 git branch -vv
-git checkout main && git pull --ff-only origin main
+git symbolic-ref --short refs/remotes/origin/HEAD
+git log --oneline -n 5 HEAD..origin/main
+git rev-list --left-right --count HEAD...origin/main
 ```
-Если работа велась в фича-ветке (например, `feat/*`), перед пушем обязательно актуализируйте её относительно `origin/main` (`git rebase origin/main`) и после пуша синхронизируйте локальную ветку `main` (в т.ч. на `BSQL` в `C:\www\ScanFlow`), чтобы локальные ветки не отставали от `origin/main`. См. также [`AGENTS.md`](AGENTS.md).
+`fetch` должен завершиться успешно: он обновляет сведения об удалённых коммитах, но не рабочие файлы. Основная ветка — `main`; если `origin/HEAD` отсутствует, проверьте `git remote show origin`. Перед обновлением сохраните HEAD резервной веткой с уникальным именем и отдельно сохраните мешающие локальные изменения. На `BSQL` держите активной `main` и обновляйте её через `git pull --ff-only origin main`; в отдельной рабочей ветке другого окружения используйте `git pull --rebase --autostash origin main`, учитывая также её удалённый аналог. После rebase проверяйте восстановление autostash. Не удаляйте уникальные правки ради синхронизации. Перед коммитом/пушем просмотрите `git diff` и `git diff --cached`; после пуша повторите `fetch`, проверьте целевой коммит и актуализируйте локальную `main`. Ошибку `fetch` явно сообщайте; до успешной проверки не объявляйте синхронизацию завершённой и не коммитьте/пушьте. Полный порядок — в разделе 1 [`AGENTS.md`](AGENTS.md).
 
 Миграции на проде применяются **на старте процесса** (`pm2 restart` в конце деплоя), отдельного шага миграций в пайплайне нет.
 Шаг деплоя дописывает в серверный `.env` `DATA_SCOPING_ENABLED=true` — мёртвая настройка, код её больше не читает (см. правило 19). Удалять из workflow безопасно.
@@ -204,6 +206,8 @@ First start with empty `users` table prints a one-time random admin password to 
 
 ## API surface (mounted in `src/api/server.ts`)
 
+**Помощник по товарам — необязательное подключение каждой компании** (`product_assistant_connections`, миграция 93; Профиль → Помощник по товарам). Шеф MAG — только одно из подключений, не общий бот для всех пользователей. Контракт для любых ботов: [`docs/product-assistant-api.md`](docs/product-assistant-api.md). `src/integration/productAssistant.ts` вызывает только разрешённые сервером `PRODUCT_ASSISTANT_ALLOWED_ORIGINS`; токены зашифрованы от `JWT_SECRET` с отдельным purpose владельца и не возвращаются в браузер. `actor_id`, `company_id` и контекст строки формирует backend. Поиск/ответ сверяются с каталогом владельца и «Не это»; консультация в UI отправляет `auto_learn=false`. Ручной выбор можно записать в общую базу знаний этой компании после сохранения строки. Без бота и при его сбое обычный каталог остаётся доступен.
+
 | Path | Auth | Purpose |
 |------|------|---------|
 | `POST /api/auth/login` | rate-limited (20/5min) | login → returns `api_key` |
@@ -224,6 +228,7 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET/POST /api/sber/*` | `X-API-Key` | authorize-url, seed-token, client-secret, refresh-now, payments/sync, payer, status, disconnect (connect/write — admin) |
 | `GET/POST/DELETE /api/chatgpt/*` | `X-API-Key` + **admin** | своя подписка ChatGPT для режима `gpt`: статус, вход по коду (`login`, `login/poll`), отмена, отключение, `test` |
 | `GET /api/ai/status` | `X-API-Key` | движок, модель, доступна ли модель (причина простым текстом, время сброса лимита) и сколько накладных своей компании ждут (`waiting_ai`) |
+| `/api/product-assistant/*` | `X-API-Key`, своя компания | настройки подключения, статус, поиск, консультация, опрос очереди и запоминание ручного выбора; контракт — `docs/product-assistant-api.md` |
 | `GET /api/sber/callback` | none (подписанный `state`) | возврат от Сбера после входа — смонтирован ВЫШЕ `apiKeyAuth` |
 | `GET/POST/PATCH /api/suppliers/*` | `X-API-Key` | справочник поставщиков + `lookup-dadata` |
 | `GET/POST /api/operations/*` | `X-API-Key` | банковские выписки, согласования, автопилот |
@@ -260,7 +265,7 @@ First start with empty `users` table prints a one-time random admin password to 
 
 ## Workflow conventions
 
-- **Всегда начинайте работу с `git fetch --all --prune` и актуализации веток/коммитов** (`git checkout main && git pull --ff-only origin main`). Никогда не начинайте правки на устаревшей локальной ветке без сверки с `origin/main` (см. [`AGENTS.md`](AGENTS.md)).
+- **Каждую новую задачу начинайте с успешного `git fetch --all --prune`**, даже при анализе без правок; повторяйте после длительного перерыва, перед новым этапом длительной работы, каждым коммитом и каждым пушем. Проверяйте статус, ветки и расхождения, сохраняйте HEAD и локальные изменения перед обновлением, актуализируйте рабочую ветку до правок. После пуша проверяйте целевую ветку. Полный обязательный порядок — раздел 1 [`AGENTS.md`](AGENTS.md).
 - **«Сразу в прод» в задаче — мержить самому.** Если в первоначальной задаче владелец просит «сразу в прод» (или так же прямо — выкатить на прод), PR после зелёных проверок мержится в `main` — ветку с автодеплоем (push запускает «Deploy to scanflow.ru»), отдельного «мержи» не ждать. После мержа дождаться деплоя и проверить `https://scanflow.ru/health`. Без такой просьбы PR ждёт решения владельца.
 - New SQL changes go as a new migration object in `src/database/migrations.ts` — never edit a previous one. Always include a `detect()` for backfill.
 - New tests live next to source under `tests/<dir>/<file>.test.ts`. Mock external services (`vi.mock('../../src/utils/mailer')` etc.) — never hit real SMTP/Telegram from tests.

@@ -71,6 +71,26 @@
   .nom-choice-header h2 { font-size: 19px; }
 }
 
+.nom-assistant { margin: 16px 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); min-width: 0; }
+.nom-assistant-head { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: baseline; }
+.nom-assistant h3 { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.nom-assistant-head span, .nom-assistant [data-search-status], .nom-assistant [data-chat-status] { font-size: 12px; color: var(--text-secondary); }
+.nom-assistant [data-products] { max-height: 240px; overflow: auto; margin-top: 8px; }
+.nom-assistant-share { display: flex; gap: 8px; align-items: flex-start; margin: 14px 0; font-size: 12px; line-height: 1.6; }
+.nom-assistant details summary { cursor: pointer; font-size: 13px; }
+.nom-assistant form > label { display: block; font-size: 12px; margin: 12px 0 6px; }
+.nom-assistant textarea { width: 100%; min-width: 0; resize: vertical; font: inherit; font-size: 16px; border: 1px solid var(--border); border-radius: 6px; padding: 10px; color: var(--text); background: var(--card); }
+.nom-assistant-messages { max-height: 320px; overflow: auto; }
+.nom-assistant-message { padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; overflow-wrap: anywhere; }
+.nom-assistant-message > div { white-space: pre-wrap; line-height: 1.7; margin-top: 5px; }
+.nom-assistant-message .btn { margin-top: 8px; white-space: normal; text-align: left; }
+.nom-assistant [data-chat-status] { margin-top: 8px; }
+.assistant-api-help { margin-top: 16px; font-size: 13px; overflow-wrap: anywhere; }
+.assistant-api-help p { line-height: 1.7; margin-top: 10px; }
+#profile-product-assistant input:not([type=checkbox]) { width: 100%; min-width: 0; }
+#profile-product-assistant .form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.nom-assistant [hidden] { display: none; }
+
 :root {
   /* ── Notion-inspired system ──────────────────────────────────────────────
      Warm, content-first, calm. Hairline borders instead of heavy shadows,

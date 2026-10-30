@@ -7,8 +7,8 @@
 # шифротекст, поэтому workflow безопасен и в публичном репозитории.
 #
 # Запускает ops.mjs через `gh api` (или инструмент GitHub в сессии Claude).
-# Запуск разрешён только владельцу: djdes и yesbeat (аккаунт GitHub, под которым
-# работает Claude). Сменился аккаунт — поправьте список ниже.
+# Запуск разрешён только явным аккаунтам владельца: djdes, yesbeat (Claude)
+# и benzin8 (агент на BSQL). Сменился аккаунт — поправьте список ниже.
 name: claude-ops
 run-name: claude-ops ${{ inputs.id }}
 
@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   ops:
-    if: contains(fromJSON('["djdes","yesbeat"]'), github.actor)
+    if: contains(fromJSON('["djdes","yesbeat","benzin8"]'), github.actor)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

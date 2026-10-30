@@ -2684,6 +2684,21 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 93,
+    name: 'per-company product assistant connections',
+    detect: exec => hasTable(exec, 'product_assistant_connections'),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS product_assistant_connections (
+        owner_user_id INT NOT NULL PRIMARY KEY,
+        label VARCHAR(80) NOT NULL,
+        api_base_url VARCHAR(500) NOT NULL,
+        api_token_enc TEXT NOT NULL,
+        enabled TINYINT(1) NOT NULL DEFAULT 0,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

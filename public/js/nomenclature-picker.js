@@ -1,4 +1,4 @@
-/* global App, Invoices, InvoiceCard, OnecCatalog */
+/* global App, Invoices, InvoiceCard, OnecCatalog, ProductAssistant */
 const NomenclaturePicker = {
   async open(invoiceId, itemId) {
     invoiceId = Number(invoiceId);
@@ -21,6 +21,7 @@ const NomenclaturePicker = {
       ${item.onec_guid ? `<p class="nom-choice-current">Сейчас выбрано: ${App.esc(item.mapped_name || '')}</p>` : ''}
       ${item.onec_guid ? '<button type="button" class="btn btn-outline btn-sm" data-aliases>Синонимы этого товара</button>' : ''}
       <div class="nom-choice-search"><label for="nom-choice-query">Поиск по названию или коду товара</label><input id="nom-choice-query" type="search" autocomplete="off" placeholder="Например: сахар, этикетка или код товара"><button type="button" class="btn btn-outline btn-sm" data-refresh>Обновить список</button></div>
+      <div class="nom-assistant" hidden></div>
       <p class="nom-choice-warning" role="status" hidden></p><p class="nom-choice-status" aria-live="polite"></p>
       <div class="nom-choice-results" aria-label="Товары вашей компании из 1С" aria-busy="true"></div>
       <p class="nom-choice-error" role="alert" hidden></p>
@@ -37,12 +38,15 @@ const NomenclaturePicker = {
     const createButton = dialog.querySelector('[data-create]');
     let busy = false;
     let loading = false;
+    let assistant;
+    let savedGuid;
     const syncDisabled = () => {
       refreshButton.disabled = busy || loading;
       search.disabled = busy || loading;
       newName.disabled = busy;
       createButton.disabled = busy || loading || !newName.value.trim();
       closeButton.disabled = busy;
+      assistant?.setBusy(busy || loading);
       results.querySelectorAll('button').forEach(button => { button.disabled = busy; });
     };
     const render = () => {
@@ -86,10 +90,11 @@ const NomenclaturePicker = {
       syncDisabled();
       try {
         const options = { refresh: false, throwOnError: true };
-        const saved = row
+        const saved = row && savedGuid === row.guid ? true : row
           ? await Invoices.selectNomItem(invoiceId, itemId, row.guid, row.name, options)
           : await Invoices.saveCustomName(invoiceId, itemId, customName, options);
         if (!saved) throw new Error('Выбор не сохранён. Повторите попытку.');
+        if (row) { savedGuid = row.guid; await assistant?.confirmSaved(row); }
         dialog.close();
         if (location.hash.split('?')[0] === `#/invoices/${invoiceId}`) Invoices.showDetail(invoiceId);
       } catch (cause) {
@@ -98,6 +103,7 @@ const NomenclaturePicker = {
       } finally { busy = false; syncDisabled(); }
     };
     search.addEventListener('input', render);
+    assistant = ProductAssistant.mount(dialog, { invoiceId, itemId, originalName: item.original_name, queryInput: search, save });
     search.addEventListener('keydown', event => {
       if (event.key === 'ArrowDown' || event.key === 'Enter') {
         event.preventDefault();
@@ -119,7 +125,7 @@ const NomenclaturePicker = {
       if (index === 0 && event.key === 'ArrowUp') search.focus();
       else buttons[index + (event.key === 'ArrowDown' ? 1 : -1)]?.focus();
     });
-    refreshButton.onclick = () => refresh(true);
+    refreshButton.onclick = () => { refresh(true); assistant.refresh(); };
     dialog.querySelector('[data-aliases]')?.addEventListener('click', () => { if (!busy && !loading) CatalogAliases.open(item.onec_guid, item.original_name, render); });
     closeButton.onclick = () => dialog.close();
     newName.addEventListener('input', syncDisabled);
@@ -128,6 +134,7 @@ const NomenclaturePicker = {
     window.addEventListener('hashchange', onNavigate);
     dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
     dialog.addEventListener('close', () => {
+      assistant.dispose();
       window.removeEventListener('hashchange', onNavigate);
       dialog.remove();
       if (returnFocus?.isConnected) returnFocus.focus();

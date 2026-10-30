@@ -21,6 +21,7 @@ import webhookRouter from './routes/webhook';
 import settingsRouter from './routes/settings';
 import chatgptRouter from './routes/chatgpt';
 import aiRouter from './routes/ai';
+import productAssistantRouter from './routes/productAssistant';
 import debugRouter from './routes/debug';
 import nomenclatureRouter, { setMapper as setNomenclatureMapper } from './routes/nomenclature';
 import dispatcherRouter, { setMapper as setDispatcherMapper } from './routes/dispatcher';
@@ -298,6 +299,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Своё подключение подписки ChatGPT (режим распознавания gpt) — платформенный конфиг, только admin.
   app.use('/api/chatgpt', apiKeyAuth, requireAdmin, chatgptRouter);
   app.use('/api/ai', apiKeyAuth, aiRouter);
+  app.use('/api/product-assistant', apiKeyAuth, productAssistantRouter);
   app.use('/api/debug', apiKeyAuth, requireAdmin, debugRouter);
   app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);
   app.use('/api/profile', apiKeyAuth, profileRouter);

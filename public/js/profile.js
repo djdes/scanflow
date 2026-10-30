@@ -50,6 +50,7 @@
       renderStatus(!!data.telegram_chat_id && tokenSetOnServer);
       this.renderUnits(data);
       this.loadOnecStatus();
+      ProductAssistantSettings.load();
     },
 
     // «Всё в килограммах» — настройка компании; сохраняется сразу, без кнопки «Сохранить».

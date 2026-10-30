@@ -67,6 +67,7 @@ export async function resetDb(): Promise<mysql.Pool> {
   // TRUNCATE all data tables in FK-safe order. migration_history is left
   // untouched so we don't re-run schema changes between tests.
   const tables = [
+    'product_assistant_connections',
     // Дочерние раньше родительских: mapping_supplier_usage_cards ссылается на
     // nomenclature_mapping_cards внешним ключом.
     'mapping_supplier_usage_cards',
