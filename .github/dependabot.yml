@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    # Версии pdfjs-dist и @napi-rs/canvas зафиксированы намеренно (правило 39:
+    # на проде Node 20), поэтому их обновления не предлагаем.
+    ignore:
+      - dependency-name: pdfjs-dist
+      - dependency-name: "@napi-rs/canvas"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
