@@ -7,9 +7,9 @@ const ProductAssistantSettings = {
     try {
       const { data } = await App.apiJson('/product-assistant/config');
       if (!host.isConnected) return;
-      host.innerHTML = `<h2>Помощник по товарам</h2><p class="card-subtitle">Подключите своего шеф-бота или другого помощника для поиска по общей базе знаний. Подключение необязательно и действует только для вашей компании.</p>
-        <form><div class="form-group"><label><input type="checkbox" name="enabled" ${data.enabled ? 'checked' : ''}> Использовать помощника при выборе товара</label></div>
-        <div class="form-group"><label for="pa-label">Название помощника</label><input id="pa-label" name="label" maxlength="80" value="${App.esc(data.label)}" required></div>
+      host.innerHTML = `<div class="card-header"><div><h2>Помощник по товарам</h2><p class="card-subtitle">Подключите своего шеф-бота или другого помощника для поиска по общей базе знаний. Подключение необязательно и действует только для вашей компании.</p></div></div>
+        <form><div class="form-group"><label class="pa-enabled"><input type="checkbox" name="enabled" ${data.enabled ? 'checked' : ''}> Использовать помощника при выборе товара</label></div>
+        <div class="form-group"><label for="pa-label">Название помощника</label><input id="pa-label" name="label" type="text" maxlength="80" value="${App.esc(data.label)}" required></div>
         <div class="form-group"><label for="pa-url">Базовый адрес API</label><input id="pa-url" name="api_base_url" type="url" maxlength="500" placeholder="https://bot.example/api/scanflow" value="${App.esc(data.api_base_url)}" required></div>
         <div class="form-group"><label for="pa-token">Токен API</label><input id="pa-token" name="api_token" type="password" autocomplete="new-password" maxlength="4096" placeholder="${data.token_set ? 'Токен сохранён. Оставьте пустым, чтобы не менять' : 'Токен вашего помощника'}"></div>
         <p class="field-hint">Токен хранится зашифрованным и используется сервером. Бот должен поддерживать единый протокол ScanFlow; адрес сервиса разрешает администратор сервера.</p>
