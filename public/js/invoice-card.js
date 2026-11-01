@@ -70,7 +70,7 @@ const InvoiceCard = {
     else if (inv.approved_for_1c) onec = { state: 'queued', hint: 'ждёт загрузки в 1С' };
     else {
       const n = this.unmappedCount(inv);
-      onec = { state: 'idle', hint: n ? `${n} ${this.plural(n, 'новый товар', 'новых товара', 'новых товаров')} создастся в 1С` : 'можно отправить', action: { kind: 'send1c', label: 'Отправить в 1С' } };
+      onec = { state: 'idle', hint: n ? `1С создаст ${n} ${this.plural(n, 'новый товар', 'новых товара', 'новых товаров')}` : 'можно отправить', action: { kind: 'send1c', label: 'Отправить в 1С' } };
     }
 
     let pay;

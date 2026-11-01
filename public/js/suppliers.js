@@ -224,7 +224,10 @@ const Suppliers = {
     const wrap = document.getElementById('suppliers-table-wrap');
     if (!wrap) return;
     if (this.state.items.length === 0) {
-      wrap.innerHTML = '<p class="muted">Поставщики пока не добавлены. Нажмите «+ Добавить поставщика».</p>';
+      // При активном поиске пустой список — это «не нашлось», а не «справочник пуст».
+      wrap.innerHTML = this.state.q
+        ? `<p class="muted">По запросу «${App.esc(this.state.q)}» поставщиков не найдено. Проверьте ИНН или название.</p>`
+        : '<p class="muted">Поставщики пока не добавлены. Нажмите «+ Добавить поставщика».</p>';
       return;
     }
     // «Объединить с…» имеет смысл, только когда в списке есть вторая карточка.

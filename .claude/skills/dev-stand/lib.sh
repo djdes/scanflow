@@ -16,7 +16,7 @@ mkdir -p "$DS_OUT"
 
 # Root в Ubuntu входит только через сокет. Переменные MYSQL_HOST/MYSQL_PWD (их читает и клиент
 # mariadb, и TasksFlow) уводят его на TCP, где root не пускают, — для служебных вызовов их убираем.
-ds_sql() { env -u MYSQL_HOST -u MYSQL_PWD -u MYSQL_TCP_PORT mariadb --protocol=socket -uroot "$@"; }
+ds_sql() { env -u MYSQL_HOST -u MYSQL_PWD -u MYSQL_TCP_PORT mariadb --protocol=socket --default-character-set=utf8mb4 -uroot "$@"; }
 
 ds_log() { echo "[dev-stand] $*" >&2; }
 ds_die() {

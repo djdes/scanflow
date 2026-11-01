@@ -460,7 +460,7 @@
       <!-- 1C Catalog -->
       <div id="mappings-mode-catalog-pane" style="display:none">
         <div class="filters" style="display:flex; gap:12px; align-items:center">
-          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)" style="flex:1" autocomplete="off" name="catalog-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
+          <input type="text" id="catalog-search" placeholder="Поиск по названию..." oninput="Mappings.filterCatalog(this.value)" style="flex:1 1 220px; min-width:0" autocomplete="off" name="catalog-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
           <div class="field-hint" id="catalog-sync-info" style="white-space:nowrap"></div>
           <button type="button" class="btn btn-outline btn-sm" id="catalog-sync-mcp-btn" onclick="Mappings.syncFromMcp()">Синхронизировать с 1С</button>
         </div>

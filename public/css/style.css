@@ -89,6 +89,11 @@
 .assistant-api-help p { line-height: 1.7; margin-top: 10px; }
 #profile-product-assistant input:not([type=checkbox]) { width: 100%; min-width: 0; }
 #profile-product-assistant .form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#profile-product-assistant label.pa-enabled { display: flex; align-items: flex-start; gap: 8px; font-weight: 500; cursor: pointer; }
+#profile-product-assistant label.pa-enabled input { margin-top: 2px; flex: 0 0 auto; }
+/* .btn задаёт display: inline-flex и перебивает атрибут hidden: кнопка «Удалить подключение»
+   была видна без подключения. */
+.btn[hidden] { display: none; }
 .nom-assistant [hidden] { display: none; }
 
 :root {
@@ -4537,6 +4542,10 @@ select.filter-input { min-width: 104px; }
     flex: 0 0 auto;
   }
   table.cards-mobile tbody tr td:empty { display: none; }
+  /* Ячейка без подписи (пустое состояние, строка-заголовок на всю ширину): пустой ::before
+     с gap и space-between уводил «Событий пока нет» вправо. */
+  table.cards-mobile tbody tr td[colspan]:not([data-label]) { display: block; text-align: center; }
+  table.cards-mobile tbody tr td[colspan]:not([data-label])::before { content: none; }
   table.cards-mobile tbody tr td.cell-action {
     justify-content: flex-end;
     gap: 8px;
@@ -5569,6 +5578,7 @@ dialog.review-confirm p {
 @media (max-width: 720px) {
   table.cards-mobile.intlog-table tbody tr.intlog-day { border: none; background: transparent; box-shadow: none; padding: 8px 0 0; }
   table.cards-mobile.intlog-table tbody tr.intlog-day td::before { content: none; }
+  table.cards-mobile.intlog-table tbody tr.intlog-day td { text-align: left; }
 }
 .intlog-table a.intlog-inv { color: var(--primary); text-decoration: none; }
 .intlog-table a.intlog-inv:hover { text-decoration: underline; }
