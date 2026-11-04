@@ -10,6 +10,7 @@ import { logger } from '../utils/logger';
 import { aiEngineState } from '../ai/engine';
 import { activeQueueJob } from './queueJobs';
 import { acquireRecognitionActivity } from './recognitionActivity';
+import { hasActiveDispatcherTask } from '../dispatcher/createTask';
 import type { UploadMeta } from '../watcher/fileWatcher';
 
 export interface RecognitionWorker {
@@ -99,6 +100,11 @@ export async function runRecognitionQueuePass(target: RecognitionWorker): Promis
       if (inv) {
         invoiceId = inv.id;
         await recognitionJobRepo.linkInvoice(job, inv.id);
+        if (inv.status === 'ocr_processing' && await hasActiveDispatcherTask(inv.id, 15)) {
+          await recognitionJobRepo.deferDispatcher(job, inv.id, 900);
+          setImmediate(() => kickRecognitionQueue());
+          return;
+        }
         invoiceId = await target.processQueuedInvoice(inv.id, job.force_engine ?? undefined);
       } else {
         if (job.invoice_id) throw new Error('Накладная удалена. Автоматически создавать её заново нельзя');
@@ -112,6 +118,10 @@ export async function runRecognitionQueuePass(target: RecognitionWorker): Promis
         const merged = await invoiceRepo.resolveMergeTarget(invoiceId);
         if (merged) invoiceId = merged;
         else throw new Error('Результат распознавания не найден — задание сохранено для проверки');
+      } else if (inv.status === 'ocr_processing' && await hasActiveDispatcherTask(inv.id, 15)) {
+        await recognitionJobRepo.deferDispatcher(job, inv.id, 900);
+        setImmediate(() => kickRecognitionQueue());
+        return;
       } else if (!['processed', 'sent_to_1c', 'duplicate'].includes(inv.status)) {
         throw new Error(inv.error_message || 'Документ ещё не распознан');
       }

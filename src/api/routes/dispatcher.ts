@@ -11,6 +11,8 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { invoiceRepo } from '../../database/repositories/invoiceRepo';
+import { recognitionJobRepo } from '../../database/repositories/recognitionJobRepo';
+import { kickRecognitionQueue } from '../../services/recognitionQueue';
 import { supplierExtractJobRepo } from '../../database/repositories/supplierExtractJobRepo';
 import { validateDispatcherToken, clearDispatcherState, validateSupplierJobToken } from '../../dispatcher/createTask';
 import { logger } from '../../utils/logger';
@@ -487,6 +489,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     const msg = (body.error || 'dispatcher reported failure').slice(0, 1000);
     await invoiceRepo.updateStatus(id, 'error', msg);
     await clearDispatcherState(id);
+    await recognitionJobRepo.failByInvoice(id, msg, 60).catch(() => {});
     logger.warn('dispatcher result: error reported', { invoiceId: id, error: msg });
     const errInv = await invoiceRepo.getById(id);
     emitNotification('recognition_error', {
@@ -673,6 +676,8 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
     await runAutoSendHooks(finalTargetId, row.owner_user_id);
 
     await clearDispatcherState(id);
+    await recognitionJobRepo.completeByInvoice(id, finalTargetId).catch(() => {});
+    kickRecognitionQueue();
     logger.info('dispatcher result: invoice processed', {
       invoiceId: id, targetInvoiceId: finalTargetId, items: data.items.length, merged: isMerge || mergedAway,
     });

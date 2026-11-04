@@ -312,6 +312,24 @@ export async function validateDispatcherToken(
  * Clear the dispatcher token + started_at on a row (called once the
  * callback is handled, success or fail). Idempotent.
  */
+/**
+ * True when an invoice is currently awaiting a fresh Ralph dispatcher callback
+ * (prevents recognitionQueue from re-dispatching duplicate jobs while Ralph works).
+ */
+export async function hasActiveDispatcherTask(invoiceId: number, maxAgeMinutes = 15): Promise<boolean> {
+  const row = await getDb()
+    .prepare(
+      `SELECT id FROM invoices
+        WHERE id = ?
+          AND status = 'ocr_processing'
+          AND dispatcher_token IS NOT NULL
+          AND COALESCE(dispatcher_fetched_at, dispatcher_started_at) > DATE_SUB(NOW(), INTERVAL ? MINUTE)
+        LIMIT 1`,
+    )
+    .get<{ id: number }>(invoiceId, maxAgeMinutes);
+  return !!row;
+}
+
 export async function clearDispatcherState(invoiceId: number): Promise<void> {
   await getDb()
     .prepare(
