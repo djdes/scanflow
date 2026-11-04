@@ -3,9 +3,9 @@
  *
  * When analyzer_config.mode === 'dispatcher', ScanFlow enqueues an invisible AI-job in
  * ProjectsFlow with a YAML-block instruction containing photo_url + callback_url +
- * per-task token. A separately-running Claude Code session (the "dispatcher") claims
- * the job via MCP, downloads the photo, recognises it locally, and POSTs the parsed
- * JSON back to ScanFlow. No kanban card is created — the queue is invisible.
+ * per-task token. The Ralph product worker (`dispatcher/scanflow-worker.ps1`) claims
+ * the job, downloads the photo(s)/PDF, recognises it via local Codex CLI, and POSTs the
+ * parsed JSON back to ScanFlow. No kanban card is created — the queue is invisible.
  *
  * Single function entry: `dispatchInvoice(invoiceId, photoFileName)`.
  *
@@ -14,7 +14,7 @@
  *   2. UPDATE invoices SET dispatcher_token, dispatcher_started_at.
  *   3. POST {projectsflowApiUrl}/agent/ai-prompt-jobs with Bearer agent token and
  *      mode='assistant'. The `text` body is a YAML frontmatter + free-text instruction
- *      that the dispatcher Claude session parses.
+ *      that the dispatcher worker parses.
  *   4. Store returned jobId in invoices.dispatcher_task_id (historical column name).
  *   5. Return — caller continues, awaiting the callback.
  */
@@ -24,7 +24,6 @@ import { logger } from '../utils/logger';
 import { config } from '../config';
 import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { supplierExtractJobRepo } from '../database/repositories/supplierExtractJobRepo';
-import { buildPrompt } from '../ocr/claudeApiAnalyzer';
 
 export class DispatcherConfigError extends Error {
   constructor(message: string) {
@@ -47,16 +46,20 @@ function generateToken(): string {
 function buildDescription(args: {
   invoiceId: number;
   photoUrl: string;
+  photoUrls?: string[];
   callbackUrl: string;
   token: string;
   promptUrl: string;
 }): string {
   // PF has a 5000-char limit on description. Keep this lean; the full OCR
   // prompt is served separately via GET /api/dispatcher/prompt (URL in YAML).
+  const filesYaml = args.photoUrls && args.photoUrls.length > 1
+    ? `\nfiles:\n${args.photoUrls.map(u => `  - ${u}`).join('\n')}`
+    : '';
   return `---
 type: scanflow_ocr
 invoice_id: ${args.invoiceId}
-photo_url: ${args.photoUrl}
+photo_url: ${args.photoUrl}${filesYaml}
 callback_url: ${args.callbackUrl}
 prompt_url: ${args.promptUrl}
 token: ${args.token}
@@ -67,9 +70,9 @@ ScanFlow OCR job for invoice #${args.invoiceId}.
 
 ## Шаги
 
-1. **Скачай фото** из \`photo_url\` → \`data/photo_${args.invoiceId}.jpg\`.
-2. **Скачай OCR-промпт** из \`prompt_url\` (plain text). Применяй его к фото — в нём правила распознавания шапки, таблицы, ед. изм. и \`pack_size\`.
-3. **Распознавание** даст JSON \`ParsedInvoiceData\` (invoice_type / invoice_number / invoice_date / supplier / supplier_inn / total_sum / vat_sum / items[] с полями name, quantity, unit, price, total, vat_rate, row_no, pack_size).
+1. **Скачай фото/PDF** из \`photo_url\` (или все страницы из \`files\`, если их несколько) → \`data/photo_${args.invoiceId}.jpg\`.
+2. **Скачай OCR-промпт** из \`prompt_url\` (plain text). Применяй его к фото — в нём правила распознавания шапки, таблицы, ед. изм., \`pack_size\` и \`catalog_idx\`.
+3. **Распознавание** даст JSON \`ParsedInvoiceData\` (invoice_type / invoice_number / invoice_date / supplier / supplier_inn / total_sum / vat_sum / items[] с полями name, quantity, unit, price, total, vat_rate, row_no, pack_size, catalog_idx).
 4. **Сохрани JSON в файл** \`data/result_${args.invoiceId}.json\` — оборачивая в:
    \`\`\`json
    {"token":"${args.token}","success":true,"data":<JSON>}
@@ -147,7 +150,18 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
   const perTaskToken = generateToken();
   const photoUrl = `${config.publicBaseUrl}/api/dispatcher/photo/${invoiceId}?token=${perTaskToken}`;
   const callbackUrl = `${config.publicBaseUrl}/api/dispatcher/result/${invoiceId}`;
-  const promptUrl = `${config.publicBaseUrl}/api/dispatcher/prompt`;
+  const promptUrl = `${config.publicBaseUrl}/api/dispatcher/prompt?invoiceId=${invoiceId}&token=${perTaskToken}`;
+
+  const invRow = await getDb()
+    .prepare('SELECT file_name FROM invoices WHERE id = ?')
+    .get<{ file_name: string | null }>(invoiceId);
+  const files = (invRow?.file_name || photoFileName || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  const photoUrls = files.length > 1
+    ? files.map((_, idx) => `${config.publicBaseUrl}/api/dispatcher/photo/${invoiceId}?token=${perTaskToken}&page=${idx}`)
+    : undefined;
 
   // Reserve the per-task token in DB BEFORE posting to PF so a fast callback
   // can't race the local UPDATE.
@@ -161,14 +175,14 @@ export async function dispatchInvoice(invoiceId: number, photoFileName: string):
     )
     .run(perTaskToken, invoiceId);
 
-  const description = buildDescription({ invoiceId, photoUrl, callbackUrl, token: perTaskToken, promptUrl });
+  const description = buildDescription({ invoiceId, photoUrl, photoUrls, callbackUrl, token: perTaskToken, promptUrl });
   const taskId = await postPfTask(token, projectId, description);
 
   await getDb()
     .prepare('UPDATE invoices SET dispatcher_task_id = ? WHERE id = ?')
     .run(taskId, invoiceId);
 
-  logger.info('dispatcher: task created', { invoiceId, taskId, photoFileName, callbackUrl });
+  logger.info('dispatcher: task created', { invoiceId, taskId, photoFileName, pages: files.length || 1, callbackUrl });
 }
 
 /**
@@ -202,7 +216,7 @@ ScanFlow: распознавание реквизитов поставщика (
    \`\`\`
    На ошибку: \`{"token":"${args.token}","success":false,"error":"описание"}\`.
 5. **POST на callback** (важно \`--data-binary @file\`, не \`-d\` — Windows bash ломает UTF-8):
-   \`\`\`bash
+   \`\`\`json
    curl -X POST '${args.callbackUrl}' \\
      -H 'Content-Type: application/json; charset=utf-8' \\
      --data-binary @data/supplier_result_${args.jobId}.json
@@ -271,21 +285,27 @@ export async function validateSupplierJobToken(
 export async function validateDispatcherToken(
   invoiceId: number,
   token: string,
-): Promise<{ id: number; file_path: string; status: string; owner_user_id: number | null } | null> {
+): Promise<{ id: number; file_name: string; file_path: string; status: string; owner_user_id: number | null } | null> {
   if (!token || typeof token !== 'string' || token.length !== 64) return null;
   const row = await getDb()
     .prepare(
-      'SELECT id, file_path, status, owner_user_id, dispatcher_token FROM invoices WHERE id = ?',
+      'SELECT id, file_name, file_path, status, owner_user_id, dispatcher_token FROM invoices WHERE id = ?',
     )
     .get<{
-      id: number; file_path: string; status: string;
+      id: number; file_name: string | null; file_path: string; status: string;
       owner_user_id: number | null; dispatcher_token: string | null;
     }>(invoiceId);
   if (!row) return null;
   if (!row.dispatcher_token || row.dispatcher_token !== token) return null;
   // owner_user_id пробрасывается: справочник поставщиков пер-тенантный, и
   // обработчик результата должен смотреть в него от имени владельца накладной.
-  return { id: row.id, file_path: row.file_path, status: row.status, owner_user_id: row.owner_user_id };
+  return {
+    id: row.id,
+    file_name: row.file_name ?? '',
+    file_path: row.file_path,
+    status: row.status,
+    owner_user_id: row.owner_user_id,
+  };
 }
 
 /**

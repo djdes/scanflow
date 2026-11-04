@@ -634,6 +634,26 @@
 
       <div class="card">
         <h3 style="margin-bottom:12px">Распознавание</h3>
+        <div class="form-group">
+          <label for="settings-analyzer-mode">Режим распознавания</label>
+          <select id="settings-analyzer-mode" onchange="Settings.onModeChange(this.value)">
+            <option value="dispatcher">Диспетчер Ralph (через очередь ProjectsFlow)</option>
+            <option value="gpt">GPT по подписке (напрямую с сервера ScanFlow)</option>
+          </select>
+        </div>
+        <div class="form-group" id="dispatcher-group" style="display:none">
+          <div id="dispatcher-status" class="field-hint" style="margin-bottom:10px"></div>
+          <div class="settings-admin-only">
+            <label for="settings-pf-project-id">Project ID в ProjectsFlow</label>
+            <input type="text" id="settings-pf-project-id" placeholder="82a0e598-fce2-4948-b653-ceb64d132fe2" autocomplete="off" spellcheck="false" style="margin-bottom:10px">
+            <label for="settings-pf-token">Agent-токен ProjectsFlow (pfat_*)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="password" id="settings-pf-token" placeholder="pfat_..." autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
+              <button type="button" class="btn btn-outline" onclick="Settings.toggleReveal('settings-pf-token', this)">Показать</button>
+            </div>
+            <div class="field-hint">Распознавание выполняется локальным воркером Ralph (Codex CLI без серверного прокси).</div>
+          </div>
+        </div>
         <div class="form-group" id="chatgpt-group">
           <label>GPT по подписке ChatGPT</label>
           <div id="chatgpt-status" class="field-hint">Загрузка…</div>

@@ -4,8 +4,8 @@
  * doesn't have an X-API-Key); each route validates a per-task token
  * against invoices.dispatcher_token.
  *
- * GET  /api/dispatcher/photo/:invoiceId?token=<hex>   — download original JPG
- * POST /api/dispatcher/result/:invoiceId              — submit OCR JSON / error
+ * GET  /api/dispatcher/photo/:invoiceId?token=<hex>[&page=N] — download original image/PDF
+ * POST /api/dispatcher/result/:invoiceId                     — submit OCR JSON / error
  */
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
@@ -15,11 +15,15 @@ import { supplierExtractJobRepo } from '../../database/repositories/supplierExtr
 import { validateDispatcherToken, clearDispatcherState, validateSupplierJobToken } from '../../dispatcher/createTask';
 import { logger } from '../../utils/logger';
 import { ParsedInvoiceData, ParsedInvoiceItem } from '../../ocr/types';
-import { NomenclatureMapper } from '../../mapping/nomenclatureMapper';
+import { NomenclatureMapper, type MappingResult } from '../../mapping/nomenclatureMapper';
 import { evaluateInvoiceQuality } from '../../automation/qualityGate';
 import { convertInvoiceLine } from '../../services/lineConversion';
 import { makeSupplierKey } from '../../database/repositories/supplierMappingRepo';
-import { onecNomenclatureRepo } from '../../database/repositories/onecNomenclatureRepo';
+import { onecNomenclatureRepo, type OnecNomenclatureRow } from '../../database/repositories/onecNomenclatureRepo';
+import { mappingRepo } from '../../database/repositories/mappingRepo';
+import { rejectionRepo } from '../../database/repositories/rejectionRepo';
+import { getEngineFlags } from '../../services/engineFlags';
+import { itemNameKey, extractAttrs, attrsConflict } from '../../mapping/nameKey';
 import { buildPrompt, buildSupplierPrompt } from '../../ocr/claudeApiAnalyzer';
 import { preprocessInvoiceImage } from '../../ocr/imagePreprocess';
 import { emit as emitNotification, notifySupplierExtractError, emitElevatedPricesIfAny } from '../../notifications/events';
@@ -29,7 +33,6 @@ import { linkApprovedSupplier } from '../../services/supplierMatch';
 import { snapshotRepo } from '../../database/repositories/snapshotRepo';
 import { autoSendSberForInvoice } from '../../services/autoSendSber';
 import { mergeBlockedByNumber } from '../../services/mergeDecision';
-import { userRepo } from '../../database/repositories/userRepo';
 import { webhookConfigRepo } from '../../database/repositories/webhookConfigRepo';
 import { config } from '../../config';
 
@@ -46,6 +49,75 @@ async function resolveSupplier(
   ownerUserId: number | null,
 ): Promise<string | undefined> {
   return resolveSupplierName(rawSupplier, inn, ownerUserId);
+}
+
+function resolveCatalogIdx(
+  idx: number | null | undefined,
+  catalog: OnecNomenclatureRow[] | null,
+): { guid: string; name: string; unit: string | null } | undefined {
+  if (idx == null || !catalog || !Number.isInteger(idx) || idx < 1 || idx > catalog.length) return undefined;
+  const row = catalog[idx - 1];
+  if (!row) return undefined;
+  return { guid: row.guid, name: row.name, unit: row.unit };
+}
+
+async function pickWithLlm(
+  name: string,
+  llmPicked: { guid: string; name: string; unit: string | null },
+  ownerUserId: number,
+  context: { supplierInn?: string | null; supplierName?: string | null },
+): Promise<MappingResult | null> {
+  const v2 = (await getEngineFlags()).mapping_v2;
+  if (v2) {
+    const confirmed = await mappingRepo.getConfirmed(name, ownerUserId).catch(() => undefined);
+    if (confirmed?.onec_guid) {
+      const onec = await onecNomenclatureRepo.getByGuid(confirmed.onec_guid, ownerUserId);
+      if (onec) {
+        void mappingRepo.touchUsage(confirmed.id, context.supplierName ?? null).catch(() => {});
+        return {
+          original_name: name, mapped_name: onec.name, onec_guid: onec.guid, confidence: 1,
+          source: 'learned', mapping_id: confirmed.id,
+          mapping_reason: 'По сопоставлению, подтверждённому человеком.',
+          pack_size: confirmed.pack_size, pack_unit: confirmed.pack_unit,
+        };
+      }
+    }
+    const rejected = await rejectionRepo.guidsFor(ownerUserId, itemNameKey(name));
+    const conflict = attrsConflict(extractAttrs(name), extractAttrs(llmPicked.name));
+    if (rejected.has(llmPicked.guid) || conflict) {
+      logger.info('dispatcher: LLM catalog pick rejected by v2 guards', {
+        name, pick: llmPicked.name, rejected: rejected.has(llmPicked.guid), conflict,
+      });
+      return typeof mapper?.map === 'function' ? mapper.map(name, ownerUserId, context) : null;
+    }
+  }
+  const existingMapping = await mappingRepo.getByScannedName(name, ownerUserId);
+  const ordinary: MappingResult = {
+    original_name: name,
+    mapped_name: llmPicked.name,
+    onec_guid: llmPicked.guid,
+    confidence: 1,
+    source: 'learned',
+    mapping_id: existingMapping?.id ?? null,
+    mapping_reason: 'По выбору ИИ из каталога 1С.',
+    pack_size: existingMapping?.pack_size ?? null,
+    pack_unit: existingMapping?.pack_unit ?? null,
+  };
+  const refined = typeof mapper?.refineWithUsage === 'function'
+    ? await mapper.refineWithUsage(name, ordinary, ownerUserId)
+    : ordinary;
+  if (refined.source === 'onec_usage' || refined.confirmed_by_user) return refined;
+  try {
+    if (v2) {
+      await mappingRepo.upsertLearned({ scanned_name: name, mapped_name_1c: llmPicked.name, onec_guid: llmPicked.guid, source: 'llm' }, ownerUserId);
+    } else {
+      await mappingRepo.upsert({ scanned_name: name, mapped_name_1c: llmPicked.name, onec_guid: llmPicked.guid, approved: false }, ownerUserId);
+    }
+  } catch (e) {
+    logger.warn('dispatcher: failed to persist learned mapping', { name, error: (e as Error).message });
+  }
+  if (typeof mapper?.invalidateCache === 'function') mapper.invalidateCache(ownerUserId);
+  return refined;
 }
 
 /**
@@ -85,30 +157,66 @@ async function runAutoSendHooks(targetInvoiceId: number, ownerUserId: number | n
   }
 }
 
-
 function contentTypeFor(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
-  return ext === '.png' ? 'image/png'
+  return ext === '.pdf' ? 'application/pdf'
+    : ext === '.png' ? 'image/png'
     : ext === '.webp' ? 'image/webp'
     : ext === '.bmp' ? 'image/bmp'
     : ext === '.tiff' || ext === '.tif' ? 'image/tiff'
     : 'image/jpeg';
 }
 
+function resolvePageFilePath(row: { file_name: string; file_path: string }, pageIndex: number): string {
+  const names = (row.file_name || '')
+    .split(',')
+    .map(s => path.basename(s.trim()))
+    .filter(Boolean);
+  if (names.length > 0 && pageIndex >= 0 && pageIndex < names.length) {
+    const name = names[pageIndex];
+    const located = [config.processedDir, config.failedDir, config.inboxDir]
+      .map(dir => path.join(dir, name))
+      .find(p => fs.existsSync(p));
+    if (located) return located;
+  }
+  return row.file_path;
+}
+
 // GET /api/dispatcher/prompt — serve the OCR system prompt as plain text.
-// The dispatcher Claude Code session fetches this URL and uses it verbatim
-// when analysing the photo. We can't embed the full prompt in the PF task
-// description because PF has a 5000-char limit on description.
-router.get('/prompt', (_req: Request, res: Response) => {
+// When ?invoiceId=<id>&token=<token> are supplied and llm_mapper_enabled is on,
+// embeds the owner company's 1C nomenclature catalog so the dispatcher model
+// returns catalog_idx in the same pass.
+router.get('/prompt', async (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
+  const invoiceIdRaw = req.query.invoiceId as string | undefined;
+  const token = (req.query.token as string | undefined) ?? '';
+  if (invoiceIdRaw && token) {
+    const id = parseInt(invoiceIdRaw, 10);
+    if (Number.isFinite(id)) {
+      const row = await validateDispatcherToken(id, token);
+      if (row && row.owner_user_id != null && row.owner_user_id > 0) {
+        const cfg = await invoiceRepo.getAnalyzerConfig();
+        if (cfg.llm_mapper_enabled) {
+          const items = await onecNomenclatureRepo.listItems({ ownerUserId: row.owner_user_id, excludeFolders: true });
+          if (items.length > 0) {
+            res.send(buildPrompt(items.map(c => ({ guid: c.guid, name: c.name, unit: c.unit }))));
+            return;
+          }
+        }
+      }
+    }
+  }
   res.send(buildPrompt());
 });
 
 router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
   const id = parseInt(req.params.invoiceId as string, 10);
   const token = (req.query.token as string | undefined) ?? '';
+  const pageRaw = req.query.page as string | undefined;
+  const pageIndex = pageRaw != null ? parseInt(pageRaw, 10) : 0;
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid invoice id' });
+  if (!Number.isFinite(pageIndex) || pageIndex < 0) return res.status(400).json({ error: 'invalid page index' });
 
   const row = await validateDispatcherToken(id, token);
   if (!row) {
@@ -120,9 +228,16 @@ router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
   // time (a queued task can wait far longer than 15 min before the serial worker
   // reaches it). Stamp before the file check — an authorized fetch counts as a start.
   await invoiceRepo.markDispatcherFetched(id);
-  if (!fs.existsSync(row.file_path)) {
-    logger.warn('dispatcher photo: file missing on disk', { invoiceId: id, path: row.file_path });
+  const targetPath = resolvePageFilePath(row, pageIndex);
+  if (!fs.existsSync(targetPath)) {
+    logger.warn('dispatcher photo: file missing on disk', { invoiceId: id, pageIndex, path: targetPath });
     return res.status(404).json({ error: 'photo file missing' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  if (path.extname(targetPath).toLowerCase() === '.pdf') {
+    res.setHeader('Content-Type', 'application/pdf');
+    fs.createReadStream(targetPath).pipe(res);
+    return;
   }
   // Serve a pre-OCR-enhanced image (contrast/sharpen — see imagePreprocess.ts),
   // A/B-verified to materially improve recognition of dense rows. Sniff the JPEG
@@ -130,19 +245,18 @@ router.get('/photo/:invoiceId', async (req: Request, res: Response) => {
   // keeps its own type. If preprocessing throws (e.g. the file vanished in the
   // existsSync→read race), fall back to streaming the original bytes — the OCR
   // path must always get SOME image.
-  res.setHeader('Cache-Control', 'no-store');
   try {
-    const photoBuf = await preprocessInvoiceImage(row.file_path);
+    const photoBuf = await preprocessInvoiceImage(targetPath);
     const isJpeg = photoBuf.length > 2 && photoBuf[0] === 0xFF && photoBuf[1] === 0xD8;
-    res.setHeader('Content-Type', isJpeg ? 'image/jpeg' : contentTypeFor(row.file_path));
+    res.setHeader('Content-Type', isJpeg ? 'image/jpeg' : contentTypeFor(targetPath));
     res.send(photoBuf);
   } catch (err) {
     logger.warn('dispatcher photo: preprocess failed, serving original', { invoiceId: id, error: (err as Error).message });
-    if (!fs.existsSync(row.file_path)) {
+    if (!fs.existsSync(targetPath)) {
       return res.status(404).json({ error: 'photo file missing' });
     }
-    res.setHeader('Content-Type', contentTypeFor(row.file_path));
-    fs.createReadStream(row.file_path).pipe(res);
+    res.setHeader('Content-Type', contentTypeFor(targetPath));
+    fs.createReadStream(targetPath).pipe(res);
   }
 });
 
@@ -304,27 +418,6 @@ async function foldPageInto(canonicalId: number, otherId: number): Promise<void>
  * persisted standalone. Dispatcher OCRs each page as a separate PF task, so:
  *   - callbacks arrive UNORDERED (page 2 can finalise before page 1 exists);
  *   - callbacks lag the upload by MINUTES (OCR latency / queue).
- * The lag is why a NOW()-anchored window fails — by the time page 2 calls back,
- * page 1's created_at is already "old". So we anchor on upload-time proximity
- * (findSiblingPagesNearUpload) which stays tight regardless of OCR latency.
- *
- * Among same-upload-batch siblings, three self-guarding signals decide that two
- * pages belong to ONE invoice (any one suffices):
- *   1. NUMBER — same normalised invoice_number.
- *   2. ROW_NO — contiguous line numbers: a page whose items start at row > 1 is,
- *      by definition, a continuation (e.g. a page with only item #17 needs the
- *      page holding rows 1–16). Strongest structural signal; needs no total.
- *   3. CUMULATIVE TOTAL — max(totals) ≈ Σ(all items): the last page prints the
- *      running grand total.
- * Candidates are NOT pre-filtered by supplier: OCR routinely reads the supplier
- * differently across pages of one invoice, so signals 1 & 2 (structural, hard to
- * collide by chance) merge regardless of supplier text. The weaker signal 3 still
- * requires a supplier match, so two unrelated invoices whose sums coincidentally
- * add up are not merged.
- *
- * Canonical page (kept) = the one with a date, else a number, else more items /
- * the lower starting row. The other becomes its duplicate. Returns the
- * canonical id when a merge happened, else null.
  */
 async function reconcileMultiPageSiblings(currentId: number): Promise<number | null> {
   const current = await invoiceRepo.getById(currentId);
@@ -343,41 +436,21 @@ async function reconcileMultiPageSiblings(currentId: number): Promise<number | n
     const grand = Math.max(current.total_sum ?? 0, y.total_sum ?? 0);
     const tol = Math.max(1, grand * 0.005);
 
-    // Strong STRUCTURAL signals (same number, contiguous row numbers) identify
-    // sibling pages on their own — OCR often misreads the supplier text across
-    // pages, so they must NOT require a supplier match. The weaker cumulative-
-    // total signal still needs a supplier match to avoid coincidental merges
-    // of two unrelated invoices whose sums happen to add up.
     const supplierMatch = !!current.supplier && !!y.supplier && suppliersMatch(current.supplier, y.supplier);
     const numberMatch = !!cNormNum && cNormNum === normalizeInvoiceNumber(y.invoice_number);
-    // Contiguity = one page is a genuine CONTINUATION, i.e. its first row_no is
-    // > 1 and lands right after the other page's last row. The `> 1` guard stops
-    // two complete invoices (both starting at row 1) from looking adjacent via
-    // the off-by-one tolerance — critical now that suppliers may differ.
     const rowContiguous =
       (cMinRow != null && cMinRow > 1 && y.max_row != null && Math.abs(cMinRow - (y.max_row + 1)) <= 1) ||
       (y.min_row != null && y.min_row > 1 && cMaxRow != null && Math.abs(y.min_row - (cMaxRow + 1)) <= 1);
     const cumulativeTotal =
       grand > 0 &&
       Math.abs(grand - (currentItemsSum + y.items_sum)) <= tol &&
-      // each page is only PART of the whole (else one is already complete)
       !(currentItemsSum >= grand - tol && y.items_sum >= grand - tol);
 
-    // Предохранитель по номеру. Разные непустые номера блокируют СТРУКТУРНУЮ
-    // смежность (numberMatch/rowContiguous): в инциденте 287/288 две ПОЛНЫЕ
-    // накладные ОМЕГА подошли по смежным row_no, и №288 была проглочена.
-    //
-    // НО cumulative-total он НЕ перебивает: там каждая страница — ЧАСТЬ целого
-    // (суммы складываются в grand при совпадении поставщика), и это сильный
-    // сигнал ОДНОЙ накладной, где OCR просто исказил номер на странице. Две
-    // разные полные накладные под cumulativeTotal не попадают — его условие
-    // «each page is only PART of the whole» их отсекает. См. mergeDecision.ts.
     const numberBlocked = mergeBlockedByNumber(current, y);
     const structuralOk = (numberMatch || rowContiguous) && !numberBlocked;
     const totalOk = cumulativeTotal && supplierMatch;
     if (!structuralOk && !totalOk) continue;
 
-    // Pick canonical: prefer date, then number, then more items, then lower start row.
     const yHasDate = !!y.invoice_date, cHasDate = !!current.invoice_date;
     const yHasNum = !!y.invoice_number, cHasNum = !!current.invoice_number;
     let canonicalId: number;
@@ -434,11 +507,7 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
   // Defensive: if the dispatcher lost Cyrillic encoding somewhere, the payload
   // arrives full of U+FFFD (Unicode replacement char). Silently storing
   // ◇◇◇◇ in supplier/name is worse than failing loud — refuse.
-  // IMPORTANT: do NOT clear state here. This is a transient client-side bug
-  // (Windows bash `curl -d` corrupts UTF-8) — dispatcher should retry with
-  // `curl --data-binary @file.json` and we want the token to stay valid for
-  // that retry. Cron-sweep will mark it error after 15 min if no retry comes.
-  const FFFD = '�';
+  const FFFD = '\uFFFD';
   const checkFields = [data.supplier, data.supplier_address, data.invoice_type, ...data.items.map(i => i?.name ?? '')];
   const totalFFFD = checkFields.reduce((acc, v) => acc + (typeof v === 'string' ? (v.match(new RegExp(FFFD, 'g')) || []).length : 0), 0);
   if (totalFFFD >= 5) {
@@ -451,8 +520,6 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
   }
 
   try {
-    // Multi-page merge: if this is a continuation of a recently-processed
-    // invoice, append items to that target instead of leaving an orphan row.
     const mergeTarget = await findMultiPageTarget(id, data);
     const targetInvoiceId = mergeTarget?.id ?? id;
     const isMerge = !!mergeTarget;
@@ -461,17 +528,12 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       logger.info('dispatcher result: multi-page merge', {
         currentInvoiceId: id, targetInvoiceId, supplier: data.supplier, number: data.invoice_number,
       });
-      // Backfill missing header fields onto the existing invoice. Don't
-      // overwrite — first page is canonical for everything except total_sum
-      // (which only appears on the LAST page).
       await invoiceRepo.updateInvoiceData(targetInvoiceId, {
         invoice_number: mergeTarget.invoice_number ? undefined : (data.invoice_number ?? undefined),
         supplier: mergeTarget.supplier ? undefined : await resolveSupplier(data.supplier, data.supplier_inn, row.owner_user_id),
         total_sum: data.total_sum ?? undefined,
         vat_sum: data.vat_sum ?? undefined,
       });
-      // Items appended to targetInvoiceId below; the current row is folded into
-      // the target (photo carried over + row deleted) after the items loop.
     } else {
       await invoiceRepo.updateInvoiceData(id, {
         invoice_type: data.invoice_type ?? undefined,
@@ -479,42 +541,50 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         invoice_date: data.invoice_date ?? undefined,
         supplier: await resolveSupplier(data.supplier, data.supplier_inn, row.owner_user_id),
         supplier_inn: data.supplier_inn ?? undefined,
+        supplier_kpp: data.supplier_kpp ?? undefined,
         supplier_bik: data.supplier_bik ?? undefined,
         supplier_account: data.supplier_account ?? undefined,
         supplier_corr_account: data.supplier_corr_account ?? undefined,
         supplier_address: data.supplier_address ?? undefined,
         total_sum: data.total_sum ?? undefined,
         vat_sum: data.vat_sum ?? undefined,
+        ocr_engine: 'dispatcher_ralph',
       });
     }
+
+    const mappingOwnerId = row.owner_user_id ?? -1;
+    const analyzerCfg = await invoiceRepo.getAnalyzerConfig();
+    const catalog = analyzerCfg.llm_mapper_enabled && mappingOwnerId > 0
+      ? await onecNomenclatureRepo.listItems({ ownerUserId: mappingOwnerId, excludeFolders: true })
+      : null;
+
     for (const it of data.items as ParsedInvoiceItem[]) {
-      // 1) Resolve mapping (1C catalog match) + apply pack-size transform.
-      //    Dispatcher returns qty/unit/price AS WRITTEN on the invoice
-      //    (e.g. "5 кор × 7.5кг"). resolveAndApplyPackTransform expands
-      //    that to canonical 1C unit (e.g. 37.5 кг × 1010₽/кг) using the
-      //    pack_size hint Claude extracted from the name ("9-12", "1/12",
-      //    "*48", etc.) OR the learned mapping in nomenclature_mappings.
       let transformedItem = {
         quantity: it.quantity ?? null,
         unit: it.unit ?? null,
         price: it.price ?? null,
         total: it.total ?? null,
       };
-      let mapping: Awaited<ReturnType<NomenclatureMapper['map']>> | null = null;
-      if (mapper && it.name) {
+      let mapping: MappingResult | null = null;
+      if (it.name) {
         try {
-          mapping = await mapper.map(it.name, row.owner_user_id ?? -1, { supplierInn: data.supplier_inn, supplierName: data.supplier });
+          const mappingContext = { supplierInn: data.supplier_inn, supplierName: data.supplier };
+          const supplierOverride = typeof mapper?.mapSupplierOverride === 'function'
+            ? await mapper.mapSupplierOverride(it.name, mappingOwnerId, mappingContext)
+            : null;
+          const llmPicked = resolveCatalogIdx(it.catalog_idx, catalog);
+          if (supplierOverride) {
+            mapping = supplierOverride;
+          } else if (llmPicked) {
+            mapping = await pickWithLlm(it.name, llmPicked, mappingOwnerId, mappingContext);
+          } else if (typeof mapper?.map === 'function') {
+            mapping = await mapper.map(it.name, mappingOwnerId, mappingContext);
+          }
         } catch (err) {
           logger.warn('dispatcher result: mapping failed', { itemName: it.name, error: (err as Error).message });
         }
       }
-      // packTransform runs UNCONDITIONALLY (even when no 1С mapping yet):
-      //   - if Claude extracted a pack_size hint ("1/15", "*48") it still
-      //     expands qty correctly into base units;
-      //   - the final coerce step rebrands any countable supplier unit
-      //     (уп/кор/банка/пач) to "шт" — our 1С catalog only tracks {шт, кг, л}.
-      // Единая точка пересчёта (src/services/lineConversion.ts): значения
-      // «как в накладной» сохраняются в raw_*, флаги — в qty_flag.
+
       const conv = await convertInvoiceLine({
         ownerUserId: row.owner_user_id ?? null,
         supplierKey: makeSupplierKey(data.supplier_inn ?? null, data.supplier ?? null),
@@ -527,8 +597,6 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       });
       transformedItem = { quantity: conv.quantity, unit: conv.unit, price: conv.price, total: conv.total };
 
-      // 2) Persist the (possibly transformed) item — onto target invoice
-      //    (which is `id` when standalone, `mergeTarget.id` when multi-page).
       const inserted = await invoiceRepo.addItem({
         invoice_id: targetInvoiceId,
         original_name: it.name ?? '',
@@ -539,41 +607,30 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         total: transformedItem.total ?? undefined,
         conversion: conv.conversion,
         vat_rate: it.vat_rate ?? undefined,
-          mapping_confidence: mapping?.confidence ?? 0,
-          mapping_reason: mapping?.mapping_reason ?? null,
+        mapping_confidence: mapping?.confidence ?? 0,
+        mapping_reason: mapping?.mapping_reason ?? null,
         onec_guid: mapping?.onec_guid ?? undefined,
         row_no: it.row_no ?? null,
       });
-      void inserted; // for await/lint
+      void inserted;
     }
-    // Recalculate total + items_total_mismatch flag (must-not-break #3 —
-    // cross-validate Σitems.total ≈ total_sum). Runs for BOTH the merge target
-    // (sum now includes appended page) and standalone. Without it, a Claude
-    // OCR blunder (e.g. "165 229,2" → 1652292) would slip in unvalidated.
+
     await invoiceRepo.recalculateTotal(targetInvoiceId);
 
     let finalTargetId = targetInvoiceId;
-    let mergedAway = false; // true when THIS page was folded into another
+    let mergedAway = false;
 
     if (isMerge) {
-      // Forward merge: carry this page's photo to the target and delete its row.
       await foldPageInto(targetInvoiceId, id);
       mergedAway = true;
       await invoiceRepo.checkAndMarkDuplicate?.(targetInvoiceId);
     }
 
     if (!isMerge) {
-      // Реквизиты — из справочника утверждённых поставщиков (ИНН, иначе название).
-      // Снимок «как распознано» — до пересчёта единиц, привязки поставщика и
-      // ручных правок: к нему можно вернуть номер/дату/сумму/НДС (п.0 пакета v2).
       await snapshotRepo.record(id, 'recognized');
       await linkApprovedSupplier(id);
       await invoiceRepo.updateStatus(id, 'processed');
 
-      // Multi-page reconciliation against same-upload-batch siblings (number /
-      // row_no continuity / cumulative total). Handles unordered, latency-lagged
-      // dispatcher callbacks. May make THIS page the canonical (absorbing a
-      // sibling) or turn it into a duplicate of one.
       const reconCanonical = await reconcileMultiPageSiblings(id);
       if (reconCanonical && reconCanonical !== id) {
         finalTargetId = reconCanonical;
@@ -588,9 +645,6 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
         });
       }
 
-      // Telegram notifications (background context → recipient = first user).
-      // Skip when this page merged away or absorbed siblings silently — the
-      // canonical page is what the user already saw / will see.
       if (!mergedAway && !dupOriginal) {
         const finalInvoice = await invoiceRepo.getById(id);
         if (finalInvoice) {
@@ -616,7 +670,6 @@ router.post('/result/:invoiceId', async (req: Request, res: Response) => {
       }
     }
 
-    // Auto-send hooks (1C approve + Sber), mirroring fileWatcher step 8.
     await runAutoSendHooks(finalTargetId, row.owner_user_id);
 
     await clearDispatcherState(id);

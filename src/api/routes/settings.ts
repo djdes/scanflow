@@ -6,6 +6,7 @@ import { requireAdmin } from '../middleware/auth';
 import { getEngineFlags, setEngineFlags, ENGINE_FLAGS, ENGINE_FLAG_INFO } from '../../services/engineFlags';
 import { chatgptConnectionRepo } from '../../database/repositories/chatgptConnectionRepo';
 import { DEFAULT_GPT_MODEL, isGptModel } from '../../ocr/gptVision';
+import { kickAiResume } from '../../services/aiResume';
 
 const router = Router();
 
@@ -119,6 +120,7 @@ router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
     }
 
     logger.info('Analyzer config updated', { mode, gptModel, llmMapperEnabled: llmFlag, autoSend1c: auto1c, autoSendSber: autoSber });
+    if (mode !== beforeCfg.mode) kickAiResume();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

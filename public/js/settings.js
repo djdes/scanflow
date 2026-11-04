@@ -13,6 +13,18 @@ const Settings = {
       if (data) {
         this._mode = data.mode || 'gpt';
         this._canEdit = !!data.can_edit;
+        this._hasPfToken = !!data.has_projectsflow_token;
+        const modeSelect = document.getElementById('settings-analyzer-mode');
+        if (modeSelect) {
+          if (![...modeSelect.options].some(o => o.value === this._mode)) {
+            modeSelect.add(new Option(this._mode, this._mode));
+          }
+          modeSelect.value = this._mode;
+        }
+        const pfProj = document.getElementById('settings-pf-project-id');
+        if (pfProj && data.projectsflow_project_id) pfProj.value = data.projectsflow_project_id;
+        const pfTok = document.getElementById('settings-pf-token');
+        if (pfTok && data.projectsflow_token) pfTok.value = data.projectsflow_token;
         const gptSelect = document.getElementById('settings-gpt-model');
         if (gptSelect && data.gpt_model) {
           // Модель, которой нет в списке (задана через API), всё равно показываем.
@@ -28,8 +40,7 @@ const Settings = {
         this._setDadataStatus(!!data.has_dadata_key);
         this._initAutoSend(data);
         this._applyEditRights();
-        const warn = document.getElementById('mode-warning');
-        if (warn) warn.style.display = (this._canEdit && this._mode !== 'gpt') ? '' : 'none';
+        this._syncModeUi();
         this.chatgptRefresh();
       }
       this.loaded = true;
@@ -45,7 +56,7 @@ const Settings = {
 
   // Менять настройки может только админ: остальным — те же значения, но без правки.
   _applyEditRights() {
-    const ids = ['settings-gpt-model', 'settings-llm-mapper', 'settings-auto-send-1c', 'settings-auto-send-sber', 'settings-dadata-key'];
+    const ids = ['settings-analyzer-mode', 'settings-pf-project-id', 'settings-pf-token', 'settings-gpt-model', 'settings-llm-mapper', 'settings-auto-send-1c', 'settings-auto-send-sber', 'settings-dadata-key'];
     for (const id of ids) {
       const el = document.getElementById(id);
       if (el) el.disabled = !this._canEdit;
@@ -93,11 +104,52 @@ const Settings = {
     return false;
   },
 
+  onModeChange(mode) {
+    this._mode = mode || 'gpt';
+    this._syncModeUi();
+  },
+
+  _syncModeUi() {
+    const isDisp = this._mode === 'dispatcher';
+    const dispGroup = document.getElementById('dispatcher-group');
+    const chatGroup = document.getElementById('chatgpt-group');
+    const warn = document.getElementById('mode-warning');
+    if (dispGroup) dispGroup.style.display = isDisp ? '' : 'none';
+    if (chatGroup) chatGroup.style.display = isDisp ? 'none' : '';
+    if (warn) warn.style.display = (this._canEdit && this._mode !== 'gpt' && this._mode !== 'dispatcher') ? '' : 'none';
+    const statusEl = document.getElementById('dispatcher-status');
+    if (statusEl && isDisp) {
+      const proj = document.getElementById('settings-pf-project-id')?.value?.trim();
+      const hasTok = this._hasPfToken || !!(document.getElementById('settings-pf-token')?.value?.trim());
+      statusEl.textContent = (hasTok && proj)
+        ? 'Диспетчер Ralph подключён · очередь ProjectsFlow активна'
+        : 'Укажите Project ID и токен ProjectsFlow для работы диспетчера';
+      statusEl.style.color = (hasTok && proj) ? 'var(--green)' : 'var(--warning)';
+    }
+  },
+
   async save() {
+    const selectedMode = document.getElementById('settings-analyzer-mode')?.value || this._mode;
     const gptModel = document.getElementById('settings-gpt-model')?.value;
     const llmCb = document.getElementById('settings-llm-mapper');
-    const ok = await this._put({ gpt_model: gptModel, llm_mapper_enabled: llmCb ? llmCb.checked : true });
-    if (ok) App.notify('Настройки сохранены', 'success');
+    const payload = {
+      mode: selectedMode,
+      gpt_model: gptModel,
+      llm_mapper_enabled: llmCb ? llmCb.checked : true,
+    };
+    if (selectedMode === 'dispatcher') {
+      const pfProj = document.getElementById('settings-pf-project-id')?.value?.trim();
+      const pfTok = document.getElementById('settings-pf-token')?.value?.trim();
+      if (pfProj) payload.projectsflow_project_id = pfProj;
+      if (pfTok) payload.projectsflow_token = pfTok;
+    }
+    const ok = await this._put(payload);
+    if (ok) {
+      this._mode = selectedMode;
+      if (payload.projectsflow_token) this._hasPfToken = true;
+      this._syncModeUi();
+      App.notify('Настройки сохранены', 'success');
+    }
   },
 
   async saveDadata() {
@@ -113,7 +165,9 @@ const Settings = {
   async switchToGpt() {
     if (await this._put({ mode: 'gpt' })) {
       this._mode = 'gpt';
-      document.getElementById('mode-warning').style.display = 'none';
+      const modeSelect = document.getElementById('settings-analyzer-mode');
+      if (modeSelect) modeSelect.value = 'gpt';
+      this._syncModeUi();
       App.notify('Распознавание переключено на GPT', 'success');
     }
   },

@@ -75,3 +75,7 @@ docs/investigations/
 
 # Снимки, ответы мостика к проду, логи дев-стенда (.claude/skills/*)
 /output/
+
+# Dispatcher local config & logs (BSQL Ralph worker)
+dispatcher/config.json
+dispatcher/logs/
