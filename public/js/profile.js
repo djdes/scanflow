@@ -48,6 +48,9 @@
       });
 
       renderStatus(!!data.telegram_chat_id && tokenSetOnServer);
+      // Имя для менеджера паролей рядом с полем нового пароля.
+      const usernameEl = document.getElementById('profile-password-username');
+      if (usernameEl) usernameEl.value = data.username || '';
       this.renderUnits(data);
       this.loadOnecStatus();
       ProductAssistantSettings.load();
@@ -370,6 +373,49 @@
       }
     },
 
+    togglePasswordVisibility() {
+      const el = document.getElementById('profile-new-password');
+      const btn = document.getElementById('profile-new-password-toggle');
+      const show = el.type === 'password';
+      el.type = show ? 'text' : 'password';
+      btn.innerHTML = show ? ICON_EYE_OFF : ICON_EYE;
+      btn.setAttribute('title', show ? 'Скрыть' : 'Показать');
+    },
+
+    // Смена своего пароля: старый не нужен, письма нет. Ключ входа не меняется —
+    // остаёмся в кабинете.
+    async changePassword(e) {
+      e.preventDefault();
+      const input = document.getElementById('profile-new-password');
+      const btn = document.getElementById('profile-password-save');
+      const status = document.getElementById('profile-password-status');
+      const show = (text, kind) => {
+        status.textContent = text;
+        status.style.color = kind === 'success' ? 'var(--success)' : kind === 'error' ? 'var(--error)' : 'var(--text-secondary)';
+      };
+      const password = input.value;
+      if (password.trim().length < 6) {
+        show('Пароль должен быть не короче 6 символов', 'error');
+        input.focus();
+        return;
+      }
+      btn.disabled = true;
+      show('Сохраняем…', '');
+      try {
+        await App.apiJson('/profile/password', { method: 'POST', body: { password } });
+        input.value = '';
+        input.type = 'password';
+        const toggle = document.getElementById('profile-new-password-toggle');
+        toggle.innerHTML = ICON_EYE;
+        toggle.setAttribute('title', 'Показать');
+        show('Пароль изменён. Входите с ним в следующий раз.', 'success');
+      } catch (err) {
+        show('Не удалось сменить пароль: ' + (err.message || err), 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    },
+
     init() {
       if (this._wired) {
         this.load();
@@ -386,6 +432,10 @@
         .addEventListener('click', () => this.lookupChatId());
       const onecBtn = document.getElementById('profile-onec-btn');
       if (onecBtn) onecBtn.addEventListener('click', () => this.generateOnecCode());
+      document.getElementById('profile-password-form').addEventListener('submit', (e) => this.changePassword(e));
+      document
+        .getElementById('profile-new-password-toggle')
+        .addEventListener('click', () => this.togglePasswordVisibility());
       this.load();
     },
   };
