@@ -986,6 +986,34 @@
             <button type="button" id="profile-test" class="btn btn-outline">Отправить тестовое сообщение</button>
             <span id="profile-status" class="profile-status-msg"></span>
           </div>
+
+          <div class="card profile-card">
+            <div class="card-header">
+              <div>
+                <h2>Пароль для входа</h2>
+                <p class="card-subtitle">Старый пароль не нужен. Вход на этом устройстве и подключение 1С продолжат работать.</p>
+              </div>
+              <svg class="card-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+              </svg>
+            </div>
+            <form id="profile-password-form" autocomplete="on" novalidate>
+              <input type="text" id="profile-password-username" name="username" autocomplete="username" hidden>
+              <div class="form-group">
+                <label for="profile-new-password">Новый пароль</label>
+                <div class="token-row">
+                  <input type="password" id="profile-new-password" name="new-password" autocomplete="new-password" minlength="6" maxlength="200" placeholder="Не короче 6 символов">
+                  <button type="button" id="profile-new-password-toggle" class="btn btn-outline btn-sm" title="Показать">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" id="profile-password-save" class="btn btn-primary">Сменить пароль</button>
+                <span id="profile-password-status" class="profile-status-msg" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
         </div>
 
         <aside class="profile-aside">

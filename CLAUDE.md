@@ -218,6 +218,7 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET/POST /api/mappings/*` | `X-API-Key` | nomenclature mapping CRUD |
 | `POST /api/upload` | `X-API-Key` | dashboard photo upload (rate-limited) |
 | `GET/PATCH /api/profile` | `X-API-Key` | user notification config |
+| `POST /api/profile/password` (`{password}`) | `X-API-Key` | смена своего пароля из Профиля: без старого пароля и без письма (решение владельца 2026-11-04), 6–200 символов, пользователь — только из ключа; ключ API не меняется |
 | `POST /api/profile/test-telegram` | `X-API-Key` | sends a test message |
 | `POST /api/profile/lookup-telegram-chat-id` | `X-API-Key` | finds chat_id via Bot API (after user wrote /start), DMs it back |
 | `GET /api/settings/analyzer` | `X-API-Key` | OCR mode; секреты видны только `admin` |
