@@ -201,7 +201,9 @@ const InvoiceReview = {
     issues(inv, d) {
         const out = [];
         if (inv.status === 'error')
-            out.push('Ошибка распознавания — проверьте скан или пересканируйте (меню «⋯»)');
+            out.push(App.isXmlInvoice(inv)
+                ? (inv.error_message || 'Файл не разобран — документ повреждён. Загрузите его заново')
+                : `Ошибка распознавания${inv.error_message ? ': ' + inv.error_message : ''} — проверьте скан или пересканируйте (меню «⋯»)`);
         if (!d)
             return out;
         if (d.missing_header.length)

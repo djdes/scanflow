@@ -14,7 +14,11 @@ const RecognitionQueue = {
         const h = pending.find(h => Number(h.jobId) === receipt.id);
         if (!h) continue;
         h.invoiceId = receipt.invoice_id; h.queueError = receipt.last_error; h.serverState = receipt.state;
-        if (receipt.state === 'completed') {
+        if (receipt.state === 'completed' && receipt.last_error) {
+          // Окончательная ошибка (битый XML): повтор не поможет — показываем причину, без автоповтора.
+          h.status = 'error'; h.error = receipt.last_error; h.autoRetry = false;
+          if (h.id) Upload.dbDelete(h.id).catch(() => {});
+        } else if (receipt.state === 'completed') {
           h.status = 'ok';
           if (receipt.invoice_id) Upload._checkElevatedPrices(Upload.history.indexOf(h), receipt.invoice_id).catch(() => {});
         }
