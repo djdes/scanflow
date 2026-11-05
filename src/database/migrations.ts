@@ -2699,6 +2699,24 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    version: 94,
+    name: 'Сбер: клиентский TLS-сертификат в sber_app — загрузка из кабинета и срок действия',
+    // Сертификат Sber API живёт 12 месяцев и продлевается только выпуском нового
+    // в личном кабинете (docs/superpowers/specs/2026-11-05-sber-tls-cert-design.md).
+    // Файл .p12 (base64) и пароль — зашифрованы sealSecret, срок — UTC.
+    detect: async (exec) =>
+      (await hasColumn(exec, 'sber_app', 'tls_pfx_enc'))
+      && (await hasColumn(exec, 'sber_app', 'tls_set_at')),
+    run: async (exec) => {
+      const t = 'sber_app';
+      if (!(await hasColumn(exec, t, 'tls_pfx_enc'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN tls_pfx_enc MEDIUMTEXT NULL`);
+      if (!(await hasColumn(exec, t, 'tls_pass_enc'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN tls_pass_enc TEXT NULL`);
+      if (!(await hasColumn(exec, t, 'tls_valid_to'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN tls_valid_to DATETIME NULL`);
+      if (!(await hasColumn(exec, t, 'tls_subject'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN tls_subject VARCHAR(255) NULL`);
+      if (!(await hasColumn(exec, t, 'tls_set_at'))) await exec.query(`ALTER TABLE ${t} ADD COLUMN tls_set_at DATETIME NULL`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

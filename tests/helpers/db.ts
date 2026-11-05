@@ -99,6 +99,8 @@ export async function resetDb(): Promise<mysql.Pool> {
     'onec_nomenclature',
     'sber_tokens',
     'sber_connections',
+    // Секрет приложения и TLS-сертификат Sber API (миграции 74, 94) — платформенная строка.
+    'sber_app',
     'suppliers',
     'supplier_cards',
     'supplier_extract_jobs',
