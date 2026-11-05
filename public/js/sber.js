@@ -40,6 +40,16 @@ const Sber = {
       : autoOk
         ? `<div class="sber-auth-ok">✓ Доступ обновляется автоматически (последний раз ${this._fmtDate(a.last_refresh_at)})</div>`
         : '<div class="muted">Автообновление ещё не проверялось — нажмите «Обновить доступ сейчас».</div>';
+    const tls = a.tls || {};
+    const tlsLine = tls.source === 'none' || !tls.source
+      ? '<b style="color:#dc2626">не найден</b>'
+      : tls.days_left == null
+        ? 'срок не удалось прочитать'
+        : tls.days_left < 0
+          ? `<b style="color:#dc2626">истёк ${this._fmtDay(tls.valid_to)}</b>`
+          : tls.days_left <= 60
+            ? `<b style="color:${tls.days_left <= 14 ? '#dc2626' : '#d97706'}">до ${this._fmtDay(tls.valid_to)} — осталось ${tls.days_left} дн., выпустите новый</b>`
+            : `до ${this._fmtDay(tls.valid_to)} <span class="muted">(осталось ${tls.days_left} дн.)</span>`;
     const secretLine = sec.perpetual
       ? '<b style="color:var(--green,#16a34a)">бессрочный ✓</b>'
       : sec.source === 'db' && sec.days_left != null
@@ -53,6 +63,7 @@ const Sber = {
           <span class="muted">Токен доступа до</span><span>${this._fmtDate(a.access_expires_at)}</span>
           <span class="muted">Токен обновления до</span><span>${this._fmtDate(a.refresh_expires_at)} <span class="muted">(продлевается при каждом обновлении)</span></span>
           <span class="muted">Ключ приложения (client_secret)</span><span>${secretLine}</span>
+          <span class="muted">TLS-сертификат</span><span>${tlsLine}</span>
         </div>
         ${sec.last_error ? `<div class="sber-auth-warn" style="margin-top:6px">Последняя ошибка ключа: ${App.esc(sec.last_error)}</div>` : ''}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
@@ -70,7 +81,46 @@ const Sber = {
             <div><button class="btn btn-soft btn-sm" type="submit">Сохранить ключ</button></div>
           </form>
         </details>
+        <details class="help-block" style="margin-top:10px"${tls.days_left != null && tls.days_left <= 60 ? ' open' : ''}>
+          <summary>TLS-сертификат — заменить</summary>
+          <p class="field-hint" style="margin:8px 0">Сбер выдаёт сертификат на 12 месяцев, продлить его автоматически нельзя. За 60 дней до конца ScanFlow напомнит в Telegram и письмом.
+            Чтобы заменить: СберБизнес → <b>Sber API</b> → ваш сервис → «Сертификаты шифрования» → <b>«Сгенерировать сертификат»</b>, задайте пароль, скачайте файл .p12 и загрузите его сюда.
+            Старый сертификат продолжит действовать до своего срока, так что менять можно заранее.</p>
+          <form id="sber-tls-form" style="display:grid;gap:8px;max-width:480px;margin-top:12px">
+            <label>Файл сертификата (.p12)<input type="file" name="pfx" accept=".p12,.pfx,application/x-pkcs12" required></label>
+            <label>Пароль от сертификата<input type="password" name="password" autocomplete="new-password" required></label>
+            <div><button class="btn btn-soft btn-sm" type="submit">Проверить и заменить</button></div>
+          </form>
+        </details>
       </div>`;
+  },
+
+  _fmtDay(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  },
+
+  async uploadTls(e) {
+    e.preventDefault();
+    const form = e.target;
+    const file = form.querySelector('[name="pfx"]').files?.[0];
+    const password = form.querySelector('[name="password"]').value;
+    if (!file) { App.notify('Выберите файл сертификата .p12', 'error'); return; }
+    const btn = form.querySelector('button[type="submit"]');
+    await App.withBusyButton(btn, async () => {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        const { data } = await App.apiJson('/sber/tls-cert', { method: 'POST', body: { pfx_base64: btoa(bin), password } });
+        const until = data.tls?.valid_to ? ` — действует до ${this._fmtDay(data.tls.valid_to)}` : '';
+        App.notify(`Сертификат заменён${until}${data.note ? `. ${data.note}` : ''}`, data.note ? 'info' : 'success');
+        await this.load();
+      } catch (err) {
+        App.notify(err.message || 'Не удалось заменить сертификат', 'error');
+      }
+    });
   },
 
   async refreshNow(btn) {
@@ -182,6 +232,7 @@ const Sber = {
     document.getElementById('sber-token-form').addEventListener('submit', (e) => Sber.saveSeed(e));
     document.getElementById('sber-payer-form').addEventListener('submit', (e) => Sber.savePayer(e));
     document.getElementById('sber-secret-form')?.addEventListener('submit', (e) => Sber.saveSecret(e));
+    document.getElementById('sber-tls-form')?.addEventListener('submit', (e) => Sber.uploadTls(e));
   },
 
   // Пошаговая инструкция «где взять токен на СберБизнес». Используется и в

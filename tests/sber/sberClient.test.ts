@@ -14,8 +14,11 @@ vi.mock('node:fs', async () => {
   };
 });
 
+vi.mock('../../src/sber/tlsStore', () => ({ loadStoredTls: vi.fn(async () => null) }));
+
 import https from 'node:https';
-import { sberFetch, _resetTlsCache } from '../../src/sber/sberClient';
+import { sberFetch, _resetTlsCache, activeTls } from '../../src/sber/sberClient';
+import { loadStoredTls } from '../../src/sber/tlsStore';
 
 function fakeResponse(status: number, body: string) {
   const res = new EventEmitter() as EventEmitter & { statusCode: number; headers: object };
@@ -110,5 +113,49 @@ describe('sberFetch', () => {
     delete process.env.SBER_TLS_PFX;
     _resetTlsCache();
     await expect(sberFetch('https://x.test/y')).rejects.toThrow(/SBER_TLS_PFX/);
+  });
+
+  it('без файла в .env берёт сертификат, загруженный через кабинет', async () => {
+    delete process.env.SBER_TLS_PFX;
+    vi.mocked(loadStoredTls).mockResolvedValueOnce({
+      pfx: Buffer.from('DB-PFX'), passphrase: 'db-pass', source: 'db', validTo: new Date('2027-11-01T00:00:00Z'),
+    });
+    const req = makeReq();
+    (https.request as unknown as ReturnType<typeof vi.fn>).mockImplementation((_opts: object, cb: (r: unknown) => void) => {
+      cb(fakeResponse(200, '{}'));
+      return req;
+    });
+    await sberFetch('https://fintech.sberbank.ru:9443/x');
+    const opts = (https.request as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.passphrase).toBe('db-pass');
+    expect(String(opts.pfx)).toBe('DB-PFX');
+  });
+
+  it('файл и БД — берёт тот, у которого срок известен и дольше', async () => {
+    // Файл из мока fs не разбирается как .p12 (срок неизвестен) — выигрывает БД.
+    vi.mocked(loadStoredTls).mockResolvedValueOnce({
+      pfx: Buffer.from('DB-PFX'), passphrase: 'db-pass', source: 'db', validTo: new Date('2027-11-01T00:00:00Z'),
+    });
+    const active = await activeTls();
+    expect(active?.source).toBe('db');
+  });
+
+  it('сбой чтения БД — работает файл из .env, как раньше', async () => {
+    vi.mocked(loadStoredTls).mockRejectedValueOnce(new Error('db down'));
+    const active = await activeTls();
+    expect(active?.source).toBe('file');
+    expect(active?.passphrase).toBe('pwd');
+  });
+
+  it('options.tls подменяет сертификат на один запрос', async () => {
+    const req = makeReq();
+    (https.request as unknown as ReturnType<typeof vi.fn>).mockImplementation((_opts: object, cb: (r: unknown) => void) => {
+      cb(fakeResponse(200, '{}'));
+      return req;
+    });
+    await sberFetch('https://fintech.sberbank.ru:9443/x', { tls: { pfx: Buffer.from('NEW'), passphrase: 'new-pass' } });
+    const opts = (https.request as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.passphrase).toBe('new-pass');
+    expect(String(opts.pfx)).toBe('NEW');
   });
 });

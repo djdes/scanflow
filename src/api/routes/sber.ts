@@ -10,6 +10,8 @@ import { fetchClientInfo } from '../../sber/clientInfo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { secretStatus, setClientSecretFromUser, makeSecretPerpetual, sqlUtc, parseDbUtc } from '../../sber/appCredentials';
 import { pollSberPaymentStatuses, refreshExpiresAt } from '../../services/sberMaintenance';
+import { tlsStatus, installTlsCert, fmtRuDate } from '../../services/sberTls';
+import { TlsCertError } from '../../sber/tlsCert';
 
 const router = Router();
 
@@ -220,8 +222,36 @@ router.get('/status', async (req: Request, res: Response) => {
       last_refresh_at: parseDbUtc(t.last_refresh_at ?? null)?.toISOString() ?? null,
       last_refresh_error: t.last_refresh_error ?? null,
       secret: await secretStatus(),
+      tls: await tlsStatus(),
     },
   });
+});
+
+// POST /api/sber/tls-cert — { pfx_base64, password } — новый TLS-сертификат
+// Sber API (.p12) из личного кабинета. Перед заменой проверяется срок и связь со
+// Сбером этим сертификатом; не прошёл — 400 с причиной, текущий не трогается.
+// Файл и пароль не логируются и наружу не отдаются.
+const MAX_PFX_BYTES = 200 * 1024;
+router.post('/tls-cert', requireAdmin, async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as { pfx_base64?: unknown; password?: unknown };
+  const password = typeof body.password === 'string' ? body.password : '';
+  const b64 = typeof body.pfx_base64 === 'string' ? body.pfx_base64.replace(/^data:[^,]*,/, '').trim() : '';
+  if (!b64) return res.status(400).json({ error: 'Выберите файл сертификата .p12' });
+  if (!password) return res.status(400).json({ error: 'Введите пароль от сертификата' });
+  const pfx = Buffer.from(b64, 'base64');
+  if (!pfx.length || pfx.length > MAX_PFX_BYTES) return res.status(400).json({ error: 'Файл не похож на сертификат .p12' });
+  try {
+    const r = await installTlsCert({ pfx, password, ownerUserId: ownerOf(req) });
+    void logIntegrationEvent({
+      integration: 'sber', event_type: 'config_changed',
+      summary: `Сбербанк: загружен новый TLS-сертификат${r.status.valid_to ? ` (действует до ${fmtRuDate(new Date(r.status.valid_to))})` : ''}`,
+    });
+    return res.json({ data: { tls: r.status, note: r.note ?? null } });
+  } catch (err) {
+    if (err instanceof TlsCertError) return res.status(400).json({ error: err.message });
+    logger.error('[sber] TLS certificate upload failed', { error: (err as Error).message });
+    return res.status(500).json({ error: 'Не удалось сохранить сертификат' });
+  }
 });
 
 // POST /api/sber/client-secret — { client_secret, make_perpetual? } — новый секрет

@@ -49,6 +49,18 @@ export async function sendOwnerAlert(
   }
 }
 
+/** Записать, что оповещение вида kind ушло другим путём (письмо) — для того же интервала. Не бросает. */
+export async function markOwnerAlert(ownerUserId: number, kind: string, detail: string): Promise<void> {
+  try {
+    await getDb().prepare(`
+      INSERT INTO owner_alerts (owner_user_id, kind, last_sent_at, detail) VALUES (?, ?, UTC_TIMESTAMP(), ?)
+      ON DUPLICATE KEY UPDATE last_sent_at = UTC_TIMESTAMP(), detail = VALUES(detail)
+    `).run(ownerUserId, kind, detail.slice(0, 500));
+  } catch (err) {
+    logger.warn('owner alert mark failed', { ownerUserId, kind, error: (err as Error).message });
+  }
+}
+
 /** Когда этому владельцу в последний раз ушло оповещение вида kind (мс эпохи), null — не уходило. */
 export async function lastOwnerAlertMs(ownerUserId: number, kind: string): Promise<number | null> {
   const row = await getDb().prepare('SELECT last_sent_at FROM owner_alerts WHERE owner_user_id = ? AND kind = ?')
