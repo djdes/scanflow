@@ -44,7 +44,9 @@ src/
   golden/           v2: эталоны — перераспознать фото эталонных накладных и сравнить
   xml/              электронные УПД / счёт-фактура / ТОРГ-12 в формате ФНС → ParsedInvoiceData (без OCR)
 
-public/             vanilla SPA — app.html is the shell, sections toggled by JS in app.js
+public/             vanilla SPA — app.html is the shell, sections toggled by JS in app.js;
+                    mobile.html (+ js/mobile*.js, css/mobile.css, sw.js) — простое приложение /m/ (правило 48)
+android/            Trusted Web Activity над /m/ (APK), сборка — .github/workflows/android.yml
 1c/КНД_ЗагрузкаНакладныхСканер/  EDT export of the 1C external processing (.epf source)
 docs/               extended docs and archives; not loaded into Claude context automatically
 tests/              vitest, mirrors src/ structure
@@ -204,6 +206,8 @@ First start with empty `users` table prints a one-time random admin password to 
 
 47. **Синхронизация каталогов 1С (`admin` и `zakupki`) — напрямую через MCP (`src/integration/onecCatalogMcp.ts`).** Компания `1` (`admin`) синхронизируется с базой **1С MAG** (`/mcp-1c/hs/mcp-1c`, пользователь `Админ`), компания `3` (`zakupki`) — с базой **1С SUB** (`/mcp-1c-subprod/hs/mcp-1c`, пользователь `Директор`). Синхронизация идёт автоматически при деплое (`check-onec-usage.ts`), при старте сервера, каждые 30 минут по расписанию, после создания документа в 1С и по кнопке «Синхронизировать с 1С» (`POST /api/nomenclature/sync-mcp`). Выгружаются все рабочие категории и все папки (`ЭтоГруппа = Истина`), кроме помеченных на удаление и 5 архивных категорий (`Списанное`, `Резерв Сезонное`, `SubExpress-Архив`, `РЕЗЕРВ`, `ПРОРАБОТКА`). Если для компании настроен MCP-источник, `DELETE /api/onec/exchange/nomenclature` от старой внешней обработки `.epf` перехватывается и не стирает полный справочник.
 
+48. **Мобильное приложение — `/m/` (PWA), APK — обёртка над ним; на iPhone — PWA** (спек `docs/superpowers/specs/2026-11-06-mobile-app-design.md`). Главное правило владельца: **крупно, простыми словами, коротко; основное сразу, дополнительное — под кнопкой «Ещё»** (текст 18 px, кнопки от 60 px, одна залитая кнопка на экране, на кнопке до трёх слов). Статусы словами телефона — чистая `MobileCore.invoiceState` (`public/js/mobile-core.js`, порядок проверок как у `_onecPill`, тесты `tests/frontend/mobileCore.test.ts`). «Отправить в 1С» предлагается только без `review_reason` — поэтому `GET /api/invoices/:id` отдаёт `review_reason` (то же `REVIEW_REASON_SQL`, что у списка): без него непроверенная накладная выглядела бы «Готовой». Отправка фото — **тот же `upload.js`** кабинета (очередь в IndexedDB, повторы, обход WebKit 319985 — правило 44) через прослойку `App` в `mobile.js`; свою отправку не писать. «Выйти» удаляет неотправленные фото с устройства, иначе они ушли бы под ключом следующего входа. Service worker `public/sw.js` — область `/m/`, только оболочка, сначала сеть (4 с) → кеш; `/api/*` не перехватывает. Меняете список файлов оболочки — меняйте `CACHE` (`sf-m-vN`). Манифест: `start_url`/`id` `/m/`, `scope` `/` — переход в полный кабинет остаётся в приложении с тем же входом; в мобильной шапке кабинета ссылка «Простой режим» (на iPhone в установленном приложении нет «Назад»). Старые `/camera`, `/camera.html` → 301 на `/m/`. APK (`android/`, `ru.scanflow.app`, TWA): собирает `.github/workflows/android.yml` при правках `android/`; ключ подписи — на сервере `~/scanflow-android/` (первая сборка создаёт сам), APK и отпечаток — в `data/downloads/` → `/downloads/scanflow.apk` и `/.well-known/assetlinks.json` (`src/api/mobileRoutes.ts`; доп. отпечатки — env `ANDROID_CERT_SHA256`). Порядок и резервная копия ключа — `docs/runbooks/android-apk.md`. Отдельного приложения для iPhone нет и не нужно: Mac + аккаунт Apple Developer, а App Store отклоняет обёртки сайта (4.2); PWA «На экран Домой» даёт то же.
+
 ## API surface (mounted in `src/api/server.ts`)
 
 **Помощник по товарам — необязательное подключение каждой компании** (`product_assistant_connections`, миграция 93; Профиль → Помощник по товарам). Шеф MAG — только одно из подключений, не общий бот для всех пользователей. Контракт для любых ботов: [`docs/product-assistant-api.md`](docs/product-assistant-api.md). `src/integration/productAssistant.ts` вызывает только разрешённые сервером `PRODUCT_ASSISTANT_ALLOWED_ORIGINS`; токены зашифрованы от `JWT_SECRET` с отдельным purpose владельца и не возвращаются в браузер. `actor_id`, `company_id` и контекст строки формирует backend. Поиск/ответ сверяются с каталогом владельца и «Не это»; консультация в UI отправляет `auto_learn=false`. Ручной выбор можно записать в общую базу знаний этой компании после сохранения строки. Без бота и при его сбое обычный каталог остаётся доступен.
@@ -245,7 +249,8 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET /magic/:token` + `POST /magic/:token/consume` | one-time token | вход по magic-ссылке из письма |
 | `GET /blog`, `/blog/:slug`, `/sitemap.xml` | none | SEO-блог и карта сайта |
 | `GET /privacy`, `/consent`, `/terms` | none | правовые документы: шаблоны `public/legal/`, реквизиты из env `LEGAL_OPERATOR_*` (правило 45) |
-| `GET /camera` | none (LAN) | mobile camera page |
+| `GET /m/` | none (вход внутри) | мобильное приложение (PWA); `/m`, `/camera`, `/camera.html` → 301 сюда (правило 48) |
+| `GET /.well-known/assetlinks.json`, `GET /downloads/scanflow.apk` | none | подтверждение ключа APK и сам APK из `data/downloads/` (404, пока не собран) |
 | `GET/PUT /api/settings/engine-flags` | `X-API-Key` (запись — admin) | флаги движков v2 |
 | `GET /api/invoices/:id/edits`, `POST /:id/restore-snapshot` | `X-API-Key` | журнал правок, откат шапки из снимка |
 | `POST /api/invoices/:id/items/:itemId/{reconvert,revert-raw,unit-rule}`, `GET …/candidates` | `X-API-Key` | пересчёт строки, «как в накладной», «запомнить», кандидаты 1С |
