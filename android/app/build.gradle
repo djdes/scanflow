@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Подпись и номер версии приходят из окружения (.github/workflows/android.yml):
+// SF_KEYSTORE, SF_KEYSTORE_PASSWORD, SF_KEY_ALIAS, SF_KEY_PASSWORD,
+// SF_VERSION_CODE, SF_VERSION_NAME. Без ключа release собирается неподписанным.
+def env = System.getenv()
+def hasKeystore = env.SF_KEYSTORE != null && !env.SF_KEYSTORE.isEmpty()
+
+android {
+    namespace 'ru.scanflow.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'ru.scanflow.app'
+        minSdk 26
+        targetSdk 36
+        versionCode Integer.parseInt(env.SF_VERSION_CODE ?: '1')
+        versionName env.SF_VERSION_NAME ?: '1.0'
+    }
+
+    signingConfigs {
+        release {
+            if (hasKeystore) {
+                storeFile file(env.SF_KEYSTORE)
+                storePassword env.SF_KEYSTORE_PASSWORD
+                keyAlias env.SF_KEY_ALIAS
+                keyPassword env.SF_KEY_PASSWORD
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            if (hasKeystore) signingConfig signingConfigs.release
+        }
+    }
+
+    // Переводы библиотек, кроме русского и английского, приложению не нужны.
+    androidResources {
+        localeFilters += ['ru', 'en']
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.4'
+}
