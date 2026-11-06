@@ -91,32 +91,37 @@ describe('форматы', () => {
 });
 
 describe('uploadSummary — полоса отправки', () => {
+  const bar = (tone: string, text: string, extra: Record<string, boolean> = {}) => ({ tone, text, retry: false, dismiss: false, ...extra });
   it('нечего показывать', () => {
     expect(core.uploadSummary([], true)).toBeNull();
     expect(core.uploadSummary([{ status: 'ok' }, { status: 'removed' }], true)).toBeNull();
   });
   it('отправляем', () => {
-    expect(core.uploadSummary([{ status: 'uploading' }, { status: 'queued' }], true))
-      .toEqual({ tone: 'blue', text: 'Отправляем 2 фото…' });
+    expect(core.uploadSummary([{ status: 'uploading' }, { status: 'queued' }], true)).toEqual(bar('blue', 'Отправляем 2 фото…'));
   });
   it('нет интернета — фото сохранены', () => {
-    expect(core.uploadSummary([{ status: 'error' }], false))
-      .toEqual({ tone: 'amber', text: 'Нет интернета. Фото сохранены — отправим сами.' });
+    expect(core.uploadSummary([{ status: 'error', autoRetry: true }], false))
+      .toEqual(bar('amber', 'Нет интернета. Фото сохранены — отправим сами.'));
   });
-  it('ошибка отправки при сети', () => {
-    expect(core.uploadSummary([{ status: 'error' }, { status: 'lost' }], true))
-      .toEqual({ tone: 'red', text: 'Не отправилось 2 фото. Повторим сами.' });
+  it('сбой связи при сети — повторим сами, можно повторить сразу', () => {
+    expect(core.uploadSummary([{ status: 'error', autoRetry: true }, { status: 'error', autoRetry: true }], true))
+      .toEqual(bar('red', 'Не отправилось 2 фото. Повторим сами.', { retry: true }));
+  });
+  it('окончательная ошибка — причина и «Убрать», без обещания повторить', () => {
+    expect(core.uploadSummary([{ status: 'error', autoRetry: false, error: 'Файл больше 20 МБ' }], true))
+      .toEqual(bar('red', 'Не отправилось 1 фото. Файл больше 20 МБ.', { dismiss: true }));
+    expect(core.uploadSummary([{ status: 'lost', error: 'x' }, { status: 'error' }], false))
+      .toEqual(bar('red', 'Не отправилось 2 фото.', { dismiss: true }));
   });
   it('сервер принял, читаем', () => {
-    expect(core.uploadSummary([{ status: 'server_queued' }, { status: 'processing' }], true))
-      .toEqual({ tone: 'blue', text: 'Читаем 2 фото…' });
+    expect(core.uploadSummary([{ status: 'server_queued' }, { status: 'processing' }], true)).toEqual(bar('blue', 'Читаем 2 фото…'));
   });
   it('очередь сервера видна и после перезапуска приложения', () => {
-    expect(core.uploadSummary([], true, 3)).toEqual({ tone: 'blue', text: 'Читаем 3 фото…' });
-    expect(core.uploadSummary([{ status: 'server_queued' }], true, 0)).toEqual({ tone: 'blue', text: 'Читаем 1 фото…' });
+    expect(core.uploadSummary([], true, 3)).toEqual(bar('blue', 'Читаем 3 фото…'));
+    expect(core.uploadSummary([{ status: 'server_queued' }], true, 0)).toEqual(bar('blue', 'Читаем 1 фото…'));
   });
   it('чтение на паузе — не «читаем», а «прочитаем позже»', () => {
-    expect(core.uploadSummary([], true, 2, false)).toEqual({ tone: 'amber', text: 'Фото сохранены (2). Прочитаем позже.' });
+    expect(core.uploadSummary([], true, 2, false)).toEqual(bar('amber', 'Фото сохранены (2). Прочитаем позже.'));
   });
 });
 

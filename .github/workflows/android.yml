@@ -26,13 +26,16 @@ permissions:
   contents: read
 
 concurrency:
-  # Две сборки main подряд не должны одновременно создавать ключ.
+  # Подписанные сборки (только main) идут строго по одной: ключ создаётся один раз.
   group: android-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GRADLE_VERSION: '8.14.3'
   BUILD_TOOLS: '36.0.0'
+  # Подписанный APK и выкладка на сервер — только из main (push или ручной
+  # запуск). Ручной запуск на другой ветке собирает проверочный debug.
+  RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
 
 jobs:
   apk:
@@ -56,13 +59,13 @@ jobs:
         # «yes» получает SIGPIPE, когда sdkmanager закончил, — при pipefail это не ошибка.
         run: (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;${BUILD_TOOLS}" > /dev/null
 
-      # ── PR: проверочная сборка без ключа ──────────────────────────────
+      # ── PR и ветки: проверочная сборка без ключа ──────────────────────
       - name: Debug build
-        if: github.event_name == 'pull_request'
+        if: env.RELEASE != 'true'
         run: gradle -p android --no-daemon assembleDebug
 
       - name: Upload debug APK
-        if: github.event_name == 'pull_request'
+        if: env.RELEASE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: scanflow-debug-apk
@@ -71,7 +74,7 @@ jobs:
 
       # ── main: подписанный APK на сервер ───────────────────────────────
       - name: Setup SSH
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -80,7 +83,7 @@ jobs:
           ssh-keyscan -p ${{ secrets.SSH_PORT }} -T 10 ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>&1 || echo "keyscan failed, relying on accept-new"
 
       - name: Signing key (from the server, created on first run)
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         env:
           SSH_TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
@@ -99,10 +102,13 @@ jobs:
               -keyalg RSA -keysize 3072 -validity 10000 \
               -storepass "$NEW_PASS" -keypass "$NEW_PASS" \
               -dname "CN=ScanFlow, O=ScanFlow, C=RU" > /dev/null
-            remote 'umask 077 && mkdir -p ~/scanflow-android && cat > ~/scanflow-android/release.p12.new' < "$SIGN/new.p12"
-            remote 'umask 077 && cat > ~/scanflow-android/password.new' < "$SIGN/new-password"
-            # Не затирать ключ, если он появился за это время: им уже могли подписать APK.
-            remote 'cd ~/scanflow-android && if [ -s release.p12 ]; then rm -f release.p12.new password.new; else mv password.new password && mv release.p12.new release.p12; fi'
+            # Ключ и пароль — во временный каталог этого запуска, затем на место
+            # одной командой. Ключ, который уже есть, не затирать: им могли
+            # подписать APK, и без него обновление не встанет поверх.
+            TMP="~/scanflow-android/.new-${GITHUB_RUN_ID}"
+            remote "umask 077 && mkdir -p $TMP && cat > $TMP/release.p12" < "$SIGN/new.p12"
+            remote "umask 077 && cat > $TMP/password" < "$SIGN/new-password"
+            remote "cd ~/scanflow-android && if [ -s release.p12 ]; then rm -rf $TMP; else mv $TMP/password password && mv $TMP/release.p12 release.p12 && rmdir $TMP; fi"
           fi
 
           # Подписываем всегда тем, что лежит на сервере.
@@ -118,14 +124,14 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Release build
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         run: |
           export SF_VERSION_CODE="${{ github.run_number }}"
           export SF_VERSION_NAME="$(date -u +%Y.%m.%d).${{ github.run_number }}"
           gradle -p android --no-daemon assembleRelease
 
       - name: Verify signature
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         id: sig
         run: |
           set -euo pipefail
@@ -136,7 +142,7 @@ jobs:
           echo "fingerprint=$FP" >> "$GITHUB_OUTPUT"
 
       - name: Publish to the server
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         env:
           SSH_TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
@@ -149,7 +155,7 @@ jobs:
           remote "cd $DIR && mv scanflow.apk.new scanflow.apk && printf '%s\n' '$FP' > android-cert-sha256.txt"
 
       - name: Upload release APK
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: scanflow-apk
@@ -157,7 +163,7 @@ jobs:
           retention-days: 30
 
       - name: Summary
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         run: |
           {
             echo "### APK ScanFlow"

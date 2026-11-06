@@ -73,17 +73,25 @@ const MobileCore = {
    * Одна строка о фото на устройстве; null — показывать нечего. serverQueued —
    * задания компании в очереди сервера (видны и после перезапуска приложения),
    * aiAvailable=false — чтение на паузе (нет связи с моделью, лимит).
+   * retry — показать «Повторить», dismiss — «Убрать»: окончательные ошибки
+   * (плохой файл, фото другого входа, потерянное) сами не повторятся.
    */
   uploadSummary(history, online, serverQueued = 0, aiAvailable = true) {
     const count = (...st) => history.filter(h => st.includes(h.status)).length;
-    const failed = count('error', 'lost');
+    const retrying = history.filter(h => h.status === 'error' && h.autoRetry).length;
+    const final = history.filter(h => (h.status === 'error' && !h.autoRetry) || h.status === 'lost');
     const sending = count('queued', 'uploading');
     const reading = Math.max(count('server_queued', 'processing'), Number(serverQueued) || 0);
-    if (failed && !online) return { tone: 'amber', text: 'Нет интернета. Фото сохранены — отправим сами.' };
-    if (sending) return { tone: 'blue', text: `Отправляем ${sending} фото…` };
-    if (failed) return { tone: 'red', text: `Не отправилось ${failed} фото. Повторим сами.` };
-    if (reading && !aiAvailable) return { tone: 'amber', text: `Фото сохранены (${reading}). Прочитаем позже.` };
-    if (reading) return { tone: 'blue', text: `Читаем ${reading} фото…` };
+    const bar = (tone, text, extra = {}) => ({ tone, text, retry: false, dismiss: false, ...extra });
+    if (retrying && !online) return bar('amber', 'Нет интернета. Фото сохранены — отправим сами.');
+    if (sending) return bar('blue', `Отправляем ${sending} фото…`);
+    if (final.length) {
+      const reason = final.length === 1 && final[0].error ? ` ${String(final[0].error).replace(/\.?$/, '.')}` : '';
+      return bar('red', `Не отправилось ${final.length} фото.${reason}`, { dismiss: true });
+    }
+    if (retrying) return bar('red', `Не отправилось ${retrying} фото. Повторим сами.`, { retry: true });
+    if (reading && !aiAvailable) return bar('amber', `Фото сохранены (${reading}). Прочитаем позже.`);
+    if (reading) return bar('blue', `Читаем ${reading} фото…`);
     return null;
   },
 
