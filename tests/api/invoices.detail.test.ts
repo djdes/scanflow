@@ -111,6 +111,26 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('GET /api/invoices/
     expect(item.price_deviation_pct).toBeNull();
   });
 
+  // Мобильное приложение решает по review_reason, предлагать ли «Отправить в 1С»:
+  // карточка должна отдавать ту же причину, что и список.
+  it('returns the same review_reason as the list', async () => {
+    const key = await setupUser();
+    const inv = await createInvoice('2026-02-01');
+    await getDb().prepare(
+      `UPDATE invoices SET invoice_number = 'A-1', supplier = 'ООО Тест', supplier_inn = '7700000000', total_sum = 200 WHERE id = ?`,
+    ).run(inv);
+    await addItem(inv, { price: 200, unit: 'кг', guid: null });
+
+    const detail = await request(app).get(`/api/invoices/${inv}`).set('X-API-Key', key);
+    const list = await request(app).get('/api/invoices').set('X-API-Key', key);
+    expect(detail.body.data.review_reason).toBe('mapping');
+    expect(list.body.data.find((row: { id: number }) => row.id === inv).review_reason).toBe('mapping');
+
+    await getDb().prepare(`UPDATE invoice_items SET onec_guid = 'g1' WHERE invoice_id = ?`).run(inv);
+    const fixed = await request(app).get(`/api/invoices/${inv}`).set('X-API-Key', key);
+    expect(fixed.body.data.review_reason).toBeNull();
+  });
+
   it('returns null for items without onec_guid', async () => {
     const key = await setupUser();
     const inv = await createInvoice('2026-02-01');
