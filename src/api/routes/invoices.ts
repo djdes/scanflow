@@ -600,6 +600,10 @@ router.get('/:id', async (req: Request, res: Response) => {
   // соседей с разными числами — показать предупреждение над таблицей.
   (enriched as typeof enriched & { alignment_problems: string[] }).alignment_problems =
     await storedAlignmentProblems(id).catch(() => []);
+  // Та же причина «Проверить», что в списке: мобильное приложение (/m/) по ней
+  // решает, предлагать ли «Отправить в 1С».
+  (enriched as typeof enriched & { review_reason: string | null }).review_reason =
+    await invoiceRepo.reviewReason(id);
 
   res.json({ data: { ...enriched, completeness: invoiceCompleteness(raw) } });
 });

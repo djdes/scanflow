@@ -1060,6 +1060,18 @@ export const invoiceRepo = {
     return !!row;
   },
 
+  /**
+   * Почему накладную надо проверить (`total`, `mapping`, …) или null — то же
+   * правило, что у списка и карточек-фильтров (REVIEW_REASON_SQL). Карточке
+   * оно нужно, чтобы не предлагать «Отправить в 1С» непроверенной накладной.
+   */
+  async reviewReason(id: number): Promise<string | null> {
+    const row = await getDb().prepare(
+      `SELECT (${REVIEW_REASON_SQL}) AS review_reason FROM invoices WHERE invoices.id = ?`,
+    ).get<{ review_reason: string | null }>(id);
+    return row?.review_reason ?? null;
+  },
+
   async getWithItems(id: number): Promise<(Invoice & { items: Array<InvoiceItem & { median_price: number | null; median_price_unit: string | null; median_samples: number | null }> }) | undefined> {
     const invoice = await this.getById(id);
     if (!invoice) return undefined;
