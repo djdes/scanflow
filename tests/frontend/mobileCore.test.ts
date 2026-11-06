@@ -73,6 +73,14 @@ describe('форматы', () => {
     expect(core.formatShortDate('2026-11-05', now)).toBe('05.11');
     expect(core.formatShortDate('2025-12-31 10:00:00', now)).toBe('31.12.2025');
     expect(core.formatShortDate(null, now)).toBe('');
+    expect(core.formatDate('2026-11-05')).toBe('05.11.2026');
+    expect(core.formatDate(undefined)).toBe('');
+  });
+
+  it('читается — только пока статус в работе', () => {
+    expect(core.isReading({ status: 'ocr_processing' })).toBe(true);
+    expect(core.isReading({ status: 'processed' })).toBe(false);
+    expect(core.isReading({ status: 'waiting_ai' })).toBe(false);
   });
 
   it('множественное число', () => {
@@ -102,6 +110,13 @@ describe('uploadSummary — полоса отправки', () => {
   it('сервер принял, читаем', () => {
     expect(core.uploadSummary([{ status: 'server_queued' }, { status: 'processing' }], true))
       .toEqual({ tone: 'blue', text: 'Читаем 2 фото…' });
+  });
+  it('очередь сервера видна и после перезапуска приложения', () => {
+    expect(core.uploadSummary([], true, 3)).toEqual({ tone: 'blue', text: 'Читаем 3 фото…' });
+    expect(core.uploadSummary([{ status: 'server_queued' }], true, 0)).toEqual({ tone: 'blue', text: 'Читаем 1 фото…' });
+  });
+  it('чтение на паузе — не «читаем», а «прочитаем позже»', () => {
+    expect(core.uploadSummary([], true, 2, false)).toEqual({ tone: 'amber', text: 'Фото сохранены (2). Прочитаем позже.' });
   });
 });
 
