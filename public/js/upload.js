@@ -103,6 +103,20 @@ const Upload = {
     }
   },
 
+  // ====================  Чьё фото  ====================
+
+  // Фото, снятое под одним входом, не уходит под другим: общий телефон, выход и
+  // вход в другую компанию, смена ключа. Храним отпечаток ключа (FNV-1a), не ключ.
+  ownerTag(key = App.apiKey) {
+    let h = 0x811c9dc5;
+    for (const ch of String(key || '')) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(36);
+  },
+
+  _foreign(owner) {
+    return Boolean(owner) && owner !== this.ownerTag();
+  },
+
   // ====================  IndexedDB  ====================
 
   openDb() {
@@ -160,7 +174,7 @@ const Upload = {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
       const store = tx.objectStore(this.STORE_NAME);
-      const req = store.add({ blob, name, createdAt: Date.now() });
+      const req = store.add({ blob, name, createdAt: Date.now(), owner: this.ownerTag() });
       tx.oncomplete = () => resolve(req.result);
       tx.onerror = () => reject(tx.error || req.error);
       tx.onabort = () => reject(tx.error || new Error('Фото не сохранено на устройстве'));
@@ -280,6 +294,7 @@ const Upload = {
     const idx = this.history.length;
     this.history.push({
       id: dbId,
+      owner: this.ownerTag(),
       url: URL.createObjectURL(blob),
       name,
       status: 'queued',
@@ -300,7 +315,8 @@ const Upload = {
     if (!pending.length) return;
 
     const knownIds = new Set(this.history.map(h => h.id).filter(Boolean));
-    const toRetry = pending.filter(p => !knownIds.has(p.id));
+    // Фото другого входа ждут на устройстве, пока не войдёт тот же аккаунт.
+    const toRetry = pending.filter(p => !knownIds.has(p.id) && !this._foreign(p.owner));
     if (!toRetry.length) return;
 
     App.notify(`Дозагрузка ${toRetry.length} фото...`, 'success');
@@ -310,6 +326,7 @@ const Upload = {
       const url = URL.createObjectURL(item.blob);
       this.history.push({
         id: item.id,
+        owner: item.owner || this.ownerTag(),
         url,
         name: item.name,
         status: 'queued',
@@ -354,6 +371,17 @@ const Upload = {
   },
 
   async doUpload(fileOrBlob, idx, dbId) {
+    const entry = this.history[idx];
+    if (entry && this._foreign(entry.owner)) {
+      // Вход сменился, пока фото ждало отправки: копия остаётся на устройстве.
+      clearTimeout(entry._retryTimer);
+      entry.status = 'error';
+      entry.autoRetry = false;
+      entry.error = 'Фото снято под другим входом. Войдите в тот аккаунт, чтобы отправить.';
+      this.renderHistory();
+      this.updateCounter();
+      return;
+    }
     let blob;
     try {
       // Старые File/Blob из IndexedDB также копируем перед каждой попыткой.

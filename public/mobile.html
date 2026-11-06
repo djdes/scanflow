@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ScanFlow</title>
+  <meta name="description" content="Снять накладную и отправить в 1С">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141414" media="(prefers-color-scheme: dark)">
+  <!-- iPhone: приложение с экрана «Домой» — без панелей Safari. -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ScanFlow">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="preload" href="/fonts/geist-v5-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/geist-v5-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/mobile.css">
+</head>
+<body>
+  <!-- Мобильное приложение ScanFlow (спек docs/superpowers/specs/2026-11-06-mobile-app-design.md).
+       Правило: крупно, простыми словами, коротко; основное сразу, остальное — под «Ещё». -->
+  <header class="m-top">
+    <button type="button" class="m-back" id="m-back" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <a class="m-brand" href="#/" aria-label="ScanFlow — на главную">
+      <img src="/icon.svg" alt="" width="28" height="28">
+      <span>ScanFlow</span>
+    </a>
+  </header>
+
+  <div class="m-offline" id="m-offline" role="status" hidden>Нет интернета. Фото отправим, когда появится.</div>
+  <div class="m-bar" id="m-upload-bar" role="status" aria-live="polite" hidden></div>
+
+  <main class="m-main" id="m-main">
+    <!-- Вход -->
+    <div class="m-screen" id="screen-login" hidden>
+      <h1 class="m-title">Вход</h1>
+      <form id="m-login-form" class="m-form" novalidate>
+        <label class="m-label" for="m-login-user">Логин или почта</label>
+        <input class="m-field" id="m-login-user" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        <label class="m-label" for="m-login-pass">Пароль</label>
+        <input class="m-field" id="m-login-pass" name="password" type="password" autocomplete="current-password" required>
+        <p class="m-error" id="m-login-error" role="alert" hidden></p>
+        <button type="submit" class="m-btn m-btn--primary" id="m-login-submit">Войти</button>
+      </form>
+      <p class="m-note">Нет аккаунта? <a href="/">Регистрация на сайте</a></p>
+    </div>
+
+    <!-- Главная -->
+    <div class="m-screen" id="screen-home" hidden>
+      <button type="button" class="m-btn m-btn--primary m-btn--camera" id="m-camera-btn" data-action="camera">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        Снять накладную
+      </button>
+      <p class="m-hint">Много листов — снимайте по очереди.</p>
+
+      <div class="m-tiles">
+        <a class="m-tile m-tile--amber" href="#/list/attention">
+          <strong id="m-count-attention">–</strong>
+          <span>Проверить</span>
+        </a>
+        <a class="m-tile m-tile--green" href="#/list/ready">
+          <strong id="m-count-ready">–</strong>
+          <span>Готовы к 1С</span>
+        </a>
+      </div>
+
+      <h2 class="m-subtitle">Последние</h2>
+      <div class="m-cards" id="m-recent"></div>
+      <a class="m-btn m-btn--ghost" href="#/list/all">Все накладные</a>
+
+      <button type="button" class="m-btn m-btn--ghost m-more-toggle" data-action="more" aria-expanded="false" aria-controls="m-home-more">
+        Ещё
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="m-more" id="m-home-more" hidden>
+        <button type="button" class="m-more__item" data-action="gallery">Из галереи</button>
+        <button type="button" class="m-more__item" data-action="files">Файл (PDF, XML)</button>
+        <a class="m-more__item" href="/app.html">Полный кабинет</a>
+        <button type="button" class="m-more__item" data-action="install" id="m-install" hidden>Установить на телефон</button>
+        <div class="m-install-help" id="m-install-help" hidden></div>
+        <a class="m-more__item" id="m-apk" href="/downloads/scanflow.apk" download hidden>Скачать для Android (APK)</a>
+        <button type="button" class="m-more__item m-more__item--danger" data-action="logout">Выйти</button>
+        <p class="m-note" id="m-whoami"></p>
+      </div>
+    </div>
+
+    <!-- Список -->
+    <div class="m-screen" id="screen-list" hidden>
+      <h1 class="m-title">Накладные</h1>
+      <div class="m-seg" role="tablist" aria-label="Какие накладные показать">
+        <a class="m-seg__item" role="tab" href="#/list/all" data-view="all">Все</a>
+        <a class="m-seg__item" role="tab" href="#/list/attention" data-view="attention">Проверить<span id="m-seg-attention"></span></a>
+        <a class="m-seg__item" role="tab" href="#/list/ready" data-view="ready">Готовы<span id="m-seg-ready"></span></a>
+      </div>
+      <button type="button" class="m-btn m-btn--primary" id="m-send-all" data-action="send-all" hidden></button>
+      <div class="m-cards" id="m-list"></div>
+      <button type="button" class="m-btn m-btn--ghost" id="m-list-more" data-action="list-more" hidden>Показать ещё</button>
+    </div>
+
+    <!-- Накладная -->
+    <div class="m-screen" id="screen-invoice" hidden>
+      <div id="m-invoice"></div>
+    </div>
+  </main>
+
+  <!-- Сразу после снимка -->
+  <div class="m-sheet" id="m-shot" role="dialog" aria-modal="true" aria-labelledby="m-shot-title" hidden>
+    <div class="m-sheet__panel">
+      <div class="m-sheet__check" aria-hidden="true">✓</div>
+      <h2 class="m-sheet__title" id="m-shot-title">Фото принято</h2>
+      <p class="m-sheet__text">Отправим и прочитаем сами.</p>
+      <button type="button" class="m-btn m-btn--primary" data-action="camera">Ещё страница</button>
+      <button type="button" class="m-btn m-btn--ghost" data-action="shot-done">Готово</button>
+    </div>
+  </div>
+
+  <div class="m-toast" id="m-toast" role="status" aria-live="polite" hidden></div>
+
+  <input type="file" id="m-camera-input" accept="image/*" capture="environment" hidden>
+  <input type="file" id="m-gallery-input" accept="image/*" multiple hidden>
+  <input type="file" id="m-files-input" accept="image/*,application/pdf,.pdf,.xml,application/xml,text/xml" multiple hidden>
+
+  <script src="/js/mobile-core.js"></script>
+  <script src="/js/mobile.js"></script>
+  <script src="/js/upload.js"></script>
+  <script src="/js/recognition-queue.js"></script>
+  <script>Mobile.start();</script>
+</body>
+</html>

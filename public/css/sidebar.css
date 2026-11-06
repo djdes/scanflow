@@ -129,6 +129,21 @@
   }
   .app-mobile-header .logo span { display: inline; }
   .app-mobile-header .nav-toggle { display: inline-flex; }
+  /* Ссылка в простое приложение /m/ — рядом с меню. */
+  .app-mobile-header .app-simple-link {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+  }
   .app-sidebar {
     width: min(var(--sidebar-width), calc(100vw - 40px));
     z-index: 201;
