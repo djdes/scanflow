@@ -34,6 +34,11 @@ const MobileCore = {
     return s('grey', String(status || '—'), '');
   },
 
+  /** Накладная ещё читается — экран стоит обновлять сам. */
+  isReading(inv) {
+    return ['new', 'ocr_processing', 'parsing'].includes(inv.status) && !inv.duplicate_of;
+  },
+
   /** 12 400 ₽ / 12 400,50 ₽ — неразрывные пробелы, чтобы сумма не ломалась. */
   formatMoney(value) {
     if (value == null || value === '') return '—';
@@ -51,6 +56,12 @@ const MobileCore = {
     return Number(m[1]) === now.getFullYear() ? `${m[3]}.${m[2]}` : `${m[3]}.${m[2]}.${m[1]}`;
   },
 
+  /** «05.11.2026» — полная дата для карточки накладной. */
+  formatDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
+  },
+
   plural(n, one, few, many) {
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return one;
@@ -58,15 +69,20 @@ const MobileCore = {
     return many;
   },
 
-  /** Одна строка о фото на устройстве; null — показывать нечего. */
-  uploadSummary(history, online) {
+  /**
+   * Одна строка о фото на устройстве; null — показывать нечего. serverQueued —
+   * задания компании в очереди сервера (видны и после перезапуска приложения),
+   * aiAvailable=false — чтение на паузе (нет связи с моделью, лимит).
+   */
+  uploadSummary(history, online, serverQueued = 0, aiAvailable = true) {
     const count = (...st) => history.filter(h => st.includes(h.status)).length;
     const failed = count('error', 'lost');
     const sending = count('queued', 'uploading');
-    const reading = count('server_queued', 'processing');
+    const reading = Math.max(count('server_queued', 'processing'), Number(serverQueued) || 0);
     if (failed && !online) return { tone: 'amber', text: 'Нет интернета. Фото сохранены — отправим сами.' };
     if (sending) return { tone: 'blue', text: `Отправляем ${sending} фото…` };
     if (failed) return { tone: 'red', text: `Не отправилось ${failed} фото. Повторим сами.` };
+    if (reading && !aiAvailable) return { tone: 'amber', text: `Фото сохранены (${reading}). Прочитаем позже.` };
     if (reading) return { tone: 'blue', text: `Читаем ${reading} фото…` };
     return null;
   },
