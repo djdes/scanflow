@@ -23,9 +23,16 @@ const App = {
       body = JSON.stringify(body);
     }
     const res = await fetch(this.baseUrl + path, { ...options, headers, body });
-    if (res.status === 401) {
-      Mobile.signedOut('Войдите ещё раз.');
-      const err = new Error('Войдите ещё раз.');
+    // 401 — ключ больше не действует; 403 «приостановлен» — аккаунт заблокирован
+    // (auth.ts). В обоих случаях работать дальше нельзя — на экран входа.
+    let signOut = res.status === 401 ? 'Войдите ещё раз.' : null;
+    if (res.status === 403) {
+      const reason = await res.clone().json().then(b => String(b.error || ''), () => '');
+      if (/приостановлен/i.test(reason)) signOut = reason;
+    }
+    if (signOut) {
+      Mobile.signedOut(signOut);
+      const err = new Error(signOut);
       err.status = 401;
       throw err;
     }
@@ -80,7 +87,7 @@ const Mobile = {
       this.renderInstall();
     });
     window.addEventListener('appinstalled', () => { this.installEvent = null; this.renderInstall(); });
-    window.addEventListener('hashchange', () => { this.depth++; this.route(); });
+    window.addEventListener('hashchange', () => this.onHashChange());
     window.addEventListener('online', () => { this.renderOnline(); this.refresh(); });
     window.addEventListener('offline', () => this.renderOnline());
     document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refresh(); });
@@ -95,6 +102,11 @@ const Mobile = {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { scope: '/m/' }).catch(() => { /* без кеша тоже работает */ });
     }
+    // Глубина внутри приложения — в history.state: переживает перезагрузку и
+    // системную кнопку «Назад», в отличие от счётчика в памяти.
+    const state = history.state;
+    if (state && typeof state.m === 'number') this.depth = state.m;
+    else history.replaceState({ m: 0 }, '');
     this.renderOnline();
     if (App.apiKey) this.startUploads();
     this.route();
@@ -126,10 +138,29 @@ const Mobile = {
     window.scrollTo(0, 0);
   },
 
+  onHashChange() {
+    const state = history.state;
+    if (state && typeof state.m === 'number') {
+      this.depth = state.m;            // вернулись к записи, где уже были
+    } else {
+      if (!this.replacing) this.depth += 1;   // новый шаг внутри приложения
+      this.replacing = false;
+      history.replaceState({ m: this.depth }, '');
+    }
+    this.route();
+  },
+
+  // Перейти, не добавляя шаг в историю.
+  replaceHash(hash) {
+    this.replacing = true;
+    location.replace(hash);
+  },
+
   back() {
     // В установленном приложении на iPhone кнопки «Назад» у системы нет.
-    if (this.depth > 0 && history.length > 1) { this.depth -= 2; history.back(); return; }
-    location.hash = this.screen === 'invoice' ? `#/list/${this.list.view}` : '#/';
+    // Шаг назад — только по своей истории; открыли сразу экран — к родителю.
+    if (this.depth > 0) { history.back(); return; }
+    this.replaceHash(this.screen === 'invoice' ? `#/list/${this.list.view}` : '#/');
   },
 
   refresh() {
@@ -159,6 +190,7 @@ const Mobile = {
     else if (action === 'send') this.send(Number(el.dataset.id), el);
     else if (action === 'send-all') this.sendAll(el);
     else if (action === 'retry-uploads') Upload.retryAllErrors();
+    else if (action === 'dismiss-uploads') this.dismissFailedUploads();
     else if (action === 'photos') this.loadPhotos(Number(el.dataset.id), el);
   },
 
@@ -194,6 +226,10 @@ const Mobile = {
       if (data.role) localStorage.setItem('adminRole', data.role);
       this.$('m-login-pass').value = '';
       this.startUploads();
+      // Повторный вход без перезагрузки: догрузить фото этого входа и снова
+      // следить за очередью сервера (после 401 её опрос остановился).
+      Upload.retryPending();
+      RecognitionQueue.refresh();
       this.route();
     } catch (err) {
       error.textContent = navigator.onLine ? err.message : 'Нет интернета.';
@@ -206,7 +242,17 @@ const Mobile = {
 
   signedOut(message) {
     App.apiKey = '';
-    localStorage.removeItem('apiKey');
+    ['apiKey', 'adminRole', 'superadminSession'].forEach(k => localStorage.removeItem(k));
+    // Данные прежнего входа не должны мелькнуть у следующего.
+    clearTimeout(this.pollTimer);
+    this.revokePhotos();
+    this.invoice = null;
+    this.invoiceHtmlShown = null;
+    this.stats = null;
+    this.list = { view: 'all', items: [], total: 0, loading: false };
+    for (const id of ['m-recent', 'm-list', 'm-invoice']) this.$(id).innerHTML = '';
+    this.renderCounts();
+    this.$('m-shot').hidden = true;
     this.show('login');
     if (message) { const el = this.$('m-login-error'); el.textContent = message; el.hidden = false; }
   },
@@ -241,8 +287,11 @@ const Mobile = {
     input.value = '';
     if (!files.length) return;
     if (fromCamera) {
-      this.$('m-shot').hidden = false;
+      // «Фото принято» — только если фото прочиталось и встало в очередь;
+      // пустой файл (WebKit 319985) addFile отклоняет со своим сообщением.
+      const before = Upload.history.length;
       await Upload.addFile(files[0]);
+      if (Upload.history.length > before) this.$('m-shot').hidden = false;
     } else {
       // Пропущенные (формат, размер) _addMultiple называет сам — не затираем.
       const before = Upload.history.length;
@@ -264,13 +313,27 @@ const Mobile = {
       queue ? queue.total : 0, !(queue && queue.ai && queue.ai.available === false));
     bar.hidden = !summary;
     if (summary) {
-      const retry = summary.tone === 'red' ? ' <button type="button" class="m-bar__retry" data-action="retry-uploads">Повторить</button>' : '';
+      const button = summary.retry ? '<button type="button" class="m-bar__retry" data-action="retry-uploads">Повторить</button>'
+        : summary.dismiss ? '<button type="button" class="m-bar__retry" data-action="dismiss-uploads">Убрать</button>' : '';
       bar.className = `m-bar m-bar--${summary.tone}`;
-      bar.innerHTML = `<span>${App.esc(summary.text)}</span>${retry}`;
+      bar.innerHTML = `<span>${App.esc(summary.text)}</span>${button}`;
     }
     // Сервер дочитал фото — показать новую накладную в списках.
     const ok = Upload.history.filter(h => h.status === 'ok').length;
     if (ok > this.okCount) { this.okCount = ok; this.refresh(); }
+  },
+
+  // Окончательные ошибки (плохой файл, потерянное фото) сами не повторятся —
+  // убрать их из полосы. Фото другого входа остаётся на устройстве и уйдёт,
+  // когда войдёт тот аккаунт.
+  dismissFailedUploads() {
+    Upload.history.forEach((h, idx) => {
+      if (h.status === 'lost' || (h.status === 'error' && !h.autoRetry)) {
+        if (Upload._foreign(h.owner)) { h.status = 'removed'; return; }
+        Upload.remove(idx);
+      }
+    });
+    this.renderUploadBar();
   },
 
   renderOnline() {
@@ -403,6 +466,7 @@ const Mobile = {
   showInvoice(id) {
     if (!this.invoice || this.invoice.id !== id) {
       this.invoice = { id };
+      this.invoiceHtmlShown = null;
       this.$('m-invoice').innerHTML = '<p class="m-empty">Загружаем…</p>';
     }
     this.show('invoice');
@@ -412,15 +476,21 @@ const Mobile = {
   async loadInvoice(id) {
     try {
       const { data } = await App.apiJson(`/invoices/${id}`);
-      if (this.screen !== 'invoice' || this.invoice.id !== id) return;
-      // Перерисовка не должна закрывать раскрытое «Ещё».
-      const wasOpen = this.$('m-inv-more-btn')?.getAttribute('aria-expanded') === 'true';
+      if (this.screen !== 'invoice' || !this.invoice || this.invoice.id !== id) return;
+      // Пока накладная читается, экран обновляется сам; если ничего не
+      // поменялось — не перерисовываем, чтобы не закрыть фото и товары.
+      const html = this.invoiceHtml(data, false);
+      if (html !== this.invoiceHtmlShown) {
+        const wasOpen = this.$('m-inv-more-btn')?.getAttribute('aria-expanded') === 'true';
+        this.revokePhotos();
+        this.$('m-invoice').innerHTML = this.invoiceHtml(data, wasOpen);
+        this.invoiceHtmlShown = html;
+      }
       this.invoice = data;
-      this.$('m-invoice').innerHTML = this.invoiceHtml(data, wasOpen);
       if (MobileCore.isReading(data)) this.schedulePoll(5000);
     } catch (err) {
       if (err.status === 401) return;
-      if (err.status === 404 && err.body && err.body.merged_into) { location.replace(`#/inv/${Number(err.body.merged_into)}`); return; }
+      if (err.status === 404 && err.body && err.body.merged_into) { this.replaceHash(`#/inv/${Number(err.body.merged_into)}`); return; }
       this.$('m-invoice').innerHTML = `<p class="m-empty">${err.status === 404 ? 'Накладная не найдена.' : navigator.onLine ? 'Не загрузилось.' : 'Нет интернета.'}</p>`;
     }
   },
