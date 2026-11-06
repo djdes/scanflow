@@ -79,3 +79,11 @@ docs/investigations/
 # Dispatcher local config & logs (BSQL Ralph worker)
 dispatcher/config.json
 dispatcher/logs/
+
+# Android (android/): сборка и ключи подписи не коммитятся
+android/.gradle/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore
+*.apk
