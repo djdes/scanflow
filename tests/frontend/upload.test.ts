@@ -7,6 +7,7 @@ let upload: any;
 let requests: Array<{ body: FormData; headers: Record<string, string> }>;
 let responseStatus: number;
 let responseBody: unknown;
+let appStub: { notify: ReturnType<typeof vi.fn>; baseUrl: string; apiKey: string };
 
 beforeEach(() => {
   requests = [];
@@ -24,9 +25,10 @@ beforeEach(() => {
     setRequestHeader(name: string, value: string) { this.headers[name] = value; }
     send(body: FormData) { requests.push({ body, headers: this.headers }); this.listeners[this.status === 0 ? 'error' : 'load'](); }
   }
+  appStub = { notify: vi.fn(), baseUrl: '/api', apiKey: 'test-key' };
   upload = runInNewContext(`${script}\nUpload;`, {
     Blob, FormData, window: {}, XMLHttpRequest: Xhr, URL: { createObjectURL: vi.fn(() => 'blob:preview') },
-    App: { notify: vi.fn(), baseUrl: '/api', apiKey: 'test-key' }, console,
+    App: appStub, console,
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms), clearTimeout: (id: NodeJS.Timeout) => clearTimeout(id),
   });
   upload.renderHistory = vi.fn();
@@ -134,5 +136,46 @@ describe('durable upload acknowledgement and automatic retry', () => {
     await Promise.resolve(); expect(committed).toBe(false);
     tx.oncomplete();
     expect(await saving).toBe(42);
+  });
+});
+
+// Фото, снятое под одним входом, не уходит под другим (мобильное приложение, правило 48):
+// общий телефон, выход и вход в другую компанию.
+describe('photos belong to the login they were taken under', () => {
+  const file = () => new File(['photo-bytes'], 'photo.jpg', { type: 'image/jpeg' });
+
+  it('tags a saved photo with the current login, not with the key itself', async () => {
+    const add = vi.fn(() => ({ result: 5 }));
+    const tx: any = { objectStore: () => ({ add }) };
+    upload.db = { transaction: () => tx };
+    const saving = upload.dbPut(new Blob(['bytes']), 'photo.jpg');
+    tx.oncomplete();
+    await saving;
+    const record = add.mock.calls[0][0];
+    expect(record.owner).toBe(upload.ownerTag('test-key'));
+    expect(record.owner).not.toContain('test-key');
+    expect(upload.ownerTag('other-key')).not.toBe(record.owner);
+  });
+
+  it('does not send a photo of another login and keeps its local copy', async () => {
+    upload.history = [{ id: 3, owner: upload.ownerTag('test-key'), name: 'photo.jpg', status: 'uploading' }];
+    appStub.apiKey = 'next-company-key';
+    await upload.doUpload(file(), 0, 3);
+    expect(requests).toHaveLength(0);
+    expect(upload.dbDelete).not.toHaveBeenCalled();
+    expect(upload.history[0]).toMatchObject({ status: 'error', autoRetry: false, error: expect.stringContaining('другим входом') });
+  });
+
+  it('resumes only the photos of the current login after a restart', async () => {
+    upload.db = {};
+    upload._scheduleUpload = vi.fn();
+    upload.dbGetAll = vi.fn(async () => [
+      { id: 1, blob: new Blob(['a']), name: 'a.jpg', owner: upload.ownerTag('someone-else') },
+      { id: 2, blob: new Blob(['b']), name: 'b.jpg', owner: upload.ownerTag('test-key') },
+      { id: 3, blob: new Blob(['c']), name: 'c.jpg' },
+    ]);
+    await upload.retryPending();
+    expect(upload.history.map((h: any) => h.id)).toEqual([2, 3]);
+    expect(upload._scheduleUpload).toHaveBeenCalledTimes(2);
   });
 });
