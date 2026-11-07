@@ -44,6 +44,7 @@
     <!-- Вход -->
     <div class="m-screen" id="screen-login" hidden>
       <h1 class="m-title">Вход</h1>
+      <p class="m-login-note" id="m-login-note" hidden>Войдите — и присланные файлы отправятся.</p>
       <form id="m-login-form" class="m-form" novalidate>
         <label class="m-label" for="m-login-user">Логин или почта</label>
         <input class="m-field" id="m-login-user" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
@@ -117,8 +118,8 @@
     <div class="m-sheet__panel">
       <div class="m-sheet__check" aria-hidden="true">✓</div>
       <h2 class="m-sheet__title" id="m-shot-title">Фото принято</h2>
-      <p class="m-sheet__text">Отправим и прочитаем сами.</p>
-      <button type="button" class="m-btn m-btn--primary" data-action="camera">Ещё страница</button>
+      <p class="m-sheet__text" id="m-shot-text">Отправим и прочитаем сами.</p>
+      <button type="button" class="m-btn m-btn--primary" id="m-shot-more" data-action="camera">Ещё страница</button>
       <button type="button" class="m-btn m-btn--ghost" data-action="shot-done">Готово</button>
     </div>
   </div>
@@ -149,6 +150,7 @@
   <input type="file" id="m-files-input" accept="image/*,application/pdf,.pdf,.xml,application/xml,text/xml" multiple hidden>
 
   <script src="/js/mobile-core.js"></script>
+  <script src="/js/share-inbox.js"></script>
   <script src="/js/mobile.js"></script>
   <script src="/js/upload.js"></script>
   <script src="/js/recognition-queue.js"></script>

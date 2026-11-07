@@ -10,7 +10,35 @@
   "display": "standalone",
   "background_color": "#f7f6f3",
   "theme_color": "#2383e2",
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "share_target": {
+    "action": "/m/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "image/*",
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "application/pdf",
+            ".pdf",
+            "text/xml",
+            "application/xml",
+            ".xml"
+          ]
+        }
+      ]
+    }
+  },
   "icons": [
     {
       "src": "/icon-192.png",
@@ -42,19 +70,37 @@
       "name": "Снять накладную",
       "short_name": "Снять",
       "url": "/m/#/camera",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Проверить накладные",
       "short_name": "Проверить",
       "url": "/m/#/list/attention",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Полный кабинет",
       "short_name": "Кабинет",
       "url": "/app.html",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

@@ -63,6 +63,20 @@ describe('Мобильное приложение /m/', () => {
     }
   });
 
+  it('«Поделиться» на Android: манифест принимает фото, PDF и XML в /m/share', async () => {
+    const manifest = JSON.parse((await request(app).get('/site.webmanifest')).text);
+    expect(manifest.share_target).toMatchObject({ action: '/m/share', method: 'POST', enctype: 'multipart/form-data' });
+    const accept = manifest.share_target.params.files[0].accept;
+    expect(manifest.share_target.params.files[0].name).toBe('files');
+    for (const type of ['image/*', 'application/pdf', 'text/xml']) expect(accept).toContain(type);
+  });
+
+  it('«Поделиться» без service worker — назад в приложение с понятным сообщением', async () => {
+    const res = await request(app).post('/m/share').attach('files', Buffer.from('x'), 'a.jpg').redirects(0);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/m/#/share?n=0');
+  });
+
   it('assetlinks без ключа — пустой список, не 404', async () => {
     const res = await request(app).get('/.well-known/assetlinks.json');
     expect(res.status).toBe(200);

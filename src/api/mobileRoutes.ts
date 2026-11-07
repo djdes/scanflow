@@ -8,6 +8,7 @@ import path from 'node:path';
 export const ANDROID_PACKAGE = 'ru.scanflow.app';
 const APK_FILE = 'scanflow.apk';
 const FINGERPRINT_FILE = 'android-cert-sha256.txt';
+const SHARE_FALLBACK_MAX_BYTES = 60 * 1024 * 1024;
 const FINGERPRINT_RE = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
 
 /**
@@ -48,6 +49,24 @@ export function registerMobileRoutes(
   app.get('/m/', (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(publicDir, 'mobile.html'));
+  });
+
+  // «Поделиться → ScanFlow» на Android: файлы принимает service worker (sw.js)
+  // и кладёт на устройство до входа. Сюда запрос доходит, только если service
+  // worker ещё не встал: ключа API у такого запроса нет, принять файлы некому —
+  // возвращаем в приложение с просьбой добавить их через «Ещё».
+  // Тело дочитываем (и выбрасываем) до ответа: ответ посреди загрузки браузер
+  // видит как обрыв соединения, а не как переход. Больше 60 МБ — рвём.
+  app.post('/m/share', (req, res) => {
+    let size = 0;
+    const back = () => { if (!res.headersSent) res.redirect(303, '/m/#/share?n=0'); };
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > SHARE_FALLBACK_MAX_BYTES) req.destroy();
+    });
+    req.on('end', back);
+    req.on('error', back);
+    req.resume();
   });
 
   // Старая страница «Фото накладной» — теперь это главная кнопка приложения.

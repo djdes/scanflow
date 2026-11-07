@@ -117,9 +117,17 @@ const Mobile = {
   route() {
     clearTimeout(this.pollTimer);
     this.revokePhotos();
-    if (!App.apiKey) return this.show('login');
     const hash = location.hash || '#/';
+    const share = /^#\/share(?:\?n=(\d+))?$/.exec(hash);
+    if (!App.apiKey) {
+      // Прислали файлы через «Поделиться», а вход не выполнен: они ждут на
+      // устройстве и уйдут сразу после входа (route() вызовется снова).
+      this.$('m-login-note').hidden = !share;
+      return this.show('login');
+    }
+    this.$('m-login-note').hidden = true;
     let m;
+    if (share) return this.takeShared(Number(share[1] || 0));
     if ((m = /^#\/inv\/(\d+)$/.exec(hash))) return this.showInvoice(Number(m[1]));
     if ((m = /^#\/list\/(all|attention|ready)$/.exec(hash))) return this.showList(m[1]);
     this.showHome(hash === '#/camera');
@@ -270,6 +278,7 @@ const Mobile = {
       await Upload._dbReady;
       if (Upload.db) for (const item of await Upload.dbGetAll()) await Upload.dbDelete(item.id);
     } catch { /* очереди на устройстве нет — удалять нечего */ }
+    try { await ShareInbox.clear(); } catch { /* присланных файлов нет */ }
     ['apiKey', 'adminRole', 'superadminSession'].forEach(k => localStorage.removeItem(k));
     location.replace('/m/');
   },
@@ -295,10 +304,7 @@ const Mobile = {
       // пустой файл (WebKit 319985) addFile отклоняет со своим сообщением.
       const before = Upload.history.length;
       await Upload.addFile(files[0]);
-      if (Upload.history.length > before) {
-        this.$('m-install-sheet').hidden = true;
-        this.$('m-shot').hidden = false;
-      }
+      if (Upload.history.length > before) this.showAccepted('Фото принято', true);
     } else {
       // Пропущенные (формат, размер) _addMultiple называет сам — не затираем.
       const before = Upload.history.length;
@@ -306,6 +312,35 @@ const Mobile = {
       const added = Upload.history.length - before;
       if (added === files.length) this.toast(`Добавлено: ${added} ${MobileCore.plural(added, 'файл', 'файла', 'файлов')}.`, 'green');
     }
+  },
+
+  /** Лист «принято»: после снимка — с кнопкой «Ещё страница», после «Поделиться» — без неё. */
+  showAccepted(title, morePages) {
+    this.$('m-install-sheet').hidden = true;
+    this.$('m-shot-title').textContent = title;
+    this.$('m-shot-text').textContent = 'Отправим и прочитаем сами.';
+    this.$('m-shot-more').hidden = !morePages;
+    this.$('m-shot').hidden = false;
+  },
+
+  // «Поделиться → ScanFlow» на Android: service worker сложил файлы в ShareInbox
+  // и открыл #/share?n=N. Забираем их в обычный загрузчик (сжатие, метка входа,
+  // повторы) и убираем из ShareInbox, когда они уже в его очереди.
+  async takeShared(sentCount) {
+    history.replaceState({ m: this.depth }, '', '#/');   // «Назад» не вернёт к приёму
+    this.showHome(false);
+    let items = [];
+    try { items = await ShareInbox.list(); } catch { /* хранилище недоступно */ }
+    if (!items.length) {
+      if (!sentCount) this.toast('Не получилось принять файлы. Добавьте их через «Ещё → Из галереи».', 'amber');
+      return;
+    }
+    const files = items.map(it => new File([it.blob], MobileCore.sharedFileName(it.name, it.type), { type: it.type || it.blob.type || '' }));
+    const before = Upload.history.length;
+    await Upload._addMultiple(files);
+    try { await ShareInbox.remove(items.map(it => it.id)); } catch { /* уберём в следующий раз */ }
+    const added = Upload.history.length - before;
+    if (added) this.showAccepted(`Принято: ${added} ${MobileCore.plural(added, 'файл', 'файла', 'файлов')}`, false);
   },
 
   closeShot() {

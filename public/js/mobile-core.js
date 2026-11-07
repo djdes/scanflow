@@ -137,6 +137,20 @@ const MobileCore = {
     return null;
   },
 
+  /**
+   * Имя файла из «Поделиться»: у части приложений (галерея, почта) файл приходит
+   * без расширения, а загрузчик принимает файл по расширению. Добавляем его по типу.
+   */
+  sharedFileName(name, type) {
+    const base = String(name || '').trim() || 'shared';
+    if (/\.(jpe?g|png|webp|bmp|tiff?|pdf|xml)$/i.test(base)) return base;
+    const ext = {
+      'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+      'application/pdf': 'pdf', 'text/xml': 'xml', 'application/xml': 'xml',
+    }[String(type || '').toLowerCase()];
+    return ext ? `${base}.${ext}` : base;
+  },
+
   /** Показывать ли подсказку снова: «Не сейчас» прячет её на 14 дней. */
   installDue(dismissedAt, now = Date.now()) {
     const at = Number(dismissedAt);
