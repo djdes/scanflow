@@ -141,6 +141,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
 .m-hint { margin: -4px 0 6px; color: var(--m-muted); text-align: center; }
 .m-note { margin: 4px 0 0; color: var(--m-muted); font-size: 16px; text-align: center; }
 .m-empty { margin: 8px 0; padding: 20px 16px; border-radius: var(--m-radius); background: var(--m-card); color: var(--m-muted); text-align: center; }
+.m-login-note { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--m-blue-bg); color: var(--m-blue); font-weight: 600; }
 .m-error { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--m-red-bg); color: var(--m-red); font-weight: 600; }
 
 /* ── Кнопки ────────────────────────────────────────────────────────── */

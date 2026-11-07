@@ -178,3 +178,22 @@ describe('installDue — «Не сейчас» прячет подсказку �
   it('закрыли 15 дней назад', () => expect(core.installDue(String(now - 15 * day), now)).toBe(true));
   it('мусор в хранилище не мешает показать', () => expect(core.installDue('abc', now)).toBe(true));
 });
+
+describe('sharedFileName — файл из «Поделиться» должен пройти проверку расширения', () => {
+  it('имя с расширением не трогаем', () => {
+    expect(core.sharedFileName('IMG_20261107_101500.jpg', 'image/jpeg')).toBe('IMG_20261107_101500.jpg');
+    expect(core.sharedFileName('Счёт 15.pdf', 'application/pdf')).toBe('Счёт 15.pdf');
+  });
+  it('без расширения — добавляем по типу файла', () => {
+    expect(core.sharedFileName('image', 'image/jpeg')).toBe('image.jpg');
+    expect(core.sharedFileName('1000012345', 'image/png')).toBe('1000012345.png');
+    expect(core.sharedFileName('document', 'application/pdf')).toBe('document.pdf');
+    expect(core.sharedFileName('upd', 'text/xml')).toBe('upd.xml');
+  });
+  it('без имени — придумываем', () => {
+    expect(core.sharedFileName('', 'image/webp')).toBe('shared.webp');
+  });
+  it('неизвестный тип — как есть: загрузчик сам скажет, что формат не подходит', () => {
+    expect(core.sharedFileName('notes', 'text/plain')).toBe('notes');
+  });
+});

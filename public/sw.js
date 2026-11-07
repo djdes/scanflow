@@ -4,7 +4,9 @@
 // перехватывается: данные компании в кеше устройства не оседают, а фото без
 // сети ждут в IndexedDB (public/js/upload.js).
 // Меняете список файлов — меняйте номер версии кеша.
-const CACHE = 'sf-m-v1';
+importScripts('/js/share-inbox.js');
+
+const CACHE = 'sf-m-v2';
 const NETWORK_TIMEOUT_MS = 4000;
 const SHELL = [
   '/m/',
@@ -14,6 +16,7 @@ const SHELL = [
   '/js/mobile.js',
   '/js/upload.js',
   '/js/recognition-queue.js',
+  '/js/share-inbox.js',
   '/fonts/geist-v5-cyrillic.woff2',
   '/fonts/geist-v5-latin.woff2',
   '/fonts/geist-v5-latin-ext.woff2',
@@ -43,8 +46,13 @@ const cachedClients = new Set();
 
 self.addEventListener('fetch', (event) => {
   const request = event.request;
-  if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  // «Поделиться → ScanFlow» на Android (share_target в манифесте).
+  if (request.method === 'POST' && url.origin === self.location.origin && url.pathname === '/m/share') {
+    event.respondWith(receiveShare(request));
+    return;
+  }
+  if (request.method !== 'GET') return;
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   if (request.mode === 'navigate') {
     if (url.pathname === '/m/') event.respondWith(openShell(event, request));
@@ -98,4 +106,18 @@ async function shellFile(event, request, key) {
     if (!cached) throw error;
   }
   return cached;
+}
+
+// Файлы из «Поделиться»: на устройство, затем в приложение. Ключа API у этого
+// запроса нет — отправит их приложение после входа (ShareInbox → upload.js).
+async function receiveShare(request) {
+  let count = 0;
+  try {
+    const form = await request.formData();
+    const files = form.getAll('files').filter(f => f && typeof f !== 'string' && f.size > 0);
+    if (files.length) count = await ShareInbox.put(files);
+  } catch {
+    count = 0;
+  }
+  return Response.redirect(`/m/#/share?n=${count}`, 303);
 }
