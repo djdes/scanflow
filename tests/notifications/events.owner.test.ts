@@ -21,6 +21,8 @@ vi.mock('../../src/database/repositories/invoiceRepo', () => ({
 vi.mock('../../src/notifications/telegram/telegramNotifier', () => ({
   sendInvoiceNotification: vi.fn(async () => undefined),
 }));
+// Канал телефона (Web Push) — без базы и без служб уведомлений.
+vi.mock('../../src/notifications/push', () => ({ sendPushToUser: vi.fn(async () => 0) }));
 vi.mock('../../src/notifications/telegram/telegramClient', () => ({
   sendMessage: vi.fn(async () => undefined),
 }));

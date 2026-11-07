@@ -2699,6 +2699,35 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    // Уведомления на телефон (Web Push, мобильное приложение /m/ — правило 48):
+    // подписки устройств и ключ VAPID сервера (закрытая часть — зашифрована от
+    // JWT_SECRET). Адрес подписки длинный, уникальность — по его SHA-256.
+    version: 94,
+    name: 'web push subscriptions and VAPID key',
+    detect: async exec => (await hasTable(exec, 'push_subscriptions')) && (await hasTable(exec, 'push_vapid_keys')),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        owner_user_id INT NOT NULL,
+        endpoint_hash CHAR(64) NOT NULL,
+        endpoint TEXT NOT NULL,
+        p256dh VARCHAR(255) NOT NULL,
+        auth VARCHAR(255) NOT NULL,
+        user_agent VARCHAR(512) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_success_at DATETIME NULL,
+        UNIQUE KEY uq_push_endpoint (endpoint_hash),
+        KEY idx_push_owner (owner_user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await exec.query(`CREATE TABLE IF NOT EXISTS push_vapid_keys (
+        id TINYINT NOT NULL PRIMARY KEY,
+        public_key VARCHAR(255) NOT NULL,
+        private_key_enc TEXT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

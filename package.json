@@ -32,6 +32,7 @@
     "@types/node": "^25.1.0",
     "@types/nodemailer": "^8.0.0",
     "@types/supertest": "^7.2.0",
+    "@types/web-push": "3.6.4",
     "nodemon": "^3.1.11",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
@@ -65,6 +66,7 @@
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0",
     "undici": "^7.16.0",
+    "web-push": "3.6.7",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"
   }

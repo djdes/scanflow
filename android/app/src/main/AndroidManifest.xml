@@ -5,6 +5,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Уведомления о накладных (Web Push сайта, Android 13+ спрашивает разрешение). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <intent>
@@ -92,6 +94,24 @@
         </activity>
 
         <activity android:name="com.google.androidbrowserhelper.trusted.FocusActivity" />
+
+        <!-- Уведомления сайта приходят от имени приложения, а не Chrome:
+             Chrome передаёт их сюда (notification delegation). -->
+        <service
+            android:name="com.google.androidbrowserhelper.trusted.DelegationService"
+            android:enabled="true"
+            android:exported="true">
+            <meta-data
+                android:name="android.support.customtabs.trusted.SMALL_ICON"
+                android:resource="@drawable/ic_notification" />
+            <intent-filter>
+                <action android:name="android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+        <activity
+            android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity"
+            android:exported="false" />
 
         <activity
             android:name="com.google.androidbrowserhelper.trusted.WebViewFallbackActivity"
