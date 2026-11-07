@@ -27,8 +27,8 @@ async function invoice(owner = 1, status = 'processed') {
 describe.runIf((process.env.DB_NAME || '').includes('test'))('invoice workflow list', () => {
   beforeEach(async () => {
     await resetDb();
-    await getDb().prepare(`INSERT INTO users (id, username, password_hash, api_key, role)
-      VALUES (1, 'workflow1', 'x', 'wk1', 'user'), (2, 'workflow2', 'x', 'wk2', 'user')`).run();
+    await getDb().prepare(`INSERT INTO users (id, username, password_hash, api_key, role, notify_events)
+      VALUES (1, 'workflow1', 'x', 'wk1', 'user', '[]'), (2, 'workflow2', 'x', 'wk2', 'user', '[]')`).run();
   });
   afterAll(closeTestDb);
 
