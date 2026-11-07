@@ -87,7 +87,6 @@
         <button type="button" class="m-more__item" data-action="files">Файл (PDF, XML)</button>
         <a class="m-more__item" href="/app.html">Полный кабинет</a>
         <button type="button" class="m-more__item" data-action="install" id="m-install" hidden>Установить на телефон</button>
-        <div class="m-install-help" id="m-install-help" hidden></div>
         <a class="m-more__item" id="m-apk" href="/downloads/scanflow.apk" download hidden>Скачать для Android (APK)</a>
         <button type="button" class="m-more__item m-more__item--danger" data-action="logout">Выйти</button>
         <p class="m-note" id="m-whoami"></p>
@@ -122,6 +121,25 @@
       <button type="button" class="m-btn m-btn--primary" data-action="camera">Ещё страница</button>
       <button type="button" class="m-btn m-btn--ghost" data-action="shot-done">Готово</button>
     </div>
+  </div>
+
+  <!-- Подсказка «Поставьте на телефон»: снизу, не мешает работать; что внутри —
+       по телефону и браузеру (MobileCore.installVariant). -->
+  <div class="m-install" id="m-install-sheet" role="dialog" aria-labelledby="m-install-title" hidden>
+    <div class="m-install__card">
+      <button type="button" class="m-install__close" data-action="install-later" aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <div class="m-install__head">
+        <img class="m-install__icon" src="/icon-192.png" alt="" width="56" height="56">
+        <div>
+          <h2 class="m-install__title" id="m-install-title">Поставьте ScanFlow на телефон</h2>
+          <p class="m-install__text">Значок на экране, без браузера.</p>
+        </div>
+      </div>
+      <div class="m-install__body" id="m-install-body"></div>
+    </div>
+    <svg class="m-install__arrow" id="m-install-arrow" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M12 4v15M6 13l6 6 6-6"/></svg>
   </div>
 
   <div class="m-toast" id="m-toast" role="status" aria-live="polite" hidden></div>

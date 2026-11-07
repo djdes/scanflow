@@ -117,6 +117,31 @@ const MobileCore = {
     if (/Android/.test(s)) return 'android';
     return 'other';
   },
+
+  /**
+   * Какую подсказку установки показать внизу экрана, null — никакую:
+   * ios-safari — «Поделиться» → «На экран Домой» со стрелкой вниз к панели Safari;
+   * ios-other — Chrome, Firefox и др. на iPhone: те же шаги из строки адреса;
+   * ios-inapp — встроенный браузер соцсети: на экран «Домой» оттуда не добавить;
+   * android-prompt — есть системное окно установки (beforeinstallprompt);
+   * android-menu — его нет (Samsung, Яндекс, Firefox): через меню браузера.
+   */
+  installVariant(ua, standalone, maxTouchPoints, hasPrompt) {
+    const kind = this.installHint(ua, standalone, maxTouchPoints);
+    const s = String(ua || '');
+    if (kind === 'ios') {
+      if (/FBAN|FBAV|Instagram|Line\/|VKClient|OKApp|MicroMessenger/.test(s)) return 'ios-inapp';
+      return /CriOS|FxiOS|EdgiOS|OPiOS|YaBrowser|GSA\//.test(s) ? 'ios-other' : 'ios-safari';
+    }
+    if (kind === 'android') return hasPrompt ? 'android-prompt' : 'android-menu';
+    return null;
+  },
+
+  /** Показывать ли подсказку снова: «Не сейчас» прячет её на 14 дней. */
+  installDue(dismissedAt, now = Date.now()) {
+    const at = Number(dismissedAt);
+    return !Number.isFinite(at) || at <= 0 || now - at > 14 * 24 * 60 * 60 * 1000;
+  },
 };
 
 if (typeof window !== 'undefined') window.MobileCore = MobileCore;
