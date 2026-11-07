@@ -1935,7 +1935,11 @@ const Invoices = {
         const fd = new FormData();
         let resp;
         try {
-          for (const f of files) fd.append('files', await Upload.memoryBlob(f), f.name);
+          // Как в загрузке: копия в памяти (WebKit 319985) и сжатие до 3200 px.
+          for (const f of files) {
+            const page = await Upload.shrinkPhoto(await Upload.memoryBlob(f), f.name);
+            fd.append('files', page.blob, page.name);
+          }
           resp = await App.api(`/invoices/${id}/add-pages`, { method: 'POST', body: fd });
         } catch (e) { App.notify('Ошибка загрузки: ' + e.message, 'error'); return; }
         if (!resp.ok) {

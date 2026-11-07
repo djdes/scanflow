@@ -179,3 +179,58 @@ describe('photos belong to the login they were taken under', () => {
     expect(upload._scheduleUpload).toHaveBeenCalledTimes(2);
   });
 });
+
+// Сжатие фото перед отправкой: сервер всё равно уменьшает фото до 2400×3200
+// (ocrManager.preprocessImage), поэтому длинная сторона 3200 — без потерь для
+// распознавания, с запасом на повёрнутый лист.
+describe('photo shrinking before upload', () => {
+  it('shrinks only photos the browser can decode', () => {
+    expect(upload.shrinkable('image/jpeg', 'IMG_1.JPG')).toBe(true);
+    expect(upload.shrinkable('', 'scan.png')).toBe(true);
+    expect(upload.shrinkable('image/webp', 'x')).toBe(true);
+    expect(upload.shrinkable('application/pdf', 'invoice.pdf')).toBe(false);
+    expect(upload.shrinkable('text/xml', 'upd.xml')).toBe(false);
+    expect(upload.shrinkable('image/tiff', 'scan.tiff')).toBe(false);
+  });
+
+  it('fits the long side into 3200 px, never enlarges, keeps proportions', () => {
+    expect(upload.photoPlan({ width: 4032, height: 3024, size: 4e6 })).toEqual({ width: 3200, height: 2400 });
+    expect(upload.photoPlan({ width: 3024, height: 4032, size: 4e6 })).toEqual({ width: 2400, height: 3200 });
+    expect(upload.photoPlan({ width: 8160, height: 6144, size: 18e6 })).toEqual({ width: 3200, height: 2409 });
+  });
+
+  it('leaves a small photo as it is; re-encodes a heavy one without resizing', () => {
+    expect(upload.photoPlan({ width: 1600, height: 1200, size: 900_000 })).toBeNull();
+    expect(upload.photoPlan({ width: 3000, height: 2000, size: 6e6 })).toEqual({ width: 3000, height: 2000 });
+    expect(upload.photoPlan({ width: 0, height: 0, size: 6e6 })).toBeNull();
+  });
+
+  it('uses the result only when it is noticeably smaller', () => {
+    expect(upload.photoBetter(4_000_000, 1_500_000)).toBe(true);
+    expect(upload.photoBetter(1_000_000, 950_000)).toBe(false);
+    expect(upload.photoBetter(1_000_000, 0)).toBe(false);
+  });
+
+  it('names the result .jpg', () => {
+    expect(upload.jpegName('scan.PNG')).toBe('scan.jpg');
+    expect(upload.jpegName('IMG_0001.jpeg')).toBe('IMG_0001.jpg');
+    expect(upload.jpegName('photo')).toBe('photo.jpg');
+  });
+
+  it('sends the original when the photo cannot be shrunk here', async () => {
+    const original = new Blob(['x'.repeat(10)], { type: 'image/jpeg' });
+    const kept = await upload.shrinkPhoto(original, 'a.jpg');
+    expect(kept).toMatchObject({ blob: original, name: 'a.jpg', shrunk: false });
+  });
+
+  it('stores and sends the shrunk photo under its new name', async () => {
+    const shrunk = new Blob([Uint8Array.from([1, 2, 3])], { type: 'image/jpeg' });
+    upload.shrinkPhoto = vi.fn(async () => ({ blob: shrunk, name: 'scan.jpg', shrunk: true }));
+    upload.dbPut = vi.fn(async () => 8);
+    upload._scheduleUpload = vi.fn();
+    await upload.addFile(new File([Uint8Array.from([9, 9, 9, 9])], 'scan.png', { type: 'image/png' }));
+    expect(upload.dbPut).toHaveBeenCalledWith(shrunk, 'scan.jpg');
+    expect(upload.history[0].name).toBe('scan.jpg');
+    expect(upload._scheduleUpload).toHaveBeenCalledWith(0, shrunk);
+  });
+});
