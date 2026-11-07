@@ -1,6 +1,8 @@
 /* Мобильное приложение /m/ (спек docs/superpowers/specs/2026-11-06-mobile-app-design.md).
    Правило: крупно, просто, коротко. Текст 18 px, кнопки от 60 px, одна залитая
-   кнопка на экране. Тема — по системе. */
+   кнопка на экране. Тема — по системе.
+   Размеры шрифта — в rem: «Размер текста» (html[data-text]) увеличивает весь
+   текст разом, кнопки растут вместе с ним. Контраст — html[data-contrast]. */
 
 :root {
   --m-bg: #f7f6f3;
@@ -42,15 +44,61 @@
   }
 }
 
+/* Чёткий контраст: чёрный текст на белом, без серого, рамки заметнее. */
+:root[data-contrast="high"] {
+  --m-bg: #ffffff;
+  --m-card: #ffffff;
+  --m-text: #000000;
+  --m-muted: #1f1e1b;
+  --m-line: #5c5b57;
+  --m-primary: #0b5cad;
+  --m-primary-press: #084a8c;
+  --m-focus: #000000;
+  --m-blue: #0a3f75;   --m-blue-bg: #d6e8fb;
+  --m-green: #0f4227;  --m-green-bg: #d2ecda;
+  --m-amber: #5c3a00;  --m-amber-bg: #fbe3b0;
+  --m-red: #7d1410;    --m-red-bg: #fbd5d3;
+  --m-grey: #2b2a27;   --m-grey-bg: #e2e1dc;
+  --m-shadow: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-contrast="high"] {
+    --m-bg: #000000;
+    --m-card: #000000;
+    --m-text: #ffffff;
+    --m-muted: #f1f0ed;
+    --m-line: #a3a29d;
+    --m-primary: #6cb4ff;
+    --m-primary-press: #4f9ff0;
+    --m-on-primary: #000000;
+    --m-focus: #ffffff;
+    --m-blue: #bfdcff;   --m-blue-bg: #0f2742;
+    --m-green: #b4f0c8;  --m-green-bg: #0d2a18;
+    --m-amber: #ffd98a;  --m-amber-bg: #33240a;
+    --m-red: #ffc2be;    --m-red-bg: #3d1311;
+    --m-grey: #e6e5e1;   --m-grey-bg: #262624;
+  }
+}
+:root[data-contrast="high"] .m-btn--ghost,
+:root[data-contrast="high"] .m-more,
+:root[data-contrast="high"] .m-field { border-width: 2px; border-color: var(--m-line); }
+:root[data-contrast="high"] .m-pill { box-shadow: inset 0 0 0 2px currentColor; }
+:root[data-contrast="high"] .m-card { border-width: 2px 2px 2px 6px; border-color: var(--m-line); border-left-color: var(--m-tone, var(--m-line)); }
+
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { font-size: 100%; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html[data-text="l"] { font-size: 118.75%; }
+html[data-text="xl"] { font-size: 137.5%; }
+/* В установленном приложении «потянуть вниз» обновляет экран (mobile.js),
+   а не тянет страницу целиком. */
+html.m-standalone, html.m-standalone body { overscroll-behavior-y: contain; }
 body {
   margin: 0;
   min-height: 100dvh;
   background: var(--m-bg);
   color: var(--m-text);
   font-family: var(--m-font);
-  font-size: 18px;
+  font-size: 1.125rem;
   line-height: 1.4;
   overflow-wrap: break-word;
   -webkit-tap-highlight-color: transparent;
@@ -69,7 +117,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   align-items: center;
   gap: 8px;
   min-height: 60px;
-  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  padding: env(safe-area-inset-top) max(64px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
   background: var(--m-bg);
   border-bottom: 1px solid var(--m-line);
 }
@@ -83,7 +131,45 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   font-weight: 700;
   text-decoration: none;
 }
-.m-back:not([hidden]) ~ .m-brand { margin-right: 0; }
+/* Справа — «Аа»: слева столько же места, чтобы название было по центру. */
+.m-top:has(> .m-back[hidden]) { padding-left: max(64px, env(safe-area-inset-left)); }
+/* При крупном тексте рядом с «Назад» — только значок. */
+html[data-text] .m-back:not([hidden]) ~ .m-brand span { display: none; }
+.m-aa {
+  position: absolute;
+  right: max(8px, env(safe-area-inset-right));
+  bottom: 6px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--m-primary);
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.m-ptr {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 50%;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--m-card);
+  color: var(--m-muted);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transform: translate(-50%, 0);
+}
+.m-ptr svg { width: 24px; height: 24px; stroke-width: 2.4; }
+.m-ptr.is-ready { color: var(--m-primary); }
+.m-ptr.is-loading svg { animation: m-spin 0.8s linear infinite; }
+@keyframes m-spin { to { transform: rotate(360deg); } }
 .m-back {
   display: inline-flex;
   margin-left: -8px;
@@ -95,7 +181,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   background: none;
   color: var(--m-primary);
   font: inherit;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -108,7 +194,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   justify-content: space-between;
   gap: 12px;
   padding: 12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-weight: 600;
 }
 .m-offline { background: var(--m-amber-bg); color: var(--m-amber); }
@@ -124,7 +210,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 16px;
+  font-size: 1rem;
   cursor: pointer;
 }
 
@@ -136,10 +222,10 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   padding: 20px max(16px, env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 .m-screen { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
-.m-title { margin: 4px 0 4px; font-size: 28px; line-height: 1.2; }
-.m-subtitle { margin: 16px 0 0; font-size: 22px; }
+.m-title { margin: 4px 0 4px; font-size: 1.75rem; line-height: 1.2; }
+.m-subtitle { margin: 16px 0 0; font-size: 1.375rem; }
 .m-hint { margin: -4px 0 6px; color: var(--m-muted); text-align: center; }
-.m-note { margin: 4px 0 0; color: var(--m-muted); font-size: 16px; text-align: center; }
+.m-note { margin: 4px 0 0; color: var(--m-muted); font-size: 1rem; text-align: center; }
 .m-empty { margin: 8px 0; padding: 20px 16px; border-radius: var(--m-radius); background: var(--m-card); color: var(--m-muted); text-align: center; }
 .m-login-note { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--m-blue-bg); color: var(--m-blue); font-weight: 600; }
 .m-error { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--m-red-bg); color: var(--m-red); font-weight: 600; }
@@ -156,7 +242,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   border: 2px solid transparent;
   border-radius: var(--m-radius);
   font: inherit;
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 650;
   line-height: 1.2;
   text-align: center;
@@ -174,7 +260,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   flex-direction: column;
   gap: 8px;
   min-height: 156px;
-  font-size: 26px;
+  font-size: 1.625rem;
   font-weight: 700;
   border-radius: 24px;
   box-shadow: 0 8px 24px rgba(35, 131, 226, 0.28);
@@ -205,7 +291,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   background: none;
   color: var(--m-text);
   font: inherit;
-  font-size: 19px;
+  font-size: 1.1875rem;
   font-weight: 550;
   text-align: left;
   text-decoration: none;
@@ -228,8 +314,8 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   text-decoration: none;
   box-shadow: var(--m-shadow);
 }
-.m-tile strong { font-size: 40px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.m-tile span { font-size: 18px; font-weight: 600; }
+.m-tile strong { font-size: 2.5rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.m-tile span { font-size: 1.125rem; font-weight: 600; }
 .m-tile--amber { background: var(--m-amber-bg); color: var(--m-amber); }
 .m-tile--green { background: var(--m-green-bg); color: var(--m-green); }
 
@@ -237,23 +323,28 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
 .m-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .m-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "name name" "pill sum" "meta meta";
-  align-items: center;
-  gap: 6px 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
   min-height: 92px;
-  padding: 14px 16px;
+  padding: 14px 16px 14px 14px;
   border-radius: var(--m-radius);
   background: var(--m-card);
   color: var(--m-text);
   text-decoration: none;
   box-shadow: var(--m-shadow);
   border: 1px solid var(--m-line);
+  border-left: 6px solid var(--m-tone, var(--m-line));
 }
+/* Цвет статуса — полосой слева: список читается с одного взгляда. */
+.m-card--blue { --m-tone: var(--m-blue); }
+.m-card--green { --m-tone: var(--m-green); }
+.m-card--amber { --m-tone: var(--m-amber); }
+.m-card--red { --m-tone: var(--m-red); }
+.m-card--grey { --m-tone: var(--m-line); }
 .m-card:active { transform: scale(0.99); }
+.m-card__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .m-card__name {
-  grid-area: name;
-  font-size: 19px;
+  font-size: 1.1875rem;
   font-weight: 650;
   line-height: 1.25;
   overflow: hidden;
@@ -261,9 +352,8 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-.m-card__sum { grid-area: sum; justify-self: end; font-size: 20px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.m-card__meta { grid-area: meta; color: var(--m-muted); font-size: 16px; }
-.m-card .m-pill { grid-area: pill; }
+.m-card__sum { font-size: 1.25rem; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.m-card__meta { color: var(--m-muted); font-size: 1rem; }
 
 .m-pill {
   justify-self: start;
@@ -272,11 +362,13 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   min-height: 32px;
   padding: 3px 12px;
   border-radius: 999px;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 650;
   white-space: nowrap;
+  gap: 6px;
 }
-.m-pill--big { min-height: 40px; padding: 6px 16px; font-size: 20px; }
+.m-pill__icon { width: 1.1em; height: 1.1em; stroke-width: 2.4; margin-left: -2px; }
+.m-pill--big { min-height: 40px; padding: 6px 16px; font-size: 1.25rem; }
 .m-pill--blue { background: var(--m-blue-bg); color: var(--m-blue); }
 .m-pill--green { background: var(--m-green-bg); color: var(--m-green); }
 .m-pill--amber { background: var(--m-amber-bg); color: var(--m-amber); }
@@ -302,7 +394,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   padding: 6px 2px;
   border-radius: 12px;
   color: var(--m-text);
-  font-size: 17px;
+  font-size: min(1.0625rem, 5vw);
   white-space: nowrap;
   font-weight: 600;
   text-align: center;
@@ -314,7 +406,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   border-radius: 999px;
   background: var(--m-amber-bg);
   color: var(--m-amber);
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 .m-seg__item[data-view="ready"] span:not(:empty) { background: var(--m-green-bg); color: var(--m-green); }
 .m-seg__item.is-active { background: var(--m-card); box-shadow: var(--m-shadow); color: var(--m-primary); }
@@ -328,9 +420,9 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
 .m-status--red { background: var(--m-red-bg); color: var(--m-red); }
 .m-status--grey { background: var(--m-grey-bg); color: var(--m-grey); }
 .m-status .m-pill { background: var(--m-card); }
-.m-status__hint { margin: 0; font-size: 20px; font-weight: 600; }
-.m-inv__supplier { margin: 6px 0 0; font-size: 26px; line-height: 1.2; }
-.m-inv__sum { margin: 0; font-size: 34px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.m-status__hint { margin: 0; font-size: 1.25rem; font-weight: 600; }
+.m-inv__supplier { margin: 6px 0 0; font-size: 1.625rem; line-height: 1.2; }
+.m-inv__sum { margin: 0; font-size: 2.125rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .m-inv__meta { margin: -6px 0 4px; color: var(--m-muted); }
 .m-details summary { cursor: pointer; }
 .m-details[open] summary { border-bottom: 1px solid var(--m-line); }
@@ -362,7 +454,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   background: var(--m-card);
   color: var(--m-text);
   font: inherit;
-  font-size: 20px;
+  font-size: 1.25rem;
 }
 .m-field:focus { border-color: var(--m-primary); outline: none; }
 .m-form .m-btn { margin-top: 10px; }
@@ -398,10 +490,10 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   border-radius: 50%;
   background: var(--m-green-bg);
   color: var(--m-green);
-  font-size: 40px;
+  font-size: 2.5rem;
   font-weight: 700;
 }
-.m-sheet__title { margin: 0; font-size: 26px; }
+.m-sheet__title { margin: 0; font-size: 1.625rem; }
 .m-sheet__text { margin: 0 0 6px; color: var(--m-muted); }
 
 /* ── Подсказка «Поставьте на телефон» ─────────────────────────────── */
@@ -446,8 +538,8 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   border-radius: 14px;
   box-shadow: 0 6px 16px rgba(35, 131, 226, 0.35);
 }
-.m-install__title { margin: 0; font-size: 20px; line-height: 1.25; }
-.m-install__text { margin: 4px 0 0; color: var(--m-muted); font-size: 16px; line-height: 1.35; }
+.m-install__title { margin: 0; font-size: 1.25rem; line-height: 1.25; }
+.m-install__text { margin: 4px 0 0; color: var(--m-muted); font-size: 1rem; line-height: 1.35; }
 .m-install__close {
   position: absolute;
   top: 12px;
@@ -470,7 +562,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   background: none;
   color: var(--m-muted);
   font: inherit;
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -493,7 +585,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   padding: 12px 14px;
   border-radius: 16px;
   background: var(--m-bg);
-  font-size: 18px;
+  font-size: 1.125rem;
   line-height: 1.35;
 }
 .m-steps__n {
@@ -504,10 +596,10 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   border-radius: 50%;
   background: var(--m-primary);
   color: var(--m-on-primary);
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-weight: 700;
 }
-.m-steps small { display: block; margin-top: 2px; color: var(--m-muted); font-size: 15px; }
+.m-steps small { display: block; margin-top: 2px; color: var(--m-muted); font-size: 0.9375rem; }
 /* Значок кнопки браузера в тексте шага — как на экране телефона. */
 .m-glyph {
   display: inline-grid;
@@ -524,6 +616,128 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
 .m-glyph svg { width: 18px; height: 18px; }
 .m-glyph--dots circle { fill: currentColor; stroke: none; }
 
+/* ── Переключатель (вкл/выкл) в пунктах «Ещё» ─────────────────────── */
+.m-more__item--row { justify-content: space-between; gap: 12px; }
+.m-switch {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-width: 56px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--m-grey-bg);
+  box-shadow: inset 0 0 0 2px var(--m-line);
+  color: var(--m-muted);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+.m-switch::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--m-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease;
+}
+[aria-checked="true"] > .m-switch { background: var(--m-green); box-shadow: none; }
+[aria-checked="true"] > .m-switch::after { transform: translateX(22px); }
+/* «Запрещены» / «После установки» — текстом вместо переключателя. */
+.m-switch:not(:empty) { min-width: 0; height: auto; padding: 4px 12px; box-shadow: none; }
+.m-switch:not(:empty)::after { display: none; }
+
+/* ── Кнопка «Снять» на списке ──────────────────────────────────────── */
+.m-fab {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 64px;
+  padding: 0 24px 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--m-primary);
+  color: var(--m-on-primary);
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(35, 131, 226, 0.35), 0 2px 6px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+.m-fab svg { width: 28px; height: 28px; }
+.m-fab:active { transform: scale(0.97); }
+/* Последняя карточка не прячется под кнопкой. */
+#screen-list { padding-bottom: 88px; }
+
+/* ── Листы: качество фото, советы, размер текста ──────────────────── */
+.m-sheet__check--amber { background: var(--m-amber-bg); color: var(--m-amber); }
+.m-offer {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 16px;
+  background: var(--m-blue-bg);
+  color: var(--m-blue);
+  font-weight: 600;
+  text-align: left;
+}
+.m-offer svg { width: 26px; height: 26px; }
+.m-offer__btn {
+  min-width: 72px;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 2px solid currentColor;
+  border-radius: 12px;
+  background: var(--m-card);
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.m-tips { display: grid; gap: 10px; margin: 4px 0 6px; padding: 0; list-style: none; text-align: left; }
+.m-tips li {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--m-bg);
+  font-size: 1.25rem;
+  font-weight: 650;
+}
+.m-tips svg { width: 52px; height: 52px; padding: 10px; border-radius: 14px; background: var(--m-blue-bg); color: var(--m-blue); stroke-width: 1.8; }
+.m-sizes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.m-size {
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: 4px;
+  min-height: 104px;
+  padding: 10px 4px 12px;
+  border: 2px solid var(--m-line);
+  border-radius: 16px;
+  background: var(--m-card);
+  color: var(--m-text);
+  font: inherit;
+  font-size: min(1.0625rem, 4.6vw);
+  font-weight: 600;
+  cursor: pointer;
+}
+.m-size__a { font-weight: 700; line-height: 1; }
+.m-size[aria-checked="true"] { border-color: var(--m-primary); box-shadow: inset 0 0 0 2px var(--m-primary); color: var(--m-primary); }
+.m-view__contrast { border: 2px solid var(--m-line); border-radius: 16px; }
+
 /* ── Всплывашка ────────────────────────────────────────────────────── */
 .m-toast {
   position: fixed;
@@ -535,7 +749,7 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
   margin: 0 auto;
   padding: 16px 18px;
   border-radius: var(--m-radius);
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }

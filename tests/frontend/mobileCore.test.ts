@@ -21,7 +21,7 @@ describe('invoiceState — плашка, пояснение, главная кн
     [{ status: 'ocr_processing' }, 'Читаем', null],
     [{ status: 'parsing' }, 'Читаем', null],
     [{ onec_status: 'error', onec_error: 'Нет склада' }, '1С не приняла', 'review'],
-    [{ status: 'sent_to_1c' }, 'В 1С ✓', null],
+    [{ status: 'sent_to_1c' }, 'В 1С', null],
     [{ approved_for_1c: 1 }, 'Ждёт 1С', null],
     [{ review_reason: 'total' }, 'Проверить', 'review'],
     [{ sibling_is_copy: 1 }, 'Проверить', 'review'],
@@ -196,4 +196,82 @@ describe('sharedFileName — файл из «Поделиться» должен
   it('неизвестный тип — как есть: загрузчик сам скажет, что формат не подходит', () => {
     expect(core.sharedFileName('notes', 'text/plain')).toBe('notes');
   });
+});
+
+describe('значок статуса — читается и без различения цветов', () => {
+  it.each([
+    [{ status: 'new' }, 'clock'],
+    [{}, 'send'],
+    [{ review_reason: 'total' }, 'alert'],
+    [{ status: 'error' }, 'cross'],
+    [{ status: 'sent_to_1c' }, 'check'],
+  ])('%o → %s', (over, icon) => expect(core.invoiceState(ready(over)).icon).toBe(icon));
+  it('неизвестный статус — без значка', () => expect(core.invoiceState(ready({ status: 'weird' })).icon).toBeNull());
+});
+
+describe('relativeDay — «сегодня», «вчера», иначе дата', () => {
+  const now = new Date(2026, 10, 7, 9, 30);
+  it('сегодня', () => expect(core.relativeDay('2026-11-07', now)).toBe('сегодня'));
+  it('время в строке не мешает', () => expect(core.relativeDay('2026-11-06 23:59:00', now)).toBe('вчера'));
+  it('позавчера — дата', () => expect(core.relativeDay('2026-11-05', now)).toBe('05.11'));
+  it('через Новый год', () => expect(core.relativeDay('2026-12-31', new Date(2027, 0, 1))).toBe('вчера'));
+  it('прошлый год — с годом', () => expect(core.relativeDay('2025-11-07', now)).toBe('07.11.2025'));
+  it('пусто', () => expect(core.relativeDay(null, now)).toBe(''));
+});
+
+describe('pushState — уведомления на этом телефоне', () => {
+  const base = { supported: true, ios: false, standalone: false, permission: 'default', subscribed: false };
+  it('ещё не включали', () => expect(core.pushState(base)).toBe('off'));
+  it('включены', () => expect(core.pushState({ ...base, permission: 'granted', subscribed: true })).toBe('on'));
+  it('разрешение есть, подписки нет (сбросили данные) — выкл', () => expect(core.pushState({ ...base, permission: 'granted' })).toBe('off'));
+  it('запрещены в настройках', () => expect(core.pushState({ ...base, permission: 'denied' })).toBe('denied'));
+  it('iPhone в Safari — сначала на экран «Домой»', () => expect(core.pushState({ ...base, supported: false, ios: true })).toBe('install-first'));
+  it('браузер не умеет', () => expect(core.pushState({ ...base, supported: false })).toBe('unsupported'));
+  it('iPhone старой версии в установленном приложении — не умеет', () => {
+    expect(core.pushState({ ...base, supported: false, ios: true, standalone: true })).toBe('unsupported');
+  });
+});
+
+describe('photoIssue — спросить «Переснять?» только о явно плохом снимке', () => {
+  // Синтетический лист: светлая бумага и тёмные строки текста.
+  const sheet = (w: number, h: number, paper: number, ink: number) => {
+    const g = new Uint8ClampedArray(w * h).fill(paper);
+    for (let y = 10; y < h - 10; y += 8) for (let x = 10; x < w - 10; x++) if ((x >> 2) % 3) { g[y * w + x] = ink; g[(y + 1) * w + x] = ink; }
+    return g;
+  };
+  const blur = (g: Uint8ClampedArray, w: number, h: number, r: number) => {
+    const out = new Uint8ClampedArray(g.length);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let s = 0, n = 0;
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        const yy = Math.min(h - 1, Math.max(0, y + dy)), xx = Math.min(w - 1, Math.max(0, x + dx));
+        s += g[yy * w + xx]; n++;
+      }
+      out[y * w + x] = s / n;
+    }
+    return out;
+  };
+  const W = 120, H = 160;
+  it('чёткий светлый лист и лёгкая нерезкость — без вопросов', () => {
+    expect(core.photoIssue(core.photoStats(sheet(W, H, 235, 30), W, H))).toBeNull();
+    expect(core.photoIssue(core.photoStats(blur(sheet(W, H, 235, 30), W, H, 2), W, H))).toBeNull();
+  });
+  it('тёмный снимок', () => {
+    expect(core.photoIssue(core.photoStats(sheet(W, H, 50, 10), W, H))).toBe('dark');
+  });
+  it('сильно размытый', () => {
+    expect(core.photoIssue(core.photoStats(blur(sheet(W, H, 235, 30), W, H, 4), W, H))).toBe('blurry');
+  });
+  it('нет данных — не мешаем отправке', () => {
+    expect(core.photoIssue(null)).toBeNull();
+    expect(core.photoIssue({ brightness: NaN, sharpness: 10 })).toBeNull();
+  });
+});
+
+describe('due — прошло ли N дней', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.UTC(2026, 10, 7);
+  it('не отмечали', () => expect(core.due(null, 7, now)).toBe(true));
+  it('6 дней назад', () => expect(core.due(String(now - 6 * day), 7, now)).toBe(false));
+  it('8 дней назад', () => expect(core.due(String(now - 8 * day), 7, now)).toBe(true));
 });
