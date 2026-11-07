@@ -45,6 +45,7 @@ import billingRouter, { robokassaCallbackRouter } from './routes/billing';
 import unitCostRouter from './routes/unitCost';
 import recognitionQueueRouter from './routes/recognitionQueue';
 import { registerMobileRoutes } from './mobileRoutes';
+import pushRouter from './routes/push';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
@@ -300,6 +301,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Своё подключение подписки ChatGPT (режим распознавания gpt) — платформенный конфиг, только admin.
   app.use('/api/chatgpt', apiKeyAuth, requireAdmin, chatgptRouter);
   app.use('/api/ai', apiKeyAuth, aiRouter);
+  // Уведомления на телефон (Web Push) для мобильного приложения /m/.
+  app.use('/api/push', apiKeyAuth, pushRouter);
   app.use('/api/product-assistant', apiKeyAuth, productAssistantRouter);
   app.use('/api/debug', apiKeyAuth, requireAdmin, debugRouter);
   app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);

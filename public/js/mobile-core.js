@@ -13,9 +13,14 @@ const MobileCore = {
     duplicate: 'Похоже на повтор.',
   },
 
-  /** Плашка, пояснение в одно предложение и главная кнопка накладной. */
+  // Значок плашки — по цвету, чтобы статус читался и без различения цветов:
+  // синий — ждём, зелёный — можно отправлять, янтарный — проверить,
+  // красный — ошибка, серый — дело сделано.
+  TONE_ICON: { blue: 'clock', green: 'send', amber: 'alert', red: 'cross', grey: 'check' },
+
+  /** Плашка, пояснение в одно предложение, значок и главная кнопка накладной. */
   invoiceState(inv) {
-    const s = (tone, label, hint, action = null) => ({ tone, label, hint, action });
+    const s = (tone, label, hint, action = null) => ({ tone, label, hint, action, icon: this.TONE_ICON[tone] });
     const status = inv.status;
     if (inv.duplicate_of || status === 'duplicate') return s('amber', 'Уже есть', 'Такую накладную уже загружали.');
     if (status === 'error' || status === 'failed') return s('red', 'Не прочиталась', 'Переснимите при хорошем свете.', 'retake');
@@ -24,14 +29,14 @@ const MobileCore = {
     if (['error', 'rejected'].includes(inv.onec_status)) {
       return s('red', '1С не приняла', String(inv.onec_error || '').trim() || 'Откройте и проверьте.', 'review');
     }
-    if (status === 'sent_to_1c') return s('grey', 'В 1С ✓', 'Накладная уже в 1С.');
+    if (status === 'sent_to_1c') return s('grey', 'В 1С', 'Накладная уже в 1С.');
     if (inv.approved_for_1c) return s('blue', 'Ждёт 1С', '1С заберёт сама.');
     if (inv.review_reason || inv.sibling_is_copy) {
       const reason = inv.review_reason || 'duplicate';
       return s('amber', 'Проверить', this.REASONS[reason] || 'Откройте и проверьте.', 'review');
     }
     if (status === 'processed') return s('green', 'Готова', 'Можно отправлять в 1С.', 'send');
-    return s('grey', String(status || '—'), '');
+    return { ...s('grey', String(status || '—'), ''), icon: null };
   },
 
   /** Накладная ещё читается — экран стоит обновлять сам. */
@@ -54,6 +59,18 @@ const MobileCore = {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
     if (!m) return '';
     return Number(m[1]) === now.getFullYear() ? `${m[3]}.${m[2]}` : `${m[3]}.${m[2]}.${m[1]}`;
+  },
+
+  /** «сегодня», «вчера» или «05.11»: так быстрее, чем считать по календарю. */
+  relativeDay(value, now = new Date()) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+    if (!m) return '';
+    const day = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const diff = Math.round((today - day) / 86400000);
+    if (diff === 0) return 'сегодня';
+    if (diff === 1) return 'вчера';
+    return this.formatShortDate(value, now);
   },
 
   /** «05.11.2026» — полная дата для карточки накладной. */
@@ -151,10 +168,57 @@ const MobileCore = {
     return ext ? `${base}.${ext}` : base;
   },
 
+  /** Прошло ли больше days дней с отметки at (мс); нет отметки — да. */
+  due(at, days, now = Date.now()) {
+    const t = Number(at);
+    return !Number.isFinite(t) || t <= 0 || now - t > days * 24 * 60 * 60 * 1000;
+  },
+
   /** Показывать ли подсказку снова: «Не сейчас» прячет её на 14 дней. */
   installDue(dismissedAt, now = Date.now()) {
-    const at = Number(dismissedAt);
-    return !Number.isFinite(at) || at <= 0 || now - at > 14 * 24 * 60 * 60 * 1000;
+    return this.due(dismissedAt, 14, now);
+  },
+
+  /**
+   * Уведомления на этом телефоне: on / off / denied (запрещены в настройках) /
+   * install-first (iPhone: только у приложения на экране «Домой», iOS 16.4+) /
+   * unsupported (браузер не умеет — пункт не показываем).
+   */
+  pushState({ supported, ios, standalone, permission, subscribed }) {
+    if (!supported) return ios && !standalone ? 'install-first' : 'unsupported';
+    if (permission === 'denied') return 'denied';
+    return subscribed && permission === 'granted' ? 'on' : 'off';
+  },
+
+  /**
+   * Яркость и резкость снимка по серому уменьшенному изображению (около 640 px):
+   * средняя яркость 0–255 и дисперсия лапласиана — чем меньше, тем мутнее.
+   */
+  photoStats(gray, width, height) {
+    let sum = 0;
+    for (let i = 0; i < gray.length; i++) sum += gray[i];
+    let s = 0, s2 = 0, n = 0;
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const i = y * width + x;
+        const lap = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - width] - gray[i + width];
+        s += lap; s2 += lap * lap; n++;
+      }
+    }
+    const mean = n ? s / n : 0;
+    return { brightness: gray.length ? sum / gray.length : 0, sharpness: n ? s2 / n - mean * mean : 0 };
+  },
+
+  /**
+   * Что не так со снимком: 'dark', 'blurry' или null. Пороги — с запасом
+   * (лист в тени у окна и лёгкая нерезкость читаются): спрашиваем только о
+   * явно плохом фото, иначе вопрос стал бы привычным «Отправить так».
+   */
+  photoIssue(stats) {
+    if (!stats || !Number.isFinite(stats.brightness) || !Number.isFinite(stats.sharpness)) return null;
+    if (stats.brightness < 70) return 'dark';
+    if (stats.sharpness < 150) return 'blurry';
+    return null;
   },
 };
 

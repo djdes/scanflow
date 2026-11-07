@@ -1,4 +1,4 @@
-/* global MobileCore, Upload, RecognitionQueue */
+/* global MobileCore, Upload, RecognitionQueue, ShareInbox */
 // Мобильное приложение /m/ (спек docs/superpowers/specs/2026-11-06-mobile-app-design.md).
 // Экраны: вход, главная, список, накладная. Отправку фото не пишем заново —
 // это upload.js кабинета (очередь в IndexedDB, повторы, обход WebKit 319985);
@@ -87,7 +87,15 @@ const Mobile = {
       this.renderInstall();
     });
     window.addEventListener('appinstalled', () => { this.installEvent = null; this.closeInstall(false); this.renderInstall(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.$('m-install-sheet').hidden) this.closeInstall(true); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (!this.$('m-install-sheet').hidden) this.closeInstall(true);
+      for (const id of ['m-view', 'm-tips']) this.$(id).hidden = true;
+    });
+    // Нажатие мимо листа настроек или советов закрывает его.
+    for (const id of ['m-view', 'm-tips']) {
+      this.$(id).addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.hidden = true; });
+    }
     window.addEventListener('hashchange', () => this.onHashChange());
     window.addEventListener('online', () => { this.renderOnline(); this.refresh(); });
     window.addEventListener('offline', () => this.renderOnline());
@@ -102,14 +110,20 @@ const Mobile = {
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { scope: '/m/' }).catch(() => { /* без кеша тоже работает */ });
+      // Нажали на уведомление, а приложение уже открыто — показать накладную.
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        const hash = e.data && e.data.type === 'open' ? String(e.data.hash || '#/') : null;
+        if (hash && /^#\/[\w/?=&-]*$/.test(hash) && hash !== location.hash) location.hash = hash;
+      });
     }
+    this.initPullToRefresh();
     // Глубина внутри приложения — в history.state: переживает перезагрузку и
     // системную кнопку «Назад», в отличие от счётчика в памяти.
     const state = history.state;
     if (state && typeof state.m === 'number') this.depth = state.m;
     else history.replaceState({ m: 0 }, '');
     this.renderOnline();
-    if (App.apiKey) this.startUploads();
+    if (App.apiKey) { this.startUploads(); this.syncPush(); }
     this.route();
   },
 
@@ -128,7 +142,7 @@ const Mobile = {
     this.$('m-login-note').hidden = true;
     let m;
     if (share) return this.takeShared(Number(share[1] || 0));
-    if ((m = /^#\/inv\/(\d+)$/.exec(hash))) return this.showInvoice(Number(m[1]));
+    if ((m = /^#\/inv\/(\d+)$/.exec(hash))) { this.closeNotifications(`inv-${m[1]}`); return this.showInvoice(Number(m[1])); }
     if ((m = /^#\/list\/(all|attention|ready)$/.exec(hash))) return this.showList(m[1]);
     this.showHome(hash === '#/camera');
   },
@@ -145,6 +159,7 @@ const Mobile = {
     if (name !== 'home') this.$('m-install-sheet').hidden = true;
     for (const id of ['login', 'home', 'list', 'invoice']) this.$(`screen-${id}`).hidden = id !== name;
     this.$('m-back').hidden = name === 'login' || name === 'home';
+    document.querySelector('.m-aa').hidden = name === 'login';
     window.scrollTo(0, 0);
   },
 
@@ -174,10 +189,46 @@ const Mobile = {
   },
 
   refresh() {
-    if (!App.apiKey || document.hidden) return;
-    if (this.screen === 'home') this.loadHome();
-    else if (this.screen === 'list') this.loadList(true);
-    else if (this.screen === 'invoice' && this.invoice) this.loadInvoice(this.invoice.id);
+    if (!App.apiKey || document.hidden) return Promise.resolve();
+    if (this.screen === 'home') return this.loadHome();
+    if (this.screen === 'list') return this.loadList(true);
+    if (this.screen === 'invoice' && this.invoice) return this.loadInvoice(this.invoice.id);
+    return Promise.resolve();
+  },
+
+  // «Потяните вниз — обновить»: в установленном приложении у браузера своего
+  // жеста нет. В обычной вкладке работает жест браузера — свой не нужен.
+  initPullToRefresh() {
+    if (!this.isStandalone()) return;
+    document.documentElement.classList.add('m-standalone');
+    const ptr = this.$('m-ptr');
+    const READY = 64;
+    let startY = null, pull = 0;
+    const reset = () => { ptr.hidden = true; ptr.classList.remove('is-ready', 'is-loading'); ptr.style.transform = ''; };
+    const blocked = () => !['home', 'list', 'invoice'].includes(this.screen)
+      || document.querySelector('.m-sheet:not([hidden])') || window.scrollY > 0;
+    window.addEventListener('touchstart', (e) => {
+      startY = e.touches.length === 1 && !blocked() ? e.touches[0].clientY : null;
+      pull = 0;
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (startY == null) return;
+      pull = Math.min(Math.max(0, (e.touches[0].clientY - startY) * 0.5), 96);
+      if (pull < 8) { reset(); return; }
+      ptr.hidden = false;
+      ptr.classList.toggle('is-ready', pull >= READY);
+      ptr.style.transform = `translate(-50%, ${pull}px) rotate(${pull * 4}deg)`;
+    }, { passive: true });
+    window.addEventListener('touchend', () => {
+      if (startY == null) return;
+      startY = null;
+      if (pull < READY) { reset(); return; }
+      ptr.classList.add('is-loading');
+      ptr.style.transform = `translate(-50%, ${READY}px)`;
+      if (navigator.vibrate) navigator.vibrate(15);
+      const done = Promise.resolve(this.refresh()).catch(() => null);
+      Promise.all([done, new Promise(r => setTimeout(r, 600))]).then(reset);
+    });
   },
 
   schedulePoll(ms = 8000) {
@@ -189,7 +240,17 @@ const Mobile = {
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const action = el.dataset.action;
-    if (action === 'camera') { this.closeShot(); this.$('m-camera-input').click(); }
+    if (action === 'camera') this.camera();
+    else if (action === 'tips') this.openSheet('m-tips');
+    else if (action === 'tips-ok') { this.markTipsSeen(); this.camera(); }
+    else if (action === 'quality-retake') { this.pendingPhoto = null; this.camera(); }
+    else if (action === 'quality-send') this.sendAnyway();
+    else if (action === 'push') this.togglePush();
+    else if (action === 'push-offer') { this.$('m-shot-push').hidden = true; this.enablePush(); }
+    else if (action === 'view') this.openView();
+    else if (action === 'view-done') this.$('m-view').hidden = true;
+    else if (action === 'text-size') this.setTextSize(el.dataset.size);
+    else if (action === 'contrast') this.setContrast(document.documentElement.dataset.contrast !== 'high');
     else if (action === 'gallery') this.$('m-gallery-input').click();
     else if (action === 'files') this.$('m-files-input').click();
     else if (action === 'shot-done') this.closeShot();
@@ -211,7 +272,7 @@ const Mobile = {
     const open = button.getAttribute('aria-expanded') !== 'true';
     button.setAttribute('aria-expanded', String(open));
     panel.hidden = !open;
-    if (open && panel.id === 'm-home-more') { this.renderInstall(); this.checkApk(); }
+    if (open && panel.id === 'm-home-more') { this.renderInstall(); this.checkApk(); this.renderPush(); }
   },
 
   // ── Вход и выход ───────────────────────────────────────────────────────
@@ -242,6 +303,7 @@ const Mobile = {
       // следить за очередью сервера (после 401 её опрос остановился).
       Upload.retryPending();
       RecognitionQueue.refresh();
+      this.syncPush();
       this.route();
     } catch (err) {
       error.textContent = navigator.onLine ? err.message : 'Нет интернета.';
@@ -264,7 +326,11 @@ const Mobile = {
     this.list = { view: 'all', items: [], total: 0, loading: false };
     for (const id of ['m-recent', 'm-list', 'm-invoice']) this.$(id).innerHTML = '';
     this.renderCounts();
-    this.$('m-shot').hidden = true;
+    document.querySelectorAll('.m-sheet').forEach(el => { el.hidden = true; });
+    this.pendingPhoto = null;
+    // Ключ уже не действует — сервер не спросить; подписку снимаем на телефоне,
+    // и сервер удалит её при следующей отправке (410).
+    this.dropPush(false);
     this.show('login');
     if (message) { const el = this.$('m-login-error'); el.textContent = message; el.hidden = false; }
   },
@@ -279,6 +345,8 @@ const Mobile = {
       if (Upload.db) for (const item of await Upload.dbGetAll()) await Upload.dbDelete(item.id);
     } catch { /* очереди на устройстве нет — удалять нечего */ }
     try { await ShareInbox.clear(); } catch { /* присланных файлов нет */ }
+    // Уведомления этого входа телефону больше не нужны (общий телефон).
+    await this.dropPush(true);
     ['apiKey', 'adminRole', 'superadminSession'].forEach(k => localStorage.removeItem(k));
     location.replace('/m/');
   },
@@ -295,16 +363,35 @@ const Mobile = {
     RecognitionQueue.refresh();
   },
 
+  /** Открыть камеру. Первый раз — сначала три совета (кнопка в них снова зовёт камеру). */
+  camera() {
+    for (const id of ['m-shot', 'm-quality', 'm-tips']) this.$(id).hidden = true;
+    let seen = false;
+    try { seen = localStorage.getItem('sf-tips-seen') === '1'; } catch { seen = true; }
+    if (!seen) { this.openSheet('m-tips'); return; }
+    this.$('m-camera-input').click();
+  },
+
+  markTipsSeen() {
+    try { localStorage.setItem('sf-tips-seen', '1'); } catch { /* приватный режим */ }
+  },
+
+  openSheet(id) {
+    this.$('m-install-sheet').hidden = true;
+    this.$(id).hidden = false;
+  },
+
   async onPicked(input, fromCamera) {
     const files = Array.from(input.files || []);
     input.value = '';
     if (!files.length) return;
     if (fromCamera) {
-      // «Фото принято» — только если фото прочиталось и встало в очередь;
-      // пустой файл (WebKit 319985) addFile отклоняет со своим сообщением.
-      const before = Upload.history.length;
-      await Upload.addFile(files[0]);
-      if (Upload.history.length > before) this.showAccepted('Фото принято', true);
+      // Байты — сразу в память (WebKit 319985: File из камеры может «опустеть»).
+      let photo = files[0];
+      try { photo = new File([await Upload.memoryBlob(files[0])], files[0].name || `photo_${Date.now()}.jpg`, { type: files[0].type || 'image/jpeg' }); } catch { /* addFile скажет сам */ }
+      const issue = await this.photoIssueOf(photo);
+      if (issue) { this.showQuality(issue, photo); return; }
+      await this.acceptPhoto(photo);
     } else {
       // Пропущенные (формат, размер) _addMultiple называет сам — не затираем.
       const before = Upload.history.length;
@@ -314,13 +401,67 @@ const Mobile = {
     }
   },
 
+  async acceptPhoto(photo) {
+    // «Фото принято» — только если фото прочиталось и встало в очередь;
+    // пустой файл (WebKit 319985) addFile отклоняет со своим сообщением.
+    const before = Upload.history.length;
+    await Upload.addFile(photo);
+    if (Upload.history.length > before) this.showAccepted('Фото принято', true);
+  },
+
+  /** Тёмный или мутный снимок: 'dark' / 'blurry' / null. Любой сбой — не мешаем. */
+  async photoIssueOf(file) {
+    if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type || '') || typeof document === 'undefined') return null;
+    const check = (async () => {
+      const image = await Upload._decodePhoto(file);
+      try {
+        const scale = Math.min(1, 640 / Math.max(image.width, image.height));
+        const w = Math.max(3, Math.round(image.width * scale));
+        const h = Math.max(3, Math.round(image.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(image.source, 0, 0, w, h);
+        const px = ctx.getImageData(0, 0, w, h).data;
+        canvas.width = 0; canvas.height = 0;
+        const gray = new Uint8ClampedArray(w * h);
+        for (let i = 0, j = 0; j < gray.length; i += 4, j++) gray[j] = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
+        return MobileCore.photoIssue(MobileCore.photoStats(gray, w, h));
+      } finally {
+        image.close();
+      }
+    })().catch(() => null);
+    return Promise.race([check, new Promise(r => setTimeout(() => r(null), 2500))]);
+  },
+
+  showQuality(issue, photo) {
+    this.pendingPhoto = photo;
+    const text = {
+      dark: ['Фото тёмное', 'Включите свет и снимите ещё раз.', '☾'],
+      blurry: ['Фото нечёткое', 'Держите телефон ровно и снимите ещё раз.', '≈'],
+    }[issue];
+    this.$('m-quality-title').textContent = text[0];
+    this.$('m-quality-text').textContent = text[1];
+    this.$('m-quality-icon').textContent = text[2];
+    this.openSheet('m-quality');
+  },
+
+  async sendAnyway() {
+    const photo = this.pendingPhoto;
+    this.pendingPhoto = null;
+    this.$('m-quality').hidden = true;
+    if (photo) await this.acceptPhoto(photo);
+  },
+
   /** Лист «принято»: после снимка — с кнопкой «Ещё страница», после «Поделиться» — без неё. */
   showAccepted(title, morePages) {
     this.$('m-install-sheet').hidden = true;
     this.$('m-shot-title').textContent = title;
-    this.$('m-shot-text').textContent = 'Отправим и прочитаем сами.';
+    this.$('m-shot-text').textContent = 'Прочитаем сами.';
     this.$('m-shot-more').hidden = !morePages;
+    this.$('m-shot-push').hidden = !this.offerPushNow();
     this.$('m-shot').hidden = false;
+    if (navigator.vibrate) navigator.vibrate(30);
   },
 
   // «Поделиться → ScanFlow» на Android: service worker сложил файлы в ShareInbox
@@ -409,6 +550,7 @@ const Mobile = {
       if (this.screen !== 'home') return;
       this.stats = stats.data.workflow || {};
       this.renderCounts();
+      this.setBadge(this.stats.attention);
       const items = list.data || [];
       recent.innerHTML = items.length
         ? items.map(inv => this.cardHtml(inv)).join('')
@@ -429,15 +571,32 @@ const Mobile = {
     this.$('m-seg-ready').textContent = s.ready ? String(s.ready) : '';
   },
 
+  // Значки статусов (MobileCore.TONE_ICON): статус читается и без цвета.
+  ICONS: {
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    send: '<path d="M5 12h13M13 6l6 6-6 6"/>',
+    alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.4v.2"/>',
+    cross: '<circle cx="12" cy="12" r="8.5"/><path d="M9 9l6 6M15 9l-6 6"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  },
+
+  pillHtml(state, big = false) {
+    const icon = state.icon && this.ICONS[state.icon]
+      ? `<svg class="m-pill__icon" viewBox="0 0 24 24" aria-hidden="true">${this.ICONS[state.icon]}</svg>` : '';
+    return `<span class="m-pill m-pill--${state.tone}${big ? ' m-pill--big' : ''}">${icon}${App.esc(state.label)}</span>`;
+  },
+
   cardHtml(inv) {
     const state = MobileCore.invoiceState(inv);
-    const meta = [inv.invoice_number ? `№ ${inv.invoice_number}` : '', MobileCore.formatShortDate(inv.invoice_date || inv.created_at)]
+    const meta = [inv.invoice_number ? `№ ${inv.invoice_number}` : '', MobileCore.relativeDay(inv.invoice_date || inv.created_at)]
       .filter(Boolean).join(' · ');
-    return `<a class="m-card" href="#/inv/${Number(inv.id)}">
+    return `<a class="m-card m-card--${state.tone}" href="#/inv/${Number(inv.id)}">
       <span class="m-card__name">${App.esc(inv.supplier || 'Поставщик не прочитан')}</span>
-      <span class="m-card__sum">${App.esc(MobileCore.formatMoney(inv.total_sum))}</span>
-      <span class="m-pill m-pill--${state.tone}">${App.esc(state.label)}</span>
-      <span class="m-card__meta">${App.esc(meta)}</span>
+      <span class="m-card__row">
+        ${this.pillHtml(state)}
+        <span class="m-card__sum">${App.esc(MobileCore.formatMoney(inv.total_sum))}</span>
+      </span>
+      ${meta ? `<span class="m-card__meta">${App.esc(meta)}</span>` : ''}
     </a>`;
   },
 
@@ -476,6 +635,7 @@ const Mobile = {
       const sendAll = this.$('m-send-all');
       sendAll.hidden = !(view === 'ready' && this.list.total > 1);
       sendAll.textContent = `Отправить все в 1С (${this.list.total})`;
+      this.$('m-fab').hidden = !sendAll.hidden;
       if (this.list.items.some(inv => MobileCore.isReading(inv))) this.schedulePoll();
     } catch (err) {
       if (err.status !== 401 && this.screen === 'list') {
@@ -557,7 +717,7 @@ const Mobile = {
       </li>`).join('');
     return `
       <div class="m-status m-status--${state.tone}">
-        <span class="m-pill m-pill--${state.tone} m-pill--big">${App.esc(state.label)}</span>
+        ${this.pillHtml(state, true)}
         ${state.hint ? `<p class="m-status__hint">${App.esc(state.hint)}</p>` : ''}
       </div>
       <h1 class="m-inv__supplier">${App.esc(inv.supplier || 'Поставщик не прочитан')}</h1>
@@ -597,6 +757,7 @@ const Mobile = {
       result = { ok: false, text: navigator.onLine ? 'Не получилось. Попробуйте ещё раз.' : 'Нет интернета.' };
     }
     this.toast(result.text, result.ok ? 'green' : 'red');
+    if (result.ok && navigator.vibrate) navigator.vibrate(30);
     this.loadInvoice(id);
   },
 
@@ -723,6 +884,188 @@ const Mobile = {
       .then(res => res.ok, () => false)
       .then(ok => { this.apkAvailable = ok; this.$('m-apk').hidden = !ok; });
     return this._apkCheck;
+  },
+
+  // ── Уведомления (Web Push) ─────────────────────────────────────────────
+  // Сервер: /api/push/*, тексты — src/notifications/pushMessages.ts. Показ и
+  // нажатие — public/sw.js. Подписка — устройства: вошли другим аккаунтом —
+  // уведомления идут ему (pushRepo.upsert), «Выйти» снимает подписку.
+  pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  },
+
+  async pushSubscription() {
+    if (!this.pushSupported()) return null;
+    const reg = await navigator.serviceWorker.getRegistration('/m/');
+    return reg ? reg.pushManager.getSubscription().catch(() => null) : null;
+  },
+
+  async pushStateNow() {
+    const sub = await this.pushSubscription().catch(() => null);
+    return MobileCore.pushState({
+      supported: this.pushSupported(),
+      ios: this.installKind() === 'ios',
+      standalone: this.isStandalone(),
+      permission: 'Notification' in window ? Notification.permission : 'default',
+      subscribed: Boolean(sub),
+    });
+  },
+
+  async renderPush() {
+    const state = await this.pushStateNow();
+    const item = this.$('m-push-item');
+    item.hidden = state === 'unsupported';
+    item.setAttribute('aria-checked', String(state === 'on'));
+    item.dataset.state = state;
+    this.$('m-push-state').textContent = { denied: 'Запрещены', 'install-first': 'После установки' }[state] || '';
+  },
+
+  // Состояние берём из уже нарисованного пункта, без ожидания: iPhone даёт
+  // спросить разрешение только сразу в ответ на нажатие.
+  async togglePush() {
+    const state = this.$('m-push-item').dataset.state || 'off';
+    if (state === 'on') {
+      await this.dropPush(true);
+      this.toast('Уведомления выключены.', 'blue');
+    } else if (state === 'off') {
+      await this.enablePush();
+    } else if (state === 'denied') {
+      this.toast('Уведомления запрещены. Разрешите их в настройках телефона.', 'amber');
+    } else if (state === 'install-first') {
+      this.toast('Сначала поставьте ScanFlow на экран «Домой».', 'blue');
+      this.install();
+    }
+    this.renderPush();
+  },
+
+  async applicationServerKey() {
+    const { data } = await App.apiJson('/push/key');
+    const key = String((data && data.publicKey) || '');
+    const pad = '='.repeat((4 - (key.length % 4)) % 4);
+    const raw = atob((key + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, c => c.charCodeAt(0));
+  },
+
+  sameKey(a, b) {
+    if (!a || !b) return false;
+    const x = new Uint8Array(a), y = new Uint8Array(b);
+    return x.length === y.length && x.every((v, i) => v === y[i]);
+  },
+
+  /** Включить: разрешение → подписка браузера → сервер. Только по нажатию человека. */
+  async enablePush() {
+    try { localStorage.setItem('sf-push-asked', String(Date.now())); } catch { /* приватный режим */ }
+    if (!this.pushSupported()) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        this.toast(permission === 'denied' ? 'Уведомления запрещены. Разрешите их в настройках телефона.' : 'Уведомления не включены.', 'amber');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const key = await this.applicationServerKey();
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && !this.sameKey(sub.options && sub.options.applicationServerKey, key)) { await sub.unsubscribe().catch(() => {}); sub = null; }
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      try {
+        await App.apiJson('/push/subscribe', { method: 'POST', body: sub.toJSON() });
+      } catch (err) {
+        // Сервер подписку не принял — на телефоне её тоже не оставляем, иначе
+        // переключатель показывал бы «вкл», а уведомления не приходили бы.
+        await sub.unsubscribe().catch(() => {});
+        throw err;
+      }
+      this.toast('Уведомления включены ✓', 'green');
+    } catch (err) {
+      if (err.status === 401) return;
+      const text = err.body && err.body.code === 'endpoint_not_allowed' ? 'В этом браузере уведомления не работают. Откройте в Chrome или Safari.'
+        : navigator.onLine ? 'Не получилось включить уведомления.' : 'Нет интернета.';
+      this.toast(text, 'red');
+    } finally {
+      this.renderPush();
+    }
+  },
+
+  /** Снять подписку телефона; withServer — и на сервере (ключ ещё действует). */
+  async dropPush(withServer) {
+    try {
+      const sub = await this.pushSubscription();
+      if (!sub) return;
+      if (withServer && App.apiKey) await App.apiJson('/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => null);
+      await sub.unsubscribe();
+    } catch { /* подписки нет — снимать нечего */ }
+  },
+
+  /**
+   * После входа и при запуске: подписка телефона уже есть — напомнить о ней
+   * серверу (вошли другим аккаунтом, сменился ключ сервера, сервер удалил её).
+   */
+  async syncPush() {
+    try {
+      if (!this.pushSupported() || Notification.permission !== 'granted') return;
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) return;
+      const key = await this.applicationServerKey();
+      if (!this.sameKey(sub.options && sub.options.applicationServerKey, key)) {
+        await sub.unsubscribe().catch(() => {});
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      }
+      await App.apiJson('/push/subscribe', { method: 'POST', body: sub.toJSON() });
+    } catch { /* в следующий раз */ }
+  },
+
+  /** Предложить уведомления в листе «Фото принято»: только если можно включить и не чаще раза в 7 дней. */
+  offerPushNow() {
+    if (!this.pushSupported() || Notification.permission !== 'default') return false;
+    let asked = null;
+    try { asked = localStorage.getItem('sf-push-asked'); } catch { return false; }
+    if (!MobileCore.due(asked, 7)) return false;
+    try { localStorage.setItem('sf-push-asked', String(Date.now())); } catch { /* приватный режим */ }
+    return true;
+  },
+
+  closeNotifications(tag) {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.getRegistration('/m/')
+      .then(reg => reg && reg.getNotifications({ tag }))
+      .then(list => (list || []).forEach(n => n.close()))
+      .catch(() => {});
+  },
+
+  setBadge(count) {
+    try {
+      const n = Number(count) || 0;
+      if (n > 0 && navigator.setAppBadge) navigator.setAppBadge(n).catch(() => {});
+      else if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+    } catch { /* значок не поддерживается */ }
+  },
+
+  // ── Размер текста и контраст ───────────────────────────────────────────
+  openView() {
+    this.renderView();
+    this.openSheet('m-view');
+  },
+
+  renderView() {
+    const root = document.documentElement;
+    const size = root.dataset.text || 'm';
+    document.querySelectorAll('.m-size').forEach(b => b.setAttribute('aria-checked', String(b.dataset.size === size)));
+    this.$('m-contrast').setAttribute('aria-checked', String(root.dataset.contrast === 'high'));
+  },
+
+  setTextSize(size) {
+    const root = document.documentElement;
+    if (size === 'l' || size === 'xl') root.dataset.text = size; else delete root.dataset.text;
+    try { localStorage.setItem('sf-text', size === 'l' || size === 'xl' ? size : 'm'); } catch { /* приватный режим */ }
+    this.renderView();
+  },
+
+  setContrast(high) {
+    const root = document.documentElement;
+    if (high) root.dataset.contrast = 'high'; else delete root.dataset.contrast;
+    try { localStorage.setItem('sf-contrast', high ? 'high' : 'normal'); } catch { /* приватный режим */ }
+    this.renderView();
   },
 
   // ── Сообщения ──────────────────────────────────────────────────────────

@@ -11,6 +11,8 @@ import { renderRealtime, renderBatchSummary } from './templates';
 import { checkAndRecordSend, NOTIFY_HOURLY_CAP } from './rateLimit';
 import { BATCHABLE_EVENTS, NotificationBatcher, summarizeBatch, type BatchSnapshot } from './batcher';
 import { type EventType, type EventPayload } from './types';
+import { pushMessage, pushBatchMessage } from './pushMessages';
+import { sendPushToUser } from './push';
 
 // Пакетный режим (п.19, флаг движка batch_notify): состояние — в памяти
 // процесса. Потеря при рестарте допустима: накопленное просто не придёт
@@ -135,6 +137,12 @@ export async function emit(
         logger.warn('notifications.emit: email failed', { eventType, error: (err as Error).message });
       }
     }
+
+    // Телефон (Web Push, мобильное приложение /m/): те же переключатели и тот
+    // же лимит. О том, что человек сделал сам (загрузил, отправил в очередь 1С,
+    // поправил), на телефон не пишем — pushMessage вернёт null.
+    const push = pushMessage(eventType, payload, invoice);
+    if (push) await sendPushToUser(userId, push);
   } catch (err) {
     // Defensive: emit() must never throw. Even if the DB is locked or
     // userRepo blows up, the main pipeline continues.
@@ -226,6 +234,9 @@ async function sendBatchSummary(userId: number, snapshot: BatchSnapshot): Promis
       }
     }
   }
+
+  const batchPush = pushBatchMessage(summary);
+  if (batchPush) await sendPushToUser(userId, batchPush);
 
   const cfg = await userRepo.getNotifyConfig(userId);
   if (cfg?.email && smtpConfigured()) {

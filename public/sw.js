@@ -6,7 +6,7 @@
 // Меняете список файлов — меняйте номер версии кеша.
 importScripts('/js/share-inbox.js');
 
-const CACHE = 'sf-m-v2';
+const CACHE = 'sf-m-v3';
 const NETWORK_TIMEOUT_MS = 4000;
 const SHELL = [
   '/m/',
@@ -121,3 +121,40 @@ async function receiveShare(request) {
   }
   return Response.redirect(`/m/#/share?n=${count}`, 303);
 }
+
+// ── Уведомления на телефон (Web Push) ──────────────────────────────────
+// Текст и ссылку присылает сервер (src/notifications/push.ts); badge — число
+// «Проверить» для значка приложения.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : '' }; }
+  const work = [self.registration.showNotification(data.title || 'ScanFlow', {
+    body: data.body || '',
+    icon: '/icon-192.png',
+    badge: '/icon-badge-96.png',
+    tag: data.tag || undefined,
+    renotify: Boolean(data.tag),
+    lang: 'ru',
+    data: { url: data.url || '/m/' },
+  })];
+  if (typeof data.badge === 'number' && self.navigator.setAppBadge) {
+    work.push(data.badge > 0 ? self.navigator.setAppBadge(data.badge) : self.navigator.clearAppBadge());
+  }
+  event.waitUntil(Promise.all(work).catch(() => null));
+});
+
+// Нажали на уведомление — открыть накладную в уже открытом приложении или в новом окне.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || '/m/', self.location.origin);
+  if (target.origin !== self.location.origin) return;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const app = windows.find(w => new URL(w.url).pathname.startsWith('/m/'));
+    if (app) {
+      app.postMessage({ type: 'open', hash: target.hash || '#/' });
+      return app.focus();
+    }
+    return self.clients.openWindow(target.href);
+  })());
+});
