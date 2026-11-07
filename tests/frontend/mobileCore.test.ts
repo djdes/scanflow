@@ -153,3 +153,28 @@ describe('installHint — как установить', () => {
   it('Android', () => expect(core.installHint(android, false)).toBe('android'));
   it('компьютер', () => expect(core.installHint('Mozilla/5.0 (Windows NT 10.0; Win64; x64)', false)).toBe('other'));
 });
+
+describe('installVariant — какую подсказку установки показать', () => {
+  const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const chromeIos = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0 Mobile/15E148 Safari/604.1';
+  const instagram = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 350.0';
+  const android = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36';
+  it('iPhone в Safari — шаги «Поделиться» и стрелка вниз', () => expect(core.installVariant(safari, false, 5, false)).toBe('ios-safari'));
+  it('iPhone в Chrome — те же шаги из строки адреса', () => expect(core.installVariant(chromeIos, false, 5, false)).toBe('ios-other'));
+  it('встроенный браузер соцсети — сначала открыть в Safari', () => expect(core.installVariant(instagram, false, 5, false)).toBe('ios-inapp'));
+  it('Android с системным окном установки — кнопка', () => expect(core.installVariant(android, false, 5, true)).toBe('android-prompt'));
+  it('Android без системного окна — через меню браузера', () => expect(core.installVariant(android, false, 5, false)).toBe('android-menu'));
+  it('уже установлено или компьютер — не показывать', () => {
+    expect(core.installVariant(safari, true, 5, false)).toBeNull();
+    expect(core.installVariant('Mozilla/5.0 (Windows NT 10.0; Win64; x64)', false, 0, true)).toBeNull();
+  });
+});
+
+describe('installDue — «Не сейчас» прячет подсказку на 14 дней', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.UTC(2026, 10, 7);
+  it('ещё не закрывали', () => expect(core.installDue(null, now)).toBe(true));
+  it('закрыли вчера', () => expect(core.installDue(String(now - day), now)).toBe(false));
+  it('закрыли 15 дней назад', () => expect(core.installDue(String(now - 15 * day), now)).toBe(true));
+  it('мусор в хранилище не мешает показать', () => expect(core.installDue('abc', now)).toBe(true));
+});

@@ -215,10 +215,6 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
 .m-more > :last-child { border-bottom: 0; }
 .m-more__item--danger { color: var(--m-red); }
 .m-more .m-note { padding: 0 18px 14px; text-align: left; }
-.m-install-help { padding: 4px 18px 14px; border-bottom: 1px solid var(--m-line); }
-.m-install-help ol { margin: 0; padding-left: 24px; }
-.m-install-help li { margin: 6px 0; }
-.m-install-help p { margin: 6px 0; }
 
 /* ── Плитки ────────────────────────────────────────────────────────── */
 .m-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -406,6 +402,126 @@ svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-line
 }
 .m-sheet__title { margin: 0; font-size: 26px; }
 .m-sheet__text { margin: 0 0 6px; color: var(--m-muted); }
+
+/* ── Подсказка «Поставьте на телефон» ─────────────────────────────── */
+/* Снизу, не закрывает экран: страница под ней работает. */
+.m-install {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 max(12px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  pointer-events: none;
+  animation: m-install-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes m-install-in { from { transform: translateY(110%); } }
+.m-install__card {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 520px;
+  padding: 20px;
+  border: 1px solid var(--m-line);
+  border-radius: 26px;
+  background: var(--m-card);
+  box-shadow: 0 24px 60px rgba(15, 15, 15, 0.24), 0 2px 8px rgba(15, 15, 15, 0.08);
+  pointer-events: auto;
+}
+.m-install__head {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding-right: 40px;
+}
+.m-install__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  box-shadow: 0 6px 16px rgba(35, 131, 226, 0.35);
+}
+.m-install__title { margin: 0; font-size: 20px; line-height: 1.25; }
+.m-install__text { margin: 4px 0 0; color: var(--m-muted); font-size: 16px; line-height: 1.35; }
+.m-install__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--m-grey-bg);
+  color: var(--m-muted);
+  cursor: pointer;
+}
+.m-install__close svg { width: 20px; height: 20px; }
+.m-install__body { display: grid; gap: 10px; }
+.m-install__later {
+  min-height: 48px;
+  border: 0;
+  background: none;
+  color: var(--m-muted);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.m-install__arrow {
+  width: 34px;
+  height: 34px;
+  margin-top: 6px;
+  color: var(--m-primary);
+  stroke-width: 2.6;
+  animation: m-install-bob 1.1s ease-in-out infinite;
+}
+@keyframes m-install-bob { 50% { transform: translateY(7px); } }
+
+.m-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.m-steps li {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--m-bg);
+  font-size: 18px;
+  line-height: 1.35;
+}
+.m-steps__n {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--m-primary);
+  color: var(--m-on-primary);
+  font-size: 17px;
+  font-weight: 700;
+}
+.m-steps small { display: block; margin-top: 2px; color: var(--m-muted); font-size: 15px; }
+/* Значок кнопки браузера в тексте шага — как на экране телефона. */
+.m-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: -4px 2px 0;
+  vertical-align: middle;
+  border: 1px solid var(--m-line);
+  border-radius: 9px;
+  background: var(--m-card);
+  color: var(--m-primary);
+}
+.m-glyph svg { width: 18px; height: 18px; }
+.m-glyph--dots circle { fill: currentColor; stroke: none; }
 
 /* ── Всплывашка ────────────────────────────────────────────────────── */
 .m-toast {

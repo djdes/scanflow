@@ -273,8 +273,90 @@ const Upload = {
     return new Blob([bytes], { type: source.type || 'application/octet-stream' });
   },
 
+  // ====================  Сжатие фото  ====================
+  // Фото с телефона — 3–8 МБ (а 50 Мп — до 20), по плохой сети уходит долго.
+  // Сервер всё равно уменьшает фото до 2400×3200 перед распознаванием
+  // (ocrManager.preprocessImage), поэтому длинная сторона 3200 — без потерь для
+  // распознавания, с запасом на повёрнутый лист. Поворот из EXIF вшивается в
+  // пиксели, сам EXIF (и геометка) не уходит. Любой сбой — уходит оригинал.
+  PHOTO_MAX_SIDE: 3200,
+  PHOTO_QUALITY: 0.9,
+  PHOTO_KEEP_BYTES: 1.5 * 1024 * 1024,
+
+  shrinkable(type, name) {
+    const ext = String(name || '').toLowerCase().split('.').pop();
+    return /^image\/(jpeg|jpg|png|webp|heic|heif)$/i.test(String(type || ''))
+      || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext);
+  },
+
+  /** Размер после сжатия или null — оставить как есть (маленькое и лёгкое). */
+  photoPlan({ width, height, size }) {
+    if (!(width > 0) || !(height > 0)) return null;
+    const scale = Math.min(1, this.PHOTO_MAX_SIDE / Math.max(width, height));
+    if (scale === 1 && size <= this.PHOTO_KEEP_BYTES) return null;
+    return { width: Math.round(width * scale), height: Math.round(height * scale) };
+  },
+
+  /** Сжатое берём, только если оно заметно легче: иначе зря теряем качество. */
+  photoBetter(originalSize, shrunkSize) {
+    return shrunkSize > 0 && shrunkSize < originalSize * 0.9;
+  },
+
+  jpegName(name) {
+    const base = String(name || 'photo').replace(/\.[^./\\]+$/, '');
+    return `${base || 'photo'}.jpg`;
+  },
+
+  async _decodePhoto(blob) {
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+        return { source: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close && bitmap.close() };
+      } catch { /* старый Safari без параметров — через <img> */ }
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return { source: img, width: img.naturalWidth, height: img.naturalHeight, close: () => {} };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  },
+
+  /** { blob, name, shrunk }: сжатое фото или оригинал, если сжать нельзя или незачем. */
+  async shrinkPhoto(blob, name) {
+    const keep = { blob, name, shrunk: false };
+    if (typeof document === 'undefined' || !this.shrinkable(blob.type, name)) return keep;
+    let image = null;
+    try {
+      image = await this._decodePhoto(blob);
+      const plan = this.photoPlan({ width: image.width, height: image.height, size: blob.size });
+      if (!plan) return keep;
+      const canvas = document.createElement('canvas');
+      canvas.width = plan.width;
+      canvas.height = plan.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // прозрачный PNG — на белом, а не на чёрном
+      ctx.fillRect(0, 0, plan.width, plan.height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(image.source, 0, 0, plan.width, plan.height);
+      const out = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', this.PHOTO_QUALITY));
+      canvas.width = 0; canvas.height = 0; // iOS быстрее отдаёт память
+      if (!out || !this.photoBetter(blob.size, out.size)) return keep;
+      return { blob: await this.memoryBlob(out), name: this.jpegName(name), shrunk: true };
+    } catch (e) {
+      console.warn('Photo shrink skipped, sending the original', e);
+      return keep;
+    } finally {
+      if (image) image.close();
+    }
+  },
+
   async addFile(file) {
-    const name = file.name || `photo_${Date.now()}.jpg`;
+    let name = file.name || `photo_${Date.now()}.jpg`;
     let blob;
     try {
       blob = await this.memoryBlob(file);
@@ -282,6 +364,7 @@ const Upload = {
       App.notify(e.message || 'Не удалось прочитать фото. Выберите его заново.', 'error');
       return;
     }
+    ({ blob, name } = await this.shrinkPhoto(blob, name));
 
     let dbId = null;
     try {

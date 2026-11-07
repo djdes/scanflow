@@ -86,7 +86,8 @@ const Mobile = {
       this.installEvent = e;
       this.renderInstall();
     });
-    window.addEventListener('appinstalled', () => { this.installEvent = null; this.renderInstall(); });
+    window.addEventListener('appinstalled', () => { this.installEvent = null; this.closeInstall(false); this.renderInstall(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.$('m-install-sheet').hidden) this.closeInstall(true); });
     window.addEventListener('hashchange', () => this.onHashChange());
     window.addEventListener('online', () => { this.renderOnline(); this.refresh(); });
     window.addEventListener('offline', () => this.renderOnline());
@@ -133,6 +134,7 @@ const Mobile = {
       });
     }
     this.screen = name;
+    if (name !== 'home') this.$('m-install-sheet').hidden = true;
     for (const id of ['login', 'home', 'list', 'invoice']) this.$(`screen-${id}`).hidden = id !== name;
     this.$('m-back').hidden = name === 'login' || name === 'home';
     window.scrollTo(0, 0);
@@ -185,6 +187,8 @@ const Mobile = {
     else if (action === 'shot-done') this.closeShot();
     else if (action === 'more') this.toggleMore(el);
     else if (action === 'install') this.install();
+    else if (action === 'install-now') this.installNow();
+    else if (action === 'install-later') this.closeInstall(true);
     else if (action === 'logout') this.logout();
     else if (action === 'list-more') this.loadList(false);
     else if (action === 'send') this.send(Number(el.dataset.id), el);
@@ -291,7 +295,10 @@ const Mobile = {
       // пустой файл (WebKit 319985) addFile отклоняет со своим сообщением.
       const before = Upload.history.length;
       await Upload.addFile(files[0]);
-      if (Upload.history.length > before) this.$('m-shot').hidden = false;
+      if (Upload.history.length > before) {
+        this.$('m-install-sheet').hidden = true;
+        this.$('m-shot').hidden = false;
+      }
     } else {
       // Пропущенные (формат, размер) _addMultiple называет сам — не затираем.
       const before = Upload.history.length;
@@ -353,6 +360,7 @@ const Mobile = {
       setTimeout(() => btn.classList.remove('is-flash'), 1600);
     }
     this.loadHome();
+    this.maybeOfferInstall();
   },
 
   async loadHome() {
@@ -600,37 +608,86 @@ const Mobile = {
   },
 
   renderInstall() {
-    const kind = this.installKind();
-    this.$('m-install').hidden = kind === 'installed';
-    if (kind === 'installed') this.$('m-install-help').hidden = true;
+    this.$('m-install').hidden = this.installKind() === 'installed';
+    // Окно установки появилось или пропало, пока открыта подсказка, — обновить её.
+    if (!this.$('m-install-sheet').hidden) this.openInstall();
+  },
+
+  installVariantNow() {
+    return MobileCore.installVariant(navigator.userAgent, this.isStandalone(),
+      navigator.maxTouchPoints || 0, Boolean(this.installEvent));
+  },
+
+  // Подсказка снизу сама — на главной, через пару секунд после входа, раз за
+  // запуск; «Не сейчас» прячет её на 14 дней (MobileCore.installDue).
+  maybeOfferInstall() {
+    if (this.installOffered || !this.installVariantNow()) return;
+    let dismissed = null;
+    try { dismissed = localStorage.getItem('sf-install-dismissed'); } catch { /* приватный режим */ }
+    if (!MobileCore.installDue(dismissed)) return;
+    this.installOffered = true;
+    clearTimeout(this._installTimer);
+    this._installTimer = setTimeout(() => {
+      if (this.screen === 'home' && this.$('m-shot').hidden) this.openInstall();
+    }, 2500);
   },
 
   async install() {
-    const help = this.$('m-install-help');
-    if (this.installEvent) {
-      this.installEvent.prompt();
-      await this.installEvent.userChoice.catch(() => null);
-      this.installEvent = null;
-      this.renderInstall();
-      return;
-    }
-    const kind = this.installKind();
-    help.innerHTML = {
-      ios: '<ol><li>Нажмите <b>Поделиться</b> <span aria-hidden="true">⬆︎</span> внизу экрана.</li><li>Выберите <b>На экран «Домой»</b>.</li></ol>',
-      android: '<ol><li>Откройте меню браузера <b>⋮</b>.</li><li>Выберите <b>Установить приложение</b>.</li></ol>',
-      other: '<p>Откройте <b>scanflow.ru/m</b> на телефоне.</p>',
-    }[kind] || '';
-    help.hidden = !help.innerHTML;
+    if (this.installEvent) return this.installNow();
+    if (!this.installVariantNow()) { this.toast('Откройте scanflow.ru/m на телефоне.', 'blue'); return; }
+    this.openInstall();
+  },
+
+  openInstall() {
+    const variant = this.installVariantNow();
+    if (!variant) return this.closeInstall(false);
+    const glyph = {
+      share: '<span class="m-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M8 10H6.5A2.5 2.5 0 0 0 4 12.5v6A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-6a2.5 2.5 0 0 0-2.5-2.5H16"/></svg></span>',
+      add: '<span class="m-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8.5v7M8.5 12h7"/></svg></span>',
+      menu: '<span class="m-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="m-glyph--dots"><circle cx="12" cy="5.5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18.5" r="1.7"/></svg></span>',
+      more: '<span class="m-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="m-glyph--dots"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></span>',
+    };
+    const step = (n, text, note = '') => `<li><span class="m-steps__n">${n}</span><span>${text}${note ? `<small>${note}</small>` : ''}</span></li>`;
+    const later = '<button type="button" class="m-install__later" data-action="install-later">Не сейчас</button>';
+    const gotIt = '<button type="button" class="m-btn m-btn--ghost" data-action="install-later">Понятно</button>';
+    const apk = this.apkAvailable ? '<a class="m-btn m-btn--ghost" href="/downloads/scanflow.apk" download>Скачать APK</a>' : '';
+    this.$('m-install-body').innerHTML = {
+      'ios-safari': `<ol class="m-steps">${step(1, `Нажмите ${glyph.share} «Поделиться»`, 'внизу экрана или в меню «⋯»')}${step(2, `Выберите ${glyph.add} «На экран Домой»`)}</ol>${gotIt}`,
+      'ios-other': `<ol class="m-steps">${step(1, `Нажмите ${glyph.share} «Поделиться»`, 'в строке адреса')}${step(2, `Выберите ${glyph.add} «На экран Домой»`)}</ol>${gotIt}`,
+      'ios-inapp': `<ol class="m-steps">${step(1, `Откройте страницу в Safari`, `меню ${glyph.more} → «Открыть в Safari»`)}${step(2, `Там: ${glyph.share} → ${glyph.add} «На экран Домой»`)}</ol>${gotIt}`,
+      'android-prompt': `<button type="button" class="m-btn m-btn--primary" data-action="install-now">Установить</button>${later}`,
+      'android-menu': `<ol class="m-steps">${step(1, `Откройте меню ${glyph.menu} браузера`)}${step(2, '«Установить приложение»', 'или «Добавить на главный экран»')}</ol>${apk}${later}`,
+    }[variant];
+    // У <svg> нет свойства hidden — меняем сам атрибут.
+    this.$('m-install-arrow').toggleAttribute('hidden', variant !== 'ios-safari');
+    this.$('m-install-sheet').hidden = false;
+    if (variant === 'android-menu') this.checkApk().then(() => {
+      if (this.apkAvailable && !this.$('m-install-sheet').hidden && !this.$('m-install-body').querySelector('[download]')) this.openInstall();
+    });
+  },
+
+  closeInstall(remember) {
+    this.$('m-install-sheet').hidden = true;
+    if (remember) { try { localStorage.setItem('sf-install-dismissed', String(Date.now())); } catch { /* приватный режим */ } }
+  },
+
+  async installNow() {
+    const prompt = this.installEvent;
+    if (!prompt) return this.openInstall();
+    prompt.prompt();
+    const choice = await prompt.userChoice.catch(() => null);
+    this.installEvent = null;
+    this.closeInstall(!(choice && choice.outcome === 'accepted'));
+    if (choice && choice.outcome === 'accepted') this.toast('Готово. Значок появится на экране.', 'green');
+    this.renderInstall();
   },
 
   async checkApk() {
-    const link = this.$('m-apk');
-    if (this.installKind() !== 'android' || this._apkChecked) return;
-    this._apkChecked = true;
-    try {
-      const res = await fetch('/downloads/scanflow.apk', { method: 'HEAD' });
-      link.hidden = !res.ok;
-    } catch { link.hidden = true; }
+    if (this.installKind() !== 'android' || this._apkCheck) return this._apkCheck;
+    this._apkCheck = fetch('/downloads/scanflow.apk', { method: 'HEAD' })
+      .then(res => res.ok, () => false)
+      .then(ok => { this.apkAvailable = ok; this.$('m-apk').hidden = !ok; });
+    return this._apkCheck;
   },
 
   // ── Сообщения ──────────────────────────────────────────────────────────
