@@ -44,6 +44,7 @@ import analyticsRouter from './routes/analytics';
 import billingRouter, { robokassaCallbackRouter } from './routes/billing';
 import unitCostRouter from './routes/unitCost';
 import recognitionQueueRouter from './routes/recognitionQueue';
+import { registerMobileRoutes } from './mobileRoutes';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
@@ -331,9 +332,11 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // User management (list + role changes) — admin only.
   app.use('/api/users', apiKeyAuth, requireAdmin, usersRouter);
 
-  // Mobile camera page (no auth — accessed from phone on local network)
-  app.get('/camera', (_req, res) => {
-    res.sendFile(path.join(publicDir, 'camera.html'));
+  // Мобильное приложение /m/ (PWA и APK), старая /camera ведёт туда же,
+  // подтверждение ключа APK (/.well-known/assetlinks.json) и сам APK.
+  registerMobileRoutes(app, publicDir, {
+    downloadsDir: config.downloadsDir,
+    androidCertSha256: config.androidCertSha256,
   });
 
   // GET /magic/:token — one-click вход через magic-ссылку из welcome/recover
