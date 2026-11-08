@@ -435,7 +435,7 @@ const Invoices = {
       document.body.appendChild(modal);
     }
     modal.innerHTML = `<div style="background:var(--card,#fff);border-radius:12px;max-width:520px;width:100%;padding:22px;max-height:80vh;overflow:auto">
-      <div style="font-size:16px;font-weight:600;margin-bottom:8px">Результат массовой отправки</div>
+      <div style="font-size:1rem;font-weight:600;margin-bottom:8px">Результат массовой отправки</div>
       <div style="color:var(--text-secondary,#64748b)">${lines.map(l => App.esc(l)).join('<br>')}</div>
       ${skippedBlocks}
       <div style="margin-top:18px;text-align:right"><button class="btn btn-primary" id="bulk-report-ok">Понятно</button></div>
@@ -643,7 +643,7 @@ const Invoices = {
     const n = inv.elevated_price_count || 0;
     if (n <= 0) return '<span style="color:#cbd5e1" title="Нет позиций дороже обычного">—</span>';
     const noun = this._plural(n, 'позиция', 'позиции', 'позиций');
-    return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:12px" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
+    return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:0.75rem" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
   },
 
   // Плашка статуса в списке: точка + текст, подпись мелко под ней. Цвета одни на
@@ -1187,7 +1187,7 @@ const Invoices = {
       : '—';
     const device = this._deviceLabel(data.upload_user_agent);
     const ua = device
-      ? `<div class="muted" style="font-size:12px;margin-top:2px" title="${App.esc(data.upload_user_agent)}">${App.esc(device)}</div>`
+      ? `<div class="muted" style="font-size:0.75rem;margin-top:2px" title="${App.esc(data.upload_user_agent)}">${App.esc(device)}</div>`
       : '';
     const duration = App.formatDuration(data.created_at, data.recognized_at);
 
@@ -1296,7 +1296,7 @@ const Invoices = {
         edits.map(e => {
           let ctx = {};
           try { ctx = e.context ? JSON.parse(e.context) : {}; } catch { ctx = {}; }
-          const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:12px">${App.esc(ctx.original_name)}</div>` : '');
+          const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:0.75rem">${App.esc(ctx.original_name)}</div>` : '');
           const oldV = e.field === 'onec_guid' ? fmt(ctx.old_name) : fmtVal(e.field, e.old_value);
           const newV = e.field === 'onec_guid' ? fmt(ctx.new_name) : fmtVal(e.field, e.new_value);
           const src = ctx.restored_from ? ` <span class="muted">(откат из снимка)</span>` : '';
@@ -1319,7 +1319,7 @@ const Invoices = {
       const btn = differs(sn)
         ? `<button class="btn btn-sm btn-outline" data-restore-kind="${kind}">Вернуть номер, дату, сумму и НДС</button>`
         : '<span class="muted">совпадает с текущими</span>';
-      return `<tr><td>${title}<div class="muted" style="font-size:12px">${App.formatDateTime(sn.created_at)}</div></td>
+      return `<tr><td>${title}<div class="muted" style="font-size:0.75rem">${App.formatDateTime(sn.created_at)}</div></td>
         <td>${fmt(sn.invoice_number)}</td><td>${fmt(sn.invoice_date)}</td><td>${money(sn.total_sum)}</td><td>${money(sn.vat_sum)}</td><td>${btn}</td></tr>`;
     };
     const snapsRows = snapRow('recognized', 'Как распознано') + snapRow('baseline', 'До обновления v2 (29.09)');
@@ -1635,7 +1635,7 @@ const Invoices = {
       </div></div>`;
     }
     if (data.supplier_match === 'manual' && (data.supplier_inn_ocr || data.supplier_name_ocr)) {
-      return `<div style="margin-bottom:14px;font-size:13px;color:var(--text-secondary)">
+      return `<div style="margin-bottom:14px;font-size:0.8125rem;color:var(--text-secondary)">
         Поставщик выбран вручную из справочника: ${card}. На фото было: ${ocrName ? ocrName + ', ' : ''}${ocrInn}.
       </div>`;
     }
@@ -1728,11 +1728,11 @@ const Invoices = {
       const step = inputType === 'number' ? 'step="0.01"' : '';
       if (name === 'invoice_type') {
         const types = [['счет_на_оплату','Счёт на оплату'],['торг_12','ТОРГ-12'],['упд','УПД'],['счет_фактура','Счёт-фактура'],['акт','Акт'],['кассовый_чек','Кассовый чек'],['авансовый_отчет','Авансовый отчёт'],['прочее','Прочее']];
-        return `<label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--muted,#64748b)">${label}</span><select name="invoice_type">${types.map(([type, title]) => `<option value="${type}"${value === type ? ' selected' : ''}>${title}</option>`).join('')}</select></label>`;
+        return `<label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:0.75rem;color:var(--muted,#64748b)">${label}</span><select name="invoice_type">${types.map(([type, title]) => `<option value="${type}"${value === type ? ' selected' : ''}>${title}</option>`).join('')}</select></label>`;
       }
       return `
         <label style="display:flex;flex-direction:column;gap:4px;${wide ? 'grid-column:1/-1' : ''}">
-          <span style="font-size:12px;color:var(--muted,#64748b)">${label}${star}</span>
+          <span style="font-size:0.75rem;color:var(--muted,#64748b)">${label}${star}</span>
           <input type="${inputType}" name="${name}" value="${App.esc(value)}" ${step} style="${inputBg}">
         </label>
       `;
@@ -1741,7 +1741,7 @@ const Invoices = {
     const reasonBlock = reasonText ? `
       <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.4);padding:10px 14px;border-radius:8px;margin-bottom:14px;color:rgb(120,53,15)">
         <strong>${App.esc(reasonText)}</strong>
-        ${missing.size > 0 ? `<div style="margin-top:6px;font-size:13px">Не хватает: ${Array.from(missing).map(f => `«${App.esc(this._FIELD_LABELS[f] || f)}»`).join(', ')}</div>` : ''}
+        ${missing.size > 0 ? `<div style="margin-top:6px;font-size:0.8125rem">Не хватает: ${Array.from(missing).map(f => `«${App.esc(this._FIELD_LABELS[f] || f)}»`).join(', ')}</div>` : ''}
       </div>` : '';
 
     modal.innerHTML = `
@@ -2300,13 +2300,13 @@ const Invoices = {
 
       const chip = document.createElement('div');
       chip.className = 'nom-suggest';
-      chip.style.cssText = 'margin-top:4px;font-size:12px;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+      chip.style.cssText = 'margin-top:4px;font-size:0.75rem;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
       const label = document.createElement('span');
       label.textContent = 'Предложение: ' + top.name;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-outline';
-      btn.style.cssText = 'padding:2px 8px;font-size:12px';
+      btn.style.cssText = 'padding:2px 8px;font-size:0.75rem';
       btn.textContent = 'Применить';
       btn.addEventListener('click', () =>
         Invoices.selectNomItem(String(invoiceId), String(item.id), top.guid, top.name));

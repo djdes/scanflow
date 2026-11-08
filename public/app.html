@@ -14,6 +14,15 @@
   <!-- Geist с кириллицей, с нашего домена (/css/fonts.css), как на сайте. -->
   <link rel="preload" href="/fonts/geist-v5-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/geist-v5-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script>
+    // Размер текста (общий с приложением /m/: localStorage['sf-text']) — до
+    // отрисовки, чтобы страница не «прыгала». Переключатель — внизу меню.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('sf-text'); } catch (e) { /* приватный режим */ }
+      if (t === 'l' || t === 'xl') document.documentElement.setAttribute('data-text', t);
+    })();
+  </script>
   <link rel="stylesheet" href="/css/fonts.css">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/sidebar.css">
@@ -94,6 +103,14 @@
       </div>
     </nav>
     <div class="sidebar-footer">
+      <div class="text-size" role="radiogroup" aria-labelledby="text-size-label">
+        <span class="text-size__label" id="text-size-label">Размер текста</span>
+        <span class="text-size__options">
+          <button type="button" role="radio" data-text-size="m" aria-checked="true" aria-label="Обычный" title="Обычный"><span style="font-size:13px">А</span></button>
+          <button type="button" role="radio" data-text-size="l" aria-checked="false" aria-label="Крупный" title="Крупный"><span style="font-size:16px">А</span></button>
+          <button type="button" role="radio" data-text-size="xl" aria-checked="false" aria-label="Огромный" title="Огромный"><span style="font-size:19px">А</span></button>
+        </span>
+      </div>
       <button type="button" class="btn-logout" onclick="App.logout()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M11 11l3-3m0 0l-3-3m3 3H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Выйти</span></button>
     </div>
   </aside>
@@ -1183,6 +1200,7 @@
 <script src="/js/invoice-card.js"></script>
 <script src="/js/upload.js"></script>
 <script src="/js/app-nudge.js"></script>
+<script src="/js/text-size.js"></script>
 <script src="/js/mappings.js"></script>
 <script src="/js/newItems.js"></script>
 <script src="/js/queue.js"></script>

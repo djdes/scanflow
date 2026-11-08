@@ -27,7 +27,7 @@ const SberModal = {
     const wide = new Set(['name', 'account', 'bank_name', 'address']);
     const fieldsHtml = this._FIELDS.map(([name, label, required, attrs]) => `
       <label style="display:flex;flex-direction:column;gap:4px;margin:0;${wide.has(name) ? 'grid-column:1/-1' : ''}">
-        <span style="font-size:12px;color:var(--text-secondary)">${label}${required ? '<span style="color:var(--error)"> *</span>' : ''}</span>
+        <span style="font-size:0.75rem;color:var(--text-secondary)">${label}${required ? '<span style="color:var(--error)"> *</span>' : ''}</span>
         <input type="text" name="${name}" ${required ? 'required' : ''} ${attrs} autocomplete="off">
       </label>`).join('');
     modal = document.createElement('div');
@@ -39,10 +39,10 @@ const SberModal = {
         <h3 style="margin-bottom:14px">Реквизиты поставщика</h3>
         <div id="sber-modal-notice"></div>
         <div id="sber-modal-picker" style="display:none;margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:var(--radius)">
-          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Выбрать из справочника поставщиков</div>
+          <div style="font-size:0.8125rem;font-weight:600;margin-bottom:8px">Выбрать из справочника поставщиков</div>
           <input type="search" id="sber-modal-pick-q" placeholder="Поиск по названию или ИНН" autocomplete="off" style="margin-bottom:8px">
           <select id="sber-modal-pick"></select>
-          <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">
+          <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:6px">
             Реквизиты подставятся из карточки, а накладная будет закреплена за выбранным поставщиком.
           </div>
         </div>
@@ -172,7 +172,7 @@ const SberModal = {
     const ocrInnText = ocr.inn ? `ИНН ${App.esc(ocr.inn)}` : 'ИНН не распознан';
     const ocrName = ocr.name ? `«${App.esc(ocr.name)}»` : 'без названия';
     const warn = (html) => `<div class="price-warning-banner"><span class="price-warning-banner__icon">⚠️</span><div>${html}</div></div>`;
-    const info = (html) => `<div style="margin-bottom:14px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-lg);font-size:13.5px">${html}</div>`;
+    const info = (html) => `<div style="margin-bottom:14px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-lg);font-size:0.84375rem">${html}</div>`;
 
     if (picked) {
       const differs = ocr.inn && picked.inn !== ocr.inn;

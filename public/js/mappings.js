@@ -230,7 +230,7 @@ const Mappings = {
             <td></td>
             <td colspan="2">
               <div style="display:flex;gap:8px;align-items:center">
-                <input type="text" id="add-variant-${esc(g.onec_guid)}" placeholder="Новый вариант..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px"
+                <input type="text" id="add-variant-${esc(g.onec_guid)}" placeholder="Новый вариант..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem"
                        data-guid="${esc(g.onec_guid)}" data-name="${esc(g.mapped_name)}"
                        onclick="event.stopPropagation()"
                        onkeydown="if(event.key==='Enter'){event.stopPropagation();Mappings.addVariant(this.dataset.guid,this.dataset.name)}">
@@ -570,7 +570,7 @@ const Mappings = {
         <td data-label="Наименование"><strong>${esc(it.name)}</strong><br><button type="button" class="btn btn-outline btn-sm" data-alias-guid="${esc(it.guid)}" onclick="CatalogAliases.open(this.dataset.aliasGuid)">Синонимы · ${(it.aliases || []).length}</button></td>
         <td data-label="Полное">${esc(it.full_name) || '—'}</td>
         <td data-label="Ед.">${esc(it.unit) || '—'}</td>
-        <td data-label="GUID"><code style="font-size:11px" title="${esc(it.guid)}">${guidShort}</code></td>
+        <td data-label="GUID"><code style="font-size:0.6875rem" title="${esc(it.guid)}">${guidShort}</code></td>
       </tr>`;
     }).join('');
   },

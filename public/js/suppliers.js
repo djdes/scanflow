@@ -153,7 +153,7 @@ const Suppliers = {
           </button>
         </div>
       </div>
-      <p style="margin:6px 0 0;color:var(--error);font-size:13px">⚠ ${App.esc(errMsg)}</p>`;
+      <p style="margin:6px 0 0;color:var(--error);font-size:0.8125rem">⚠ ${App.esc(errMsg)}</p>`;
     card.querySelector('[data-action=dismiss]').onclick = () => card.remove();
     card.querySelector('[data-action=retry]').onclick = () => this._processFile(file, card);
   },
@@ -328,12 +328,12 @@ const Suppliers = {
     modal.innerHTML = `
       <div class="modal-card card" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <h3 id="supplier-merge-title" style="margin-bottom:10px">Объединить карточку</h3>
-        <div id="supplier-merge-source" style="font-size:14px;margin-bottom:12px"></div>
+        <div id="supplier-merge-source" style="font-size:0.875rem;margin-bottom:12px"></div>
         <label style="display:flex;flex-direction:column;gap:4px;margin:0 0 12px">
-          <span style="font-size:12px;color:var(--text-secondary)">С какой карточкой объединить (она останется)</span>
+          <span style="font-size:0.75rem;color:var(--text-secondary)">С какой карточкой объединить (она останется)</span>
           <select id="supplier-merge-target"></select>
         </label>
-        <ul style="margin:0 0 14px 18px;padding:0;font-size:13px;color:var(--text-secondary);line-height:1.5">
+        <ul style="margin:0 0 14px 18px;padding:0;font-size:0.8125rem;color:var(--text-secondary);line-height:1.5">
           <li>накладные этой карточки перейдут к выбранной — с её ИНН и названием; что было на фото, в накладной сохранится;</li>
           <li>выученные правила поставщика (сопоставления позиций, исправления распознавания) перенесутся;</li>
           <li>эта карточка будет удалена.</li>

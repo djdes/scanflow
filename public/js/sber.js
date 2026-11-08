@@ -229,7 +229,7 @@ const Sber = {
             <div>Нажмите <b>«Сохранить токен»</b>. Готово — доступ продлён.</div>
           </li>
         </ol>
-        <p class="muted" style="margin-top:8px;font-size:12px">
+        <p class="muted" style="margin-top:8px;font-size:0.75rem">
           Названия разделов на портале могут немного отличаться. Проще всего — кнопка <b>«Войти через Сбербанк»</b>:
           ScanFlow получит токены сам и будет их продлевать.
         </p>

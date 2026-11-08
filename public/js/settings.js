@@ -252,13 +252,13 @@ const Settings = {
           ? '<span class="badge badge-error">Заблокирован</span>'
           : '<span class="badge badge-sent">Активен</span>';
         const companySub = u.company_name
-          ? `<div class="muted" style="font-size:12px">${esc(u.company_name)}</div>`
+          ? `<div class="muted" style="font-size:0.75rem">${esc(u.company_name)}</div>`
           : '';
         const emailSub = u.email
-          ? `<div class="muted" style="font-size:12px">${esc(u.email)}</div>`
-          : '<div class="muted" style="font-size:12px">без email</div>';
+          ? `<div class="muted" style="font-size:0.75rem">${esc(u.email)}</div>`
+          : '<div class="muted" style="font-size:0.75rem">без email</div>';
         const expSub = u.tariff_expires_at
-          ? `<div class="muted" style="font-size:12px">до ${esc(App.formatDate(u.tariff_expires_at))}</div>`
+          ? `<div class="muted" style="font-size:0.75rem">до ${esc(App.formatDate(u.tariff_expires_at))}</div>`
           : '';
         return `
         <tr style="${u.is_blocked ? 'opacity:0.65' : ''}">
@@ -280,7 +280,7 @@ const Settings = {
           </td>
           <td>
             <div>${Number(u.invoice_count || 0)} накл.</div>
-            <div class="muted" style="font-size:12px">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
+            <div class="muted" style="font-size:0.75rem">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
           </td>
           <td>${u.last_login_at ? esc(App.formatDateTime(u.last_login_at)) : '<span class="muted">—</span>'}</td>
           <td style="white-space:nowrap">
@@ -676,7 +676,7 @@ const Settings = {
     const url = App.esc(login.verification_url);
     box.style.display = '';
     box.innerHTML = `Откройте <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>, войдите в ChatGPT `
-      + `и введите код <strong style="font-size:18px;letter-spacing:2px">${App.esc(login.user_code)}</strong>. `
+      + `и введите код <strong style="font-size:1.125rem;letter-spacing:2px">${App.esc(login.user_code)}</strong>. `
       + `Код действует до ${new Date(login.expires_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. `
       + '<button type="button" class="btn btn-outline btn-sm" onclick="Settings.chatgptCancel()">Отменить</button>';
     this._chatgptLoginExpires = new Date(login.expires_at).getTime();
