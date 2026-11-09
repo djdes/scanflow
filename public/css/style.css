@@ -2057,8 +2057,13 @@ tr.inv-visited:hover td { opacity: 1; }
   .operations-form-grid { grid-template-columns: 1fr; }
   .operations-summary-strip { grid-template-columns: 1fr 1fr; }
   .forecast-grid { grid-template-columns: 1fr 1fr; }
-  .operation-row { grid-template-columns: auto 1fr auto; gap: 8px; }
-  .operation-row__reasons { grid-column: 2 / -1; }
+  /* Сумма — в первой строке справа от номера. Без явного места она падала на третью строку
+     в первую колонку и раздувала колонку галочки до своей ширины (~75 px пустоты слева). */
+  .operation-row { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 10px; }
+  .operation-row__check { grid-column: 1; grid-row: 1; }
+  .operation-row__main { grid-column: 2; grid-row: 1; min-width: 0; }
+  .operation-row__amount { grid-column: 3; grid-row: 1; }
+  .operation-row__reasons { grid-column: 2 / -1; grid-row: 2; }
   .bank-import-card, .bank-import-card form, .report-toolbar { align-items: stretch; flex-direction: column; }
   .onec-fast-steps { grid-template-columns: 1fr; }
   .onec-import-actions { align-items: stretch; }
@@ -4503,7 +4508,10 @@ select.filter-input { min-width: 104px; }
 
   /* Date-group header stays a full-width band */
   .invoices-table tbody tr.date-group-row { display: block; }
-  .invoices-table tbody tr.date-group-row td { display: block; text-align: left; }
+  /* white-space: normal — общий nowrap ячеек таблицы вытягивал «Сегодня · Понедельник,
+     9 ноября 2026 г. 1 накладная» в одну строку за правый край карточки на 360–390 px. */
+  .invoices-table tbody tr.date-group-row td { display: block; text-align: left; white-space: normal; }
+  .date-group-row__count { white-space: nowrap; }
   .invoices-table tbody tr.date-group-row td::before { display: none; }
 }
 
