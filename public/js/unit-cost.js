@@ -14,9 +14,10 @@ const UnitCost = {
   formula(calculation) {
     return `${this.number(calculation.packages)} × ${this.number(calculation.units_per_pack)} = ${this.number(calculation.total_units)} ${this.countUnit(calculation.unit_kind, calculation.total_units)}; ${this.number(calculation.total, true)} ₽ ÷ ${this.number(calculation.total_units)} = ${this.number(calculation.unit_price, true)} ₽`;
   },
+  // В строке товара — только готовый расчёт; «Рассчитать цену за единицу» — в меню строки «⋯».
   rowHtml(invoiceId, item) {
     const state = item.unit_cost;
-    if (!state?.basis) return '';
+    if (!state?.basis || !state.calculation) return '';
     const calculation = state.calculation;
     return `<div class="unit-cost-row">${calculation ? `<strong>${App.esc(this.price(calculation))}</strong><span>${App.esc(this.formula(calculation))}</span>` : ''}<button type="button" class="unit-cost-open" onclick="UnitCost.open(${invoiceId}, ${item.id})">${calculation ? state.rule_id ? 'Сохранённая формула' : 'Проверить и запомнить формулу' : 'Рассчитать цену за единицу'}</button></div>`;
   },

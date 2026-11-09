@@ -366,7 +366,7 @@ const App = {
     const bar = document.createElement('div');
     bar.id = 'impersonation-banner';
     bar.setAttribute('role', 'status');
-    bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px;border-radius:10px;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.4);color:var(--text-primary);font-size:14px;';
+    bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px;border-radius:10px;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.4);color:var(--text-primary);font-size:0.875rem;';
     bar.innerHTML = `<span>👁 Вы просматриваете кабинет от лица аккаунта <strong>${this.esc(currentUsername)}</strong> (вход из суперадмина <strong>${this.esc(saved.username || 'admin')}</strong>)</span>`
       + `<button type="button" class="btn btn-outline btn-sm" onclick="App.exitImpersonation()">← Вернуться в суперадмин</button>`;
     main.prepend(bar);

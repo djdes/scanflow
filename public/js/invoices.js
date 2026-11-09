@@ -104,7 +104,7 @@ const Invoices = {
       this._stats = data;
       this._renderSummary();
       const container = document.getElementById('invoices-stats');
-      container.textContent = data.unreadCount ? `Непрочитанных: ${data.unreadCount} · Сводка показывает все накладные компании` : 'Сводка показывает все накладные компании';
+      container.textContent = data.unreadCount ? `Непрочитанных: ${data.unreadCount}` : '';
     } catch (e) {
       console.error('Failed to load stats', e);
     }
@@ -128,20 +128,22 @@ const Invoices = {
     }
   },
 
-  // Пять равных карточек-фильтров (спек 2026-10-09): число крупно, подпись мелко, выбранная — в рамке.
+  // Пять равных карточек-фильтров (спек 2026-10-09): короткое название, число крупно,
+  // выбранная — в рамке. Пояснение — во всплывающей подсказке, под числом — только
+  // сумма без платёжки (её не узнать иначе). Названия как в приложении /m/.
   _renderSummary() {
     const data = this._stats || {};
     const w = data.workflow || {};
     const cards = [
-      ['all', 'Все накладные', data.total, 'Вся компания', 'neutral'],
-      ['attention', 'Требуют внимания', w.attention, 'Реквизиты, товары, ошибки', 'warning'],
-      ['ready', 'Готовы к отправке', w.ready, 'Без замечаний', 'success'],
-      ['queue', 'В очереди 1С', w.queue, 'Ждут загрузки в 1С', 'primary'],
-      ['payment', 'Без платёжки', w.payment, w.paymentSum ? `На ${App.formatMoney(w.paymentSum)} ₽` : 'В СберБизнес', 'neutral'],
+      ['all', 'Все', data.total, '', 'Все накладные компании', 'neutral'],
+      ['attention', 'Проверить', w.attention, '', 'Есть замечания: реквизиты, товары или ошибка распознавания', 'warning'],
+      ['ready', 'Готовы к 1С', w.ready, '', 'Без замечаний — можно отправлять в 1С', 'success'],
+      ['queue', 'В очереди 1С', w.queue, '', 'Отправлены, 1С ещё не забрала', 'primary'],
+      ['payment', 'Без платёжки', w.payment, w.paymentSum ? `${App.formatMoney(w.paymentSum)} ₽` : '', 'Платёжка в СберБизнес ещё не создана', 'neutral'],
     ];
-    document.getElementById('invoices-summary').innerHTML = cards.map(([key, label, count, hint, tone]) => `
-      <button type="button" class="invoice-summary-card invoice-summary-card--${tone}" aria-pressed="${this.currentView === key}" onclick="Invoices.setView('${key}')">
-        <span>${label}</span><strong>${count ?? '—'}</strong><small>${App.esc(hint)}</small>
+    document.getElementById('invoices-summary').innerHTML = cards.map(([key, label, count, hint, help, tone]) => `
+      <button type="button" class="invoice-summary-card invoice-summary-card--${tone}" aria-pressed="${this.currentView === key}" title="${App.esc(help)}" onclick="Invoices.setView('${key}')">
+        <span>${label}</span><strong>${count ?? '—'}</strong>${hint ? `<small>${App.esc(hint)}</small>` : ''}
       </button>`).join('');
   },
 
@@ -256,7 +258,7 @@ const Invoices = {
         rowsHtml.push(`
           <tr class="clickable${(inv.review_reason || dupTargetId) ? ' invoice-needs-review' : ''}${!inv.read_at ? ' unread' : ''}${this.isVisited(inv.id) ? ' inv-visited' : ''}" data-day="${day}" onclick="Invoices.openInvoice(${inv.id})">
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${App.esc(inv.invoice_number || inv.id)}"></td>
-            <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small>${App.formatDate(inv.invoice_date)} · #${inv.id}</small>${dupBadgeHtml}</div></td>
+            <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small title="Накладная #${inv.id}">${App.formatDate(inv.invoice_date)}</small>${dupBadgeHtml}</div></td>
             <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span>${notes.length ? `<small class="inv-notes">${notes.map(n => App.esc(n)).join(' · ')}</small>` : ''}</div></td>
             <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${this._vatLine(inv)}</div></td>
             <td class="col-state" data-label="1С"><div class="invoice-cell-stack">${this._onecPill(inv)}</div></td>
@@ -435,7 +437,7 @@ const Invoices = {
       document.body.appendChild(modal);
     }
     modal.innerHTML = `<div style="background:var(--card,#fff);border-radius:12px;max-width:520px;width:100%;padding:22px;max-height:80vh;overflow:auto">
-      <div style="font-size:16px;font-weight:600;margin-bottom:8px">Результат массовой отправки</div>
+      <div style="font-size:1rem;font-weight:600;margin-bottom:8px">Результат массовой отправки</div>
       <div style="color:var(--text-secondary,#64748b)">${lines.map(l => App.esc(l)).join('<br>')}</div>
       ${skippedBlocks}
       <div style="margin-top:18px;text-align:right"><button class="btn btn-primary" id="bulk-report-ok">Понятно</button></div>
@@ -643,7 +645,7 @@ const Invoices = {
     const n = inv.elevated_price_count || 0;
     if (n <= 0) return '<span style="color:#cbd5e1" title="Нет позиций дороже обычного">—</span>';
     const noun = this._plural(n, 'позиция', 'позиции', 'позиций');
-    return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:12px" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
+    return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:0.75rem" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
   },
 
   // Плашка статуса в списке: точка + текст, подпись мелко под ней. Цвета одни на
@@ -972,9 +974,8 @@ const Invoices = {
           <div class="ic-row-onec">
             <div class="nom-picker">
               ${badge}
-              <span class="nom-picker-current">${item.onec_guid || item.name_overridden ? safeName : 'Товар из 1С не выбран'}</span>
+              <span class="nom-picker-current">${item.onec_guid || item.name_overridden ? safeName : 'Не выбрано'}</span>
               <button type="button" class="nom-picker-open" onclick="NomenclaturePicker.open(${data.id}, ${item.id})" aria-label="${item.onec_guid ? 'Изменить' : 'Выбрать'} позицию 1С для строки ${no}">${item.onec_guid ? 'Изменить' : 'Выбрать из 1С'}</button>
-              ${item.onec_guid ? `<button type="button" class="nom-picker-open" onclick="CatalogAliases.openFromInvoice(${data.id}, ${item.id})">Синонимы</button>` : ''}
             </div>
             ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
               ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
@@ -989,19 +990,28 @@ const Invoices = {
                  value="${item.quantity != null ? String(item.quantity).replace('.', ',') : ''}" ${editAttrs('quantity')}><input type="text" class="item-edit item-edit-unit" aria-label="Единица"
                  value="${App.esc(item.unit || '')}" ${editAttrs('unit')}></span>
           ${convText ? `<span class="ic-sub-line" title="${App.esc(item.conv_note || '')}">${App.esc(convText)}</span>` : ''}
-          ${data.status === 'processed' && !data.approved_for_1c ? `<button type="button" class="ic-qty-review" onclick="Invoices.reviewItemQuantity(${data.id}, ${item.id})">${Number(item.qty_confirmed) === 1 ? 'Проверено · изменить' : 'Проверить количество'}</button>` : ''}
+          ${data.status === 'processed' && !data.approved_for_1c && (Number(item.qty_confirmed) === 1 || (item.qty_flag && Number(item.qty_confirmed) !== 1))
+            ? `<button type="button" class="ic-qty-review" onclick="Invoices.reviewItemQuantity(${data.id}, ${item.id})">${Number(item.qty_confirmed) === 1 ? '✓ проверено' : 'Проверить количество'}</button>`
+            : ''}
         </td>
         <td class="ic-num" data-label="Цена с НДС">
           <input type="text" inputmode="decimal" class="item-edit item-edit-price" aria-label="Цена с НДС" title="Цена за единицу с НДС — сумма пересчитается"
-                 value="${item.price != null ? Number(item.price).toFixed(2).replace('.', ',') : ''}" ${editAttrs('price')}>${median}
+                 value="${this._moneyInput(item.price)}" ${editAttrs('price')}>${median}
         </td>
         <td class="ic-num" data-label="Сумма">
           <input type="text" inputmode="decimal" class="item-edit item-edit-total" aria-label="Сумма строки"
-                 value="${item.total != null ? Number(item.total).toFixed(2).replace('.', ',') : ''}" ${editAttrs('total')}>
+                 value="${this._moneyInput(item.total)}" ${editAttrs('total')}>
         </td>
         <td class="ic-num" data-label="НДС">${this._vatSelect(data.id, item)}</td>
         <td class="ic-cell-menu"><button type="button" class="ic-row-more" aria-haspopup="menu" aria-expanded="false" aria-label="Действия со строкой ${no}" title="Действия со строкой" onclick="InvoiceCard.openRowMenu(this, ${item.id})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td>
       </tr>`;
+  },
+
+  /** Деньги в поле строки: «5 700,00» — с разрядами, как сумма накладной в шапке. */
+  _moneyInput(value) {
+    if (value == null || value === '' || !Number.isFinite(Number(value))) return '';
+    const [int, frac] = Math.abs(Number(value)).toFixed(2).split('.');
+    return `${Number(value) < 0 ? '-' : ''}${int.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0')},${frac}`;
   },
 
   // Метки проблем строки у названия: нужен вес, количество под вопросом, цена выше обычной,
@@ -1101,7 +1111,7 @@ const Invoices = {
     return `
       <div class="items-toolbar">
         <button type="button" class="btn btn-soft btn-sm" onclick="Invoices.toggleAddItem(${invoiceId})">+ Добавить строку</button>
-        <label class="items-toolbar-vat">НДС для всех строк
+        <label class="items-toolbar-vat">НДС всем строкам
           <select onchange="Invoices.setAllVat(${invoiceId}, this)">
             <option value="__" selected>выбрать…</option>
             ${this._VAT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
@@ -1187,7 +1197,7 @@ const Invoices = {
       : '—';
     const device = this._deviceLabel(data.upload_user_agent);
     const ua = device
-      ? `<div class="muted" style="font-size:12px;margin-top:2px" title="${App.esc(data.upload_user_agent)}">${App.esc(device)}</div>`
+      ? `<div class="muted" style="font-size:0.75rem;margin-top:2px" title="${App.esc(data.upload_user_agent)}">${App.esc(device)}</div>`
       : '';
     const duration = App.formatDuration(data.created_at, data.recognized_at);
 
@@ -1296,7 +1306,7 @@ const Invoices = {
         edits.map(e => {
           let ctx = {};
           try { ctx = e.context ? JSON.parse(e.context) : {}; } catch { ctx = {}; }
-          const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:12px">${App.esc(ctx.original_name)}</div>` : '');
+          const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:0.75rem">${App.esc(ctx.original_name)}</div>` : '');
           const oldV = e.field === 'onec_guid' ? fmt(ctx.old_name) : fmtVal(e.field, e.old_value);
           const newV = e.field === 'onec_guid' ? fmt(ctx.new_name) : fmtVal(e.field, e.new_value);
           const src = ctx.restored_from ? ` <span class="muted">(откат из снимка)</span>` : '';
@@ -1319,7 +1329,7 @@ const Invoices = {
       const btn = differs(sn)
         ? `<button class="btn btn-sm btn-outline" data-restore-kind="${kind}">Вернуть номер, дату, сумму и НДС</button>`
         : '<span class="muted">совпадает с текущими</span>';
-      return `<tr><td>${title}<div class="muted" style="font-size:12px">${App.formatDateTime(sn.created_at)}</div></td>
+      return `<tr><td>${title}<div class="muted" style="font-size:0.75rem">${App.formatDateTime(sn.created_at)}</div></td>
         <td>${fmt(sn.invoice_number)}</td><td>${fmt(sn.invoice_date)}</td><td>${money(sn.total_sum)}</td><td>${money(sn.vat_sum)}</td><td>${btn}</td></tr>`;
     };
     const snapsRows = snapRow('recognized', 'Как распознано') + snapRow('baseline', 'До обновления v2 (29.09)');
@@ -1476,7 +1486,7 @@ const Invoices = {
       }
       if (!slot.isConnected || this._currentInvoiceId !== invoiceId) return;
       if (!list || !list.length) {
-        slot.textContent = 'Нет автоматических предложений — найдите товар по названию или коду.';
+        slot.textContent = '';
         continue;
       }
       slot.innerHTML = `<span class="muted">Варианты для выбора:</span> ` + list.map(c => `
@@ -1635,7 +1645,7 @@ const Invoices = {
       </div></div>`;
     }
     if (data.supplier_match === 'manual' && (data.supplier_inn_ocr || data.supplier_name_ocr)) {
-      return `<div style="margin-bottom:14px;font-size:13px;color:var(--text-secondary)">
+      return `<div style="margin-bottom:14px;font-size:0.8125rem;color:var(--text-secondary)">
         Поставщик выбран вручную из справочника: ${card}. На фото было: ${ocrName ? ocrName + ', ' : ''}${ocrInn}.
       </div>`;
     }
@@ -1728,11 +1738,11 @@ const Invoices = {
       const step = inputType === 'number' ? 'step="0.01"' : '';
       if (name === 'invoice_type') {
         const types = [['счет_на_оплату','Счёт на оплату'],['торг_12','ТОРГ-12'],['упд','УПД'],['счет_фактура','Счёт-фактура'],['акт','Акт'],['кассовый_чек','Кассовый чек'],['авансовый_отчет','Авансовый отчёт'],['прочее','Прочее']];
-        return `<label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--muted,#64748b)">${label}</span><select name="invoice_type">${types.map(([type, title]) => `<option value="${type}"${value === type ? ' selected' : ''}>${title}</option>`).join('')}</select></label>`;
+        return `<label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:0.75rem;color:var(--muted,#64748b)">${label}</span><select name="invoice_type">${types.map(([type, title]) => `<option value="${type}"${value === type ? ' selected' : ''}>${title}</option>`).join('')}</select></label>`;
       }
       return `
         <label style="display:flex;flex-direction:column;gap:4px;${wide ? 'grid-column:1/-1' : ''}">
-          <span style="font-size:12px;color:var(--muted,#64748b)">${label}${star}</span>
+          <span style="font-size:0.75rem;color:var(--muted,#64748b)">${label}${star}</span>
           <input type="${inputType}" name="${name}" value="${App.esc(value)}" ${step} style="${inputBg}">
         </label>
       `;
@@ -1741,7 +1751,7 @@ const Invoices = {
     const reasonBlock = reasonText ? `
       <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.4);padding:10px 14px;border-radius:8px;margin-bottom:14px;color:rgb(120,53,15)">
         <strong>${App.esc(reasonText)}</strong>
-        ${missing.size > 0 ? `<div style="margin-top:6px;font-size:13px">Не хватает: ${Array.from(missing).map(f => `«${App.esc(this._FIELD_LABELS[f] || f)}»`).join(', ')}</div>` : ''}
+        ${missing.size > 0 ? `<div style="margin-top:6px;font-size:0.8125rem">Не хватает: ${Array.from(missing).map(f => `«${App.esc(this._FIELD_LABELS[f] || f)}»`).join(', ')}</div>` : ''}
       </div>` : '';
 
     modal.innerHTML = `
@@ -2300,13 +2310,13 @@ const Invoices = {
 
       const chip = document.createElement('div');
       chip.className = 'nom-suggest';
-      chip.style.cssText = 'margin-top:4px;font-size:12px;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+      chip.style.cssText = 'margin-top:4px;font-size:0.75rem;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
       const label = document.createElement('span');
       label.textContent = 'Предложение: ' + top.name;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-outline';
-      btn.style.cssText = 'padding:2px 8px;font-size:12px';
+      btn.style.cssText = 'padding:2px 8px;font-size:0.75rem';
       btn.textContent = 'Применить';
       btn.addEventListener('click', () =>
         Invoices.selectNomItem(String(invoiceId), String(item.id), top.guid, top.name));
@@ -2329,9 +2339,11 @@ const Invoices = {
   async onItemEdit(event) {
     const el = event.target;
     const { invoiceId, itemId, field } = el.dataset;
-    const raw = el.value.trim().replace(',', '.');
+    // В числах — пробелы разрядов («5 700,00»); в единице («уп 10») пробелы значимы.
+    const norm = (v) => (field === 'unit' ? v.trim() : v.replace(/[\s\u00a0]/g, '').replace(',', '.'));
+    const raw = norm(el.value);
     // Remember the last-saved value per input to avoid pointless PATCHes.
-    const prev = el.dataset.lastSaved ?? el.defaultValue.trim().replace(',', '.');
+    const prev = el.dataset.lastSaved ?? norm(el.defaultValue);
     if (raw === prev) return;
 
     let payload;

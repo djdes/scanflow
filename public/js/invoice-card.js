@@ -84,7 +84,7 @@ const InvoiceCard = {
       else pay = { state: 'progress', hint: 'черновик · ждёт подписи' };
     } else if (payment && payment.status === 'pending') pay = { state: 'progress', hint: 'создаётся' };
     else if (payment && payment.status === 'failed') pay = { state: 'error', hint: 'платёжка не создана', action: { kind: 'pay', label: 'Повторить' } };
-    else if (sber && (!sber.connected || !sber.payer_complete)) pay = { state: 'off', hint: 'СберБизнес не подключён' };
+    else if (sber && (!sber.connected || !sber.payer_complete)) pay = { state: 'off', hint: 'Сбер не подключён' };
     else if (!sber || payment === undefined) pay = { state: 'idle', hint: '…' };
     else pay = { state: 'idle', hint: checked === 6 ? 'сумма и назначение заполнены' : `нужна сверка 6 из 6`, action: { kind: 'pay', label: 'Создать платёжку' } };
 
@@ -202,7 +202,7 @@ const InvoiceCard = {
     this.states = states;
     if (!this.activeStep) this.activeStep = this.defaultStep(states);
     // Полное название и короткое — для узкой колонки (телефон: три шага в ряд).
-    const titles = { verify: ['Сверка с оригиналом', 'Сверка'], onec: ['Отправка в 1С', 'В 1С'], pay: ['Оплата в СберБизнес', 'Оплата'] };
+    const titles = { verify: ['Сверка', 'Сверка'], onec: ['Отправка в 1С', 'В 1С'], pay: ['Оплата', 'Оплата'] };
     el.innerHTML = this.STEPS.map((key, i) => {
       const s = states[key];
       const active = this.activeStep === key;
@@ -438,6 +438,8 @@ const InvoiceCard = {
     const items = [
       hasImages ? { label: 'Показать на скане', onClick: () => this.openScan(`item:${item.id}:row`) } : null,
       inv.status === 'processed' && !inv.approved_for_1c ? { label: 'Проверить количество и единицу', onClick: () => Invoices.reviewItemQuantity(inv.id, item.id) } : null,
+      item.onec_guid && typeof CatalogAliases !== 'undefined' ? { label: 'Синонимы товара', onClick: () => CatalogAliases.openFromInvoice(inv.id, item.id) } : null,
+      item.unit_cost?.basis && !item.unit_cost.calculation && typeof UnitCost !== 'undefined' ? { label: 'Рассчитать цену за единицу', onClick: () => UnitCost.open(inv.id, item.id) } : null,
       rawDiffers ? { label: `Как в накладной (${App.formatQty(item.raw_quantity)} ${item.raw_unit || ''}`.trim() + ')', onClick: () => Invoices.itemRevertRaw(inv.id, item.id) } : null,
       needsWork ? { label: 'Пересчитать количество', onClick: () => Invoices.itemReconvert(inv.id, item.id) } : null,
       (item.onec_guid || item.target_unit) && (needsWork || rawDiffers) ? { label: 'Запомнить пересчёт для поставщика', onClick: () => Invoices.itemRememberRule(inv.id, item.id) } : null,

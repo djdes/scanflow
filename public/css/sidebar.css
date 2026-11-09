@@ -21,7 +21,7 @@
 .sidebar-brand {
   position: relative;
   flex-shrink: 0;
-  padding: 25px 28px 23px;
+  padding: 20px 28px 18px;
   border-bottom: 1px solid var(--border);
 }
 .sidebar-brand .logo {
@@ -29,7 +29,7 @@
   align-items: center;
   gap: 12px;
   color: var(--text);
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 650;
   text-decoration: none;
   letter-spacing: -0.5px;
@@ -40,17 +40,17 @@
   padding-left: 40px;
   margin-top: 3px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 #app-primary-nav {
   position: static;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
   min-height: 0;
   max-height: none;
-  padding: 22px 14px;
+  padding: 12px 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
   background: transparent;
@@ -58,23 +58,23 @@
   box-shadow: none;
   scrollbar-width: thin;
 }
-.sidebar-group { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-group { display: flex; flex-direction: column; gap: 2px; }
 .sidebar-group-title {
-  margin: 0 14px 5px;
+  margin: 0 14px 4px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 #app-primary-nav a {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 12px;
   width: 100%;
-  min-height: 44px;
-  padding: 11px 15px;
-  border-radius: 24px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 20px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 400;
   line-height: 1.4;
   white-space: normal;
@@ -84,8 +84,8 @@
 #app-primary-nav a svg {
   display: block;
   flex-shrink: 0;
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
   opacity: 1;
   color: var(--text-secondary);
 }
@@ -98,14 +98,19 @@
 #app-primary-nav a.active svg { color: inherit; }
 .sidebar-footer {
   flex-shrink: 0;
-  padding: 12px 28px max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 20px max(12px, env(safe-area-inset-bottom)) 28px;
   border-top: 1px solid var(--border);
 }
 .sidebar-footer .btn-logout {
   border: 0;
   padding: 8px 0;
   gap: 13px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 .sidebar-footer .btn-logout:hover { background: transparent; }
 .sidebar-close, .sidebar-backdrop { display: none; }
@@ -139,7 +144,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 500;
     text-decoration: none;
     white-space: nowrap;
@@ -166,7 +171,7 @@
     border-radius: 50%;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 25px;
+    font-size: 1.5625rem;
     cursor: pointer;
   }
   .sidebar-close:hover { background: var(--bg); }
@@ -216,8 +221,8 @@
 @keyframes app-nudge-in { from { transform: translateY(140%); } }
 .app-nudge__icon { width: 44px; height: 44px; border-radius: 11px; }
 .app-nudge__text { display: grid; gap: 2px; min-width: 0; }
-.app-nudge__text strong { font-size: 15px; color: var(--text); }
-.app-nudge__text span { font-size: 13px; line-height: 1.35; color: var(--text-secondary); }
+.app-nudge__text strong { font-size: 0.9375rem; color: var(--text); }
+.app-nudge__text span { font-size: 0.8125rem; line-height: 1.35; color: var(--text-secondary); }
 .app-nudge__open {
   display: inline-flex;
   align-items: center;
@@ -226,7 +231,7 @@
   border-radius: 10px;
   background: var(--primary);
   color: #fff;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 600;
   text-decoration: none;
 }
@@ -237,7 +242,7 @@
   border-radius: 50%;
   background: var(--bg);
   color: var(--text-secondary);
-  font-size: 22px;
+  font-size: 1.375rem;
   line-height: 1;
   cursor: pointer;
 }
@@ -256,3 +261,44 @@
 }
 @media (min-width: 901px) { .app-nudge { display: none; } }
 @media (prefers-reduced-motion: reduce) { .app-nudge { animation: none; } }
+
+/* Размер текста (public/js/text-size.js): шрифты кабинета в rem, ступень —
+   html[data-text] в style.css. Буквы «А» — в px, чтобы показывать разницу
+   при любом выбранном размере. */
+.text-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+.text-size__label { white-space: nowrap; }
+.text-size__options {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+.text-size__options button {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.text-size__options button:hover { color: var(--text); }
+.text-size__options button[aria-checked="true"] {
+  background: var(--card);
+  color: var(--sidebar-accent);
+  box-shadow: 0 1px 2px rgba(15, 15, 15, 0.12);
+}
+.text-size__options button:focus-visible { outline: 2px solid var(--sidebar-accent); outline-offset: 1px; }

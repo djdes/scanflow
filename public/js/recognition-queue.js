@@ -41,7 +41,7 @@ const RecognitionQueue = {
     const banner = document.getElementById('recognition-queue-banner');
     if (banner) {
       banner.hidden = state.total === 0;
-      banner.innerHTML = `<strong>В очереди распознавания: ${Number(state.total)}</strong><span>Фото сохранены на сервере. Обработка продолжится автоматически.</span><a href="#/upload">Открыть очередь →</a>`;
+      banner.innerHTML = `<strong>Распознаём фото: ${Number(state.total)}</strong><button type="button" class="info-tip" data-tip="Фото сохранены на сервере. Распознавание продолжится само, даже если закрыть страницу." aria-label="Подробнее об очереди распознавания">i</button><a href="#/upload">Очередь →</a>`;
     }
     const host = document.getElementById('recognition-queue-list');
     if (!host) return;

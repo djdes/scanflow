@@ -156,7 +156,7 @@ const IntegrationsLog = {
       el.innerHTML = `<strong style="color:var(--success)">✓ 1С на связи</strong> — последний раз проверяла очередь: ${App.esc(this._dayLabel(pollAt).toLowerCase())} в ${App.esc(this._time(pollAt))}`;
     } else {
       el.innerHTML = `<strong style="color:#b45309">1С пока не обращалась к серверу</strong>
-        <div class="muted" style="font-size:12px;margin-top:2px">Это нормально, если в 1С ещё не подключили обработку загрузки накладных (Профиль → «Подключение 1С»).</div>`;
+        <div class="muted" style="font-size:0.75rem;margin-top:2px">Это нормально, если в 1С ещё не подключили обработку загрузки накладных (Профиль → «Подключение 1С»).</div>`;
     }
   },
 

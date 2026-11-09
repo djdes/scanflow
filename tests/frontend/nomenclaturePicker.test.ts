@@ -110,7 +110,7 @@ describe('явное сопоставление строки накладной'
     const html = i._itemRow({ id: 7, items: [item] }, item, 0);
     expect(html).toContain('NomenclaturePicker.open(7, 2)');
     expect(html).toContain('Выбрать из 1С');
-    expect(html).toContain('Товар из 1С не выбран');
+    expect(html).toContain('Не выбрано');
     expect(html).not.toContain('Неподтверждённая подсказка');
   });
 
