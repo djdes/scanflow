@@ -241,5 +241,18 @@
   line-height: 1;
   cursor: pointer;
 }
+/* Узкий телефон (≤ 420 px): в одну строку с иконкой, кнопкой и «×» тексту оставалось ~110 px —
+   заголовок в три строки, плашка 168 px высотой закрывала треть экрана. «Открыть» — под текстом. */
+@media (max-width: 420px) {
+  .app-nudge {
+    grid-template-columns: 44px minmax(0, 1fr) 36px;
+    grid-template-areas: "icon text close" "open open open";
+    row-gap: 10px;
+  }
+  .app-nudge__icon { grid-area: icon; }
+  .app-nudge__text { grid-area: text; }
+  .app-nudge__close { grid-area: close; align-self: start; }
+  .app-nudge__open { grid-area: open; justify-content: center; }
+}
 @media (min-width: 901px) { .app-nudge { display: none; } }
 @media (prefers-reduced-motion: reduce) { .app-nudge { animation: none; } }
