@@ -1,4 +1,4 @@
-.recognition-queue-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 14px 18px; margin-bottom: 18px; border: 1px solid #d6e5f4; border-radius: var(--radius-lg); background: var(--primary-soft); font-size: 0.8125rem; }
+.recognition-queue-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 4px; padding: 11px 18px; margin-bottom: 18px; border: 1px solid #d6e5f4; border-radius: var(--radius-lg); background: var(--primary-soft); font-size: 0.8125rem; }
 .recognition-queue-banner[hidden], .recognition-queue [hidden] { display: none !important; }
 .recognition-queue-banner span { color: var(--text-secondary); }
 .recognition-queue-banner a { margin-left: auto; color: var(--primary-hover); }

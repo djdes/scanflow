@@ -16,7 +16,8 @@ describe('расчёт цены в интерфейсе', () => {
     expect(ui.rowHtml(7, { id: 2 })).toBe('');
   });
   it('предлагает ручной расчёт там, где фасовка неизвестна, и правильно склоняет единицы', () => {
-    expect(ui.rowHtml(7, { id: 2, unit_cost: { basis: {}, calculation: null } })).toContain('Рассчитать цену за единицу');
+    // Без расчёта строка чистая: «Рассчитать цену за единицу» — в меню строки «⋯».
+    expect(ui.rowHtml(7, { id: 2, unit_cost: { basis: {}, calculation: null } })).toBe('');
     expect([1, 2, 5].map(n => ui.countUnit('label', n))).toEqual(['этикетка', 'этикетки', 'этикеток']);
   });
 });

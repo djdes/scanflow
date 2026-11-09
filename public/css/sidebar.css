@@ -21,7 +21,7 @@
 .sidebar-brand {
   position: relative;
   flex-shrink: 0;
-  padding: 25px 28px 23px;
+  padding: 20px 28px 18px;
   border-bottom: 1px solid var(--border);
 }
 .sidebar-brand .logo {
@@ -47,10 +47,10 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
   min-height: 0;
   max-height: none;
-  padding: 22px 14px;
+  padding: 12px 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
   background: transparent;
@@ -58,9 +58,9 @@
   box-shadow: none;
   scrollbar-width: thin;
 }
-.sidebar-group { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-group { display: flex; flex-direction: column; gap: 2px; }
 .sidebar-group-title {
-  margin: 0 14px 5px;
+  margin: 0 14px 4px;
   color: var(--text-secondary);
   font-size: 0.75rem;
   font-weight: 500;
@@ -68,11 +68,11 @@
 #app-primary-nav a {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 12px;
   width: 100%;
-  min-height: 44px;
-  padding: 11px 15px;
-  border-radius: 24px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 20px;
   color: var(--text);
   font-size: 0.875rem;
   font-weight: 400;
@@ -84,8 +84,8 @@
 #app-primary-nav a svg {
   display: block;
   flex-shrink: 0;
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
   opacity: 1;
   color: var(--text-secondary);
 }
@@ -98,7 +98,12 @@
 #app-primary-nav a.active svg { color: inherit; }
 .sidebar-footer {
   flex-shrink: 0;
-  padding: 12px 28px max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 20px max(12px, env(safe-area-inset-bottom)) 28px;
   border-top: 1px solid var(--border);
 }
 .sidebar-footer .btn-logout {
@@ -262,11 +267,8 @@
    при любом выбранном размере. */
 .text-size {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px 10px;
-  padding: 4px 0 10px;
+  gap: 8px;
   color: var(--text-secondary);
   font-size: 0.8125rem;
 }
