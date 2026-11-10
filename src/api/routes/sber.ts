@@ -10,6 +10,8 @@ import { fetchClientInfo } from '../../sber/clientInfo';
 import { logIntegrationEvent } from '../../integration/integrationLog';
 import { secretStatus, setClientSecretFromUser, makeSecretPerpetual, sqlUtc, parseDbUtc, sberClientId } from '../../sber/appCredentials';
 import { pollSberPaymentStatuses, refreshExpiresAt } from '../../services/sberMaintenance';
+import { proxySberRequest, SberProxyDenied } from '../../sber/proxy';
+import { SberApiError } from '../../sber/payments';
 
 const router = Router();
 
@@ -289,6 +291,23 @@ router.post('/access-token', requireAdmin, async (req: Request, res: Response) =
       },
     });
   } catch (err) {
+    const code = err instanceof SberAuthError ? err.code : 'other';
+    return res.status(code === 'not_connected' ? 404 : 502).json({ error: (err as Error).message, code });
+  }
+});
+
+// POST /api/sber/proxy — { method, path, query?, body? } — запрос SUBEX в Sber API
+// токеном и TLS-сертификатом ScanFlow (токен к чужому сертификату банк не
+// принимает). Только операции из белого списка src/sber/proxy.ts. Ответ банка
+// отдаётся как есть: { status, body }.
+router.post('/proxy', requireAdmin, async (req: Request, res: Response) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const r = await proxySberRequest(ownerOf(req), req.body ?? {});
+    return res.json({ data: r });
+  } catch (err) {
+    if (err instanceof SberProxyDenied) return res.status(400).json({ error: err.message, code: 'denied' });
+    if (err instanceof SberApiError) return res.json({ data: { status: err.status, body: err.body } });
     const code = err instanceof SberAuthError ? err.code : 'other';
     return res.status(code === 'not_connected' ? 404 : 502).json({ error: (err as Error).message, code });
   }
