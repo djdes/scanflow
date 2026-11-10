@@ -254,6 +254,7 @@ First start with empty `users` table prints a one-time random admin password to 
 | `GET /health` | none | реальные пробы: БД, глубина `inbox/`; `ai_engine` — только сведения (ключ Anthropic проверяется лишь в режиме `claude_api`) |
 | `GET /magic/:token` + `POST /magic/:token/consume` | one-time token | вход по magic-ссылке из письма |
 | `GET /blog`, `/blog/:slug`, `/sitemap.xml` | none | SEO-блог и карта сайта |
+| `GET /llms.txt` | none | описание сайта для ИИ-помощников (llmstxt.org): собирается из описания и FAQ главной и `articles.json`, своего текста нет (`src/seo/llmsTxt.ts`). Статьи блога при отдаче получают разметку `BlogPosting` + `BreadcrumbList` из `articles.json` (`src/seo/articleSchema.ts`) — в HTML статьи её руками не писать |
 | `GET /privacy`, `/consent`, `/terms` | none | правовые документы: шаблоны `public/legal/`, реквизиты из env `LEGAL_OPERATOR_*` (правило 45) |
 | `GET /m/` | none (вход внутри) | мобильное приложение (PWA); `/m`, `/camera`, `/camera.html` → 301 сюда (правило 48) |
 | `POST /m/share` | none | «Поделиться → ScanFlow»: обычно его перехватывает service worker; дошёл до сервера — тело дочитывается (≤ 60 МБ) и 303 на `/m/#/share?n=0` |
