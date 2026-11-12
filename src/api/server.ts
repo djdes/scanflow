@@ -9,6 +9,8 @@ import { buildSitemapXml } from '../seo/sitemap';
 import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
 import { LEGAL_PAGES, LegalPage, legalOperator, renderLegalPage } from '../legal/documents';
 import { applyHeroVariants, injectSiteConfig } from '../seo/siteConfig';
+import { injectArticleJsonLd } from '../seo/articleSchema';
+import { buildLlmsTxt } from '../seo/llmsTxt';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth, requireAdmin } from './middleware/auth';
@@ -430,6 +432,17 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.type('application/xml').send(xml);
   });
 
+  // GET /llms.txt — описание сайта для ИИ-помощников (llmstxt.org). Собирается
+  // из главной и articles.json, своего текста не содержит (src/seo/llmsTxt.ts).
+  let llmsTxtCache: string | null = null;
+  app.get('/llms.txt', (_req, res) => {
+    if (!llmsTxtCache) {
+      const landing = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+      llmsTxtCache = buildLlmsTxt('https://scanflow.ru', landing, loadArticles());
+    }
+    res.type('text/plain; charset=utf-8').send(llmsTxtCache);
+  });
+
   // GET /blog — canonical listing (no trailing slash).
   // /blog/ → 301 to /blog is handled by middleware near the top of this file,
   // before express.static gets to serve public/blog/index.html.
@@ -455,7 +468,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     if (!html) {
       const file = path.join(publicDir, 'blog', `${slug}.html`);
       if (!fs.existsSync(file)) return res.status(404).send('Not Found');
-      html = injectSiteConfig(fs.readFileSync(file, 'utf8'));
+      // Разметка BlogPosting и хлебных крошек — из articles.json (src/seo/articleSchema.ts).
+      const article = loadArticles().find((a) => a.slug === slug);
+      html = injectSiteConfig(injectArticleJsonLd(fs.readFileSync(file, 'utf8'), 'https://scanflow.ru', article));
       articleHtmlCache.set(slug, html);
     }
     res.type('html').send(html);
