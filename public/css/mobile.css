@@ -426,6 +426,8 @@ html[data-text] .m-back:not([hidden]) ~ .m-brand span { display: none; }
 .m-inv__meta { margin: -6px 0 4px; color: var(--m-muted); }
 .m-details summary { cursor: pointer; }
 .m-details[open] summary { border-bottom: 1px solid var(--m-line); }
+/* Раскрытые товары — с чертой снизу, иначе «Фото» сливалось с последней строкой. */
+.m-details[open] { border-bottom: 1px solid var(--m-line); }
 .m-items { margin: 0; padding: 0; list-style: none; }
 .m-item {
   display: grid;
