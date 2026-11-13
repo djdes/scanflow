@@ -709,6 +709,9 @@ const Mobile = {
       review: `<a class="m-btn m-btn--primary" href="${full}">Открыть и проверить</a>`,
       retake: '<button type="button" class="m-btn m-btn--primary" data-action="camera">Переснять</button>',
     }[state.action] || '';
+    // Электронная накладная (XML) — без фото: кнопка «Фото» отвечала «Фото нет. Откройте полностью.»,
+    // хотя и в полном кабинете фото у неё нет (правило 32).
+    const xml = String(inv.ocr_engine || '').startsWith('xml_') || String(inv.file_name || '').split(',').some(f => /\.xml$/i.test(f.trim()));
     const items = inv.items || [];
     const itemsHtml = items.map(it => `<li class="m-item">
         <span class="m-item__name">${App.esc(it.mapped_name || it.original_name || '—')}</span>
@@ -733,8 +736,8 @@ const Mobile = {
           <summary class="m-more__item">Товары (${items.length})</summary>
           ${items.length ? `<ul class="m-items">${itemsHtml}</ul>` : '<p class="m-empty">Товаров нет.</p>'}
         </details>
-        <button type="button" class="m-more__item" data-action="photos" data-id="${id}">Фото</button>
-        <div class="m-photos" id="m-photos"></div>
+        ${xml ? '' : `<button type="button" class="m-more__item" data-action="photos" data-id="${id}">Фото</button>
+        <div class="m-photos" id="m-photos"></div>`}
         <a class="m-more__item" href="${full}">Открыть полностью</a>
       </div>`;
   },
