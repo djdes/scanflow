@@ -19,7 +19,6 @@ import { invoiceRepo, SBER_OVERDUE_DAYS } from './database/repositories/invoiceR
 import { supplierExtractJobRepo } from './database/repositories/supplierExtractJobRepo';
 import { notifySupplierExtractError, emit as emitNotification } from './notifications/events';
 import { seedAdminUser } from './auth/seedAdmin';
-import { startDigestWorker } from './notifications/digestWorker';
 import { runNightlyLearning } from './learning/learningService';
 import { keepSberTokensAlive, warnSberSecretExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
 import { checkOnecStall } from './services/companyHealth';
@@ -219,9 +218,6 @@ async function main(): Promise<void> {
   // Run one backup immediately on startup — captures current state
   // before any crash or issues happen in this session.
   backupDatabase().catch(err => logger.error('startup backup failed', { error: (err as Error).message }));
-
-  // Start user notification digest worker (cron: hourly 9-18 MSK + daily 19 MSK + cleanup 03:30 MSK)
-  startDigestWorker();
 
   logger.info('=== 1C-JPGExchange is running ===');
 }

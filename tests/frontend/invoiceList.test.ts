@@ -91,7 +91,8 @@ describe('кнопка действия строки', () => {
     expect(html).not.toContain('не в кг');
     expect(I._unitMismatch(item)).toBe(false);
     expect(I._itemTags({ id: 1 }, { ...item, qty_confirmed: 0 })).toContain('нужен вес');
-    expect(I._itemTags({ id: 1 }, { ...item, onec_guid: null })).toContain('не выбрана позиция 1С');
+    // «Позиция 1С не выбрана» — одной строкой в nom-picker, отдельной метки нет (2026-11-17).
+    expect(I._itemTags({ id: 1 }, { ...item, onec_guid: null })).not.toContain('не выбрана позиция 1С');
   });
   it('одной ширины; «В 1С →» только у готовой к отправке', () => {
     const a = (inv: any) => I._rowAction({ id: 7, status: 'processed', approved_for_1c: 0, ...inv });

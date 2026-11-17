@@ -437,6 +437,7 @@ const InvoiceCard = {
     const hasImages = !App.isXmlInvoice(inv);
     const items = [
       hasImages ? { label: 'Показать на скане', onClick: () => this.openScan(`item:${item.id}:row`) } : null,
+      item.onec_guid && typeof NomenclaturePicker !== 'undefined' ? { label: 'Сменить позицию 1С', onClick: () => NomenclaturePicker.open(inv.id, item.id) } : null,
       inv.status === 'processed' && !inv.approved_for_1c ? { label: 'Проверить количество и единицу', onClick: () => Invoices.reviewItemQuantity(inv.id, item.id) } : null,
       item.onec_guid && typeof CatalogAliases !== 'undefined' ? { label: 'Синонимы товара', onClick: () => CatalogAliases.openFromInvoice(inv.id, item.id) } : null,
       item.unit_cost?.basis && !item.unit_cost.calculation && typeof UnitCost !== 'undefined' ? { label: 'Рассчитать цену за единицу', onClick: () => UnitCost.open(inv.id, item.id) } : null,

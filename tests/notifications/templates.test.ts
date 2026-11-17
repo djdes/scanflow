@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderRealtime, renderDigest } from '../../src/notifications/templates';
+import { renderRealtime } from '../../src/notifications/templates';
 import type { EventPayload } from '../../src/notifications/types';
 
 // Intl.NumberFormat('ru-RU') puts U+00A0 (non-breaking space) between thousand
@@ -38,31 +38,5 @@ describe('renderRealtime', () => {
     const out = renderRealtime('photo_uploaded', { invoice_id: 5 });
     expect(out.html).toContain('#5'); // falls back to id when no invoice_number
     expect(out.html).toContain('—');  // dash for missing supplier/total
-  });
-});
-
-describe('renderDigest', () => {
-  it('groups events by type and counts them', () => {
-    const out = renderDigest([
-      {
-        event_type: 'photo_uploaded',
-        events: [
-          { payload: samplePayload, created_at: '2026-04-28 10:00:00' },
-          { payload: { ...samplePayload, invoice_id: 2 }, created_at: '2026-04-28 10:05:00' },
-        ],
-      },
-      {
-        event_type: 'sent_to_1c',
-        events: [{ payload: samplePayload, created_at: '2026-04-28 10:10:00' }],
-      },
-    ]);
-    expect(out.subject).toBe('Дайджест (3 событий)');
-    expect(out.html).toContain('Фото загружено (2)');
-    expect(out.html).toContain('Отправлена в 1С (1)');
-  });
-
-  it('returns empty stub when no events', () => {
-    const out = renderDigest([]);
-    expect(out.subject).toContain('пусто');
   });
 });
