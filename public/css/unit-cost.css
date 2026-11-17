@@ -1,5 +1,5 @@
 .unit-cost-dialog [hidden], .unit-cost-alerts[hidden], .unit-cost-alerts [hidden] { display: none !important; }
-.unit-cost-row { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 0.75rem; line-height: 1.6; }
+.unit-cost-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-top: 6px; font-size: 0.75rem; line-height: 1.5; }
 .unit-cost-row strong { font-weight: 600; color: var(--text); }
 .unit-cost-row > span { color: var(--text-secondary); overflow-wrap: anywhere; }
 .unit-cost-open, .unit-cost-dismiss { border: 0; padding: 2px 0; background: transparent; color: var(--primary-hover); font: inherit; font-size: 0.75rem; cursor: pointer; text-align: left; }

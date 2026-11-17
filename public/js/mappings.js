@@ -77,16 +77,16 @@ const Mappings = {
     if (host.dataset.ready) return;
     host.dataset.ready = '1';
     host.innerHTML = `
-      <div class="card" style="margin-top:20px">
-        <h3 style="margin-bottom:6px">Вернуть правила из резервной копии</h3>
-        <div class="field-hint" style="margin-bottom:12px">Возвращаются только недостающие правила, чья позиция есть в текущем каталоге 1С. Существующие правила не меняются; обрывки названий, спорные вес/объём и отклонённые («не это») пропускаются. Вернувшиеся правила — неподтверждённые (метка «восстановлено»).</div>
+      <details class="card settings-details" style="margin-top:20px">
+        <summary><h3 style="display:inline">Вернуть правила из резервной копии</h3></summary>
+        <div class="field-hint" style="margin:10px 0 12px">Возвращаются только недостающие правила, чья позиция есть в текущем каталоге 1С. Существующие правила не меняются; обрывки названий, спорные вес/объём и отклонённые («не это») пропускаются. Вернувшиеся правила — неподтверждённые (метка «восстановлено»).</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input type="file" id="mappings-restore-file" accept=".json,application/json">
           <button class="btn btn-soft btn-sm" id="mappings-restore-check" disabled>Проверить</button>
           <button class="btn btn-primary btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
         </div>
         <div id="mappings-restore-result" style="margin-top:12px"></div>
-      </div>`;
+      </details>`;
     const file = document.getElementById('mappings-restore-file');
     const check = document.getElementById('mappings-restore-check');
     const apply = document.getElementById('mappings-restore-apply');

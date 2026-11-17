@@ -19,7 +19,8 @@ const UnitCost = {
     const state = item.unit_cost;
     if (!state?.basis || !state.calculation) return '';
     const calculation = state.calculation;
-    return `<div class="unit-cost-row">${calculation ? `<strong>${App.esc(this.price(calculation))}</strong><span>${App.esc(this.formula(calculation))}</span>` : ''}<button type="button" class="unit-cost-open" onclick="UnitCost.open(${invoiceId}, ${item.id})">${calculation ? state.rule_id ? 'Сохранённая формула' : 'Проверить и запомнить формулу' : 'Рассчитать цену за единицу'}</button></div>`;
+    // Одной строкой (2026-11-17): цена за единицу, формула — в подсказке, короткая ссылка.
+    return `<div class="unit-cost-row"><strong title="${App.esc(this.formula(calculation))}">${App.esc(this.price(calculation))}</strong><button type="button" class="unit-cost-open" onclick="UnitCost.open(${invoiceId}, ${item.id})" title="${App.esc(this.formula(calculation))}">${state.rule_id ? 'сохранённая формула' : 'проверить и запомнить формулу'}</button></div>`;
   },
   stopFeed() { clearTimeout(this._feedTimer); this._feedRun = (this._feedRun || 0) + 1; },
   isHome() { return ['#/invoices', '#/', ''].includes(location.hash.split('?')[0]); },

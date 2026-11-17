@@ -240,9 +240,8 @@ const Suppliers = {
         <td data-label="Проверен">${s.verified ? '<span class="badge badge-ok" style="padding:2px 8px">✓</span>' : '<span class="badge badge-warn" style="padding:2px 8px">!</span>'}</td>
         <td data-label="Использован">${App.esc(this._shortDate(s.last_used_at))}</td>
         <td class="cell-action">
-          ${canMerge ? `<button class="btn btn-outline btn-sm" onclick="Suppliers.openMerge('${App.esc(s.inn)}')" title="Перенести накладные и правила этой карточки в другую и удалить эту">Объединить с…</button>` : ''}
-          <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')" title="Изменить" aria-label="Изменить реквизиты">✎</button>
-          <button class="btn btn-danger btn-sm" onclick="Suppliers.remove('${App.esc(s.inn)}')" title="Удалить" aria-label="Удалить поставщика">🗑</button>
+          <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')" aria-label="Изменить реквизиты ${App.esc(s.name)}">Изменить</button>
+          <button type="button" class="btn-icon-gear" aria-haspopup="menu" aria-label="Другие действия с поставщиком ${App.esc(s.name)}" title="Другие действия" onclick="Suppliers.openRowMenu('${App.esc(s.inn)}', ${canMerge ? 1 : 0}, this)">•••</button>
         </td>
       </tr>
     `).join('');
@@ -354,6 +353,15 @@ const Suppliers = {
     modal.addEventListener('click', (e) => { if (e.target === modal) this.closeMerge(); });
     modal.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.closeMerge(); });
     return modal;
+  },
+
+  // Одна кнопка «Изменить» и меню «•••» (2026-11-17): раньше в строке стояли три кнопки,
+  // «Объединить с…» обрезалось, а красная корзина кричала в каждой строке.
+  openRowMenu(inn, canMerge, anchor) {
+    if (typeof InvoiceCard === 'undefined') return;
+    const items = canMerge ? [{ label: 'Объединить с другой карточкой…', onClick: () => this.openMerge(inn) }, null] : [];
+    items.push({ label: 'Удалить поставщика', danger: true, onClick: () => this.remove(inn) });
+    InvoiceCard.openMenu(anchor, items, 'Действия с поставщиком');
   },
 
   // «Объединить с…»: выбор второй карточки из текущего списка. Цель должна

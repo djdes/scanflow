@@ -184,12 +184,8 @@ const InvoiceCard = {
     if (inv.vat_sum != null && Number(inv.vat_sum) > 0) parts.push(`НДС ${App.formatMoney(inv.vat_sum)} ₽`);
     const n = (inv.items || []).length;
     if (n) parts.push(`${n} ${this.plural(n, 'позиция', 'позиции', 'позиций')}`);
+    // Дубликат — только плашкой под шапкой (#ic-duplicate / #invoice-sibling-banner), не второй раз здесь.
     const pills = [];
-    if (inv.duplicate_of || inv.status === 'duplicate') {
-      pills.push(`<span class="ic-pill ic-pill--amber">Дубликат${inv.duplicate_of ? ' #' + inv.duplicate_of : ''}</span>`);
-    } else if (Array.isArray(inv.possible_siblings) && inv.possible_siblings.length > 0 && inv.status !== 'sent_to_1c') {
-      pills.push(`<span class="ic-pill ic-pill--amber">Возможный дубликат #${inv.possible_siblings[0].id}</span>`);
-    }
     if (inv.status === 'error') pills.push('<span class="ic-pill ic-pill--red">Ошибка распознавания</span>');
     if (inv.status === 'waiting_ai') pills.push('<span class="ic-pill ic-pill--blue">Ждёт GPT</span>');
     if (['new', 'ocr_processing', 'parsing'].includes(inv.status)) pills.push('<span class="ic-pill ic-pill--blue">Распознаётся</span>');

@@ -6239,3 +6239,6 @@ body.has-bulk-bar #app-main { padding-bottom: 96px; }
 .claim-dialog, .shortcuts-dialog { margin: auto; }
 .global-search { margin: 10vh auto auto; }
 @media (max-width: 640px) { .global-search { margin: 12px auto auto; } }
+/* Поставщики: «Изменить» и «•••» в одну строку (2026-11-17). */
+.suppliers-table td.cell-action { white-space: nowrap; }
+.suppliers-table td.cell-action .btn-icon-gear { vertical-align: middle; margin-left: 4px; }

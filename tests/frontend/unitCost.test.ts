@@ -11,8 +11,10 @@ describe('расчёт цены в интерфейсе', () => {
   });
   it('различает предложение и уже сохранённую формулу', () => {
     const item = { id: 2, unit_cost: { basis: {}, calculation, rule_id: null } };
-    expect(ui.rowHtml(7, item)).toContain('Проверить и запомнить формулу');
-    expect(ui.rowHtml(7, { ...item, unit_cost: { ...item.unit_cost, rule_id: 1 } })).toContain('Сохранённая формула');
+    // Одной строкой (2026-11-17): цена и короткая ссылка, формула — в подсказке.
+    expect(ui.rowHtml(7, item)).toContain('проверить и запомнить формулу');
+    expect(ui.rowHtml(7, item)).toContain('0,8925 ₽ за 1 этикетку');
+    expect(ui.rowHtml(7, { ...item, unit_cost: { ...item.unit_cost, rule_id: 1 } })).toContain('сохранённая формула');
     expect(ui.rowHtml(7, { id: 2 })).toBe('');
   });
   it('предлагает ручной расчёт там, где фасовка неизвестна, и правильно склоняет единицы', () => {
