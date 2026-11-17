@@ -183,6 +183,47 @@ describe('photos belong to the login they were taken under', () => {
 // Сжатие фото перед отправкой: сервер всё равно уменьшает фото до 2400×3200
 // (ocrManager.preprocessImage), поэтому длинная сторона 3200 — без потерь для
 // распознавания, с запасом на повёрнутый лист.
+// Обрезка краёв листа (2026-11-17): режем только явный светлый лист на тёмном фоне.
+describe('sheet crop before upload', () => {
+  // Картинка w×h: фон bg, лист sheet в рамке [x0,x1)×[y0,y1), внутри каждая 6-я строка — «текст».
+  const image = (w: number, h: number, bg: number, sheet: number, rect?: [number, number, number, number]) => {
+    const lum = new Uint8Array(w * h).fill(bg);
+    if (rect) {
+      const [x0, y0, x1, y1] = rect;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) lum[y * w + x] = (y % 6 === 0 && x % 3 !== 0) ? 40 : sheet;
+    }
+    return lum;
+  };
+
+  it('crops a white sheet on a dark table with a safety margin', () => {
+    const w = 200, h = 260;
+    const box = upload.sheetBox(image(w, h, 35, 235, [40, 30, 160, 230]), w, h);
+    expect(box).not.toBeNull();
+    // Лист 0,2–0,8 по ширине и ≈0,115–0,885 по высоте; рамка шире на запас 3%, лист целиком внутри.
+    expect(box.x).toBeLessThanOrEqual(0.2);
+    expect(box.x).toBeGreaterThan(0.12);
+    expect(box.x + box.w).toBeGreaterThanOrEqual(0.8);
+    expect(box.y).toBeLessThanOrEqual(30 / h);
+    expect(box.y + box.h).toBeGreaterThanOrEqual(230 / h);
+    expect(box.w * box.h).toBeLessThan(0.8);
+  });
+
+  it('leaves a full-frame scan and a sheet on a light table as they are', () => {
+    expect(upload.sheetBox(image(200, 260, 235, 235), 200, 260)).toBeNull();
+    expect(upload.sheetBox(image(200, 260, 205, 235, [40, 30, 160, 230]), 200, 260)).toBeNull();
+  });
+
+  it('does not crop when the sheet already fills almost the whole frame', () => {
+    expect(upload.sheetBox(image(200, 260, 30, 235, [4, 4, 196, 256]), 200, 260)).toBeNull();
+  });
+
+  it('does not crop noise or an empty image', () => {
+    const noise = new Uint8Array(200 * 260).map((_, i) => (i * 2654435761) % 256);
+    expect(upload.sheetBox(noise, 200, 260)).toBeNull();
+    expect(upload.sheetBox(new Uint8Array(0), 0, 0)).toBeNull();
+  });
+});
+
 describe('photo shrinking before upload', () => {
   it('shrinks only photos the browser can decode', () => {
     expect(upload.shrinkable('image/jpeg', 'IMG_1.JPG')).toBe(true);
