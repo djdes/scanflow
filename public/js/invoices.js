@@ -124,7 +124,14 @@ const Invoices = {
     if (!el) return;
     try {
       const { data } = await App.apiJson('/ai/status');
-      if (data.available && !data.waiting) { el.hidden = true; return; }
+      // Плашка — только когда накладные реально ждут ИИ. Просто «не подключён» — точка
+      // у пункта «Настройки» в меню (подключают там), без строки над каждым списком.
+      const navSettings = document.querySelector('#app-primary-nav a[data-tab="settings"]');
+      if (navSettings) {
+        navSettings.classList.toggle('nav-alert', !data.available);
+        navSettings.title = data.available ? '' : `Распознавание приостановлено: ${data.text}`;
+      }
+      if (!data.waiting) { el.hidden = true; return; }
       const head = data.available
         ? 'GPT снова доступен — накладные, которые ждали, распознаются'
         : `Распознавание приостановлено: ${data.text}`;
@@ -257,21 +264,17 @@ const Invoices = {
           <td colspan="7">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
         </tr>`);
         }
-        const review = this._reviewText(inv);
+        // Одна строка — одно упоминание проблемы (2026-11-17): причина проверки — подписью
+        // под плашкой «1С», дубликат — там же ссылкой; под поставщиком ничего не пишем.
         const priceCount = Number(inv.elevated_price_count) || 0;
-        const notes = [review, priceCount ? `${priceCount} ${this._plural(priceCount, 'позиция', 'позиции', 'позиций')} дороже обычного` : ''].filter(Boolean);
+        const priceNote = priceCount ? `<small class="invoice-price-note" title="${priceCount} ${this._plural(priceCount, 'позиция', 'позиции', 'позиций')} дороже обычного более чем на 10%">↑ ${priceCount} дороже</small>` : '';
         const dupTargetId = inv.duplicate_of || (inv.sibling_is_copy ? inv.sibling_duplicate_id : null);
-        const dupBadgeHtml = dupTargetId
-          ? `<a href="#/invoices/${dupTargetId}" onclick="event.stopPropagation()" class="invoice-duplicate-link">⚠ Дубликат #${dupTargetId}</a>`
-          : (inv.sibling_duplicate_id
-            ? `<a href="#/invoices/${inv.sibling_duplicate_id}" onclick="event.stopPropagation()" class="invoice-duplicate-link">Есть повтор #${inv.sibling_duplicate_id}</a>`
-            : '');
         rowsHtml.push(`
           <tr class="clickable${(inv.review_reason || dupTargetId) ? ' invoice-needs-review' : ''}${!inv.read_at ? ' unread' : ''}${this.isVisited(inv.id) ? ' inv-visited' : ''}" data-day="${day}" onclick="Invoices.openInvoice(${inv.id})">
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${App.esc(inv.invoice_number || inv.id)}"></td>
-            <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small title="Накладная #${inv.id}">${App.formatDate(inv.invoice_date)}</small>${dupBadgeHtml}</div></td>
-            <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span>${notes.length ? `<small class="inv-notes">${notes.map(n => App.esc(n)).join(' · ')}</small>` : ''}</div></td>
-            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong></div></td>
+            <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small title="Накладная #${inv.id}">${App.formatDate(inv.invoice_date)}</small></div></td>
+            <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span></div></td>
+            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${priceNote}</div></td>
             <td class="col-state" data-label="1С"><div class="invoice-cell-stack">${this._onecPill(inv)}</div></td>
             <td class="col-state" data-label="Оплата"><div class="invoice-cell-stack">${this._payPill(inv)}</div></td>
             <td class="cell-action">${this._rowAction(inv)}<button type="button" class="btn-icon-gear" aria-label="Другие действия для накладной ${inv.id}" title="Другие действия" onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">•••</button></td>
@@ -680,16 +683,6 @@ const Invoices = {
     this._searchTimer = setTimeout(() => this.loadTable(), 300);
   },
 
-  // Renders the «Цены ↑» cell: how many line items are priced >10% above the
-  // usual (median) price. Reddish badge when > 0, muted «—» when none. The
-  // count is computed server-side (attachElevatedPriceCount) using the same
-  // rule as the detail page, so list and card never disagree.
-  _elevatedCell(inv) {
-    const n = inv.elevated_price_count || 0;
-    if (n <= 0) return '<span style="color:#cbd5e1" title="Нет позиций дороже обычного">—</span>';
-    const noun = this._plural(n, 'позиция', 'позиции', 'позиций');
-    return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:0.75rem" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
-  },
 
   // Плашка статуса в списке: точка + текст, подпись мелко под ней. Цвета одни на
   // обе колонки: серый — ещё нет, синий — в работе, зелёный — готово, янтарный —
@@ -699,9 +692,18 @@ const Invoices = {
   },
 
   // Колонка «1С»: где накладная на пути в 1С.
+  // Плашка-дубликат со ссылкой на оригинал (подпись — ссылка, а не просто текст).
+  _dupPill(text, targetId) {
+    const link = targetId ? `<a class="inv-pill-note invoice-duplicate-link" href="#/invoices/${targetId}" onclick="event.stopPropagation()" title="Открыть оригинал #${targetId}">оригинал #${targetId}</a>` : '';
+    return `<span class="inv-pill inv-pill--amber"><i aria-hidden="true"></i>${text}</span>${link}`;
+  },
+
+  // Короткая причина «Проверить» под плашкой; полный текст — в подсказке.
+  REVIEW_SHORT: { error: 'ошибка распознавания', incomplete_pages: 'не все страницы', total: 'сумма не сходится', header: 'нет реквизитов', items: 'нет товаров', quantity: 'количество', mapping: 'нет позиций 1С', supplier: 'поставщик по названию' },
+
   _onecPill(inv) {
-    if (inv.duplicate_of || inv.status === 'duplicate') return this._pill('amber', 'Дубликат', 'не отправляется');
-    if (inv.sibling_is_copy && inv.status !== 'sent_to_1c') return this._pill('amber', 'Дубликат?', `есть #${inv.sibling_duplicate_id}`);
+    if (inv.duplicate_of || inv.status === 'duplicate') return this._dupPill('Дубликат', inv.duplicate_of);
+    if (inv.sibling_is_copy && inv.status !== 'sent_to_1c') return this._dupPill('Дубликат?', inv.sibling_duplicate_id);
     if (inv.status === 'error') return this._pill('red', 'Ошибка', 'распознавания');
     if (inv.status === 'waiting_ai') return this._pill('blue', 'Ждёт GPT', 'распознается позже');
     if (['new', 'ocr_processing', 'parsing'].includes(inv.status)) return this._pill('blue', 'Распознаётся');
@@ -709,7 +711,11 @@ const Invoices = {
     // «В 1С» — по статусу накладной: после «Сбросить статус» onec_status остаётся прежним.
     if (inv.status === 'sent_to_1c') return this._pill('green', 'В 1С', inv.onec_status === 'created' ? 'не проведена' : '');
     if (inv.approved_for_1c) return this._pill('blue', 'В очереди', 'ждёт загрузки');
-    if (inv.review_reason) return this._pill('amber', 'Проверить');
+    if (inv.review_reason === 'duplicate') return this._dupPill('Дубликат?', null);
+    if (inv.review_reason) {
+      const full = App.esc(this._reviewText(inv));
+      return `<span class="inv-pill inv-pill--amber" title="${full}"><i aria-hidden="true"></i>Проверить</span><small class="inv-pill-note" title="${full}">${App.esc(this.REVIEW_SHORT[inv.review_reason] || '')}</small>`;
+    }
     return this._pill('grey', 'Не отправлена');
   },
 
@@ -871,18 +877,15 @@ const Invoices = {
           ? duplicateReasons.map(reason => App.esc(reason)).join(' · ')
           : 'Совпали ключевые реквизиты документа';
         const probability = data.duplicate_score ? `, вероятность ${Math.round(data.duplicate_score * 100)}%` : '';
+        // Одна строка (2026-11-17): подробности — в подсказке, действия — короткие.
+        const dupTitle = `${App.esc(probability.replace(/^, /, ''))}${probability ? ' — ' : ''}${evidence}. Отправка в 1С и оплата по дубликату заблокированы.`;
         dupEl.innerHTML = `
-          <div class="duplicate-banner">
-            <div class="duplicate-banner-text">
-              <strong>⚠ Дубликат накладной</strong>
-              <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a>
-              ${App.esc(probability)} — ${evidence}. Отправка в 1С и оплата по дубликату заблокированы.
-            </div>
-            <div class="duplicate-banner-actions">
-              <a class="btn btn-outline btn-sm" href="#/invoices/${data.duplicate_of}">Открыть оригинал №${data.duplicate_of}</a>
-              <button class="btn btn-outline btn-sm" onclick="Invoices.unlinkDuplicate(${data.id})">Не дубликат</button>
-              <button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить дубликат</button>
-            </div>
+          <div class="duplicate-banner duplicate-banner--compact" title="${dupTitle}">
+            <span class="duplicate-banner-text"><strong>⚠ Дубликат</strong> накладной <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a></span>
+            <span class="duplicate-banner-actions">
+              <button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить копию</button>
+              <button class="btn-link" onclick="Invoices.unlinkDuplicate(${data.id})">Не дубликат</button>
+            </span>
           </div>`;
         const itemsTbodyDup = document.getElementById('invoice-items-tbody');
         if (data.items && data.items.length > 0) {
@@ -912,24 +915,20 @@ const Invoices = {
         banner.innerHTML = sibs.map(s => {
           const sameSum = data.total_sum != null && s.total_sum != null && Math.abs(Number(data.total_sum) - Number(s.total_sum)) <= 1;
           const isLikelyDup = sameSum || s.status === 'sent_to_1c' || (data.status !== 'sent_to_1c' && s.id < data.id);
+          const hint = `${s.items_count} позиц., ${App.formatMoney(s.total_sum)} ₽. ${isLikelyDup
+            ? 'В базе уже есть документ с тем же номером, датой и поставщиком. Проверьте перед отправкой в 1С и оплатой.'
+            : (isXml
+              ? 'Эта накладная загружена из XML целиком — если там фото того же документа, лишнюю накладную удалите.'
+              : 'Возможно, это страницы одной накладной.')}`;
           return `
-          <div class="duplicate-banner">
-            <div class="duplicate-banner-text">
-              <strong>${isLikelyDup ? '⚠ Внимание — возможный дубликат накладной:' : 'Похоже на ту же накладную:'}</strong>
-              <a href="#/invoices/${s.id}">№${s.id}</a>
-              — ${s.items_count} позиц., ${App.formatMoney(s.total_sum)} ₽${s.status === 'sent_to_1c' ? ', <b>уже отправлена в 1С</b>' : ''}.
-              ${isLikelyDup
-                ? 'В базе уже есть документ с тем же номером, датой и поставщиком. Проверьте перед отправкой в 1С и оплатой.'
-                : (isXml
-                  ? 'Эта накладная загружена из XML целиком — если там фото того же документа, лишнюю накладную удалите.'
-                  : 'Возможно, это страницы одной накладной.')}
-            </div>
-            <div class="duplicate-banner-actions">
-              <a class="btn btn-outline btn-sm" href="#/invoices/${s.id}">Открыть №${s.id}</a>
-              ${data.status !== 'sent_to_1c' ? `<button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить эту копию</button>` : ''}
-              ${isXml ? '' : `<button class="btn btn-outline btn-sm"
+          <div class="duplicate-banner duplicate-banner--compact${isLikelyDup ? '' : ' duplicate-banner--info'}" title="${App.esc(hint)}">
+            <span class="duplicate-banner-text"><strong>${isLikelyDup ? '⚠ Возможный дубликат' : 'Похоже на ту же накладную'}</strong> <a href="#/invoices/${s.id}">№${s.id}</a>${s.status === 'sent_to_1c' ? ' · уже в 1С' : ''}</span>
+            <span class="duplicate-banner-actions">
+              ${data.status !== 'sent_to_1c' && isLikelyDup ? `<button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить копию</button>` : ''}
+              ${isXml ? '' : `<button class="${isLikelyDup ? 'btn-link' : 'btn btn-outline btn-sm'}"
                 onclick="Invoices.mergeSibling(${data.id}, ${s.id}, ${sentWarn})">Объединить страницы</button>`}
-            </div>
+              ${data.status !== 'sent_to_1c' && !isLikelyDup ? `<button class="btn-link" onclick="Invoices.deleteInvoice(${data.id})">Удалить копию</button>` : ''}
+            </span>
           </div>`;
         }).join('');
       } else if (banner) {
@@ -1013,7 +1012,7 @@ const Invoices = {
         : '<span class="nom-badge nom-badge-missing" title="Позиция 1С ещё не выбрана для этой строки">●</span>';
     const safeName = App.esc(item.mapped_name || item.original_name || '');
     const tags = this._itemTags(data, item);
-    const flagged = tags.includes('ic-tag--amber') || tags.includes('ic-tag--red');
+    const flagged = tags.includes('ic-tag--amber') || tags.includes('ic-tag--red') || (!item.onec_guid && !item.name_overridden);
     const rawDiffers = item.raw_quantity != null && (Number(item.raw_quantity) !== Number(item.quantity) || this._normUnit(item.raw_unit) !== this._normUnit(item.unit));
     const convText = item.conv_note
       ? String(item.conv_note).split(' = ')[0].replace(/\s*—\s*подобрано.*$/, '').replace(/\s*\([^)]*\)\s*$/, '')
@@ -1030,8 +1029,8 @@ const Invoices = {
           <div class="ic-row-onec">
             <div class="nom-picker">
               ${badge}
-              <span class="nom-picker-current">${item.onec_guid || item.name_overridden ? safeName : 'Не выбрано'}</span>
-              <button type="button" class="nom-picker-open" onclick="NomenclaturePicker.open(${data.id}, ${item.id})" aria-label="${item.onec_guid ? 'Изменить' : 'Выбрать'} позицию 1С для строки ${no}">${item.onec_guid ? 'Изменить' : 'Выбрать из 1С'}</button>
+              <span class="nom-picker-current${item.onec_guid || item.name_overridden ? '' : ' nom-picker-current--none'}">${item.onec_guid || item.name_overridden ? safeName : 'Позиция 1С не выбрана'}</span>
+              <button type="button" class="nom-picker-open${item.onec_guid ? ' nom-picker-open--edit' : ''}" onclick="NomenclaturePicker.open(${data.id}, ${item.id})" aria-label="${item.onec_guid ? 'Изменить' : 'Выбрать'} позицию 1С для строки ${no}">${item.onec_guid ? 'Изменить' : 'Выбрать из 1С'}</button>
             </div>
             ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
               ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
@@ -1090,9 +1089,8 @@ const Invoices = {
     if (item.price_deviation_pct != null && item.price_deviation_pct > 10) {
       tags.push(`<span class="ic-tag ic-tag--amber" title="Цена выше обычной на ${Math.round(item.price_deviation_pct)}%">цена +${Math.round(item.price_deviation_pct)}%</span>`);
     }
-    if (!item.onec_guid && !item.name_overridden) {
-      tags.push('<span class="ic-tag ic-tag--red" title="В строке не сохранена привязка к позиции 1С. Выберите предложенный вариант или найдите товар в справочнике.">не выбрана позиция 1С</span>');
-    } else if (item.onec_guid && (item.mapping_confidence ?? 1) < 0.8) {
+    // «Не выбрана позиция 1С» — одной строкой под названием (nom-picker), без второй метки.
+    if (item.onec_guid && (item.mapping_confidence ?? 1) < 0.8) {
       tags.push(`<span class="ic-tag ic-tag--amber" title="Позиция 1С подобрана неуверенно — проверьте">позиция ${Math.round((item.mapping_confidence || 0) * 100)}%</span>`);
     }
     return tags.join('');

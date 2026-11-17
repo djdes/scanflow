@@ -94,13 +94,50 @@ const App = {
     window.location.hash = hash;
   },
 
-  // Keep the current page visible in the left navigation.
+  // Меню — 8 пунктов (решение владельца 2026-11-17). Родственные страницы живут под одним
+  // пунктом и переключаются вкладками сверху; их адреса прежние, закладки и ссылки работают.
+  SECTION_GROUPS: [
+    { nav: 'analytics', label: 'Аналитика', tabs: [
+      ['analytics-quality', '#/analytics/quality', 'Качество поставщиков'],
+      ['analytics-prices', '#/analytics/prices', 'Закупочные цены'],
+    ] },
+    { nav: 'mappings', label: 'Номенклатура', tabs: [
+      ['mappings', '#/mappings', 'Номенклатура'],
+      ['new-items', '#/new-items', 'Новые товары'],
+      ['learning', '#/learning', 'Предложения правил'],
+    ] },
+    { nav: 'settings', label: 'Настройки', tabs: [
+      ['settings', '#/settings', 'Основные'],
+      ['sber', '#/sber', 'Сбербанк'],
+      ['integrations-log', '#/integrations-log', 'Журнал интеграций'],
+    ] },
+    { nav: 'profile', label: 'Профиль', tabs: [
+      ['profile', '#/profile', 'Профиль'],
+      ['billing', '#/billing', 'Тариф и оплата'],
+    ] },
+  ],
+
+  // Keep the current page visible in the left navigation (and its tabs, if it is grouped).
   activateNavTab(tab) {
-    const links = document.querySelectorAll(`#app-primary-nav a[data-tab="${tab}"]`);
+    const group = this.SECTION_GROUPS.find(g => g.tabs.some(([key]) => key === tab));
+    // «Загрузить» в меню больше нет — подсвечиваем «Накладные», откуда туда ведёт кнопка.
+    const navKey = group ? group.nav : (tab === 'upload' ? 'invoices' : tab);
+    const links = document.querySelectorAll(`#app-primary-nav a[data-tab="${navKey}"]`);
     links.forEach((link) => {
       link.classList.add('active');
       link.setAttribute('aria-current', 'page');
     });
+    this.renderSectionTabs(group, tab);
+  },
+
+  renderSectionTabs(group, active) {
+    const host = document.getElementById('section-tabs');
+    if (!host) return;
+    if (!group) { host.hidden = true; host.innerHTML = ''; return; }
+    host.setAttribute('aria-label', group.label);
+    host.innerHTML = group.tabs.map(([key, href, label]) =>
+      `<a href="${href}" class="section-tab${key === active ? ' active' : ''}"${key === active ? ' aria-current="page"' : ''}>${this.esc(label)}</a>`).join('');
+    host.hidden = false;
   },
 
   setNavigationOpen(open) {
@@ -131,6 +168,7 @@ const App = {
     this.setNavigationOpen(false);
     // Hide all sections
     document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
+    this.renderSectionTabs(null);
 
     // Страницы накладных (список и карточка) — «широкие»: там таблицы на 10
     // колонок, и в общие 1200px они не влезали, хотя справа пустовало место.
