@@ -15,3 +15,4 @@
 .recognition-queue-job a { color: var(--primary-hover); }
 .recognition-queue-action-error { color: var(--error); font-size: 0.8125rem; margin-top: 12px; }
 @media (max-width: 600px) { .recognition-queue { padding: 16px; } .recognition-queue-job { flex-direction: column; } .recognition-queue-job > div:last-child { flex-direction: row; flex-wrap: wrap; align-items: center; } }
+.recognition-queue[hidden] { display: none; }

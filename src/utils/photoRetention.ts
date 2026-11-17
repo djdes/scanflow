@@ -3,6 +3,7 @@ import path from 'path';
 import { config } from '../config';
 import { logger } from './logger';
 import { goldenRepo } from '../database/repositories/goldenRepo';
+import { trashRepo } from '../database/repositories/trashRepo';
 import { photoRepo } from '../database/repositories/photoRepo';
 
 const RETENTION_DAYS = 90;
@@ -47,7 +48,12 @@ async function loadProtectedNames(): Promise<Set<string> | null> {
  */
 async function loadUnsentNames(): Promise<Set<string> | null> {
   try {
-    return new Set(await photoRepo.listNotYetExpiredFileNames(RETENTION_DAYS));
+    // Фото накладных в корзине не трогаем: «Вернуть» должно вернуть и фото.
+    const [live, trashed] = await Promise.all([
+      photoRepo.listNotYetExpiredFileNames(RETENTION_DAYS),
+      trashRepo.fileNames(),
+    ]);
+    return new Set([...live, ...trashed]);
   } catch (err) {
     logger.error('Photo retention: не удалось получить список неотправленных накладных — очистка пропущена', {
       error: (err as Error).message,

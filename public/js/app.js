@@ -97,6 +97,11 @@ const App = {
   // Меню — 8 пунктов (решение владельца 2026-11-17). Родственные страницы живут под одним
   // пунктом и переключаются вкладками сверху; их адреса прежние, закладки и ссылки работают.
   SECTION_GROUPS: [
+    { nav: 'invoices', label: 'Накладные', tabs: [
+      ['invoices', '#/invoices', 'Накладные'],
+      ['queue', '#/queue', 'Очередь в 1С'],
+      ['trash', '#/trash', 'Корзина'],
+    ] },
     { nav: 'analytics', label: 'Аналитика', tabs: [
       ['analytics-quality', '#/analytics/quality', 'Качество поставщиков'],
       ['analytics-prices', '#/analytics/prices', 'Закупочные цены'],
@@ -109,6 +114,8 @@ const App = {
     { nav: 'settings', label: 'Настройки', tabs: [
       ['settings', '#/settings', 'Основные'],
       ['sber', '#/sber', 'Сбербанк'],
+      ['ops-channels', '#/operations/channels', 'Приём документов'],
+      ['ops-onec', '#/operations/onec', 'Подключение 1С'],
       ['integrations-log', '#/integrations-log', 'Журнал интеграций'],
     ] },
     { nav: 'profile', label: 'Профиль', tabs: [
@@ -121,7 +128,8 @@ const App = {
   activateNavTab(tab) {
     const group = this.SECTION_GROUPS.find(g => g.tabs.some(([key]) => key === tab));
     // «Загрузить» в меню больше нет — подсвечиваем «Накладные», откуда туда ведёт кнопка.
-    const navKey = group ? group.nav : (tab === 'upload' ? 'invoices' : tab);
+    // Карточка накладной и загрузка живут под «Накладными», но без вкладок списка.
+    const navKey = group ? group.nav : (['upload', 'invoice-detail'].includes(tab) ? 'invoices' : tab);
     const links = document.querySelectorAll(`#app-primary-nav a[data-tab="${navKey}"]`);
     links.forEach((link) => {
       link.classList.add('active');
@@ -199,7 +207,7 @@ const App = {
 
     if (hash.startsWith('#/invoices/')) {
       document.getElementById('view-invoices').style.display = 'block';
-      this.activateNavTab('invoices');
+      this.activateNavTab('invoice-detail');
       const id = parseInt(hash.split('/')[2]);
       if (!Number.isFinite(id) || id <= 0) {
         this.notify('Некорректный ID накладной', 'error');
@@ -260,10 +268,19 @@ const App = {
       document.getElementById('view-integrations-log').style.display = 'block';
       this.activateNavTab('integrations-log');
       IntegrationsLog.load();
-    } else if (hash === '#/operations') {
-      document.getElementById('view-operations').style.display = 'block';
-      this.activateNavTab('operations');
-      Operations.load();
+    } else if (hash === '#/trash') {
+      document.getElementById('view-trash').style.display = 'block';
+      this.activateNavTab('trash');
+      Trash.load();
+    } else if (hash.startsWith('#/operations')) {
+      // «Приём документов» и «Подключение 1С» — вкладки «Настроек», рисует их Operations.
+      const sub = hash.split('/')[2] || '';
+      const embedded = ['channels', 'onec'].includes(sub);
+      const section = document.getElementById('view-operations');
+      section.style.display = 'block';
+      section.classList.toggle('ops-embedded', embedded);
+      this.activateNavTab(embedded ? `ops-${sub}` : 'operations');
+      Operations.open(embedded ? sub : (Operations.EMBEDDED.includes(Operations.activeTab) ? 'control' : Operations.activeTab));
     } else if (hash === '#/settings') {
       document.getElementById('view-settings').style.display = 'block';
       this.activateNavTab('settings');

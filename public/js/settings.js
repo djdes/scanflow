@@ -38,7 +38,6 @@ const Settings = {
         const dadataInput = document.getElementById('settings-dadata-key');
         if (dadataInput && data.dadata_api_key) dadataInput.value = data.dadata_api_key;
         this._setDadataStatus(!!data.has_dadata_key);
-        this._initAutoSend(data);
         this._applyEditRights();
         this._syncModeUi();
         this.chatgptRefresh();
@@ -73,22 +72,6 @@ const Settings = {
     if (!el) return;
     el.textContent = saved ? 'Ключ сохранён' : 'Ключ не задан';
     el.style.color = saved ? 'var(--green)' : 'var(--text-muted, #888)';
-  },
-
-  // «Сразу отправлять в 1С» и «Сразу создавать платёжку» сохраняются при переключении.
-  _initAutoSend(data) {
-    for (const [id, field] of [['settings-auto-send-1c', 'auto_send_1c'], ['settings-auto-send-sber', 'auto_send_sber']]) {
-      const cb = document.getElementById(id);
-      if (!cb) continue;
-      cb.checked = !!data[field];
-      cb.addEventListener('change', async () => {
-        cb.disabled = true;
-        const ok = await this._put({ [field]: cb.checked });
-        if (ok) App.notify(`${cb.checked ? 'Включено' : 'Выключено'}: ${cb.closest('.form-group').querySelector('.toggle-wrap > span').textContent}`, 'success');
-        else cb.checked = !cb.checked;
-        cb.disabled = false;
-      });
-    }
   },
 
   /** PUT /settings/analyzer с текущим режимом (API требует mode) и нужными полями. */

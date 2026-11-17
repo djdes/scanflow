@@ -58,7 +58,7 @@ export function evaluateQualitySubject(subject: QualitySubject, settings: Automa
     add('unmapped', `Не сопоставлено с 1С: ${subject.unmapped_count}`);
   }
   if (subject.items_count > 0 && subject.min_confidence != null && subject.min_confidence < settings.min_mapping_confidence) {
-    add('low_confidence', `Минимальная точность ${(subject.min_confidence * 100).toFixed(0)}% ниже порога ${(settings.min_mapping_confidence * 100).toFixed(0)}%`);
+    add('low_confidence', `Позиция 1С подобрана неуверенно (${(subject.min_confidence * 100).toFixed(0)}% при пороге ${(settings.min_mapping_confidence * 100).toFixed(0)}%)`);
   }
   if (settings.max_total != null && (subject.total_sum ?? 0) > settings.max_total) {
     add('amount_limit', `Сумма выше лимита автопилота ${settings.max_total.toFixed(2)} ₽`);

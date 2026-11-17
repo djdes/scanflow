@@ -9,7 +9,6 @@ const Operations = {
   onecSecret: null,
   onecImportFile: null,
   onecImportResult: null,
-  selectedExceptions: new Set(),
   selectedApprovals: new Set(),
 
   money(value) {
@@ -41,6 +40,28 @@ const Operations = {
     }
   },
 
+  EMBEDDED: ['channels', 'onec'],
+
+  // «Проверить» живёт в списке накладных (2026-11-17) — туда и ведём, сразу с фильтром.
+  openAttention(ev) {
+    ev?.preventDefault();
+    if (typeof Invoices !== 'undefined') { Invoices.currentView = 'attention'; Invoices.offset = 0; }
+    App.navigate('#/invoices');
+  },
+
+  plural(n, one, few, many) {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
+  },
+
+  // Открыть раздел: «Приём документов» и «Подключение 1С» живут во вкладках «Настроек».
+  open(tab) {
+    this.activeTab = tab;
+    this.load().then(() => this.switchTab(tab));
+  },
+
   switchTab(tab, button) {
     this.activeTab = tab;
     document.querySelectorAll('[data-operations-tab]').forEach(el => {
@@ -58,8 +79,8 @@ const Operations = {
     const pending = this.data.approvals.filter(row => row.status === 'pending').length;
     const autopilot = [this.data.settings.auto_send_1c && '1С', this.data.settings.auto_send_sber && 'Сбер'].filter(Boolean).join(' + ');
     el.innerHTML = `
-      <button type="button" class="operations-kpi operations-kpi--warning" onclick="Operations.switchTab('control')">
-        <span>${this.data.exceptions.length}</span><small>исключений</small>
+      <button type="button" class="operations-kpi operations-kpi--warning" onclick="Operations.openAttention(event)">
+        <span>${this.data.exceptions.length}</span><small>не пройдут автопилот</small>
       </button>
       <button type="button" class="operations-kpi operations-kpi--violet" onclick="Operations.switchTab('control')">
         <span>${pending}</span><small>на согласовании</small>
@@ -98,7 +119,7 @@ const Operations = {
       <div class="operations-grid operations-grid--control">
         <article class="card operations-panel">
           <div class="operations-panel__head">
-            <div><span class="operations-eyebrow">Автопилот 2.0</span><h3>Правила безопасной обработки</h3></div>
+            <div><span class="operations-eyebrow">Автопилот</span><h3>Правила безопасной обработки</h3></div>
             <span class="status-badge ${s.auto_send_1c || s.auto_send_sber ? 'status-processed' : 'status-new'}">${s.auto_send_1c || s.auto_send_sber ? 'Активен' : 'Выключен'}</span>
           </div>
           <div class="operations-switches">
@@ -127,22 +148,10 @@ const Operations = {
         </article>
       </div>
 
-      <article class="card operations-panel operations-panel--wide">
-        <div class="operations-panel__head"><div><span class="operations-eyebrow">Центр исключений</span><h3>Требуют внимания</h3></div><strong>${exceptions.length}</strong></div>
-        ${exceptions.length ? `<div class="operations-bulkbar">
-          <label><input type="checkbox" onchange="Operations.selectAllExceptions(this.checked)"> Выбрать все</label>
-          <span id="operations-selected-count">${this.selectedExceptions.size} выбрано</span>
-          <button class="btn btn-outline btn-sm" onclick="Operations.bulkExceptions('request_1c')">На согласование в 1С</button>
-          <button class="btn btn-outline btn-sm" onclick="Operations.bulkExceptions('verify_supplier')">Проверить поставщиков</button>
-          ${canManage ? '<button class="btn btn-primary btn-sm" onclick="Operations.bulkExceptions(\'approve_1c\')">Одобрить и передать в 1С</button>' : ''}
-        </div>` : ''}
-        <div class="operations-exceptions">${exceptions.length ? exceptions.map(row => `
-          <div class="operation-row ${this.selectedExceptions.has(row.id) ? 'is-selected' : ''}">
-            <input class="operation-row__check" type="checkbox" aria-label="Выбрать накладную ${App.esc(row.invoice_number || row.id)}" ${this.selectedExceptions.has(row.id) ? 'checked' : ''} onchange="Operations.selectException(${row.id}, this.checked)">
-            <a class="operation-row__main" href="#/invoices/${row.id}"><strong>№${App.esc(row.invoice_number || row.id)}</strong><small>${App.esc(row.supplier || 'Поставщик не определён')}</small></a>
-            <span class="operation-row__reasons">${row.reasons.map(reason => `<span>${App.esc(reason)}</span>`).join('')}</span>
-            <strong class="operation-row__amount">${this.money(row.total_sum)}</strong>
-          </div>`).join('') : this.empty('Исключений нет — текущие правила качества выполнены')}</div>
+      <article class="card operations-panel operations-panel--wide operations-attention">
+        <div><span class="operations-eyebrow">Автопилот</span><h3>${exceptions.length ? `${exceptions.length} ${this.plural(exceptions.length, 'накладная не пройдёт', 'накладные не пройдут', 'накладных не пройдут')} правила автопилота` : 'Все накладные проходят правила автопилота'}</h3>
+        <p class="muted">Разбирать их — в «Накладных» с фильтром «Проверить»: одно место для всех замечаний.</p></div>
+        ${exceptions.length ? '<a class="btn btn-outline btn-sm" href="#/invoices" onclick="Operations.openAttention(event)">Открыть список →</a>' : ''}
       </article>
 
       ${this.renderRootCauses()}
@@ -401,28 +410,8 @@ const Operations = {
     } catch (error) { App.notify(error.message, 'error'); this.data = null; await this.load(true); }
   },
 
-  selectException(id, selected) {
-    if (selected) this.selectedExceptions.add(id); else this.selectedExceptions.delete(id);
-    const counter = document.getElementById('operations-selected-count');
-    if (counter) counter.textContent = `${this.selectedExceptions.size} выбрано`;
-  },
 
-  selectAllExceptions(selected) {
-    this.selectedExceptions.clear();
-    if (selected) this.data.exceptions.forEach(row => this.selectedExceptions.add(row.id));
-    this.render();
-  },
 
-  async bulkExceptions(action) {
-    const invoiceIds = [...this.selectedExceptions];
-    if (!invoiceIds.length) { App.notify('Сначала выберите документы', 'error'); return; }
-    try {
-      const response = await App.apiJson('/operations/exceptions/bulk', { method: 'POST', body: { invoice_ids: invoiceIds, action } });
-      const failed = response.data.results.filter(row => !row.success);
-      App.notify(failed.length ? `Выполнено ${invoiceIds.length - failed.length}, ошибок ${failed.length}` : `Обработано документов: ${invoiceIds.length}`, failed.length ? 'error' : 'success');
-      this.selectedExceptions.clear(); this.data = null; await this.load(true);
-    } catch (error) { App.notify(error.message, 'error'); }
-  },
 
   selectApproval(id, selected) {
     if (selected) this.selectedApprovals.add(id); else this.selectedApprovals.delete(id);
