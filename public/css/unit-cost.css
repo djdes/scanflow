@@ -3,19 +3,27 @@
 .unit-cost-row strong { font-weight: 600; color: var(--text); }
 .unit-cost-row > span { color: var(--text-secondary); overflow-wrap: anywhere; }
 .unit-cost-open, .unit-cost-dismiss { border: 0; padding: 2px 0; background: transparent; color: var(--primary-hover); font: inherit; font-size: 0.75rem; cursor: pointer; text-align: left; }
-.unit-cost-alerts { border: 1px solid #d6e5f4; border-radius: var(--radius-lg); margin-bottom: 20px; background: var(--card); padding: 18px 20px; }
-.unit-cost-feed-heading { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; padding-bottom: 12px; }
-.unit-cost-feed-heading > strong { font-size: 0.875rem; font-weight: 600; }
-.unit-cost-feed-heading > span { font-size: 0.75rem; color: var(--text-secondary); }
-.unit-cost-feed-list { max-height: 430px; overflow: auto; }
-.unit-cost-alert { display: flex; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid var(--border); }
-.unit-cost-alert > div:first-child { min-width: 0; }
-.unit-cost-position { display: inline-block; font-size: 0.8125rem; font-weight: 500; color: var(--primary-hover); overflow-wrap: anywhere; }
-.unit-cost-alert p { color: var(--text-secondary); font-size: 0.75rem; margin: 5px 0; line-height: 1.6; }
-.unit-cost-alert strong { display: block; margin-top: 10px; font-size: 0.875rem; font-weight: 600; }
-.unit-cost-alert small { color: var(--text-secondary); font-size: 0.6875rem; }
-.unit-cost-alert-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; flex-shrink: 0; padding-top: 1px; }
-.unit-cost-alerts > [data-cost-more] { margin-top: 10px; }
+/* Лента «Цена за единицу» на главной — компактная (решение владельца 2026-11-17):
+   строка на расчёт, сворачивается по заголовку. */
+.unit-cost-alerts { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px; background: var(--card); padding: 4px 6px; }
+.unit-cost-feed-heading { display: flex; align-items: center; gap: 4px; padding: 2px 4px; }
+.unit-cost-toggle { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 6px 4px; font: inherit; color: var(--text); cursor: pointer; border-radius: 6px; }
+.unit-cost-toggle:hover { background: var(--bg); }
+.unit-cost-toggle svg { color: var(--text-secondary); transition: transform var(--transition, .15s); }
+.unit-cost-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.unit-cost-toggle strong { font-size: 0.8125rem; font-weight: 600; }
+.unit-cost-count { min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-hover); font-size: 0.6875rem; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center; }
+.unit-cost-feed-list { max-height: 240px; overflow: auto; padding: 0 4px 4px; }
+.unit-cost-alert { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.4fr) auto minmax(0, 1.6fr) auto; align-items: center; gap: 12px; min-height: 40px; padding: 4px 0; border-top: 1px solid var(--border); font-size: 0.78125rem; }
+.unit-cost-alert > * { min-width: 0; }
+.unit-cost-position { font-weight: 500; color: var(--primary-hover); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unit-cost-meta, .unit-cost-equation { color: var(--text-secondary); font-size: 0.71875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unit-cost-price { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.unit-cost-alert-actions { display: inline-flex; align-items: center; gap: 2px; }
+.unit-cost-alert .unit-cost-check { padding: 3px 10px; font-size: 0.75rem; min-height: 0; }
+.unit-cost-alert .unit-cost-dismiss { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 6px; color: var(--text-secondary); }
+.unit-cost-alert .unit-cost-dismiss:hover { background: var(--bg); color: var(--text); }
+.unit-cost-more { display: block; width: 100%; border: 0; border-top: 1px solid var(--border); background: transparent; padding: 8px 0 4px; color: var(--primary-hover); font: inherit; font-size: 0.75rem; cursor: pointer; text-align: left; }
 .unit-cost-feed-error, .unit-cost-feed-action-error { font-size: 0.8125rem; color: var(--error); line-height: 1.7; }
 .unit-cost-dialog { width: min(640px, calc(100% - 32px)); max-height: calc(100dvh - 40px); margin: auto; padding: 26px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font-family: var(--font); box-shadow: var(--shadow-lg); }
 .unit-cost-dialog::backdrop { background: rgb(25 23 30 / 45%); }
@@ -37,10 +45,17 @@
 .unit-cost-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
 .unit-cost-highlight { outline: 2px solid var(--primary); outline-offset: -2px; }
 :is(.unit-cost-dialog, .unit-cost-alerts, .unit-cost-row) :is(button, input, select, a):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+@media (min-width: 601px) and (max-width: 1180px) {
+  .unit-cost-alert { grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) auto auto; }
+  .unit-cost-equation { display: none; }
+}
 @media (max-width: 600px) {
-  .unit-cost-alerts { padding: 16px; }
-  .unit-cost-alert { flex-direction: column; gap: 12px; }
-  .unit-cost-alert-actions { flex-direction: row; align-items: center; gap: 16px; }
+  .unit-cost-alert { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name actions" "price actions" "meta actions"; row-gap: 2px; padding: 8px 0; }
+  .unit-cost-position { grid-area: name; }
+  .unit-cost-price { grid-area: price; }
+  .unit-cost-meta { grid-area: meta; }
+  .unit-cost-equation { display: none; }
+  .unit-cost-alert-actions { grid-area: actions; }
   .unit-cost-dialog { padding: 20px; }
   .unit-cost-inputs { grid-template-columns: minmax(0, 1fr); }
   .unit-cost-result > strong { font-size: 1.3125rem; }

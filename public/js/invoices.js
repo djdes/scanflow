@@ -90,7 +90,14 @@ const Invoices = {
     this._currentInvoiceId = null;
     if (typeof InvoiceCard !== 'undefined') InvoiceCard.closeMenu();
     document.getElementById('view-invoices')?.classList.remove('is-detail');
-    document.getElementById('invoices-list').style.display = 'block';
+    const listEl = document.getElementById('invoices-list');
+    const fromDetail = listEl.style.display === 'none';
+    listEl.style.display = 'block';
+    if (fromDetail) {
+      listEl.classList.remove('is-entering');
+      void listEl.offsetWidth;
+      listEl.classList.add('is-entering');
+    }
     document.getElementById('invoice-detail').style.display = 'none';
     if (typeof UnitCost !== 'undefined') UnitCost.loadFeed();
     await this.loadTable();
@@ -128,23 +135,27 @@ const Invoices = {
     }
   },
 
-  // Пять равных карточек-фильтров (спек 2026-10-09): короткое название, число крупно,
-  // выбранная — в рамке. Пояснение — во всплывающей подсказке, под числом — только
-  // сумма без платёжки (её не узнать иначе). Названия как в приложении /m/.
+  // Состояние накладной — в панели «Фильтры» (решение владельца 2026-11-17: карточки-фильтры
+  // над списком убраны). Числа — в подписях пунктов, у «Без платёжки» ещё и сумма.
   _renderSummary() {
+    const select = document.getElementById('filter-view');
+    if (!select) return;
     const data = this._stats || {};
     const w = data.workflow || {};
-    const cards = [
-      ['all', 'Все', data.total, '', 'Все накладные компании', 'neutral'],
-      ['attention', 'Проверить', w.attention, '', 'Есть замечания: реквизиты, товары или ошибка распознавания', 'warning'],
-      ['ready', 'Готовы к 1С', w.ready, '', 'Без замечаний — можно отправлять в 1С', 'success'],
-      ['queue', 'В очереди 1С', w.queue, '', 'Отправлены, 1С ещё не забрала', 'primary'],
-      ['payment', 'Без платёжки', w.payment, w.paymentSum ? `${App.formatMoney(w.paymentSum)} ₽` : '', 'Платёжка в СберБизнес ещё не создана', 'neutral'],
-    ];
-    document.getElementById('invoices-summary').innerHTML = cards.map(([key, label, count, hint, help, tone]) => `
-      <button type="button" class="invoice-summary-card invoice-summary-card--${tone}" aria-pressed="${this.currentView === key}" title="${App.esc(help)}" onclick="Invoices.setView('${key}')">
-        <span>${label}</span><strong>${count ?? '—'}</strong>${hint ? `<small>${App.esc(hint)}</small>` : ''}
-      </button>`).join('');
+    const labels = {
+      all: ['Все', data.total],
+      attention: ['Проверить', w.attention],
+      ready: ['Готовы к 1С', w.ready],
+      queue: ['В очереди 1С', w.queue],
+      payment: ['Без платёжки', w.payment, w.paymentSum ? `${App.formatMoney(w.paymentSum)} ₽` : ''],
+    };
+    for (const option of select.options) {
+      const [label, count, extra] = labels[option.value] || [];
+      if (!label) continue;
+      const tail = [count != null ? count : null, extra || null].filter(v => v != null && v !== '').join(' · ');
+      option.textContent = tail ? `${label} (${tail})` : label;
+    }
+    select.value = this.currentView;
   },
 
   setView(view) {
@@ -260,7 +271,7 @@ const Invoices = {
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${App.esc(inv.invoice_number || inv.id)}"></td>
             <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small title="Накладная #${inv.id}">${App.formatDate(inv.invoice_date)}</small>${dupBadgeHtml}</div></td>
             <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span>${notes.length ? `<small class="inv-notes">${notes.map(n => App.esc(n)).join(' · ')}</small>` : ''}</div></td>
-            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${this._vatLine(inv)}</div></td>
+            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong></div></td>
             <td class="col-state" data-label="1С"><div class="invoice-cell-stack">${this._onecPill(inv)}</div></td>
             <td class="col-state" data-label="Оплата"><div class="invoice-cell-stack">${this._payPill(inv)}</div></td>
             <td class="cell-action">${this._rowAction(inv)}<button type="button" class="btn-icon-gear" aria-label="Другие действия для накладной ${inv.id}" title="Другие действия" onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">•••</button></td>
@@ -331,12 +342,43 @@ const Invoices = {
     this._renderBulkBar();
   },
 
+  // «Удалить дубликаты за 24 часа»: сначала сервер называет, что удалит (dry_run),
+  // после подтверждения удаляет ровно эти накладные. Оригиналы, отправленное в 1С
+  // и оплаченное сервер не трогает.
+  async deleteRecentDuplicates(ev) {
+    const btn = ev?.currentTarget || document.getElementById('btn-delete-duplicates');
+    return this._withGuard('deleteRecentDuplicates', () => App.withBusyButton(btn, async () => {
+      try {
+        const { data: preview } = await App.apiJson('/invoices/delete-duplicates', { method: 'POST', body: { dry_run: true } });
+        const rows = preview?.invoices || [];
+        if (!rows.length) { App.notify('Дубликатов за последние 24 часа нет', 'info'); return; }
+        const list = rows.slice(0, 8).map(r => `• № ${r.invoice_number || '—'}${r.supplier ? ` — ${r.supplier}` : ''} (#${r.id})`).join('\n');
+        const more = rows.length > 8 ? `\n…и ещё ${rows.length - 8}` : '';
+        const noun = this._plural(rows.length, 'дубликат', 'дубликата', 'дубликатов');
+        if (!window.confirm(`Удалить ${rows.length} ${noun} за последние 24 часа?\n\n${list}${more}\n\nОригиналы останутся. Удаление не отменить.`)) return;
+        const { data } = await App.apiJson('/invoices/delete-duplicates', { method: 'POST', body: { ids: rows.map(r => r.id) } });
+        const deleted = Number(data?.deleted) || 0;
+        const skipped = Number(data?.skipped) || 0;
+        App.notify(`Удалено: ${deleted}${skipped ? `, пропущено: ${skipped} (распознаются или уже не дубликаты)` : ''}`, deleted ? 'success' : 'info');
+        await this.loadTable();
+      } catch (e) {
+        App.notify(e?.message || 'Не удалось удалить дубликаты', 'error');
+      }
+    }));
+  },
+
+  // Панель массовых действий — плавающая внизу экрана: раньше она вставлялась над
+  // таблицей, и при первом выделении список и кнопки строк съезжали вниз.
   _renderBulkBar() {
     const bar = document.getElementById('invoices-bulk-bar');
     if (!bar) return;
     const n = this._selected.size;
+    const listShown = document.getElementById('invoices-list')?.style.display !== 'none';
+    document.body.classList.toggle('has-bulk-bar', n > 0 && listShown);
     if (n === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
     bar.style.display = '';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Действия с выбранными накладными');
 
     // Сбер требует закрытого чек-листа сверки — сервер отклонит непроверенные
     // (см. гейт в POST /:id/send-sber). Показываем это ДО нажатия: раньше
@@ -507,26 +549,20 @@ const Invoices = {
     return `<span class="date-group-row__date">${rel}${full}</span>${cnt}`;
   },
 
-  // Compact "Период" presets. Server-side, so they span ALL pages — unlike the
-  // old left sidebar, which only hid rows already loaded on the current page.
+  // «Период» — выпадающий список в панели «Фильтры» (чипсы над списком убраны).
+  // Свои даты в полях «Загружено с/по» показываются пунктом «Свои даты».
   _renderPeriod() {
-    const el = document.getElementById('invoices-period');
+    const el = document.getElementById('filter-period');
     if (!el) return;
-    const presets = [
-      { key: 'all', label: 'Все' },
-      { key: 'today', label: 'Сегодня' },
-      { key: 'yesterday', label: 'Вчера' },
-      { key: '7d', label: '7 дней' },
-      { key: '30d', label: '30 дней' },
-    ];
-    el.innerHTML = `<span class="period-filter__label">Период:</span>` + presets.map(p =>
-      `<button type="button" class="period-btn${this.period === p.key ? ' active' : ''}" aria-pressed="${this.period === p.key ? 'true' : 'false'}" onclick="Invoices.setPeriod('${p.key}')">${p.label}</button>`
-    ).join('');
+    const custom = el.querySelector('option[value="custom"]');
+    if (custom) custom.hidden = this.period !== 'custom';
+    el.value = this.period;
   },
 
   // Set the upload-date range from a preset and reload from the server (offset
   // reset). `to` is the EXCLUSIVE upper bound (next day).
   setPeriod(key) {
+    if (!['all', 'today', 'yesterday', '7d', '30d'].includes(key)) { this._renderPeriod(); return; }
     this.period = key;
     const pad = n => String(n).padStart(2, '0');
     const iso = dt => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
@@ -606,10 +642,16 @@ const Invoices = {
       || this.currentStatus || this.dateFrom || this.dateTo || this.currentView !== 'all');
   },
 
-  // Кнопка «Сбросить» появляется, только когда что-то реально выбрано.
+  // Кнопка «Сбросить» появляется, только когда что-то реально выбрано; на кнопке
+  // «Фильтры» — сколько фильтров включено (панель может быть свёрнута).
   _syncFilterReset() {
     const btn = document.getElementById('filter-reset');
     if (btn) btn.hidden = !this._anyColumnFilter();
+    const f = this.colFilters;
+    const active = [f.number, f.supplier, f.sumFrom || f.sumTo, f.sber, this.currentStatus,
+      this.dateFrom || this.dateTo, this.currentView !== 'all'].filter(Boolean).length;
+    const badge = document.getElementById('invoice-filter-count');
+    if (badge) { badge.textContent = String(active); badge.hidden = active === 0; }
   },
 
   resetColumnFilters() {
@@ -624,6 +666,7 @@ const Invoices = {
     ['filter-number', 'filter-supplier', 'filter-sum-from', 'filter-sum-to',
      'filter-date-from', 'filter-date-to', 'filter-status', 'filter-sber']
       .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    this._renderPeriod();
     this._syncFilterReset();
     clearTimeout(this._filterTimer);
     this.loadTable();
@@ -746,16 +789,6 @@ const Invoices = {
     }
   },
 
-  // «в т.ч. НДС» под суммой в списке — раньше НДС был виден только внутри накладной.
-  _vatLine(inv) {
-    if (inv.vat_sum == null) return '';
-    const v = Number(inv.vat_sum);
-    if (!Number.isFinite(v)) return '';
-    return v > 0
-      ? `<div class="list-vat">в т.ч. НДС ${App.formatMoney(v)}</div>`
-      : '<div class="list-vat">без НДС</div>';
-  },
-
   // Колонка «Оплата»: платёжка в СберБизнес или отметка «оплачено вне сервиса».
   _payPill(inv) {
     if (inv.paid_externally) return this._pill('green', 'Оплачено', 'вне сервиса');
@@ -776,9 +809,17 @@ const Invoices = {
     document.getElementById('invoices-list').style.display = 'none';
     document.getElementById('invoice-detail').style.display = 'block';
     document.getElementById('view-invoices')?.classList.add('is-detail');
+    document.body.classList.remove('has-bulk-bar');
 
     const switching = this._currentInvoiceId !== id;
     this._currentInvoiceId = id;
+    // Другая накладная: скелетон вместо прежней карточки, пока не придут данные.
+    const detailEl = document.getElementById('invoice-detail');
+    if (switching) {
+      detailEl.classList.add('is-loading');
+      document.getElementById('ic-layout')?.classList.remove('is-entering');
+      window.scrollTo(0, 0);
+    }
     this._photosLoaded = false;
     this._photoFiles = [];
     InvoicePhotoViewer.close();
@@ -793,6 +834,7 @@ const Invoices = {
     try {
       const { data } = await App.apiJson(`/invoices/${id}`);
       if (id !== this._currentInvoiceId) return;
+      this._revealDetail(switching);
       if (!data) {
         App.notify('Накладная не найдена', 'error');
         App.navigate('#/invoices');
@@ -929,6 +971,7 @@ const Invoices = {
       // уходит до распознавания, поэтому ссылка на неё успевает разойтись по
       // чатам, а сама строка при склейке удаляется. Сервер подсказывает
       // приёмника — переключаемся на него вместо «не найдено».
+      if (id === this._currentInvoiceId) this._revealDetail(false);
       const mergedInto = e?.body?.merged_into;
       if (mergedInto) {
         App.notify(`Эта страница вошла в накладную #${mergedInto} — открываем её`, 'info');
@@ -938,6 +981,19 @@ const Invoices = {
       console.error('Failed to load invoice detail', e);
       App.notify('Ошибка загрузки накладной', 'error');
     }
+  },
+
+  // Снять скелетон карточки; animate — карточка проявляется плавно (рендер идёт в том же
+  // кадре, поэтому прежняя накладная не мелькает).
+  _revealDetail(animate) {
+    const detailEl = document.getElementById('invoice-detail');
+    if (!detailEl?.classList.contains('is-loading')) return;
+    detailEl.classList.remove('is-loading');
+    const layout = document.getElementById('ic-layout');
+    if (!layout || !animate) return;
+    layout.classList.remove('is-entering');
+    void layout.offsetWidth; // перезапуск анимации
+    layout.classList.add('is-entering');
   },
 
   // Строка товара: «как в накладной» + позиция 1С, количество с пересчётом серым,

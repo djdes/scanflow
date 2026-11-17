@@ -159,18 +159,21 @@
       <div id="invoices-list">
         <div id="recognition-queue-banner" class="recognition-queue-banner" role="status" hidden></div>
         <div id="unit-cost-alerts" class="unit-cost-alerts" aria-live="polite" hidden></div>
-        <div class="invoice-summary" id="invoices-summary" role="group" aria-label="Быстрые фильтры: сводка по всем накладным компании"></div>
         <div class="invoice-list-workspace">
           <div class="invoices-toolbar">
             <div class="search-field">
               <input type="search" id="invoices-search" placeholder="Номер, поставщик или ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" name="invoices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')" aria-label="Поиск накладных" aria-keyshortcuts="/">
               <kbd class="search-field__shortcut" aria-hidden="true">/</kbd>
             </div>
-            <div class="period-filter" id="invoices-period"></div>
-            <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры</button>
-            <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
+            <div class="invoices-toolbar__actions">
+              <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
+              <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры<span class="filter-count" id="invoice-filter-count" hidden></span></button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-delete-duplicates" onclick="Invoices.deleteRecentDuplicates(event)" title="Удалить накладные, загруженные повторно за последние 24 часа. Оригиналы остаются">Удалить дубликаты за 24 ч</button>
+            </div>
           </div>
           <div class="invoice-filter-panel" id="invoice-filters" hidden>
+            <label>Состояние<select class="filter-input" id="filter-view" onchange="Invoices.setView(this.value)"><option value="all">Все</option><option value="attention">Проверить</option><option value="ready">Готовы к 1С</option><option value="queue">В очереди 1С</option><option value="payment">Без платёжки</option></select></label>
+            <label>Период<select class="filter-input" id="filter-period" onchange="Invoices.setPeriod(this.value)"><option value="all">За всё время</option><option value="today">Сегодня</option><option value="yesterday">Вчера</option><option value="7d">7 дней</option><option value="30d">30 дней</option><option value="custom" hidden>Свои даты</option></select></label>
             <label>Номер<input type="text" class="filter-input" id="filter-number" placeholder="Номер документа" oninput="Invoices.setColumnFilter('number', this.value)"></label>
             <label>Поставщик<input type="text" class="filter-input" id="filter-supplier" placeholder="Название" oninput="Invoices.setColumnFilter('supplier', this.value)"></label>
             <label>Загружено с<input type="date" class="filter-input" id="filter-date-from" onchange="Invoices.setColumnFilter('dateFrom', this.value)"></label>
@@ -196,6 +199,14 @@
       </div>
 
       <div id="invoice-detail" style="display:none">
+        <!-- Скелетон карточки: виден, пока грузится другая накладная (Invoices.showDetail),
+             вместо прежней карточки, которая иначе мелькала и перерисовывалась кусками. -->
+        <div class="ic-skeleton" id="ic-skeleton" aria-hidden="true">
+          <div class="card ics-head"><span class="skeleton-bar ics-back"></span><div class="ics-head-main"><span class="skeleton-bar ics-title"></span><span class="skeleton-bar ics-sub"></span></div><span class="skeleton-bar ics-thumb"></span></div>
+          <div class="ics-steps"><span class="skeleton-bar"></span><span class="skeleton-bar"></span><span class="skeleton-bar"></span></div>
+          <div class="card ics-panel"><span class="skeleton-bar ics-w60"></span><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-btn"></span></div>
+          <div class="card ics-items"><span class="skeleton-bar ics-tabs"></span><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div></div>
+        </div>
         <!-- Карточка «по шагам» (спек 2026-10-09): шапка, предупреждения, шаги, панель шага,
              товары и скан справа. Рисуют InvoiceCard, Invoices, InvoiceReview и Sber. -->
         <div class="ic-layout" id="ic-layout">
