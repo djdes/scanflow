@@ -12,11 +12,14 @@ import { NomenclatureMapper } from '../../src/mapping/nomenclatureMapper';
 
 const app = createServer(new FileWatcher() as never, new NomenclatureMapper() as never);
 
+// У каждой накладной свой номер: одинаковые номер + дата + поставщик теперь честно
+// считаются дубликатом (REVIEW_REASON_SQL) и уходили бы в «Проверить».
+let invoiceNo = 100;
 async function invoice(owner = 1, status = 'processed') {
   const r = await getDb().prepare(`INSERT INTO invoices
     (file_name, file_path, owner_user_id, status, invoice_number, invoice_date, supplier, supplier_inn, total_sum)
-    VALUES ('demo.jpg', '/demo.jpg', ?, ?, '123', '2026-10-02', 'Поставщик', '7830002293', 1000)`)
-    .run(owner, status);
+    VALUES ('demo.jpg', '/demo.jpg', ?, ?, ?, '2026-10-02', 'Поставщик', '7830002293', 1000)`)
+    .run(owner, status, String(++invoiceNo));
   const id = Number(r.lastInsertRowid);
   await getDb().prepare(`INSERT INTO invoice_items
     (invoice_id, original_name, mapped_name, onec_guid, quantity, price, total, mapping_confidence)
@@ -111,5 +114,17 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('invoice workflow l
     expect(list[0].review_reason).toBe('duplicate');
     expect(await invoiceRepo.countList(undefined, 1, { view: 'ready' })).toBe(0);
     expect(await invoiceRepo.countList(undefined, 1, { view: 'payment' })).toBe(0);
+  });
+
+  it('flags a later copy with the same number, date and supplier as a duplicate, keeping the original ready', async () => {
+    const original = await invoice();
+    const copy = await invoice();
+    const number = (await getDb().prepare('SELECT invoice_number FROM invoices WHERE id = ?').get<{ invoice_number: string }>(original))!.invoice_number;
+    await getDb().prepare('UPDATE invoices SET invoice_number = ? WHERE id = ?').run(number, copy);
+    const attention = await invoiceRepo.getAll(undefined, 50, 0, 1, { view: 'attention' });
+    expect(attention.map(row => row.id)).toEqual([copy]);
+    expect(attention[0].review_reason).toBe('duplicate');
+    const ready = await invoiceRepo.getAll(undefined, 50, 0, 1, { view: 'ready' });
+    expect(ready.map(row => row.id)).toEqual([original]);
   });
 });
