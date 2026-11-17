@@ -36,7 +36,10 @@ const SberModal = {
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px';
     modal.innerHTML = `
       <div class="modal-card card" style="max-width:620px;width:100%;max-height:90vh;overflow:auto;margin:0">
-        <h3 style="margin-bottom:14px">Реквизиты поставщика</h3>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px">
+          <h3 style="margin:0">Реквизиты поставщика</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="sber-modal-close" aria-label="Закрыть" style="padding:2px 10px;font-size:1.375rem;line-height:1.2;font-weight:500">×</button>
+        </div>
         <div id="sber-modal-notice"></div>
         <div id="sber-modal-picker" style="display:none;margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:var(--radius)">
           <div style="font-size:0.8125rem;font-weight:600;margin-bottom:8px">Выбрать из справочника поставщиков</div>
@@ -48,16 +51,24 @@ const SberModal = {
         </div>
         <form id="sber-modal-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
           ${fieldsHtml}
-          <div class="form-actions" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <div class="form-actions sber-modal-actions" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
             <button type="button" class="btn btn-outline" id="sber-modal-dadata">Заполнить по ИНН (DaData)</button>
             <button type="button" class="btn btn-ghost" id="sber-modal-cancel" style="margin-left:auto">Отмена</button>
-            <button type="submit" class="btn btn-primary">Сохранить и продолжить</button>
+            <button type="submit" class="btn btn-primary" id="sber-modal-submit">Сохранить</button>
           </div>
         </form>
       </div>
     `;
     document.body.appendChild(modal);
     modal.querySelector('#sber-modal-cancel').onclick = () => SberModal.close();
+    modal.querySelector('#sber-modal-close').onclick = () => SberModal.close();
+    // Закрыть щелчком мимо окна и клавишей Esc — раньше окно закрывалось только
+    // кнопкой «Отмена» в самом низу (на телефоне — после прокрутки всей формы).
+    modal.addEventListener('mousedown', (e) => { modal._downOnBackdrop = e.target === modal; });
+    modal.addEventListener('click', (e) => { if (e.target === modal && modal._downOnBackdrop) SberModal.close(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.style.display !== 'none') SberModal.close();
+    });
     modal.querySelector('#sber-modal-dadata').onclick = () => SberModal.fillByInn();
     modal.querySelector('#sber-modal-form').onsubmit = (e) => SberModal.submit(e);
     modal.querySelector('#sber-modal-pick-q').oninput = () => SberModal._renderPicker();
@@ -82,6 +93,8 @@ const SberModal = {
     modal.querySelector('#sber-modal-pick-q').value = '';
     this._suppliers = [];
     picker.style.display = this._opts.picker ? 'block' : 'none';
+    // «и продолжить» — только в отправке в Сбер: после сохранения уходит платёжка.
+    modal.querySelector('#sber-modal-submit').textContent = this._opts.picker ? 'Сохранить и продолжить' : 'Сохранить';
     this._renderNotice(null);
     if (this._opts.picker) {
       this._renderPicker();

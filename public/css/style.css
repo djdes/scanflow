@@ -6117,3 +6117,30 @@ button.ic-tag { cursor: pointer; }
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   pointer-events: none;
 }
+
+/* Справочник поставщиков на ПК: таблица была шире раздела уже на 1440 px (1115 px из
+   1102), и на 1024–1366 px «Объединить с…», ✎ и 🗑 уходили за правый край — их было
+   видно только прокруткой таблицы вбок; название при этом сжималось по слову в строку.
+   КПП стоит под ИНН, БИК — под счётом, дата «Использован» — без времени. */
+.suppliers-table .sup-sub { margin-top: 3px; font-size: 0.75rem; color: var(--text-tertiary); }
+.suppliers-table .sup-num { font-variant-numeric: tabular-nums; }
+@media (min-width: 641px) {
+  .suppliers-table td.sup-name { width: 30%; }
+  .suppliers-table td.cell-action { text-align: right; }
+  .suppliers-table td.cell-action .btn { margin: 2px 0; }
+}
+@media (max-width: 640px) {
+  .suppliers-table .sup-cell { min-width: 0; text-align: right; overflow-wrap: anywhere; }
+}
+@media (min-width: 641px) and (max-width: 1100px) {
+  .suppliers-table th, .suppliers-table td { padding-left: 10px; padding-right: 10px; }
+  .suppliers-table th:nth-child(5), .suppliers-table td:nth-child(5) { display: none; }
+  /* ≤ 768 px таблицы глобально nowrap — названию и кнопкам разрешаем перенос. */
+  .suppliers-table td:first-child, .suppliers-table td.sup-name, .suppliers-table td.cell-action { white-space: normal; }
+}
+
+/* Окно «Реквизиты поставщика» на телефоне: «Отмена» висела одна справа, а главная
+   кнопка уходила строкой ниже влево. Кнопки — во всю ширину, одна под другой. */
+@media (max-width: 520px) {
+  .sber-modal-actions > .btn { flex: 1 1 100%; margin-left: 0 !important; }
+}
