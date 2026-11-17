@@ -297,6 +297,110 @@ const Upload = {
     return { width: Math.round(width * scale), height: Math.round(height * scale) };
   },
 
+  // ── Обрезка краёв листа (2026-11-17) ─────────────────────────────────────
+  // Лист на тёмном столе: отрезаем фон, чтобы в 3200 px попало больше самого
+  // документа. Осторожно: режем, только если лист явно светлее фона и занимает
+  // 25–92% кадра, иначе (скан, лист на светлом столе, неясная картинка) — как было.
+  CROP_SAMPLE: 256,
+
+  /** Порог Оцу по гистограмме яркости 0–255. */
+  otsu(lum) {
+    const hist = new Array(256).fill(0);
+    for (let i = 0; i < lum.length; i++) hist[lum[i]]++;
+    const total = lum.length;
+    let sum = 0;
+    for (let t = 0; t < 256; t++) sum += t * hist[t];
+    let sumB = 0, wB = 0, best = 0, threshold = 127;
+    for (let t = 0; t < 256; t++) {
+      wB += hist[t];
+      if (!wB) continue;
+      const wF = total - wB;
+      if (!wF) break;
+      sumB += t * hist[t];
+      const mB = sumB / wB, mF = (sum - sumB) / wF;
+      const between = wB * wF * (mB - mF) * (mB - mF);
+      if (between > best) { best = between; threshold = t; }
+    }
+    return threshold;
+  },
+
+  /**
+   * Самая длинная полоса индексов, где доля светлого ≥ min. Короткие провалы (строка
+   * текста, линия таблицы — до 4% длины) полосу не рвут.
+   */
+  _longestRun(fractions, min) {
+    const maxGap = Math.max(1, Math.round(fractions.length * 0.04));
+    let best = null, start = -1, lastOn = -1;
+    for (let i = 0; i <= fractions.length; i++) {
+      const on = i < fractions.length && fractions[i] >= min;
+      if (on) {
+        if (start < 0) start = i;
+        lastOn = i;
+        continue;
+      }
+      if (start >= 0 && i < fractions.length && i - lastOn <= maxGap) continue;
+      if (start >= 0 && (!best || lastOn - start > best[1] - best[0])) best = [start, lastOn];
+      if (start >= 0 && i - lastOn > maxGap) start = -1;
+      if (i === fractions.length) break;
+    }
+    return best;
+  },
+
+  /**
+   * Рамка листа на картинке яркости lum (w×h, 0–255) в долях кадра {x, y, w, h}
+   * или null — обрезать не надо или опасно. Чистая функция, тесты — upload.test.ts.
+   */
+  sheetBox(lum, w, h) {
+    if (!(w > 8 && h > 8) || lum.length !== w * h) return null;
+    const t = this.otsu(lum);
+    let bright = 0, sumB = 0, sumD = 0;
+    for (let i = 0; i < lum.length; i++) { if (lum[i] > t) { bright++; sumB += lum[i]; } else sumD += lum[i]; }
+    const dark = lum.length - bright;
+    if (!bright || !dark) return null;
+    if (sumB / bright - sumD / dark < 50) return null; // лист не отличается от фона
+    const rows = new Array(h).fill(0), cols = new Array(w).fill(0);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (lum[y * w + x] > t) { rows[y]++; cols[x]++; }
+    const r = this._longestRun(rows.map(v => v / w), 0.3);
+    const c = this._longestRun(cols.map(v => v / h), 0.3);
+    if (!r || !c) return null;
+    const [y0, y1] = r, [x0, x1] = c;
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    const area = (bw * bh) / (w * h);
+    if (area < 0.25 || area > 0.92) return null;
+    let inside = 0, outside = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (lum[y * w + x] <= t) continue;
+      if (x >= x0 && x <= x1 && y >= y0 && y <= y1) inside++; else outside++;
+    }
+    if (inside / (bw * bh) < 0.6) return null;      // внутри рамки — не лист
+    if (outside / Math.max(1, w * h - bw * bh) > 0.25) return null; // снаружи много светлого
+    // Запас 3% с каждой стороны: тень у края и поля листа не теряем.
+    const pad = 0.03;
+    const fx0 = Math.max(0, x0 / w - pad), fy0 = Math.max(0, y0 / h - pad);
+    const fx1 = Math.min(1, (x1 + 1) / w + pad), fy1 = Math.min(1, (y1 + 1) / h + pad);
+    return { x: fx0, y: fy0, w: fx1 - fx0, h: fy1 - fy0 };
+  },
+
+  _cropEnabled() {
+    try { return localStorage.getItem('sf-photo-crop') !== 'off'; } catch { return true; }
+  },
+
+  /** Рамка листа для уже декодированного фото (или null). */
+  _detectSheet(image) {
+    if (!this._cropEnabled()) return null;
+    const scale = Math.min(1, this.CROP_SAMPLE / Math.max(image.width, image.height));
+    const sw = Math.max(1, Math.round(image.width * scale)), sh = Math.max(1, Math.round(image.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = sw; canvas.height = sh;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(image.source, 0, 0, sw, sh);
+    const { data } = ctx.getImageData(0, 0, sw, sh);
+    canvas.width = 0; canvas.height = 0;
+    const lum = new Uint8Array(sw * sh);
+    for (let i = 0, j = 0; j < lum.length; i += 4, j++) lum[j] = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+    return this.sheetBox(lum, sw, sh);
+  },
+
   /** Сжатое берём, только если оно заметно легче: иначе зря теряем качество. */
   photoBetter(originalSize, shrunkSize) {
     return shrunkSize > 0 && shrunkSize < originalSize * 0.9;
@@ -332,7 +436,12 @@ const Upload = {
     let image = null;
     try {
       image = await this._decodePhoto(blob);
-      const plan = this.photoPlan({ width: image.width, height: image.height, size: blob.size });
+      let box = null;
+      try { box = this._detectSheet(image); } catch { box = null; }
+      const src = box
+        ? { x: Math.round(box.x * image.width), y: Math.round(box.y * image.height), w: Math.round(box.w * image.width), h: Math.round(box.h * image.height) }
+        : { x: 0, y: 0, w: image.width, h: image.height };
+      const plan = this.photoPlan({ width: src.w, height: src.h, size: box ? Infinity : blob.size });
       if (!plan) return keep;
       const canvas = document.createElement('canvas');
       canvas.width = plan.width;
@@ -342,11 +451,12 @@ const Upload = {
       ctx.fillRect(0, 0, plan.width, plan.height);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(image.source, 0, 0, plan.width, plan.height);
+      ctx.drawImage(image.source, src.x, src.y, src.w, src.h, 0, 0, plan.width, plan.height);
       const out = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', this.PHOTO_QUALITY));
       canvas.width = 0; canvas.height = 0; // iOS быстрее отдаёт память
-      if (!out || !this.photoBetter(blob.size, out.size)) return keep;
-      return { blob: await this.memoryBlob(out), name: this.jpegName(name), shrunk: true };
+      // Обрезанное берём всегда (на листе больше пикселей), просто сжатое — если заметно легче.
+      if (!out || (!box && !this.photoBetter(blob.size, out.size))) return keep;
+      return { blob: await this.memoryBlob(out), name: this.jpegName(name), shrunk: true, cropped: !!box };
     } catch (e) {
       console.warn('Photo shrink skipped, sending the original', e);
       return keep;
