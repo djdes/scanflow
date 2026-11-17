@@ -234,7 +234,7 @@ const Analytics = {
         <tbody>${idx.map(i => this._qualityRow(d.suppliers[i], i, d)).join('')}</tbody>
       </table>
     </div>
-    ${this.quality.sort === 'worst' && !q ? '<p class="field-hint an-foot">Порядок «Сначала проблемные»: поставщики с красными показателями, затем с жёлтыми; внутри — по тому, насколько показатели хуже порога. Наведите на заголовок столбца, чтобы прочитать, что он значит.</p>' : ''}`;
+`;
   },
 
   _periodText() {
@@ -601,7 +601,7 @@ const Analytics = {
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <p class="field-hint an-foot">Цена — за единицу позиции 1С после пересчёта единиц. Строки с пересчётом под вопросом, в другой единице и явные ошибки цены (в 5 раз дальше обычной) не учитываются.</p>`;
+`;
   },
 
   _invoiceLink(id, number, dateStr) {

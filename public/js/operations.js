@@ -279,10 +279,10 @@ const Operations = {
           <button class="btn ${c.telegram_enabled ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleTelegram(${c.telegram_enabled ? 'false' : 'true'})">${c.telegram_enabled ? 'Выключить' : 'Включить'}</button></div>
       </article>
       <article class="card channel-card">
-        <div class="channel-card__icon">@</div><div><span class="operations-eyebrow">Email</span><h3>Вложения из почты</h3><p>Сгенерируйте защищённый webhook и укажите его в сервисе пересылки входящих писем. Поддерживаются изображения, PDF и XML-документы из ЭДО (УПД, счёт-фактура, ТОРГ-12) до 20 МБ.</p></div>
+        <div class="channel-card__icon">@</div><div><span class="operations-eyebrow">Email</span><h3>Вложения из почты</h3><p>Получите адрес и укажите его в пересылке писем — вложения станут накладными. Фото, PDF и XML из ЭДО до 20 МБ.</p></div>
         <div id="operations-email-url"></div>
-        <div class="channel-card__footer"><span class="reconcile-badge reconcile-badge--${c.email_enabled ? 'success' : 'muted'}">${c.email_enabled ? 'Webhook активен' : 'Выключено'}</span>
-          <button class="btn ${c.email_enabled ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleEmail(${c.email_enabled ? 'false' : 'true'})">${c.email_enabled ? 'Выключить' : 'Создать webhook'}</button></div>
+        <div class="channel-card__footer"><span class="reconcile-badge reconcile-badge--${c.email_enabled ? 'success' : 'muted'}">${c.email_enabled ? 'Приём включён' : 'Выключено'}</span>
+          <button class="btn ${c.email_enabled ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleEmail(${c.email_enabled ? 'false' : 'true'})">${c.email_enabled ? 'Выключить' : 'Получить адрес'}</button></div>
       </article>
     </div>`;
   },
@@ -629,7 +629,7 @@ const Operations = {
           App.notify('Скопировано', 'success');
         });
       }
-      App.notify(enabled ? 'Email webhook создан' : 'Email webhook выключен', 'success');
+      App.notify(enabled ? 'Адрес для пересылки писем готов' : 'Приём из почты выключен', 'success');
     } catch (error) { App.notify(error.message, 'error'); }
   },
 

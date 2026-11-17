@@ -548,7 +548,7 @@
       <div class="section-header">
         <div>
           <h2>Новые товары</h2>
-          <p class="section-subtitle">Строки неотправленных накладных, для которых нет позиции в 1С, — по товарам. Сопоставьте товар с позицией справочника или попросите 1С создать новую с нужными единицей и группой.</p>
+          <p class="section-subtitle">Товары из неотправленных накладных, которых нет в 1С. <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Сопоставьте товар с позицией справочника или попросите 1С создать новую — с нужными единицей и группой. Строки всех накладных с этим товаром обновятся сразу.">i</button></p>
         </div>
       </div>
       <div class="ni-toolbar">
@@ -565,7 +565,7 @@
       <div class="section-header">
         <div>
           <h2>Качество поставщиков</h2>
-          <p class="section-subtitle">Как часто накладные каждого поставщика приходится исправлять руками. Сначала — поставщики, с накладными которых больше всего хлопот.</p>
+          <p class="section-subtitle">У кого больше всего ручных правок. <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Как часто накладные каждого поставщика приходится исправлять руками. Порядок «Сначала проблемные»: сначала поставщики с красными показателями, затем с жёлтыми. Наведите на заголовок столбца, чтобы прочитать, что он значит.">i</button></p>
         </div>
       </div>
       <div class="an-toolbar">
@@ -595,7 +595,7 @@
       <div class="section-header">
         <div>
           <h2>Закупочные цены</h2>
-          <p class="section-subtitle">Сколько стоит единица товара у поставщиков: как менялась цена, у кого дешевле и что подорожало. Цены — за единицу позиции 1С, по распознанным накладным.</p>
+          <p class="section-subtitle">Почём покупаем, у кого дешевле и что подорожало. <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Цена — за единицу позиции 1С после пересчёта единиц, по распознанным накладным. Строки с пересчётом под вопросом, в другой единице и явные ошибки цены (в 5 раз дальше обычной) не учитываются.">i</button></p>
         </div>
       </div>
       <div class="an-toolbar">
@@ -614,7 +614,7 @@
     <section id="view-integrations-log">
       <div class="section-header">
         <h2>Журнал интеграций</h2>
-        <p class="section-subtitle">Что происходило с накладными в 1С и Сбербанке. Номер накладной открывает её скан</p>
+        <p class="section-subtitle">Что происходило с накладными в 1С и Сбербанке.</p>
       </div>
       <div id="intlog-onec-status" class="card" style="margin-bottom:12px"></div>
       <div class="filters" id="intlog-filters" style="margin-bottom:12px"></div>
@@ -755,7 +755,7 @@
     <!-- Profile Section -->
     <section id="view-billing" aria-labelledby="billing-title">
       <div class="section-header">
-        <div><h1 class="section-h1" id="billing-title">Оплата</h1><p class="billing-lead">Ваш доступ к ScanFlow, тарифы и платёжные документы</p></div>
+        <div><h1 class="section-h1" id="billing-title">Оплата</h1><p class="billing-lead">Ваш доступ к ScanFlow и тарифы после беты</p></div>
         <span class="billing-beta-tag">Открытая бета</span>
       </div>
       <div id="billing-content" aria-live="polite" aria-busy="false"></div>
@@ -1089,8 +1089,8 @@
 
     <section id="view-learning">
       <h2>Предложения правил</h2>
-      <p class="field-hint" style="margin-bottom:14px">Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.</p>
-      <div id="learning-off-hint" class="card" style="display:none;margin-bottom:14px">Ночной разбор выключен (флаг движка «Ночной разбор правок» в настройках). Запустить разбор вручную можно и сейчас.</div>
+      <p class="field-hint" style="margin-bottom:14px">Правила пересчёта из ваших правок — работают только после «Принять». <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.">i</button></p>
+      <div id="learning-off-hint" class="card" style="display:none;margin-bottom:14px">Ночной разбор выключен — включается в «Настройки → Проверки и пересчёт». Разобрать можно и сейчас кнопкой справа.</div>
       <div class="learning-toolbar">
         <div class="tabs" id="learning-status-tabs">
           <button class="tab-btn active" data-status="pending">Ждут решения</button>
@@ -1099,12 +1099,12 @@
         </div>
         <div class="learning-toolbar__run">
           <button class="btn btn-soft btn-sm" onclick="Learning.run(false, this)" title="Разобрать правки и цены без обращения к ИИ">Разобрать сейчас</button>
-          <button class="btn btn-soft btn-sm" onclick="Learning.run(true, this)" title="Дополнительно спросить Claude о строках, которые разбор не объяснил">Разобрать с ИИ</button>
+          <button class="btn btn-soft btn-sm" onclick="Learning.run(true, this)" title="Дополнительно спросить ИИ о строках, которые разбор не объяснил">Разобрать с ИИ</button>
         </div>
       </div>
       <div id="learning-proposals"></div>
       <h3 style="margin:28px 0 8px">Правила пересчёта</h3>
-      <p class="field-hint" style="margin-bottom:10px">Действующие правила «товар + поставщик → единица 1С». Выключенное правило перестаёт применяться к новым накладным; уже пересчитанные строки не меняются.</p>
+      <p class="field-hint" style="margin-bottom:10px">Действующие правила «товар + поставщик → единица 1С». <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Выключенное правило перестаёт применяться к новым накладным; уже пересчитанные строки не меняются.">i</button></p>
       <div id="learning-rules"></div>
     </section>
 
