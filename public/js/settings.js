@@ -761,9 +761,9 @@ const Settings = {
       return;
     }
     host.innerHTML = `
-      <div class="card" style="margin-top:24px">
-        <h3 style="margin-bottom:6px">Эталонные накладные</h3>
-        <div class="field-hint" style="margin-bottom:16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
+      <details class="card settings-details" style="margin-top:24px">
+        <summary><h3 style="display:inline">Эталонные накладные</h3></summary>
+        <div class="field-hint" style="margin:10px 0 16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
           <button type="button" class="btn btn-primary" id="golden-run-btn">Прогнать эталоны</button>
           <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:400">не больше
@@ -773,7 +773,7 @@ const Settings = {
         </div>
         <div id="golden-runs"></div>
         <div id="golden-run-detail" style="margin-top:18px"></div>
-      </div>`;
+      </details>`;
     document.getElementById('golden-run-btn').addEventListener('click', (ev) => Settings._goldenStart(ev.currentTarget));
     document.getElementById('golden-refresh-btn').addEventListener('click', () => Settings._goldenRefresh());
     this._goldenRenderRuns(payload);

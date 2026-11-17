@@ -387,7 +387,7 @@
     <section id="view-upload">
       <div class="section-header">
         <h2>Загрузить накладные</h2>
-        <p class="section-subtitle">Сфотографируйте на камеру или выберите файлы — система загрузит и распознает их асинхронно.</p>
+        <p class="section-subtitle">Сфотографируйте накладную или выберите файлы — распознаем сами, страницу можно закрыть.</p>
       </div>
 
       <div class="card upload-card">
@@ -774,7 +774,6 @@
 
       <div class="profile-grid">
         <div class="profile-col">
-          <div id="profile-product-assistant" class="card profile-card"></div>
           <div class="card profile-card">
             <div class="card-header">
               <div>
@@ -807,8 +806,8 @@
           <div class="card profile-card">
             <div class="card-header">
               <div>
-                <h2>Подключение</h2>
-                <p class="card-subtitle">Введите два значения, полученные у @BotFather и в /getUpdates</p>
+                <h2>Уведомления в Telegram</h2>
+                <p class="card-subtitle">Chat ID и токен своего бота — как их получить, подсказка ниже</p>
               </div>
               <svg class="card-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>
@@ -880,7 +879,7 @@
             <div class="card-header">
               <div>
                 <h2>Какие события присылать</h2>
-                <p class="card-subtitle">Срочные события всегда отдельным сообщением, остальные обновляют один thread на накладную</p>
+                <p class="card-subtitle">Срочное приходит отдельным сообщением, остальное обновляет одно сообщение о накладной</p>
               </div>
             </div>
 
@@ -907,7 +906,7 @@
                 <span class="event-icon">✅</span>
                 <div class="event-info">
                   <div class="event-name">Накладная распознана</div>
-                  <div class="event-desc">OCR + Claude отработали, накладная готова к проверке</div>
+                  <div class="event-desc">Накладная распознана и готова к проверке</div>
                 </div>
                 <label class="toggle">
                   <input type="checkbox" id="evt-invoice_recognized" data-event="invoice_recognized">
@@ -919,7 +918,7 @@
                 <span class="event-icon">🚨</span>
                 <div class="event-info">
                   <div class="event-name">Ошибка распознавания <span class="event-tag">срочно</span></div>
-                  <div class="event-desc">Накладная ушла в статус error — нужно вмешательство</div>
+                  <div class="event-desc">Распознать не удалось — нужно посмотреть</div>
                 </div>
                 <label class="toggle">
                   <input type="checkbox" id="evt-recognition_error" data-event="recognition_error">
@@ -931,7 +930,7 @@
                 <span class="event-icon">⚠️</span>
                 <div class="event-info">
                   <div class="event-name">Подозрительная сумма <span class="event-tag">срочно</span></div>
-                  <div class="event-desc">Сумма строк не сходится с total_sum</div>
+                  <div class="event-desc">Сумма строк не сходится с итогом накладной</div>
                 </div>
                 <label class="toggle">
                   <input type="checkbox" id="evt-suspicious_total" data-event="suspicious_total">
@@ -978,7 +977,7 @@
               <div class="event-row">
                 <span class="event-icon">✏️</span>
                 <div class="event-info">
-                  <div class="event-name">Правка в дашборде</div>
+                  <div class="event-name">Правка в кабинете</div>
                   <div class="event-desc">Кто-то отредактировал товар или сумму</div>
                 </div>
                 <label class="toggle">
@@ -1046,6 +1045,8 @@
               </div>
             </form>
           </div>
+          <!-- Помощник по товарам — необязательное подключение (2026-11-17): внизу, а не первым блоком. -->
+          <div id="profile-product-assistant" class="card profile-card"></div>
         </div>
 
         <aside class="profile-aside">
