@@ -23,6 +23,7 @@ import { runNightlyLearning } from './learning/learningService';
 import { keepSberTokensAlive, warnSberSecretExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
 import { checkOnecStall } from './services/companyHealth';
 import { sendWeeklyPriceDigests } from './notifications/priceDigest';
+import { trashRepo } from './database/repositories/trashRepo';
 import { syncAllCatalogsFromMcp } from './integration/onecCatalogMcp';
 
 let ocrManager: OcrManager;
@@ -109,6 +110,10 @@ async function main(): Promise<void> {
     pruneSendLog()
       .then(deleted => { if (deleted > 0) logger.info('Pruned old notification_sends', { deleted }); })
       .catch(err => logger.error('notification_sends prune failed', { error: (err as Error).message }));
+    // Корзина: накладные, удалённые больше 30 дней назад, — навсегда, вместе с фото.
+    trashRepo.purgeExpired()
+      .then(n => { if (n > 0) logger.info('Purged expired trash', { n }); })
+      .catch(err => logger.error('trash purge failed', { error: (err as Error).message }));
   });
 
   // Самообучение (пакет v2, п.15): в 03:30 разобрать правки и неуверенные

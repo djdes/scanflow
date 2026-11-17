@@ -18,13 +18,18 @@ vi.mock('../../src/database/repositories/goldenRepo', () => ({
 vi.mock('../../src/database/repositories/photoRepo', () => ({
   photoRepo: { listNotYetExpiredFileNames: vi.fn() },
 }));
+vi.mock('../../src/database/repositories/trashRepo', () => ({
+  trashRepo: { fileNames: vi.fn() },
+}));
 
 import { goldenRepo } from '../../src/database/repositories/goldenRepo';
 import { photoRepo } from '../../src/database/repositories/photoRepo';
+import { trashRepo } from '../../src/database/repositories/trashRepo';
 import { cleanupOldPhotos } from '../../src/utils/photoRetention';
 
 const listGolden = vi.mocked(goldenRepo.listGoldenFileNames);
 const listUnsent = vi.mocked(photoRepo.listNotYetExpiredFileNames);
+const listTrashed = vi.mocked(trashRepo.fileNames);
 const DAY = 24 * 60 * 60 * 1000;
 
 function put(name: string, ageDays: number): void {
@@ -39,6 +44,7 @@ const exists = (name: string) => fs.existsSync(path.join(cfg.processedDir, name)
 beforeEach(() => {
   vi.clearAllMocks();
   listUnsent.mockResolvedValue([]);
+  listTrashed.mockResolvedValue([]);
   cfg.processedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'retention-'));
   put('old-golden.jpg', 120);
   put('old-page2-golden.jpg', 120);
@@ -52,6 +58,15 @@ afterEach(() => {
 });
 
 describe('cleanupOldPhotos', () => {
+  it('фото накладной в корзине не удаляется, пока её можно вернуть', async () => {
+    listGolden.mockResolvedValue([]);
+    listTrashed.mockResolvedValue(['old-plain.jpg']);
+    const r = await cleanupOldPhotos();
+    expect(exists('old-plain.jpg')).toBe(true);
+    expect(exists('old-golden.jpg')).toBe(false);
+    expect(r.deleted).toBe(2);
+  });
+
   it('старые фото удаляются, фото эталонов (все страницы) остаются', async () => {
     listGolden.mockResolvedValue(['old-golden.jpg', 'old-page2-golden.jpg']);
     const r = await cleanupOldPhotos();

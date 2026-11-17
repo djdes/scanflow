@@ -2728,6 +2728,32 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    // Корзина (2026-11-17): удалённая пользователем накладная 30 дней хранится снимком —
+    // строка накладной, строки товаров и снимки шапки в JSON; фото не удаляются до очистки.
+    version: 95,
+    name: 'deleted_invoices trash',
+    detect: exec => hasTable(exec, 'deleted_invoices'),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS deleted_invoices (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        invoice_id INT NOT NULL,
+        owner_user_id INT NULL,
+        invoice_number VARCHAR(255) NULL,
+        supplier VARCHAR(500) NULL,
+        total_sum DECIMAL(15,2) NULL,
+        file_name TEXT NULL,
+        invoice_json MEDIUMTEXT NOT NULL,
+        items_json MEDIUMTEXT NOT NULL,
+        snapshots_json MEDIUMTEXT NULL,
+        deleted_by INT NULL,
+        reason VARCHAR(64) NULL,
+        deleted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_deleted_owner (owner_user_id, deleted_at),
+        KEY idx_deleted_invoice (invoice_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

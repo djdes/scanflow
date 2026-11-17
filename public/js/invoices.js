@@ -100,6 +100,7 @@ const Invoices = {
     }
     document.getElementById('invoice-detail').style.display = 'none';
     if (typeof UnitCost !== 'undefined') UnitCost.loadFeed();
+    this._bindDropUpload();
     await this.loadTable();
   },
 
@@ -163,6 +164,11 @@ const Invoices = {
       option.textContent = tail ? `${label} (${tail})` : label;
     }
     select.value = this.currentView;
+    const sendReady = document.getElementById('btn-send-ready');
+    if (sendReady) {
+      sendReady.hidden = !(Number(w.ready) > 0);
+      sendReady.textContent = `Отправить готовые в 1С · ${Number(w.ready) || 0}`;
+    }
   },
 
   setView(view) {
@@ -196,16 +202,18 @@ const Invoices = {
     return reasons[inv.review_reason] || '';
   },
 
+  // В строке — только «В 1С →» у готовой накладной (2026-11-17): «Проверить» и «Открыть»
+  // делали то же, что клик по строке. Место под кнопку держится, колонка не прыгает.
   _rowAction(inv) {
-    if (inv.review_reason || inv.sibling_is_copy) return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Проверить</button>`;
-    if (inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-primary btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
-    return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Открыть</button>`;
+    if (!inv.review_reason && !inv.sibling_is_copy && inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-primary btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
+    return '<span class="inv-act inv-act--empty" aria-hidden="true"></span>';
   },
 
   async loadTable() {
     const request = ++this._listRequest;
     this.loadStats();
     this._renderPeriod();
+    this._renderSavedFilters();
     // Набор строк меняется — прежнее выделение больше не относится к этим строкам.
     this._selected.clear();
     this._renderBulkBar();
@@ -345,6 +353,51 @@ const Invoices = {
     this._renderBulkBar();
   },
 
+  // Удалить выбранные — в корзину (вернуть можно 30 дней).
+  async bulkDelete(ev) {
+    const ids = [...this._selected];
+    if (!ids.length) return;
+    const noun = this._plural(ids.length, 'накладную', 'накладные', 'накладных');
+    if (!window.confirm(`Удалить ${ids.length} ${noun}? Они попадут в корзину на 30 дней.`)) return;
+    return this._withGuard('bulkDelete', () => App.withBusyButton(ev?.currentTarget, async () => {
+      try {
+        const { data } = await App.apiJson('/invoices/delete-batch', { method: 'POST', body: { ids } });
+        App.notify(`В корзине: ${data.deleted}${data.deleted < data.total ? `, пропущено ${data.total - data.deleted} (распознаются)` : ''}`, 'success');
+        await this.loadTable();
+      } catch (e) { App.notify(e.message || 'Не удалось удалить', 'error'); }
+    }));
+  },
+
+  // «На согласование»: то же действие, что было в «Операциях → Требуют внимания».
+  async bulkRequestApproval(ev) {
+    const ids = [...this._selected];
+    if (!ids.length) return;
+    return this._withGuard('bulkApproval', () => App.withBusyButton(ev?.currentTarget, async () => {
+      try {
+        const { data } = await App.apiJson('/operations/exceptions/bulk', { method: 'POST', body: { invoice_ids: ids, action: 'request_1c' } });
+        const failed = (data.results || []).filter(row => !row.success).length;
+        App.notify(failed ? `На согласовании: ${ids.length - failed}, не удалось: ${failed}` : `На согласовании: ${ids.length}`, failed ? 'error' : 'success');
+        this.clearSelection();
+      } catch (e) { App.notify(e.message || 'Не удалось отправить на согласование', 'error'); }
+    }));
+  },
+
+  // «Отправить готовые в 1С»: все накладные в состоянии «Готовы к 1С», не только эта страница.
+  async sendAllReady(ev) {
+    return this._withGuard('sendAllReady', () => App.withBusyButton(ev?.currentTarget, async () => {
+      try {
+        const { data: preview } = await App.apiJson('/invoices/send-ready', { method: 'POST', body: { dry_run: true } });
+        if (!preview.count) { App.notify('Готовых к 1С накладных нет', 'info'); return; }
+        const noun = this._plural(preview.count, 'накладную', 'накладные', 'накладных');
+        if (!window.confirm(`Отправить в 1С ${preview.count} ${noun} на ${App.formatMoney(preview.total_sum)} ₽?`)) return;
+        const { data } = await App.apiJson('/invoices/send-ready', { method: 'POST', body: {} });
+        const skipped = (data.skipped || []).length;
+        App.notify(`В очереди 1С: ${data.sent}${skipped ? `, пропущено ${skipped} (сумма выше порога согласования или уже отправлены)` : ''}`, data.sent ? 'success' : 'info');
+        await this.loadTable();
+      } catch (e) { App.notify(e.message || 'Не удалось отправить', 'error'); }
+    }));
+  },
+
   // «Удалить дубликаты за 24 часа»: сначала сервер называет, что удалит (dry_run),
   // после подтверждения удаляет ровно эти накладные. Оригиналы, отправленное в 1С
   // и оплаченное сервер не трогает.
@@ -358,7 +411,7 @@ const Invoices = {
         const list = rows.slice(0, 8).map(r => `• № ${r.invoice_number || '—'}${r.supplier ? ` — ${r.supplier}` : ''} (#${r.id})`).join('\n');
         const more = rows.length > 8 ? `\n…и ещё ${rows.length - 8}` : '';
         const noun = this._plural(rows.length, 'дубликат', 'дубликата', 'дубликатов');
-        if (!window.confirm(`Удалить ${rows.length} ${noun} за последние 24 часа?\n\n${list}${more}\n\nОригиналы останутся. Удаление не отменить.`)) return;
+        if (!window.confirm(`Удалить ${rows.length} ${noun} за последние 24 часа?\n\n${list}${more}\n\nОригиналы останутся. Удалённые попадут в корзину на 30 дней.`)) return;
         const { data } = await App.apiJson('/invoices/delete-duplicates', { method: 'POST', body: { ids: rows.map(r => r.id) } });
         const deleted = Number(data?.deleted) || 0;
         const skipped = Number(data?.skipped) || 0;
@@ -402,6 +455,8 @@ const Invoices = {
       <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('onec', event)">&rarr; 1С</button>
       <button class="btn btn-primary btn-sm"${sberAttrs} onclick="Invoices.bulkSend('sber', event)">&rarr; Сбер</button>
       <button class="btn btn-primary btn-sm"${sberAttrs} onclick="Invoices.bulkSend('both', event)">&rarr; 1С и Сбер</button>
+      <button class="btn btn-outline btn-sm" onclick="Invoices.bulkRequestApproval(event)" title="Отправить выбранные на согласование: руководитель одобрит передачу в 1С">На согласование</button>
+      <button class="btn btn-outline btn-sm bulk-danger" onclick="Invoices.bulkDelete(event)">Удалить</button>
       <button class="btn btn-outline btn-sm" onclick="Invoices.clearSelection()">Снять выделение</button>
       ${hint}`;
   },
@@ -673,6 +728,108 @@ const Invoices = {
     this._syncFilterReset();
     clearTimeout(this._filterTimer);
     this.loadTable();
+  },
+
+  // ── Загрузка перетаскиванием на список (2026-11-17) ────────────────────────
+  // Файлы можно бросить прямо на список — тот же загрузчик, что на странице
+  // «Загрузить» (очередь в IndexedDB, повторы, сжатие), без перехода туда.
+  _bindDropUpload() {
+    if (this._dropBound) return;
+    const list = document.getElementById('invoices-list');
+    if (!list || typeof Upload === 'undefined') return;
+    this._dropBound = true;
+    const overlay = document.createElement('div');
+    overlay.className = 'list-drop-overlay';
+    overlay.hidden = true;
+    overlay.innerHTML = '<div><strong>Отпустите, чтобы загрузить</strong><span>фото, PDF или XML — распознаем и добавим в список</span></div>';
+    list.appendChild(overlay);
+    let depth = 0;
+    const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+    list.addEventListener('dragenter', e => { if (!hasFiles(e)) return; depth++; overlay.hidden = false; });
+    list.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+    list.addEventListener('dragleave', e => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) overlay.hidden = true; });
+    list.addEventListener('drop', async e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0; overlay.hidden = true;
+      const files = Array.from(e.dataTransfer.files || []);
+      if (!files.length) return;
+      Upload.init();
+      App.notify(`Загружаем: ${files.length} ${this._plural(files.length, 'файл', 'файла', 'файлов')}`, 'info');
+      await Upload._addMultiple(files);
+    });
+  },
+
+  // ── Сохранённые фильтры (2026-11-17) ──────────────────────────────────────
+  // Набор фильтров — кнопкой над списком. Хранится в браузере (localStorage):
+  // это удобство конкретного человека, а не данные компании.
+  _SAVED_KEY: 'sf-invoice-filters',
+  _savedFilters() {
+    try { const v = JSON.parse(localStorage.getItem(this._SAVED_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  },
+  _storeSavedFilters(list) {
+    try { localStorage.setItem(this._SAVED_KEY, JSON.stringify(list.slice(0, 12))); } catch { /* storage unavailable */ }
+    this._renderSavedFilters();
+  },
+  _filterState() {
+    return { view: this.currentView, period: this.period, dateFrom: this.dateFrom, dateTo: this.dateTo,
+      status: this.currentStatus, colFilters: { ...this.colFilters }, search: this.search };
+  },
+  saveCurrentFilter() {
+    if (!this._anyColumnFilter() && !this.search) { App.notify('Сначала выберите фильтры', 'info'); return; }
+    const name = (window.prompt('Название набора фильтров', '') || '').trim().slice(0, 40);
+    if (!name) return;
+    const list = this._savedFilters().filter(f => f.name !== name);
+    list.push({ name, state: this._filterState() });
+    this._storeSavedFilters(list);
+    App.notify(`Сохранено: «${name}»`, 'success');
+  },
+  applySavedFilter(index) {
+    const saved = this._savedFilters()[index];
+    if (!saved) return;
+    const st = saved.state || {};
+    this.currentView = ['all', 'attention', 'ready', 'queue', 'payment'].includes(st.view) ? st.view : 'all';
+    this.currentStatus = st.status || null;
+    this.colFilters = { number: '', supplier: '', sumFrom: '', sumTo: '', sber: '', ...(st.colFilters || {}) };
+    this.search = st.search || '';
+    const search = document.getElementById('invoices-search');
+    if (search) search.value = this.search;
+    if (['today', 'yesterday', '7d', '30d'].includes(st.period)) {
+      this._syncFilterInputs();
+      this.setPeriod(st.period); // пересчитывает даты от сегодняшнего дня и грузит список
+      this._renderSummary();
+      return;
+    }
+    this.period = st.period === 'custom' ? 'custom' : 'all';
+    this.dateFrom = st.dateFrom || null;
+    this.dateTo = st.dateTo || null;
+    this.offset = 0;
+    this._syncFilterInputs();
+    this._renderSummary();
+    this._syncFilterReset();
+    this.loadTable();
+  },
+  removeSavedFilter(index, ev) {
+    ev?.stopPropagation();
+    const list = this._savedFilters();
+    list.splice(index, 1);
+    this._storeSavedFilters(list);
+  },
+  _syncFilterInputs() {
+    const f = this.colFilters;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    set('filter-number', f.number); set('filter-supplier', f.supplier);
+    set('filter-sum-from', f.sumFrom); set('filter-sum-to', f.sumTo); set('filter-sber', f.sber);
+    set('filter-status', this.currentStatus);
+    set('filter-date-from', this.dateFrom);
+    set('filter-date-to', this.dateTo ? this._prevDayIso(this.dateTo) : '');
+  },
+  _renderSavedFilters() {
+    const host = document.getElementById('saved-filters');
+    if (!host) return;
+    const list = this._savedFilters();
+    host.hidden = list.length === 0;
+    host.innerHTML = list.map((f, i) => `<span class="saved-filter"><button type="button" class="saved-filter__apply" onclick="Invoices.applySavedFilter(${i})">${App.esc(f.name)}</button><button type="button" class="saved-filter__remove" onclick="Invoices.removeSavedFilter(${i}, event)" aria-label="Удалить набор «${App.esc(f.name)}»" title="Удалить набор">×</button></span>`).join('');
   },
 
   // Debounced server-side search over invoice number / supplier / ИНН.
@@ -2188,12 +2345,12 @@ const Invoices = {
     }
     this.showConfirm(
       'Удалить накладную?',
-      `Накладная #${id} будет удалена вместе с фото. Это действие нельзя отменить.`,
+      `Накладная #${id} попадёт в корзину: 30 дней её можно вернуть вместе с фото (Накладные → Корзина).`,
       async () => {
         return this._withGuard(`delete:${id}`, async () => {
           try {
             await App.apiJson(`/invoices/${id}`, { method: 'DELETE' });
-            App.notify('Накладная удалена', 'success');
+            App.notify('Накладная в корзине — вернуть можно 30 дней', 'success');
             App.navigate('#/invoices');
             this.showList();
           } catch (e) {

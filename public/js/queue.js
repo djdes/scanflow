@@ -107,7 +107,7 @@ const Queue = {
       <div class="queue-tiles" role="group" aria-label="Фильтр очереди">
         ${tile('all', 'в очереди', s.count, `${App.formatMoney(s.total_sum)} ₽`, '')}
         ${tile('ready', 'готовы к 1С', s.ready, s.ready ? 'замечаний нет' : '', 'ready')}
-        ${tile('blocked', 'с замечаниями', s.blocked, s.blocked ? 'нужно посмотреть' : '', 'blocked')}
+        ${tile('blocked', 'проверить', s.blocked, s.blocked ? 'есть замечания' : '', 'blocked')}
         ${tile('approved', 'одобрены, ждут 1С', s.approved, oldestApproved ? `ждут с ${App.esc(this._day(oldestApproved))}` : '', 'approved')}
       </div>
       ${s.sber_created ? `<p class="queue-note">Платёжки в Сбере созданы по ${s.sber_created} ${this._plural(s.sber_created, 'накладной', 'накладным', 'накладным')} из очереди${s.sber_paid ? ` — по <strong>${s.sber_paid}</strong> банк уже исполнил оплату, а в 1С их ещё нет` : ''}.</p>` : ''}`;
@@ -269,7 +269,7 @@ const Queue = {
           </div>
         </td>
         <td class="queue-num" data-label="Сумма">
-          <div class="queue-cell">${App.formatMoney(r.total_sum)}${this._vatLine(r)}</div>
+          <div class="queue-cell">${App.formatMoney(r.total_sum)}</div>
         </td>
         <td data-label="Готовность"><div class="queue-cell">${this.readinessHtml(r)}</div></td>
         <td data-label="Строки"><div class="queue-cell">${this.linesHtml(r)}</div></td>
@@ -281,12 +281,6 @@ const Queue = {
       </tr>${isOpen ? `<tr class="queue-panel-row"><td colspan="8" id="queue-panel">${this.panelHtml()}</td></tr>` : ''}`;
   },
 
-  _vatLine(r) {
-    if (r.vat_sum == null) return '';
-    const v = Number(r.vat_sum);
-    if (!Number.isFinite(v)) return '';
-    return v > 0 ? `<div class="list-vat">в т.ч. НДС ${App.formatMoney(v)}</div>` : '<div class="list-vat">без НДС</div>';
-  },
 
   readinessHtml(r) {
     const esc = (s) => App.esc(s);
@@ -301,7 +295,8 @@ const Queue = {
     const n = (r.reasons || []).length;
     const top = (r.reasons || []).slice(0, 2).map(x => `<li${x.hard ? ' class="is-hard"' : ''}>${esc(x.message)}</li>`).join('');
     const more = n > 2 ? `<li class="queue-sub">ещё ${n - 2}…</li>` : '';
-    return `<span class="badge ${hard ? 'badge-error' : 'badge-processing'}">${hard ? '1С не примет' : `Замечаний: ${n}`}</span>
+    // Те же слова, что в списке накладных (2026-11-17): «Проверить», а не «Замечаний: N».
+    return `<span class="badge ${hard ? 'badge-error' : 'badge-processing'}">${hard ? '1С не примет' : `Проверить · ${n}`}</span>
       <ul class="queue-reasons">${top}${more}</ul>`;
   },
 
@@ -311,7 +306,7 @@ const Queue = {
     if (r.flagged) parts.push(`<span class="queue-bad">кол-во под вопросом: ${r.flagged}</span>`);
     if (r.risk_counts && r.risk_counts.unit_mismatch) parts.push(`<span class="queue-warn">ед. не как в 1С: ${r.risk_counts.unit_mismatch}</span>`);
     if (r.risk_counts && r.risk_counts.unit_to_kg) parts.push(`<span class="queue-warn" title="При загрузке обработка 1С переведёт эти позиции на кг — остаток в прежней единице проверьте инвентаризацией">1С переведёт на кг: ${r.risk_counts.unit_to_kg}</span>`);
-    const legacy = r.legacy_lines ? `<div class="queue-sub" title="Строки записаны до пакета v2: пересчёт единиц мог быть неверным — перераспознайте, чтобы сравнить">до v2: ${r.legacy_lines}</div>` : '';
+    const legacy = r.legacy_lines ? `<div class="queue-sub" title="Строки распознаны старой версией: пересчёт единиц мог быть неверным — перераспознайте, чтобы сравнить">старое распознавание: ${r.legacy_lines}</div>` : '';
     return `${Number(r.lines) || 0} стр.${parts.length ? `<div class="queue-sub queue-line-flags">${parts.join('')}</div>` : ''}${legacy}`;
   },
 
@@ -331,7 +326,7 @@ const Queue = {
   reocrCellHtml(r) {
     const esc = (s) => App.esc(s);
     const x = r.reocr;
-    if (!x) return r.photo === 'ok' ? '<span class="queue-muted">не было</span>' : '<span class="queue-muted" title="Фото удалено по сроку хранения — перераспознать нельзя">нет фото</span>';
+    if (!x) return r.photo === 'ok' ? '<span class="queue-muted">—</span>' : '<span class="queue-muted" title="Фото удалено по сроку хранения — перераспознать нельзя">нет фото</span>';
     if (x.status === 'running') return '<span class="queue-sub">идёт…</span>';
     if (x.status === 'error') return `<span class="queue-bad" title="${esc(x.error || '')}">ошибка</span>`;
     if (x.status === 'no_photo') return `<span class="queue-muted" title="${esc(x.error || '')}">нет фото</span>`;

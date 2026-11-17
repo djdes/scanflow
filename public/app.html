@@ -69,11 +69,11 @@
       </a>
       <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Закрыть меню">×</button>
     </div>
+    <button type="button" class="sidebar-search" onclick="Shortcuts.openSearch()" aria-keyshortcuts="Control+K"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Поиск</span><kbd>Ctrl K</kbd></button>
     <nav id="app-primary-nav" aria-label="Основная навигация">
       <div class="sidebar-group">
         <p class="sidebar-group-title">Работа</p>
         <a href="#/invoices" data-tab="invoices"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg><span>Накладные</span></a>
-        <a href="#/queue" data-tab="queue"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M4 12h6M4 18h9"/><path d="M16 8l4 4-4 4"/></svg><span>Очередь в 1С</span></a>
         <a href="#/operations" data-tab="operations"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h13l-3-3M17 17H4l3 3"/></svg><span>Операции</span></a>
         <a href="#/analytics/quality" data-tab="analytics"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-5 4 4 7-7"/><path d="M15 9h5v5"/></svg><span>Аналитика</span></a>
       </div>
@@ -154,9 +154,11 @@
               <input type="search" id="invoices-search" placeholder="Номер, поставщик или ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" name="invoices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')" aria-label="Поиск накладных" aria-keyshortcuts="/">
               <kbd class="search-field__shortcut" aria-hidden="true">/</kbd>
             </div>
+            <div class="saved-filters" id="saved-filters" role="group" aria-label="Сохранённые фильтры" hidden></div>
             <div class="invoices-toolbar__actions">
               <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
               <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры<span class="filter-count" id="invoice-filter-count" hidden></span></button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-send-ready" hidden onclick="Invoices.sendAllReady(event)" title="Все накладные «Готовы к 1С» — не только на этой странице">Отправить готовые в 1С</button>
               <button type="button" class="btn btn-outline btn-sm" id="btn-delete-duplicates" onclick="Invoices.deleteRecentDuplicates(event)" title="Удалить накладные, загруженные повторно за последние 24 часа. Оригиналы остаются">Удалить дубликаты за 24 ч</button>
             </div>
           </div>
@@ -171,6 +173,7 @@
             <label>Сумма до<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" oninput="Invoices.setColumnFilter('sumTo', this.value)"></label>
             <label>Обработка<select class="filter-input" id="filter-status" onchange="Invoices.setColumnFilter('status', this.value)"><option value="">Все</option><option value="new">Новая</option><option value="processed">Распознана</option><option value="sent_to_1c">В 1С</option><option value="waiting_ai">Ждёт GPT</option><option value="error">Ошибка</option></select></label>
             <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">Черновик в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option></select></label>
+            <div class="filter-save"><button type="button" class="btn btn-outline btn-sm" id="filter-save" onclick="Invoices.saveCurrentFilter()" title="Сохранить текущие фильтры кнопкой над списком">Сохранить фильтры</button></div>
           </div>
           <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
           <div class="table-wrap">
@@ -636,10 +639,8 @@
       <div class="tabs operations-tabs" role="tablist" aria-label="Разделы операционного центра">
         <button class="tab-btn active" data-operations-tab="control" onclick="Operations.switchTab('control', this)">Контроль</button>
         <button class="tab-btn" data-operations-tab="payments" onclick="Operations.switchTab('payments', this)">Платежи</button>
-        <button class="tab-btn" data-operations-tab="suppliers" onclick="Operations.switchTab('suppliers', this)">Поставщики</button>
-        <button class="tab-btn" data-operations-tab="channels" onclick="Operations.switchTab('channels', this)">Каналы</button>
+        <button class="tab-btn" data-operations-tab="suppliers" onclick="Operations.switchTab('suppliers', this)">Прогноз и поставщики</button>
         <button class="tab-btn" data-operations-tab="reports" onclick="Operations.switchTab('reports', this)">Отчёты</button>
-        <button class="tab-btn" data-operations-tab="onec" onclick="Operations.switchTab('onec', this)">1С</button>
         <button class="tab-btn" data-operations-tab="assistant" onclick="Operations.switchTab('assistant', this)">Помощник</button>
       </div>
 
@@ -713,28 +714,9 @@
         </div>
       </div>
 
-      <div class="card" style="margin-top:24px">
-        <h3 style="margin-bottom:12px">Автоматизация</h3>
-        <div class="form-group">
-          <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="settings-auto-send-1c">
-              <span class="toggle-slider"></span>
-            </label>
-            <span>Сразу отправлять в 1С</span>
-          </div>
-          <div class="field-hint">Распознанная накладная без ошибок сразу уходит в 1С.</div>
-        </div>
-        <div class="form-group" style="margin-top:16px">
-          <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="settings-auto-send-sber">
-              <span class="toggle-slider"></span>
-            </label>
-            <span>Сразу создавать платёжку в Сбере</span>
-          </div>
-          <div class="field-hint">Черновик создаётся только для подтверждённых поставщиков.</div>
-        </div>
+      <div class="card settings-link-card" style="margin-top:24px">
+        <div><h3>Автоматизация</h3><p class="field-hint">«Сразу отправлять в 1С», платёжки в Сбер и правила проверки — в одном месте.</p></div>
+        <a class="btn btn-outline btn-sm" href="#/operations">Открыть правила автопилота →</a>
       </div>
 
       <div class="card" style="margin-top:24px">
@@ -1088,6 +1070,14 @@
     </section>
 
     <!-- Learning Section (пакет v2, п.15) -->
+    <!-- Корзина (2026-11-17): удалённые накладные 30 дней можно вернуть. -->
+    <section id="view-trash">
+      <div class="section-header">
+        <div><h1 class="section-h1">Корзина</h1><p class="section-subtitle">Удалённые накладные хранятся 30 дней вместе с фото, потом удаляются навсегда.</p></div>
+      </div>
+      <div class="card table-wrap"><table class="invoices-table trash-table"><thead><tr><th>Документ</th><th>Поставщик</th><th class="col-money">Сумма, ₽</th><th>Удалена</th><th class="col-act"><span class="sr-only">Действия</span></th></tr></thead><tbody id="trash-tbody"></tbody></table></div>
+    </section>
+
     <section id="view-learning">
       <h2>Предложения правил</h2>
       <p class="field-hint" style="margin-bottom:14px">Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.</p>
@@ -1217,5 +1207,7 @@
 <script src="/js/analytics.js"></script>
 <script src="/js/onboarding.js"></script>
 <script src="/js/onboarding-hint.js"></script>
+<script src="/js/trash.js"></script>
+<script src="/js/shortcuts.js"></script>
 </body>
 </html>

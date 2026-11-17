@@ -94,12 +94,14 @@ describe('кнопка действия строки', () => {
     // «Позиция 1С не выбрана» — одной строкой в nom-picker, отдельной метки нет (2026-11-17).
     expect(I._itemTags({ id: 1 }, { ...item, onec_guid: null })).not.toContain('не выбрана позиция 1С');
   });
+  // С 2026-11-17 в строке только «В 1С →» у готовой: «Проверить»/«Открыть» делали то же, что
+  // клик по строке. У остальных — пустое место той же ширины, колонка не прыгает.
   it('одной ширины; «В 1С →» только у готовой к отправке', () => {
     const a = (inv: any) => I._rowAction({ id: 7, status: 'processed', approved_for_1c: 0, ...inv });
     for (const html of [a({}), a({ review_reason: 'total' }), a({ status: 'sent_to_1c' }), a({ duplicate_of: 2 })]) expect(html).toContain('inv-act');
     expect(text(a({}))).toBe('В 1С →');
-    expect(text(a({ review_reason: 'total' }))).toBe('Проверить');
-    expect(text(a({ duplicate_of: 2 }))).toBe('Открыть');
-    expect(text(a({ approved_for_1c: 1 }))).toBe('Открыть');
+    expect(text(a({ review_reason: 'total' }))).toBe('');
+    expect(text(a({ duplicate_of: 2 }))).toBe('');
+    expect(text(a({ approved_for_1c: 1 }))).toBe('');
   });
 });
