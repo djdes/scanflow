@@ -595,6 +595,24 @@ html.js [data-animate].visible {
   transform: none;
 }
 
+/* Первый экран не ждёт скрипт (15.11.2026). Раньше заголовок и подзаголовок героя
+   были скрыты (opacity: 0), пока в конце страницы не загрузится landing.js и
+   IntersectionObserver не добавит .visible: на телефоне текст появлялся на 2,8–3 с
+   при первой отрисовке 1,4 с — это и было LCP страницы (Core Web Vitals, поиск).
+   Теперь герой проявляется CSS-анимацией с первой отрисовки, движение то же. */
+@keyframes hero-in {
+  from { opacity: 0; transform: translateY(var(--s-400)); }
+  to   { opacity: 1; transform: none; }
+}
+
+html.js .hero [data-animate] {
+  opacity: 1;
+  transform: none;
+  transition: none;
+  animation: hero-in var(--dur-reveal) var(--ease) both;
+  animation-delay: calc(var(--d, 0) * 80ms);
+}
+
 [data-delay="1"] { --d: 1; }
 [data-delay="2"] { --d: 2; }
 [data-delay="3"] { --d: 3; }
@@ -4291,6 +4309,8 @@ body.login-open { overflow: hidden; }
     transform: none;
     transition: opacity var(--dur-fade) var(--ease);
   }
+
+  html.js .hero [data-animate] { animation: none; }
 
   *,
   *::before,
