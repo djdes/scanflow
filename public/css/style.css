@@ -442,18 +442,35 @@ section { display: none; }
 /* Multi-select checkbox column + bulk-action bar */
 .col-check { width: 34px; text-align: center; padding-left: 8px; padding-right: 4px; }
 .col-check input { cursor: pointer; }
+/* Панель массовых действий плавает внизу экрана над списком (2026-11-17): раньше она
+   вставлялась над таблицей, и при первом выделении всё под ней съезжало вниз. */
 .bulk-bar {
+  position: fixed;
+  z-index: 150;
+  left: var(--sidebar-width, 0px);
+  right: 0;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  width: max-content;
+  max-width: calc(100vw - var(--sidebar-width, 0px) - 32px);
+  margin: 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 9px 14px;
-  margin-bottom: 12px;
-  background: var(--primary-soft, #e7f3f8);
-  border: 1px solid var(--primary, #2383e2);
-  border-radius: 8px;
+  padding: 10px 12px 10px 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(20, 20, 30, 0.16), 0 2px 6px rgba(20, 20, 30, 0.08);
+  animation: bulk-bar-in .18s ease-out;
 }
-.bulk-count { font-weight: 600; margin-right: 4px; }
+.bulk-count { font-weight: 600; margin-right: 6px; min-width: 6.5em; font-variant-numeric: tabular-nums; }
+@keyframes bulk-bar-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@media (max-width: 900px) {
+  .bulk-bar { left: 12px; right: 12px; max-width: none; width: auto; justify-content: center; padding: 10px 12px; }
+  .bulk-count { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .bulk-bar { animation: none; } }
 
 /* ========== Filters ========== */
 .filters {
@@ -6144,3 +6161,48 @@ button.ic-tag { cursor: pointer; }
 @media (max-width: 520px) {
   .sber-modal-actions > .btn { flex: 1 1 100%; margin-left: 0 !important; }
 }
+
+/* Список накладных (2026-11-17): карточки-фильтры и чипсы периода убраны — состояние и
+   период выбираются в «Фильтрах»; справа в строке поиска — «Сбросить», «Фильтры» с числом
+   включённых фильтров и «Удалить дубликаты за 24 ч». */
+.invoices-toolbar__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.filter-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 0.6875rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.filter-count[hidden] { display: none; }
+@media (max-width: 640px) {
+  .invoices-toolbar__actions { margin-left: 0; width: 100%; }
+  .invoices-toolbar__actions .btn { flex: 1 1 auto; }
+}
+
+/* Открытие накладной «как в приложении» (2026-11-17): пока грузится другая накладная —
+   скелетон вместо прежней карточки, затем карточка плавно проявляется. Список при
+   возврате тоже проявляется, а не появляется рывком. */
+.ic-skeleton { display: none; }
+#invoice-detail.is-loading .ic-skeleton { display: block; }
+#invoice-detail.is-loading .ic-layout { display: none; }
+.ic-skeleton .card { padding: 16px 18px; margin-bottom: 12px; }
+.ic-skeleton .skeleton-bar { display: block; height: 12px; }
+.ics-head { display: flex; align-items: center; gap: 16px; }
+.ics-head .ics-back { width: 90px; height: 14px; }
+.ics-head-main { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ics-head .ics-title { width: min(320px, 70%); height: 18px; }
+.ics-head .ics-sub { width: min(220px, 50%); }
+.ics-head .ics-thumb { width: 44px; height: 56px; border-radius: 6px; }
+.ics-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.ics-steps .skeleton-bar { height: 52px; border-radius: 10px; }
+.ics-panel { display: flex; flex-direction: column; gap: 10px; }
+.ics-panel .ics-btn { width: 160px; height: 34px; border-radius: 8px; margin-top: 4px; }
+.ics-items .ics-tabs { width: 260px; height: 16px; margin-bottom: 14px; }
+.ics-row { display: grid; grid-template-columns: 4fr 2fr 1fr 1fr; gap: 16px; padding: 12px 0; border-top: 1px solid var(--border); }
+.ics-w60 { width: 60%; } .ics-w40 { width: 40%; } .ics-row .ics-w40 { width: 85%; } .ics-w20 { width: 70%; } .ics-w12 { width: 60%; justify-self: end; }
+.ic-layout.is-entering, #invoices-list.is-entering { animation: view-enter .22s ease-out; }
+@keyframes view-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .ic-layout.is-entering, #invoices-list.is-entering { animation: none; }
+  .skeleton-bar { animation: none; }
+}
+@media (max-width: 640px) {
+  .ics-row { grid-template-columns: 3fr 1fr; }
+  .ics-row > :nth-child(n+3) { display: none; }
+}
+/* Пока внизу висит панель массовых действий, конец списка (пагинация) не прячется под ней. */
+body.has-bulk-bar #app-main { padding-bottom: 96px; }

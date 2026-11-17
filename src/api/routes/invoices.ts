@@ -1,4 +1,4 @@
-import { isInvoiceListView } from '../../database/repositories/invoiceListWorkflow';
+import { isInvoiceListView, REVIEW_REASON_SQL } from '../../database/repositories/invoiceListWorkflow';
 import invoiceReviewRouter from './invoiceReview';
 import { confirmItemQuantity, quantityReviewToken, QuantityConfirmationError } from '../../services/itemQuantityConfirmation';
 import { Router, Request, Response, NextFunction } from 'express';
@@ -1402,6 +1402,66 @@ router.post('/send-sber-batch', async (req: Request, res: Response) => {
   if (!invoices) return;
   const result = await bulkSendSber(invoices, req.header('X-API-Key') ?? '');
   res.json({ data: result });
+});
+
+// Дубликаты своей компании, загруженные за последние 24 часа, которые можно удалить:
+// признак тот же, что у «Возможный дубликат» в списке (REVIEW_REASON_SQL), он никогда
+// не помечает «оригинал» группы — самая ранняя или уже отправленная накладная остаётся.
+// Не трогаем то, что уже ушло дальше: одобрено или отправлено в 1С, есть платёжка
+// или отметка «оплачено».
+type RecentDuplicate = {
+  id: number; invoice_number: string | null; supplier: string | null; duplicate_of: number | null; file_hash: string | null;
+};
+async function recentDuplicatesForDeletion(ownerId: number): Promise<RecentDuplicate[]> {
+  return getDb().prepare(
+    `SELECT invoices.id, invoices.invoice_number, invoices.supplier, invoices.duplicate_of, invoices.file_hash
+       FROM invoices
+      WHERE invoices.owner_user_id = ?
+        AND invoices.created_at >= NOW() - INTERVAL 24 HOUR
+        AND invoices.status IN ('processed', 'duplicate')
+        AND COALESCE(invoices.approved_for_1c, 0) = 0
+        AND invoices.sent_at IS NULL
+        AND COALESCE(invoices.paid_externally, 0) = 0
+        AND NOT EXISTS (SELECT 1 FROM sber_payments dp WHERE dp.invoice_id = invoices.id)
+        AND (${REVIEW_REASON_SQL}) = 'duplicate'
+      ORDER BY invoices.id`
+  ).all<RecentDuplicate>(ownerId);
+}
+
+// POST /api/invoices/delete-duplicates — «Удалить дубликаты за 24 часа».
+// { dry_run: true } — только показать, что будет удалено; { ids } — удалить из
+// показанного то, что всё ещё дубликат (новое, появившееся после показа, не трогаем).
+router.post('/delete-duplicates', async (req: Request, res: Response) => {
+  const ownerId = req.user?.id;
+  if (ownerId == null) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  const candidates = await recentDuplicatesForDeletion(ownerId);
+  if (req.body?.dry_run === true) {
+    res.json({ data: { count: candidates.length, invoices: candidates.map(({ file_hash: _h, ...row }) => row) } });
+    return;
+  }
+  const rawIds = req.body?.ids;
+  if (!Array.isArray(rawIds) || rawIds.length > 500 || rawIds.some(id => !Number.isInteger(id) || id <= 0)) {
+    res.status(400).json({ error: 'ids must be an array of positive integers (at most 500)' });
+    return;
+  }
+  const wanted = new Set(rawIds as number[]);
+  let deleted = 0;
+  let skipped = 0;
+  for (const row of candidates) {
+    if (!wanted.has(row.id)) continue;
+    try {
+      if (await recognitionJobRepo.processingInvoice(row.id, ownerId, row.file_hash)) { skipped++; continue; }
+      const { file_name } = await invoiceRepo.delete(row.id);
+      await recognitionJobRepo.cancelInvoice(row.id, ownerId, row.file_hash);
+      deleteStoredInvoiceFiles(file_name);
+      deleted++;
+    } catch (err) {
+      skipped++;
+      logger.error('Failed to delete duplicate invoice', { id: row.id, error: (err as Error).message });
+    }
+  }
+  logger.info('Deleted recent duplicate invoices', { ownerId, deleted, skipped, requested: wanted.size });
+  res.json({ data: { deleted, skipped, total: wanted.size } });
 });
 
 // POST /api/invoices/delete-batch — delete multiple invoices
