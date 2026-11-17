@@ -408,7 +408,7 @@ router.get('/', async (req: Request, res: Response) => {
   const supplier = str(req.query.supplier);
   const sumFrom = num(req.query.sum_from);
   const sumTo = num(req.query.sum_to);
-  const sberValues = ['paid', 'unpaid', 'settled', 'draft', 'missing', 'failed'] as const;
+  const sberValues = ['paid', 'unpaid', 'settled', 'draft', 'missing', 'failed', 'due_week', 'due_overdue'] as const;
   const sber = sberValues.find(value => value === req.query.sber);
   const view = isInvoiceListView(req.query.view) ? req.query.view : undefined;
 
@@ -1011,6 +1011,42 @@ router.post('/:id/paid-externally', async (req: Request, res: Response) => {
       : `С накладной №${invoice.invoice_number ?? id} снята отметка «оплачено вне сервиса»`,
   });
   res.json({ data: { id, paid_externally: value } });
+});
+
+// Заметки к накладной (2026-11-17, миграция 96). Своя компания — router.param('id').
+type InvoiceComment = { id: number; author: string | null; body: string; created_at: string; user_id: number | null };
+router.get('/:id/comments', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const rows = await getDb().prepare(
+    'SELECT id, author, body, created_at, user_id FROM invoice_comments WHERE invoice_id = ? ORDER BY id'
+  ).all<InvoiceComment>(id);
+  res.json({ data: rows.map(r => ({ ...r, mine: r.user_id === req.user?.id })) });
+});
+
+router.post('/:id/comments', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+  if (!body) { res.status(400).json({ error: 'Пустая заметка' }); return; }
+  if (body.length > 2000) { res.status(400).json({ error: 'Заметка длиннее 2000 символов' }); return; }
+  const invoice = await invoiceRepo.getById(id);
+  if (!invoice) { res.status(404).json({ error: 'Invoice not found' }); return; }
+  const result = await getDb().prepare(
+    'INSERT INTO invoice_comments (invoice_id, owner_user_id, user_id, author, body) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, invoice.owner_user_id ?? null, req.user?.id ?? null, req.user?.username ?? null, body);
+  const row = await getDb().prepare('SELECT id, author, body, created_at, user_id FROM invoice_comments WHERE id = ?')
+    .get<InvoiceComment>(Number(result.lastInsertRowid));
+  res.json({ data: { ...row, mine: true } });
+});
+
+router.delete('/:id/comments/:commentId', async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id as string);
+  const commentId = Number(req.params.commentId);
+  if (!Number.isInteger(commentId) || commentId <= 0) { res.status(400).json({ error: 'bad comment id' }); return; }
+  const result = await getDb().prepare(
+    'DELETE FROM invoice_comments WHERE id = ? AND invoice_id = ? AND user_id <=> ?'
+  ).run(commentId, id, req.user?.id ?? null);
+  if (!result.changes) { res.status(404).json({ error: 'Заметка не найдена' }); return; }
+  res.json({ data: { deleted: true } });
 });
 
 // POST /api/invoices/:id/pages-confirmed — «все страницы на месте»: человек сверил бумагу,

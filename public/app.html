@@ -172,7 +172,7 @@
             <label>Сумма от<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-from" oninput="Invoices.setColumnFilter('sumFrom', this.value)"></label>
             <label>Сумма до<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" oninput="Invoices.setColumnFilter('sumTo', this.value)"></label>
             <label>Обработка<select class="filter-input" id="filter-status" onchange="Invoices.setColumnFilter('status', this.value)"><option value="">Все</option><option value="new">Новая</option><option value="processed">Распознана</option><option value="sent_to_1c">В 1С</option><option value="waiting_ai">Ждёт GPT</option><option value="error">Ошибка</option></select></label>
-            <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">Черновик в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option></select></label>
+            <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">Черновик в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option><option value="due_week">Оплатить на этой неделе</option><option value="due_overdue">Срок оплаты прошёл</option></select></label>
             <div class="filter-save"><button type="button" class="btn btn-outline btn-sm" id="filter-save" onclick="Invoices.saveCurrentFilter()" title="Сохранить текущие фильтры кнопкой над списком">Сохранить фильтры</button></div>
           </div>
           <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
@@ -224,6 +224,7 @@
                 <button type="button" class="ic-tab active" role="tab" aria-selected="true" data-tab="items" onclick="Invoices.switchTab('items', this)">Товары <span class="ic-tab-count" id="ic-items-count"></span></button>
                 <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="supplier" onclick="Invoices.switchTab('supplier', this)">Поставщик и банк</button>
                 <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="history" onclick="Invoices.switchTab('history', this)">История</button>
+                <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="notes" onclick="Invoices.switchTab('notes', this)">Заметки <span class="ic-tab-count" id="ic-notes-count"></span></button>
               </div>
               <div id="invoice-tab-items" role="tabpanel">
                 <div id="invoice-price-warning"></div>
@@ -246,6 +247,13 @@
                 <div id="invoice-items-toolbar"></div>
               </div>
               <div id="invoice-tab-supplier" role="tabpanel" hidden><div id="invoice-supplier-details"></div></div>
+              <div id="invoice-tab-notes" role="tabpanel" hidden>
+                <div id="invoice-notes-list" class="ic-notes" aria-live="polite"></div>
+                <form class="ic-notes-form" onsubmit="Invoices.addNote(event)">
+                  <textarea id="invoice-note-input" rows="2" maxlength="2000" placeholder="Заметка к накладной: что проверить, с кем договорились, почему пауза" aria-label="Текст заметки"></textarea>
+                  <button type="submit" class="btn btn-outline btn-sm">Добавить</button>
+                </form>
+              </div>
               <div id="invoice-tab-history-wrap" role="tabpanel" hidden>
                 <div id="invoice-tab-history"></div>
                 <details class="ic-ocr"><summary id="ic-ocr-summary">Текст распознавания</summary><div class="ocr-text" id="invoice-ocr-text"></div></details>
@@ -1208,6 +1216,7 @@
 <script src="/js/onboarding.js"></script>
 <script src="/js/onboarding-hint.js"></script>
 <script src="/js/trash.js"></script>
+<script src="/js/claim.js"></script>
 <script src="/js/shortcuts.js"></script>
 </body>
 </html>

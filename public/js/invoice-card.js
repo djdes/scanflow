@@ -121,6 +121,8 @@ const InvoiceCard = {
       null,
       { id: 'editHeader', label: 'Изменить реквизиты' },
       { id: 'compare', label: 'Сравнить с прошлой поставкой' },
+      // null здесь означал бы разделитель групп — поэтому необязательный пункт добавляем spread-ом.
+      ...(typeof Claim !== 'undefined' && Claim.available(inv) ? [{ id: 'claim', label: 'Претензия поставщику' }] : []),
       !xml || golden ? { id: 'golden', label: golden ? 'Убрать из эталонов' : 'Отметить эталоном' } : null,
       inv.status === 'sent_to_1c' ? { id: 'resetStatus', label: 'Сбросить статус «В 1С»' } : null,
       inv.completeness?.confirmed ? { id: 'pagesCheck', label: 'Снова проверять страницы' } : null,
@@ -352,6 +354,7 @@ const InvoiceCard = {
       confirmMappings: (ev) => Invoices.confirmMappings(inv.id, ev),
       editHeader: () => Invoices.editHeader(inv.id),
       compare: () => InvoiceReview.compare(),
+      claim: () => Claim.open(inv),
       golden: () => this.toggleGolden(),
       resetStatus: () => Invoices.resetStatus(inv.id),
       pagesCheck: () => Invoices.setPagesConfirmed(inv.id, false),

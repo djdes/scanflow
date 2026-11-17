@@ -867,6 +867,9 @@ const Invoices = {
     if (['error', 'rejected'].includes(inv.onec_status)) return this._pill('red', 'Не принята', App.esc(inv.onec_error || 'ошибка 1С'));
     // «В 1С» — по статусу накладной: после «Сбросить статус» onec_status остаётся прежним.
     if (inv.status === 'sent_to_1c') return this._pill('green', 'В 1С', inv.onec_status === 'created' ? 'не проведена' : '');
+    // Пока 1С не забрала (свежую накладную она не берёт ещё 5 минут после распознавания —
+    // окно второй страницы), отправку — в том числе автопилота — можно отозвать прямо здесь.
+    if (inv.approved_for_1c && !inv.onec_pulled_at) return `<span class="inv-pill inv-pill--blue"><i aria-hidden="true"></i>В очереди</span><button type="button" class="inv-pill-undo" onclick="Invoices.unapproveForOneC(${inv.id}, event)" title="Отозвать отправку, пока 1С не забрала накладную">отозвать</button>`;
     if (inv.approved_for_1c) return this._pill('blue', 'В очереди', 'ждёт загрузки');
     if (inv.review_reason === 'duplicate') return this._dupPill('Дубликат?', null);
     if (inv.review_reason) {
@@ -1018,6 +1021,7 @@ const Invoices = {
 
       // История — для любой накладной, в т.ч. дубликата.
       this.renderHistory(data).catch(e => console.error('renderHistory failed', e));
+      this.loadNotes(data.id);
 
       // Поставщик и банк — словами, без служебных кодов.
       this._renderSupplierTab(data);
@@ -2093,12 +2097,13 @@ const Invoices = {
     });
   },
 
-  async unapproveForOneC(id) {
+  async unapproveForOneC(id, ev) {
+    ev?.stopPropagation();
     return this._withGuard(`unapprove:${id}`, async () => {
       try {
         await App.apiJson(`/invoices/${id}/unapprove`, { method: 'POST' });
         App.notify('Отправка отозвана', 'success');
-        this.showDetail(id);
+        if (this._currentInvoiceId === id) this.showDetail(id); else this.loadTable();
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
       }
@@ -2619,7 +2624,7 @@ const Invoices = {
 
   // Вкладки карточки: «Товары», «Поставщик и банк», «История» (с текстом распознавания).
   switchTab(tab) {
-    const panels = { items: 'invoice-tab-items', supplier: 'invoice-tab-supplier', history: 'invoice-tab-history-wrap' };
+    const panels = { items: 'invoice-tab-items', supplier: 'invoice-tab-supplier', history: 'invoice-tab-history-wrap', notes: 'invoice-tab-notes' };
     if (!panels[tab]) tab = 'items';
     Object.entries(panels).forEach(([key, id]) => { const el = document.getElementById(id); if (el) el.hidden = key !== tab; });
     document.querySelectorAll('#invoice-detail .ic-tab').forEach(b => {
@@ -2627,6 +2632,48 @@ const Invoices = {
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', String(on));
     });
+  },
+
+  // ── Заметки к накладной (2026-11-17) ──────────────────────────────────────
+  async loadNotes(id = this._currentInvoiceId) {
+    const host = document.getElementById('invoice-notes-list');
+    const count = document.getElementById('ic-notes-count');
+    if (!host || !id) return;
+    try {
+      const { data } = await App.apiJson(`/invoices/${id}/comments`);
+      if (id !== this._currentInvoiceId) return;
+      if (count) count.textContent = data.length ? `· ${data.length}` : '';
+      host.innerHTML = data.length
+        ? data.map(n => `<div class="ic-note"><div class="ic-note-meta"><b>${App.esc(n.author || 'Без имени')}</b><span>${App.esc(App.formatDateTime(n.created_at))}</span>${n.mine ? `<button type="button" class="btn-link" onclick="Invoices.deleteNote(${n.id})">удалить</button>` : ''}</div><p>${App.esc(n.body)}</p></div>`).join('')
+        : '<p class="ic-muted">Заметок пока нет.</p>';
+    } catch {
+      host.innerHTML = '<p class="ic-muted">Не удалось загрузить заметки.</p>';
+    }
+  },
+
+  async addNote(ev) {
+    ev.preventDefault();
+    const input = document.getElementById('invoice-note-input');
+    const body = (input?.value || '').trim();
+    const id = this._currentInvoiceId;
+    if (!body || !id) return;
+    const btn = ev.submitter || ev.target.querySelector('button[type="submit"]');
+    return App.withBusyButton(btn, async () => {
+      try {
+        await App.apiJson(`/invoices/${id}/comments`, { method: 'POST', body: { body } });
+        input.value = '';
+        await this.loadNotes(id);
+      } catch (e) { App.notify(e.message || 'Не удалось сохранить заметку', 'error'); }
+    });
+  },
+
+  async deleteNote(commentId) {
+    const id = this._currentInvoiceId;
+    if (!id || !window.confirm('Удалить заметку?')) return;
+    try {
+      await App.apiJson(`/invoices/${id}/comments/${commentId}`, { method: 'DELETE' });
+      await this.loadNotes(id);
+    } catch (e) { App.notify(e.message || 'Не удалось удалить заметку', 'error'); }
   },
 
   async loadPhotos() {

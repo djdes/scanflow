@@ -62,11 +62,14 @@ export const trashRepo = {
     const snapshots = await tableExists(db, 'invoice_snapshots')
       ? await db.prepare('SELECT * FROM invoice_snapshots WHERE invoice_id = ? ORDER BY id').all<Row>(invoiceId)
       : [];
+    const comments = await tableExists(db, 'invoice_comments')
+      ? await db.prepare('SELECT * FROM invoice_comments WHERE invoice_id = ? ORDER BY id').all<Row>(invoiceId)
+      : [];
     const res = await db.prepare(
       `INSERT INTO deleted_invoices
          (invoice_id, owner_user_id, invoice_number, supplier, total_sum, file_name,
-          invoice_json, items_json, snapshots_json, deleted_by, reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          invoice_json, items_json, snapshots_json, comments_json, deleted_by, reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       invoiceId,
       (invoice.owner_user_id as number | null) ?? null,
@@ -74,7 +77,7 @@ export const trashRepo = {
       (invoice.supplier as string | null) ?? null,
       (invoice.total_sum as number | null) ?? null,
       (invoice.file_name as string | null) ?? null,
-      JSON.stringify(invoice), JSON.stringify(items), JSON.stringify(snapshots),
+      JSON.stringify(invoice), JSON.stringify(items), JSON.stringify(snapshots), JSON.stringify(comments),
       deletedBy, reason,
     );
     const trashId = Number(res.lastInsertRowid);
@@ -116,6 +119,7 @@ export const trashRepo = {
     const invoice = JSON.parse(String(entry.invoice_json)) as Row;
     const items = JSON.parse(String(entry.items_json)) as Row[];
     const snapshots = entry.snapshots_json ? JSON.parse(String(entry.snapshots_json)) as Row[] : [];
+    const comments = entry.comments_json ? JSON.parse(String(entry.comments_json)) as Row[] : [];
     const invoiceId = Number(entry.invoice_id);
     if (await db.prepare('SELECT id FROM invoices WHERE id = ?').get(invoiceId)) {
       throw new TrashRestoreError('exists', 'Накладная с этим номером записи уже есть');
@@ -135,6 +139,10 @@ export const trashRepo = {
       if (snapshots.length && await tableExists(txn, 'invoice_snapshots')) {
         const snapCols = await columnsOf(txn, 'invoice_snapshots');
         for (const snap of snapshots) await insertRow(txn, 'invoice_snapshots', snap, snapCols);
+      }
+      if (comments.length && await tableExists(txn, 'invoice_comments')) {
+        const commentCols = await columnsOf(txn, 'invoice_comments');
+        for (const c of comments) await insertRow(txn, 'invoice_comments', c, commentCols);
       }
       await txn.prepare('DELETE FROM deleted_invoices WHERE id = ?').run(trashId);
     });

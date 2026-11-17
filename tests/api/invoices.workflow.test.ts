@@ -116,6 +116,25 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('invoice workflow l
     expect(await invoiceRepo.countList(undefined, 1, { view: 'payment' })).toBe(0);
   });
 
+  it('filters unpaid invoices by payment due date: this week and overdue', async () => {
+    const soon = await invoice();
+    const late = await invoice();
+    const later = await invoice();
+    const paid = await invoice();
+    // Срок — своя дата накладной (payment_due_date) или дата накладной + 7 дней по умолчанию.
+    await getDb().prepare('UPDATE invoices SET payment_due_date = DATE_ADD(CURDATE(), INTERVAL 3 DAY) WHERE id IN (?, ?)').run(soon, paid);
+    await getDb().prepare('UPDATE invoices SET payment_due_date = DATE_SUB(CURDATE(), INTERVAL 2 DAY) WHERE id = ?').run(late);
+    await getDb().prepare('UPDATE invoices SET payment_due_date = DATE_ADD(CURDATE(), INTERVAL 40 DAY) WHERE id = ?').run(later);
+    await invoiceRepo.setPaidExternally(paid, true);
+    const ids = async (filter: string) => {
+      const res = await request(app).get(`/api/invoices?sber=${filter}`).set('X-API-Key', 'wk1');
+      expect(res.status).toBe(200);
+      return res.body.data.map((x: { id: number }) => x.id);
+    };
+    expect(await ids('due_week')).toEqual([soon]);
+    expect(await ids('due_overdue')).toEqual([late]);
+  });
+
   it('flags a later copy with the same number, date and supplier as a duplicate, keeping the original ready', async () => {
     const original = await invoice();
     const copy = await invoice();
