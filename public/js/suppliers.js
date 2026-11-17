@@ -234,24 +234,22 @@ const Suppliers = {
     const canMerge = this.state.items.length > 1;
     const rows = this.state.items.map(s => `
       <tr>
-        <td data-label="ИНН"><span>${App.esc(s.inn)}${s.inn_valid === false ? ` ${this._badInnBadge()}` : ''}</span></td>
-        <td data-label="Название">${App.esc(s.name)}</td>
-        <td data-label="КПП">${App.esc(s.kpp || '')}</td>
-        <td data-label="БИК">${App.esc(s.bank_bic)}</td>
-        <td data-label="Счёт">${App.esc(s.account || '')}</td>
+        <td data-label="ИНН / КПП"><div class="sup-cell">${App.esc(s.inn)}${s.inn_valid === false ? ` ${this._badInnBadge()}` : ''}${s.kpp ? `<div class="sup-sub">КПП ${App.esc(s.kpp)}</div>` : ''}</div></td>
+        <td data-label="Название" class="sup-name">${App.esc(s.name)}</td>
+        <td data-label="Счёт / БИК"><div class="sup-cell"><span class="sup-num">${App.esc(s.account || '—')}</span><div class="sup-sub">БИК ${App.esc(s.bank_bic || '—')}</div></div></td>
         <td data-label="Проверен">${s.verified ? '<span class="badge badge-ok" style="padding:2px 8px">✓</span>' : '<span class="badge badge-warn" style="padding:2px 8px">!</span>'}</td>
-        <td data-label="Использован">${App.esc(s.last_used_at || '')}</td>
+        <td data-label="Использован">${App.esc(this._shortDate(s.last_used_at))}</td>
         <td class="cell-action">
           ${canMerge ? `<button class="btn btn-outline btn-sm" onclick="Suppliers.openMerge('${App.esc(s.inn)}')" title="Перенести накладные и правила этой карточки в другую и удалить эту">Объединить с…</button>` : ''}
-          <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')">✎</button>
-          <button class="btn btn-danger btn-sm" onclick="Suppliers.remove('${App.esc(s.inn)}')">🗑</button>
+          <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')" title="Изменить" aria-label="Изменить реквизиты">✎</button>
+          <button class="btn btn-danger btn-sm" onclick="Suppliers.remove('${App.esc(s.inn)}')" title="Удалить" aria-label="Удалить поставщика">🗑</button>
         </td>
       </tr>
     `).join('');
     wrap.innerHTML = `
       <div class="table-wrap">
-        <table class="cards-mobile">
-          <thead><tr><th>ИНН</th><th>Название</th><th>КПП</th><th>БИК</th><th>Счёт</th><th>Проверен</th><th>Использован</th><th></th></tr></thead>
+        <table class="cards-mobile suppliers-table">
+          <thead><tr><th>ИНН / КПП</th><th>Название</th><th>Счёт / БИК</th><th>Проверен</th><th>Использован</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -302,8 +300,15 @@ const Suppliers = {
 
   // Контрольная сумма ИНН не сходится — почти всегда опечатка распознавания
   // (7724357632 → 7724357832). Такую карточку сливают с верной.
+  // «2026-11-17 04:03:16» из базы → «17.11.2026»: раньше в колонке «Использован» стояла
+  // строка базы целиком, и она одна раздвигала таблицу.
+  _shortDate(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
+  },
+
   _badInnBadge() {
-    return '<span class="badge badge-error" style="padding:2px 8px" title="Контрольная сумма ИНН не сходится — вероятно, опечатка при распознавании. Объедините карточку с верной.">ИНН не проходит проверку</span>';
+    return '<span class="badge badge-error" style="padding:2px 8px" title="Контрольная сумма ИНН не сходится — вероятно, опечатка при распознавании. Объедините карточку с верной.">ИНН с ошибкой</span>';
   },
 
   // Название без ОПФ, кавычек, регистра и пробелов — чтобы двойники
