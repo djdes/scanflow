@@ -46,7 +46,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 | Репозиторий | Сделано |
 |---|---|
 | ProjectsFlow | JSON-LD главной с ценами и FAQ (#28), Dependabot (#26) |
-| OrdersFlow | og:image в PNG (#6, ждёт решения) |
+| OrdersFlow | og:image в PNG (#6, закрыт), цена тарифа в пререндере и JSON-LD (#11) |
 | TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12) |
 | scanflow | Dependabot (#15), gitleaks (#8), npm audit (#6, #9) — ждут решения |
 | yesbeatru | проверка секретов в PR (#537) |
@@ -57,7 +57,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 
 - **scanflow** (лендинг/блог): JSON-LD `SoftwareApplication` + `Offer` по тарифам и `FAQPage`
   на главной; `BlogPosting` + `BreadcrumbList` в статьях; `hreflang`/canonical на пагинации.
-- **OrdersFlow**: `Restaurant`/`Menu` JSON-LD на гостевом меню `/m/:slug` — сниппеты в поиске для ресторанов клиентов.
+- ~~**OrdersFlow**: `Restaurant`/`Menu` JSON-LD на `/m/:slug`~~ — не делать: страница `noindex`, разметку поиск не увидит.
 - **yesbeatru**: `MusicRecording`/`Product` + `Offer` в карточке трека (цена, BPM, длительность) —
   витрина в Google/Яндексе; `ItemList` в каталоге. Выкладка — двумя PR (main + prod).
 - **TasksFlow**: `HowTo`-разметка на кластерных страницах блога; прайс-якорь «за сотрудника в месяц».
@@ -89,7 +89,10 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 В конце письма одна новая идея, которой нет в этом списке; добавь её сюда же в PR.
 
 Уже предложено: скилл с журналом (этот файл), Setup script среды (`env-setup.sh`),
-правило «ботов не трогать», готовый текст промпта (`PROMPT.md`).
+правило «ботов не трогать», готовый текст промпта (`PROMPT.md`),
+сверка «разметка ↔ видимая цена» на проде: `curl` главной, вытащить `offers` из JSON-LD и
+числа рядом с «₽» из HTML без JS — расхождение = находка (так найден OrdersFlow #11: робот
+видел «0 ₽», а разметка — 4 900–19 900 ₽ при цене 15 000).
 Кандидаты на следующие разы: проверка сниппетов через Rich Results Test в Playwright;
 ежемесячный отчёт по позициям из Яндекс.Вебмастера (нужен токен в секретах среды);
 снимки «до/после» визуальных PR прямо в описании (скилл visual-check).
