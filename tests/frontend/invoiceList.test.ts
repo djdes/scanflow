@@ -19,7 +19,9 @@ describe('колонка «1С»', () => {
   const pill = (inv: any) => I._onecPill({ status: 'processed', approved_for_1c: 0, onec_status: 'not_sent', ...inv });
   it('по пути в 1С: не отправлена → в очереди → в 1С', () => {
     expect([tone(pill({})), text(pill({}))]).toEqual(['grey', 'Не отправлена']);
-    expect([tone(pill({ approved_for_1c: 1 })), text(pill({ approved_for_1c: 1 }))]).toEqual(['blue', 'В очереди ждёт загрузки']);
+    // Пока 1С не забрала — «отозвать» прямо в списке (окно отмены, 2026-11-17); забрала — «ждёт загрузки».
+    expect([tone(pill({ approved_for_1c: 1 })), text(pill({ approved_for_1c: 1 }))]).toEqual(['blue', 'В очереди отозвать']);
+    expect(text(pill({ approved_for_1c: 1, onec_pulled_at: '2026-11-17 10:00:00' }))).toBe('В очереди ждёт загрузки');
     expect([tone(pill({ status: 'sent_to_1c', onec_status: 'posted' })), text(pill({ status: 'sent_to_1c', onec_status: 'posted' }))]).toEqual(['green', 'В 1С']);
     expect(text(pill({ status: 'sent_to_1c', onec_status: 'created' }))).toBe('В 1С не проведена');
     // «Сбросить статус» оставляет прежний ответ 1С — накладная снова не отправлена.

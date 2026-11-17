@@ -2754,6 +2754,28 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    // Заметки к накладной (2026-11-17): кто, когда, текст. В корзину уходят вместе с накладной.
+    version: 96,
+    name: 'invoice_comments + deleted_invoices.comments_json',
+    detect: async exec => (await hasTable(exec, 'invoice_comments')) && (await hasColumn(exec, 'deleted_invoices', 'comments_json')),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS invoice_comments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        invoice_id INT NOT NULL,
+        owner_user_id INT NULL,
+        user_id INT NULL,
+        author VARCHAR(255) NULL,
+        body TEXT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_comments_invoice (invoice_id, id),
+        CONSTRAINT fk_comments_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      if (!(await hasColumn(exec, 'deleted_invoices', 'comments_json'))) {
+        await exec.query('ALTER TABLE deleted_invoices ADD COLUMN comments_json MEDIUMTEXT NULL');
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

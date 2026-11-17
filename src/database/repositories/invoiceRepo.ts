@@ -126,7 +126,7 @@ export interface ListFilters {
   sumFrom?: number;
   sumTo?: number;
   /** 'paid' — есть платёж в Сбере или отметка «оплачено вне сервиса»; 'unpaid' — ни того, ни другого. */
-  sber?: 'paid' | 'unpaid' | 'settled' | 'draft' | 'missing' | 'failed';
+  sber?: 'paid' | 'unpaid' | 'settled' | 'draft' | 'missing' | 'failed' | 'due_week' | 'due_overdue';
   view?: InvoiceListView;
 }
 
@@ -371,11 +371,23 @@ function invoiceListWhere(status?: string, ownerUserId?: number, opts?: ListFilt
       draft: `invoices.paid_externally = 0 AND EXISTS (SELECT 1 FROM sber_payments sp WHERE sp.invoice_id = invoices.id AND sp.status = 'created' AND (sp.bank_status IS NULL OR sp.bank_status IN ('CREATED', 'PARTSIGNED')))`,
       missing: INVOICE_VIEW_SQL.payment,
       failed: FAILED_PAYMENT_SQL,
+      // Срок оплаты — как в «Операциях → Платежи»: своя дата накладной или дата
+      // накладной + отсрочка поставщика (по умолчанию 7 дней). Только без платёжки.
+      due_week: `${INVOICE_VIEW_SQL.payment} AND ${PAYMENT_DUE_SQL} BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)`,
+      due_overdue: `${INVOICE_VIEW_SQL.payment} AND ${PAYMENT_DUE_SQL} < CURDATE()`,
     };
     if (opts?.sber && paymentFilters[opts.sber]) conds.push(paymentFilters[opts.sber]);
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     return { where, params };
 }
+
+/** Срок оплаты накладной (DATE или NULL) — та же формула, что в operationsRepo. */
+const PAYMENT_DUE_SQL = `COALESCE(invoices.payment_due_date,
+  CASE WHEN invoices.invoice_date REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+       THEN DATE_ADD(STR_TO_DATE(invoices.invoice_date, '%Y-%m-%d'), INTERVAL COALESCE((
+         SELECT sc.payment_terms_days FROM supplier_cards sc
+          WHERE sc.inn = invoices.supplier_inn AND sc.owner_user_id <=> invoices.owner_user_id LIMIT 1), 7) DAY)
+       ELSE NULL END)`;
 
 export const invoiceRepo = {
   async create(data: CreateInvoiceData): Promise<Invoice> {

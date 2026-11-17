@@ -6213,4 +6213,29 @@ body.has-bulk-bar #app-main { padding-bottom: 96px; }
 .global-search__item small { color: var(--text-secondary); font-size: 0.75rem; }
 .global-search__item:hover, .global-search__item.is-active, .global-search__item:focus-visible { background: var(--primary-soft); outline: none; }
 .global-search__hint { padding: 16px 12px; color: var(--text-secondary); font-size: 0.8125rem; }
-@media (max-width: 640px) { .global-search__field kbd { display: none; } .global-search { margin-top: 12px; } }
+@media (max-width: 640px) { .global-search__field kbd { display: none; } }
+.inv-pill-undo { border: 0; background: transparent; padding: 0 2px; color: var(--primary-hover); font: inherit; font-size: 0.6875rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.inv-pill-undo:hover { color: var(--error, #c4372f); }
+/* «Претензия поставщику» (2026-11-17). */
+.claim-dialog { width: min(680px, calc(100% - 24px)); padding: 20px 22px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); color: var(--text); box-shadow: var(--shadow-lg); font-family: var(--font); }
+.claim-dialog::backdrop { background: rgb(25 23 30 / 40%); }
+.claim-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.claim-head h2 { font-size: 1.125rem; }
+.claim-hint { font-size: 0.78125rem; color: var(--text-secondary); margin: 6px 0 12px; }
+#claim-text { width: 100%; min-height: 300px; padding: 12px; border: 1px solid var(--border-hover); border-radius: 8px; font: inherit; font-size: 0.875rem; line-height: 1.55; resize: vertical; color: var(--text); background: var(--card); }
+.claim-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+/* Заметки к накладной (2026-11-17). */
+#invoice-tab-notes { padding: 14px 18px 18px; }
+.ic-notes { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.ic-note { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.ic-note-meta { display: flex; align-items: baseline; gap: 10px; font-size: 0.75rem; color: var(--text-secondary); }
+.ic-note-meta b { color: var(--text); font-weight: 600; }
+.ic-note-meta .btn-link { margin-left: auto; font-size: 0.75rem; }
+.ic-note p { margin-top: 4px; font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ic-notes-form { display: flex; gap: 8px; align-items: flex-end; }
+.ic-notes-form textarea { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--border-hover); border-radius: 8px; font: inherit; font-size: 0.875rem; resize: vertical; background: var(--card); color: var(--text); }
+@media (max-width: 640px) { .ic-notes-form { flex-direction: column; align-items: stretch; } }
+/* Общий сброс margin: 0 ломает центровку <dialog> — возвращаем её новым окнам. */
+.claim-dialog, .shortcuts-dialog { margin: auto; }
+.global-search { margin: 10vh auto auto; }
+@media (max-width: 640px) { .global-search { margin: 12px auto auto; } }
