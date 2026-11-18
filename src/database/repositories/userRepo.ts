@@ -143,11 +143,11 @@ export const userRepo = {
   },
 
   async updatePasswordHash(id: number, password_hash: string): Promise<void> {
-    await getDb().prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, id);
+    await this.updateUser(id, { password_hash });
   },
 
   async updateApiKey(id: number, api_key: string): Promise<void> {
-    await getDb().prepare('UPDATE users SET api_key = ? WHERE id = ?').run(api_key, id);
+    await this.updateUser(id, { api_key });
   },
 
   async updateUser(id: number, fields: UpdateUserFields): Promise<void> {
@@ -214,6 +214,9 @@ export const userRepo = {
       sets.push('sber_purpose_template = ?');
       vals.push(fields.sber_purpose_template);
     }
+    if (fields.password_hash !== undefined || fields.api_key !== undefined || fields.is_blocked === true) {
+      sets.push('phone_login_hash = NULL', 'phone_login_expires_at = NULL');
+    }
 
     if (sets.length === 0) return;
     vals.push(id);
@@ -224,6 +227,33 @@ export const userRepo = {
     return getDb()
       .prepare('SELECT * FROM users WHERE email = ? LIMIT 1')
       .get<User>(email);
+  },
+
+  async setPhoneLoginToken(id: number, apiKey: string, hash: string, ttlSeconds: number): Promise<boolean> {
+    const result = await getDb().prepare(
+      `UPDATE users
+          SET phone_login_hash = UNHEX(?), phone_login_expires_at = TIMESTAMPADD(SECOND, ?, NOW())
+        WHERE id = ? AND api_key = ? AND is_blocked = 0`
+    ).run(hash, ttlSeconds, id, apiKey);
+    return result.changes === 1;
+  },
+
+  async consumePhoneLoginToken(hash: string): Promise<User | undefined> {
+    return getDb().transaction(async (txn) => {
+      const user = await txn.prepare(
+        `SELECT * FROM users
+          WHERE phone_login_hash = UNHEX(?) AND phone_login_expires_at > NOW() AND is_blocked = 0
+          FOR UPDATE`
+      ).get<User>(hash);
+      if (!user) return undefined;
+
+      await txn.prepare(
+        `UPDATE users
+            SET phone_login_hash = NULL, phone_login_expires_at = NULL, last_login_at = NOW()
+          WHERE id = ?`
+      ).run(user.id);
+      return user;
+    });
   },
 
   async findByMagicToken(token: string): Promise<User | undefined> {

@@ -2699,6 +2699,100 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    // Уведомления на телефон (Web Push, мобильное приложение /m/ — правило 48):
+    // подписки устройств и ключ VAPID сервера (закрытая часть — зашифрована от
+    // JWT_SECRET). Адрес подписки длинный, уникальность — по его SHA-256.
+    version: 94,
+    name: 'web push subscriptions and VAPID key',
+    detect: async exec => (await hasTable(exec, 'push_subscriptions')) && (await hasTable(exec, 'push_vapid_keys')),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        owner_user_id INT NOT NULL,
+        endpoint_hash CHAR(64) NOT NULL,
+        endpoint TEXT NOT NULL,
+        p256dh VARCHAR(255) NOT NULL,
+        auth VARCHAR(255) NOT NULL,
+        user_agent VARCHAR(512) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_success_at DATETIME NULL,
+        UNIQUE KEY uq_push_endpoint (endpoint_hash),
+        KEY idx_push_owner (owner_user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await exec.query(`CREATE TABLE IF NOT EXISTS push_vapid_keys (
+        id TINYINT NOT NULL PRIMARY KEY,
+        public_key VARCHAR(255) NOT NULL,
+        private_key_enc TEXT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
+  {
+    // Корзина (2026-11-17): удалённая пользователем накладная 30 дней хранится снимком —
+    // строка накладной, строки товаров и снимки шапки в JSON; фото не удаляются до очистки.
+    version: 95,
+    name: 'deleted_invoices trash',
+    detect: exec => hasTable(exec, 'deleted_invoices'),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS deleted_invoices (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        invoice_id INT NOT NULL,
+        owner_user_id INT NULL,
+        invoice_number VARCHAR(255) NULL,
+        supplier VARCHAR(500) NULL,
+        total_sum DECIMAL(15,2) NULL,
+        file_name TEXT NULL,
+        invoice_json MEDIUMTEXT NOT NULL,
+        items_json MEDIUMTEXT NOT NULL,
+        snapshots_json MEDIUMTEXT NULL,
+        deleted_by INT NULL,
+        reason VARCHAR(64) NULL,
+        deleted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_deleted_owner (owner_user_id, deleted_at),
+        KEY idx_deleted_invoice (invoice_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
+  {
+    // Заметки к накладной (2026-11-17): кто, когда, текст. В корзину уходят вместе с накладной.
+    version: 96,
+    name: 'invoice_comments + deleted_invoices.comments_json',
+    detect: async exec => (await hasTable(exec, 'invoice_comments')) && (await hasColumn(exec, 'deleted_invoices', 'comments_json')),
+    run: async exec => {
+      await exec.query(`CREATE TABLE IF NOT EXISTS invoice_comments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        invoice_id INT NOT NULL,
+        owner_user_id INT NULL,
+        user_id INT NULL,
+        author VARCHAR(255) NULL,
+        body TEXT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_comments_invoice (invoice_id, id),
+        CONSTRAINT fk_comments_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      if (!(await hasColumn(exec, 'deleted_invoices', 'comments_json'))) {
+        await exec.query('ALTER TABLE deleted_invoices ADD COLUMN comments_json MEDIUMTEXT NULL');
+      }
+    },
+  },
+  {
+    version: 97,
+    name: 'users.phone_login_token',
+    detect: async exec => (await hasColumn(exec, 'users', 'phone_login_expires_at'))
+      && (await hasIndex(exec, 'users', 'uq_users_phone_login_hash')),
+    run: async exec => {
+      if (!(await hasColumn(exec, 'users', 'phone_login_hash'))) {
+        await exec.query('ALTER TABLE users ADD COLUMN phone_login_hash BINARY(32) NULL');
+      }
+      if (!(await hasColumn(exec, 'users', 'phone_login_expires_at'))) {
+        await exec.query('ALTER TABLE users ADD COLUMN phone_login_expires_at DATETIME NULL');
+      }
+      if (!(await hasIndex(exec, 'users', 'uq_users_phone_login_hash'))) {
+        await exec.query('ALTER TABLE users ADD UNIQUE KEY uq_users_phone_login_hash (phone_login_hash)');
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {

@@ -76,13 +76,14 @@ export const recognitionJobRepo = {
         .run(job.id, job.lease_token)).changes > 0;
     });
   },
-  async settle(job: RecognitionJob, result: { invoiceId: number | null; error?: string; delaySeconds?: number }) {
+  /** `terminal` — ошибка окончательная (повтор даст то же самое): задание закрывается, причина остаётся в last_error. */
+  async settle(job: RecognitionJob, result: { invoiceId: number | null; error?: string; delaySeconds?: number; terminal?: boolean }) {
     await getDb().transaction(async db => {
       await db.prepare(`UPDATE recognition_jobs SET state = ?, invoice_id = ?, last_error = ?,
         next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND), lease_token = NULL, lease_expires_at = NULL,
         completed_at = ?, updated_at = NOW() WHERE id = ? AND state = 'processing' AND lease_token = ?`)
-        .run(result.error ? 'retry' : 'completed', result.invoiceId, result.error ?? null, result.delaySeconds ?? 0,
-          result.error ? null : new Date().toISOString().slice(0, 19).replace('T', ' '), job.id, job.lease_token);
+        .run(result.error && !result.terminal ? 'retry' : 'completed', result.invoiceId, result.error ?? null, result.delaySeconds ?? 0,
+          result.error && !result.terminal ? null : new Date().toISOString().slice(0, 19).replace('T', ' '), job.id, job.lease_token);
       await db.prepare('UPDATE recognition_worker_lease SET token = NULL, expires_at = NULL WHERE id = 1 AND token = ?').run(job.lease_token);
     });
   },
@@ -92,6 +93,31 @@ export const recognitionJobRepo = {
   async retry(id: number, owner: number) {
     return (await getDb().prepare("UPDATE recognition_jobs SET state = 'queued', next_attempt_at = NOW(), updated_at = NOW() WHERE id = ? AND owner_user_id = ? AND state = 'retry'")
       .run(id, owner)).changes > 0;
+  },
+  async deferDispatcher(job: RecognitionJob, invoiceId: number, delaySeconds = 900) {
+    await getDb().transaction(async db => {
+      await db.prepare(`UPDATE recognition_jobs SET state = 'queued', invoice_id = ?, last_error = NULL,
+        next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND), lease_token = NULL, lease_expires_at = NULL,
+        updated_at = NOW() WHERE id = ? AND state = 'processing' AND lease_token = ?`)
+        .run(invoiceId, delaySeconds, job.id, job.lease_token);
+      await db.prepare('UPDATE recognition_worker_lease SET token = NULL, expires_at = NULL WHERE id = 1 AND token = ?').run(job.lease_token);
+    });
+  },
+  async completeByInvoice(sourceInvoiceId: number, finalInvoiceId = sourceInvoiceId) {
+    const completedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    await getDb().prepare(`UPDATE recognition_jobs SET state = 'completed', invoice_id = ?, last_error = NULL,
+      lease_token = NULL, lease_expires_at = NULL, completed_at = ?, updated_at = NOW()
+      WHERE invoice_id IN (?, ?) AND state IN ('queued','processing','retry')`)
+      .run(finalInvoiceId, completedAt, sourceInvoiceId, finalInvoiceId);
+  },
+  async failByInvoice(invoiceId: number, errorText: string, delaySeconds = 60) {
+    await getDb().prepare(`UPDATE recognition_jobs SET state = 'retry', last_error = ?,
+      next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND), lease_token = NULL, lease_expires_at = NULL,
+      updated_at = NOW() WHERE invoice_id = ? AND state IN ('queued','retry')`)
+      .run(errorText.slice(0, 2000), delaySeconds, invoiceId);
+  },
+  async wakeAllRetries() {
+    await getDb().prepare("UPDATE recognition_jobs SET state = 'queued', next_attempt_at = NOW(), last_error = NULL, updated_at = NOW() WHERE state = 'retry'").run();
   },
   async ownsInvoice(id: number) {
     return !!(await getDb().prepare("SELECT id FROM recognition_jobs WHERE invoice_id = ? AND state IN ('queued','processing','retry') LIMIT 1").get(id));

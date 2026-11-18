@@ -179,9 +179,10 @@ const InvoiceReview = {
         const left = reqs.filter(r => !r.checked).length;
         const xml = App.isXmlInvoice(inv);
         const issues = this.issues(inv, d);
+        // Как сверять — в значке «i», а не строкой на экране.
         const head = left
-            ? `<b>Сверьте реквизиты ${xml ? 'с документом' : 'со сканом'}</b> <span>— нажмите на реквизит, сравните с бумагой и подтвердите</span>`
-            : '<b>Все реквизиты сверены</b> <span>— можно отправлять в 1С и создавать платёжку</span>';
+            ? `<b>Сверьте реквизиты ${xml ? 'с документом' : 'со сканом'}</b><button type="button" class="info-tip" data-tip="Нажмите на реквизит — ${xml ? 'документ' : 'скан'} откроется на нём. Сравните с бумагой и нажмите «Совпадает»." aria-label="Как сверять реквизиты">i</button>`
+            : '<b>Все реквизиты сверены ✓</b>';
         const eyebrow = this.session ? `<span class="ic-eyebrow">Режим проверки · просмотрено ${this.seen.length}</span>` : '';
         const scanLabel = this.open ? 'Скрыть скан' : xml ? 'Открыть документ' : 'Открыть скан для сверки';
         const lock = d && !d.editable ? this.lockReason(inv) : '';
@@ -201,7 +202,9 @@ const InvoiceReview = {
     issues(inv, d) {
         const out = [];
         if (inv.status === 'error')
-            out.push('Ошибка распознавания — проверьте скан или пересканируйте (меню «⋯»)');
+            out.push(App.isXmlInvoice(inv)
+                ? (inv.error_message || 'Файл не разобран — документ повреждён. Загрузите его заново')
+                : `Ошибка распознавания${inv.error_message ? ': ' + inv.error_message : ''} — проверьте скан или пересканируйте (меню «⋯»)`);
         if (!d)
             return out;
         if (d.missing_header.length)

@@ -14,7 +14,11 @@ const RecognitionQueue = {
         const h = pending.find(h => Number(h.jobId) === receipt.id);
         if (!h) continue;
         h.invoiceId = receipt.invoice_id; h.queueError = receipt.last_error; h.serverState = receipt.state;
-        if (receipt.state === 'completed') {
+        if (receipt.state === 'completed' && receipt.last_error) {
+          // Окончательная ошибка (битый XML): повтор не поможет — показываем причину, без автоповтора.
+          h.status = 'error'; h.error = receipt.last_error; h.autoRetry = false;
+          if (h.id) Upload.dbDelete(h.id).catch(() => {});
+        } else if (receipt.state === 'completed') {
           h.status = 'ok';
           if (receipt.invoice_id) Upload._checkElevatedPrices(Upload.history.indexOf(h), receipt.invoice_id).catch(() => {});
         }
@@ -37,10 +41,12 @@ const RecognitionQueue = {
     const banner = document.getElementById('recognition-queue-banner');
     if (banner) {
       banner.hidden = state.total === 0;
-      banner.innerHTML = `<strong>В очереди распознавания: ${Number(state.total)}</strong><span>Фото сохранены на сервере. Обработка продолжится автоматически.</span><a href="#/upload">Открыть очередь →</a>`;
+      banner.innerHTML = `<strong>Распознаём фото: ${Number(state.total)}</strong><button type="button" class="info-tip" data-tip="Фото сохранены на сервере. Распознавание продолжится само, даже если закрыть страницу." aria-label="Подробнее об очереди распознавания">i</button><a href="#/upload">Очередь →</a>`;
     }
     const host = document.getElementById('recognition-queue-list');
     if (!host) return;
+    // Пустую очередь не показываем (2026-11-17): блок появляется, только когда есть что ждать.
+    host.hidden = Number(state.total) === 0;
     host.innerHTML = `<div class="recognition-queue-heading"><h3>Постоянная очередь · ${Number(state.total)}</h3><button type="button" class="btn btn-outline btn-sm" onclick="RecognitionQueue.refresh()">Обновить</button></div><p class="recognition-queue-help">Принятые фото останутся здесь до успешного распознавания. Закрытие страницы и перезапуск сервера не удаляют задания.</p>${!state.ai.available && state.total ? `<p class="recognition-queue-reason">${App.esc(state.ai.text)}. Очередь ждёт восстановления.</p>` : ''}${state.data.length ? state.data.map(job => `<article class="recognition-queue-job"><div><strong>${App.esc(job.original_name)}</strong><span>${job.state === 'processing' ? 'Распознаётся' : job.state === 'retry' ? 'Сохранено · ожидает повторной попытки' : 'Сохранено · в очереди'}</span>${job.last_error ? `<p>${App.esc(job.last_error)}</p>` : ''}<small>Принято: ${App.esc(App.formatDateTime(job.created_at))}${job.attempts ? ` · Попыток: ${Number(job.attempts)}` : ''}${job.state === 'retry' ? ` · Следующая: ${App.esc(App.formatDateTime(job.next_attempt_at))}` : ''}</small></div><div>${job.invoice_id ? `<a href="#/invoices/${Number(job.invoice_id)}">Накладная #${Number(job.invoice_id)}</a>` : ''}${job.state === 'retry' ? `<button type="button" class="btn btn-outline btn-sm" data-recognition-retry="${job.id}">Повторить сейчас</button>` : ''}</div></article>`).join('') : '<p class="recognition-queue-help">Нет фотографий, ожидающих обработки.</p>'}${state.total > state.data.length ? `<p>Показаны первые ${state.data.length} из ${Number(state.total)} заданий. Остальные также сохранены и будут обработаны по порядку.</p>` : ''}<p class="recognition-queue-action-error" role="alert" hidden></p>`;
     host.querySelectorAll('[data-recognition-retry]').forEach(button => { button.onclick = async () => {
       button.disabled = true;

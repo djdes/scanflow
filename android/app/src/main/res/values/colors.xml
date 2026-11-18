@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Цвета — как у мобильного приложения (public/css/mobile.css). -->
+<resources>
+    <color name="brand">#2383E2</color>
+    <color name="bar">#F7F6F3</color>
+    <color name="bar_dark">#141414</color>
+</resources>

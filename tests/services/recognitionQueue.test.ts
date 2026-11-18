@@ -143,6 +143,19 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('durable recognitio
     expect(target.processFile).not.toHaveBeenCalled();
     expect((await recognitionJobRepo.get(job.id, 1))?.state).toBe('completed');
   });
+  it('closes a broken XML after one attempt with its reason instead of retrying forever', async () => {
+    const xml = await enqueue(1, '<Файл><broken', 'xml');
+    await runRecognitionQueuePass(worker(true));
+    const closed = (await recognitionJobRepo.get(xml.id, 1))!;
+    expect(closed).toMatchObject({ state: 'completed', attempts: 1, last_error: 'model timeout' });
+    expect(closed.invoice_id).toBeTruthy();
+    const listing = await request(app).get('/api/recognition-queue?ids=' + xml.id).set('X-Owner', '1');
+    expect(listing.body.total).toBe(0);
+    expect(listing.body.receipts[0]).toMatchObject({ state: 'completed', last_error: 'model timeout' });
+    // A photo with the same failure is still retried: the model may answer next time.
+    const photo = await enqueue(); await runRecognitionQueuePass(worker(true));
+    expect((await recognitionJobRepo.get(photo.id, 1))?.state).toBe('retry');
+  });
   it('keeps jobs while GPT is unavailable and still handles XML', async () => {
     const image = await enqueue(); const xml = await enqueue(1, 'xml-fixture', 'xml');
     vi.mocked(aiEngineState).mockResolvedValue({ available: false, text: 'rate limit' } as never);

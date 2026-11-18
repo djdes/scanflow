@@ -1,0 +1,18 @@
+// Android-приложение ScanFlow: Trusted Web Activity над https://scanflow.ru/m/.
+// Спек: docs/superpowers/specs/2026-11-06-mobile-app-design.md, сборка — .github/workflows/android.yml.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = 'ScanFlow'
+include ':app'

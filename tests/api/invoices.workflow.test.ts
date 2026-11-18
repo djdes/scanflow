@@ -12,11 +12,14 @@ import { NomenclatureMapper } from '../../src/mapping/nomenclatureMapper';
 
 const app = createServer(new FileWatcher() as never, new NomenclatureMapper() as never);
 
+// У каждой накладной свой номер: одинаковые номер + дата + поставщик теперь честно
+// считаются дубликатом (REVIEW_REASON_SQL) и уходили бы в «Проверить».
+let invoiceNo = 100;
 async function invoice(owner = 1, status = 'processed') {
   const r = await getDb().prepare(`INSERT INTO invoices
     (file_name, file_path, owner_user_id, status, invoice_number, invoice_date, supplier, supplier_inn, total_sum)
-    VALUES ('demo.jpg', '/demo.jpg', ?, ?, '123', '2026-10-02', 'Поставщик', '7830002293', 1000)`)
-    .run(owner, status);
+    VALUES ('demo.jpg', '/demo.jpg', ?, ?, ?, '2026-10-02', 'Поставщик', '7830002293', 1000)`)
+    .run(owner, status, String(++invoiceNo));
   const id = Number(r.lastInsertRowid);
   await getDb().prepare(`INSERT INTO invoice_items
     (invoice_id, original_name, mapped_name, onec_guid, quantity, price, total, mapping_confidence)
@@ -27,8 +30,8 @@ async function invoice(owner = 1, status = 'processed') {
 describe.runIf((process.env.DB_NAME || '').includes('test'))('invoice workflow list', () => {
   beforeEach(async () => {
     await resetDb();
-    await getDb().prepare(`INSERT INTO users (id, username, password_hash, api_key, role)
-      VALUES (1, 'workflow1', 'x', 'wk1', 'user'), (2, 'workflow2', 'x', 'wk2', 'user')`).run();
+    await getDb().prepare(`INSERT INTO users (id, username, password_hash, api_key, role, notify_events)
+      VALUES (1, 'workflow1', 'x', 'wk1', 'user', '[]'), (2, 'workflow2', 'x', 'wk2', 'user', '[]')`).run();
   });
   afterAll(closeTestDb);
 
@@ -111,5 +114,36 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('invoice workflow l
     expect(list[0].review_reason).toBe('duplicate');
     expect(await invoiceRepo.countList(undefined, 1, { view: 'ready' })).toBe(0);
     expect(await invoiceRepo.countList(undefined, 1, { view: 'payment' })).toBe(0);
+  });
+
+  it('filters unpaid invoices by payment due date: this week and overdue', async () => {
+    const soon = await invoice();
+    const late = await invoice();
+    const later = await invoice();
+    const paid = await invoice();
+    // Срок — своя дата накладной (payment_due_date) или дата накладной + 7 дней по умолчанию.
+    await getDb().prepare('UPDATE invoices SET payment_due_date = DATE_ADD(CURDATE(), INTERVAL 3 DAY) WHERE id IN (?, ?)').run(soon, paid);
+    await getDb().prepare('UPDATE invoices SET payment_due_date = DATE_SUB(CURDATE(), INTERVAL 2 DAY) WHERE id = ?').run(late);
+    await getDb().prepare('UPDATE invoices SET payment_due_date = DATE_ADD(CURDATE(), INTERVAL 40 DAY) WHERE id = ?').run(later);
+    await invoiceRepo.setPaidExternally(paid, true);
+    const ids = async (filter: string) => {
+      const res = await request(app).get(`/api/invoices?sber=${filter}`).set('X-API-Key', 'wk1');
+      expect(res.status).toBe(200);
+      return res.body.data.map((x: { id: number }) => x.id);
+    };
+    expect(await ids('due_week')).toEqual([soon]);
+    expect(await ids('due_overdue')).toEqual([late]);
+  });
+
+  it('flags a later copy with the same number, date and supplier as a duplicate, keeping the original ready', async () => {
+    const original = await invoice();
+    const copy = await invoice();
+    const number = (await getDb().prepare('SELECT invoice_number FROM invoices WHERE id = ?').get<{ invoice_number: string }>(original))!.invoice_number;
+    await getDb().prepare('UPDATE invoices SET invoice_number = ? WHERE id = ?').run(number, copy);
+    const attention = await invoiceRepo.getAll(undefined, 50, 0, 1, { view: 'attention' });
+    expect(attention.map(row => row.id)).toEqual([copy]);
+    expect(attention[0].review_reason).toBe('duplicate');
+    const ready = await invoiceRepo.getAll(undefined, 50, 0, 1, { view: 'ready' });
+    expect(ready.map(row => row.id)).toEqual([original]);
   });
 });

@@ -2,8 +2,7 @@
 //   1. Add it here
 //   2. Add to DEFAULT_EVENTS in migrations.ts (if it should be on by default)
 //   3. Add a renderRealtime case in templates.ts
-//   4. Add a renderDigest grouping in templates.ts
-//   5. Emit it from somewhere
+//   4. Emit it from somewhere
 export type EventType =
   | 'photo_uploaded'
   | 'invoice_recognized'

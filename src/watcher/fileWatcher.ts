@@ -442,10 +442,40 @@ export class FileWatcher {
     // этого rescan скатывался в OCR-chain (Tesseract) + regex-парсер даже при
     // mode='claude_api', давая 0.00 сумм.
     const analyzerConfig = await invoiceRepo.getAnalyzerConfig();
+    if (analyzerConfig.mode === 'dispatcher') {
+      const locatedPaths: string[] = [];
+      for (const name of files) {
+        const fp = locate(name) ?? (invoice.file_path && fs.existsSync(invoice.file_path) ? invoice.file_path : undefined);
+        if (!fp) continue;
+        const dest = path.join(config.processedDir, path.basename(name));
+        if (!config.dryRun && path.resolve(fp) !== path.resolve(dest)) {
+          try {
+            if (!fs.existsSync(dest)) fs.renameSync(fp, dest);
+          } catch (e) {
+            logger.warn('Reprocess (dispatcher): could not move file to processed', { invoiceId, from: fp, to: dest, error: (e as Error).message });
+          }
+        }
+        locatedPaths.push(fs.existsSync(dest) ? dest : fp);
+      }
+      if (locatedPaths.length === 0) {
+        throw new Error(`Original file(s) not found for invoice ${invoiceId} (looked for: ${files.join(', ')})`);
+      }
+      await invoiceRepo.updateFilePath(invoiceId, locatedPaths[0]);
+      await invoiceRepo.deleteItems(invoiceId);
+      if (invoice.duplicate_of != null) {
+        await invoiceRepo.unmarkAsDuplicate(invoiceId);
+      }
+      const { dispatchInvoice } = await import('../dispatcher/createTask');
+      await dispatchInvoice(invoiceId, files[0]);
+      logger.info('Invoice reprocess dispatched to Ralph', { id: invoiceId, pages: locatedPaths.length });
+      return;
+    }
+
     const recognizeOne = (fp: string) =>
-      isVisionLlmMode(analyzerConfig.mode) ? this.ocrManager.recognizeWithClaudeApi(fp, mappingOwnerId)
-        : config.useClaudeAnalyzer ? this.ocrManager.recognizeHybrid(fp, mappingOwnerId, true)
-          : this.ocrManager.recognize(fp);
+      path.extname(fp).toLowerCase() === '.pdf' ? this.ocrManager.recognizeWithClaudeApi(fp, mappingOwnerId)
+        : isVisionLlmMode(analyzerConfig.mode) ? this.ocrManager.recognizeWithClaudeApi(fp, mappingOwnerId)
+          : config.useClaudeAnalyzer ? this.ocrManager.recognizeHybrid(fp, mappingOwnerId, true)
+            : this.ocrManager.recognize(fp);
 
     // Распознаём каждую найденную страницу по отдельности (как загрузка).
     const pages: { text: string; engine: string; structured?: ParsedInvoiceData }[] = [];
@@ -844,12 +874,7 @@ export class FileWatcher {
         return await this.processXmlDocument(invoice, filePath, fileName);
       }
       let ocrResult;
-      if (path.extname(filePath).toLowerCase() === '.pdf') {
-        // Anthropic supports native PDF document blocks. Other OCR engines in
-        // the chain are image-only, so inbound/uploaded PDFs always take the
-        // same structured Claude path as production images.
-        ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
-      } else if (forceEngine) {
+      if (forceEngine) {
         ocrResult = await this.ocrManager.recognizeWithEngine(filePath, forceEngine);
       } else {
         // Check analyzer mode from DB config. Known values: 'claude_api', 'gpt', 'hybrid', 'dispatcher'.
@@ -889,7 +914,9 @@ export class FileWatcher {
           return invoice.id; // status stays 'ocr_processing'; callback handler completes it
         }
 
-        if (isVisionLlmMode(analyzerConfig.mode)) {
+        if (path.extname(filePath).toLowerCase() === '.pdf') {
+          ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
+        } else if (isVisionLlmMode(analyzerConfig.mode)) {
           // claude_api / gpt: фото сразу читает модель (Anthropic API или GPT через шлюз ProjectsFlow)
           ocrResult = await this.ocrManager.recognizeWithClaudeApi(filePath, mappingOwnerId);
         } else if (config.useClaudeAnalyzer) {
@@ -1684,8 +1711,11 @@ export class FileWatcher {
     if (files.length > 1) {
       try {
         await this.reprocessInvoice(invoiceId);
-        await this.emitRecognizedNotifications(invoiceId);
-        await this.runAutoSendHooks(invoiceId);
+        const afterMulti = await invoiceRepo.getById(invoiceId);
+        if (afterMulti?.status !== 'ocr_processing') {
+          await this.emitRecognizedNotifications(invoiceId);
+          await this.runAutoSendHooks(invoiceId);
+        }
         return 'processed';
       } catch (err) {
         if (err instanceof AiUnavailableError) {

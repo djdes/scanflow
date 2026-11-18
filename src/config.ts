@@ -38,6 +38,12 @@ export const config = {
   // Persistent staging for async supplier-requisite extraction jobs (dispatcher
   // downloads the file minutes later, so it must outlive the request).
   supplierExtractDir: path.resolve(envStr('SUPPLIER_EXTRACT_DIR', './data/supplier_extracts')),
+  // APK приложения для Android и отпечаток его ключа: кладёт сборка
+  // .github/workflows/android.yml. Лежит в data/ — rsync выкладки его не стирает.
+  downloadsDir: path.resolve(envStr('DOWNLOADS_DIR', './data/downloads')),
+  // Дополнительные SHA-256 отпечатки ключа подписи APK (через запятую) для
+  // /.well-known/assetlinks.json — например, ключ подписи Google Play.
+  androidCertSha256: envStr('ANDROID_CERT_SHA256', ''),
 
   // MySQL/MariaDB
   dbHost: envStr('DB_HOST', '192.168.33.3'),

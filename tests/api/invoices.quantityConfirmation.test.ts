@@ -5,6 +5,9 @@ import { getDb } from '../../src/database/db';
 import { invoiceRepo } from '../../src/database/repositories/invoiceRepo';
 import { userRepo } from '../../src/database/repositories/userRepo';
 import { quantityReviewToken } from '../../src/services/itemQuantityConfirmation';
+import { setCompanyAllKg } from '../../src/services/companyUnits';
+import { convertInvoiceLine } from '../../src/services/lineConversion';
+import { makeSupplierKey } from '../../src/database/repositories/supplierMappingRepo';
 import { decision } from '../../src/services/invoiceReview';
 import { evaluateInvoiceQuality } from '../../src/automation/qualityGate';
 vi.mock('../../src/watcher/fileWatcher', () => ({ FileWatcher: class {} }));
@@ -16,6 +19,7 @@ const path = (invoice: number, item: number) => `/api/invoices/${invoice}/items/
 describe.runIf((process.env.DB_NAME || '').includes('test'))('row quantity confirmation', () => {
   beforeEach(async () => {
     await resetDb();
+    await getDb().prepare('DELETE FROM item_unit_rules').run();
     await getDb().prepare("DELETE FROM edit_log WHERE context LIKE '%quantity_review%'").run();
     await userRepo.create({ username: 'quantity-owner', password_hash: 'x', api_key: 'quantity-owner' });
     await userRepo.create({ username: 'quantity-other', password_hash: 'x', api_key: 'quantity-other', role: 'admin' });
@@ -59,6 +63,35 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('row quantity confi
     expect(response.status).toBe(200);
     expect(response.body.data).toMatchObject({ quantity: 2, unit: 'кг', price: 4500, total: 9000, raw_quantity: 100, raw_unit: 'шт', qty_confirmed: 1 });
     expect((await invoiceRepo.getById(ids.invoice))?.total_sum).toBe(9000);
+  });
+  it('remembers the weight per package for later invoices from the same supplier only', async () => {
+    const ids = await seed();
+    await setCompanyAllKg(1, true);
+    const fresh = await request(app).get(`/api/invoices/${ids.invoice}`).set('X-API-Key', 'quantity-owner');
+    expect(fresh.body.data.items[0].can_remember_weight).toBe(true);
+
+    expect((await confirm(ids, { quantity: 330, unit: 'кг' })).status).toBe(200);
+    expect((await getDb().prepare('SELECT COUNT(*) AS n FROM item_unit_rules').get<{ n: number }>())?.n).toBe(0);
+    const response = await confirm(ids, { remember_weight: true });
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({ quantity: 330, unit: 'кг', total: 9000, raw_quantity: 100, qty_confirmed: 1 });
+
+    const args = { ownerUserId: 1, name: 'Термоэтикетка', onecGuid: null,
+      raw: { quantity: 2, unit: 'шт', price: 90, total: 180 } };
+    const same = await convertInvoiceLine({ ...args, supplierKey: makeSupplierKey('7830002293') });
+    const different = await convertInvoiceLine({ ...args, supplierKey: makeSupplierKey('7830002294') });
+    expect(same).toMatchObject({ quantity: 6.6, unit: 'кг', total: 180, conversion: { conv_source: 'rule', conv_factor: 3.3 } });
+    expect(different).toMatchObject({ quantity: 2, unit: 'шт' });
+    await setCompanyAllKg(1, false);
+  });
+  it('rejects a remembered weight without changing the row when the submitted unit is not kilograms', async () => {
+    const ids = await seed();
+    await setCompanyAllKg(1, true);
+    const result = await confirm(ids, { quantity: 330, unit: 'шт', remember_weight: true });
+    await setCompanyAllKg(1, false);
+    expect(result.status).toBe(400);
+    expect(await invoiceRepo.getItemById(ids.item)).toMatchObject({ quantity: 100, unit: 'шт', qty_confirmed: 0 });
+    expect((await getDb().prepare('SELECT COUNT(*) AS n FROM item_unit_rules').get<{ n: number }>())?.n).toBe(0);
   });
   it('revokes the check without altering numbers and restores the unresolved warning', async () => {
     const ids = await seed();

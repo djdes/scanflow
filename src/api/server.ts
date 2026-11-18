@@ -9,6 +9,8 @@ import { buildSitemapXml } from '../seo/sitemap';
 import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
 import { LEGAL_PAGES, LegalPage, legalOperator, renderLegalPage } from '../legal/documents';
 import { applyHeroVariants, injectSiteConfig } from '../seo/siteConfig';
+import { injectArticleJsonLd } from '../seo/articleSchema';
+import { buildLlmsTxt } from '../seo/llmsTxt';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth, requireAdmin } from './middleware/auth';
@@ -44,6 +46,8 @@ import analyticsRouter from './routes/analytics';
 import billingRouter, { robokassaCallbackRouter } from './routes/billing';
 import unitCostRouter from './routes/unitCost';
 import recognitionQueueRouter from './routes/recognitionQueue';
+import { registerMobileRoutes } from './mobileRoutes';
+import pushRouter from './routes/push';
 import { inboundPublicRouter, inboundConfigRouter, setInboundFileWatcher } from './routes/inbound';
 import { onecAdminRouter, onecExchangeRouter, onecPairRouter, onecUserRouter, setOnecMapper } from './routes/onec';
 import { FileWatcher } from '../watcher/fileWatcher';
@@ -299,6 +303,8 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // Своё подключение подписки ChatGPT (режим распознавания gpt) — платформенный конфиг, только admin.
   app.use('/api/chatgpt', apiKeyAuth, requireAdmin, chatgptRouter);
   app.use('/api/ai', apiKeyAuth, aiRouter);
+  // Уведомления на телефон (Web Push) для мобильного приложения /m/.
+  app.use('/api/push', apiKeyAuth, pushRouter);
   app.use('/api/product-assistant', apiKeyAuth, productAssistantRouter);
   app.use('/api/debug', apiKeyAuth, requireAdmin, debugRouter);
   app.use('/api/nomenclature', apiKeyAuth, nomenclatureRouter);
@@ -331,9 +337,11 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   // User management (list + role changes) — admin only.
   app.use('/api/users', apiKeyAuth, requireAdmin, usersRouter);
 
-  // Mobile camera page (no auth — accessed from phone on local network)
-  app.get('/camera', (_req, res) => {
-    res.sendFile(path.join(publicDir, 'camera.html'));
+  // Мобильное приложение /m/ (PWA и APK), старая /camera ведёт туда же,
+  // подтверждение ключа APK (/.well-known/assetlinks.json) и сам APK.
+  registerMobileRoutes(app, publicDir, {
+    downloadsDir: config.downloadsDir,
+    androidCertSha256: config.androidCertSha256,
   });
 
   // GET /magic/:token — one-click вход через magic-ссылку из welcome/recover
@@ -424,6 +432,17 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.type('application/xml').send(xml);
   });
 
+  // GET /llms.txt — описание сайта для ИИ-помощников (llmstxt.org). Собирается
+  // из главной и articles.json, своего текста не содержит (src/seo/llmsTxt.ts).
+  let llmsTxtCache: string | null = null;
+  app.get('/llms.txt', (_req, res) => {
+    if (!llmsTxtCache) {
+      const landing = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+      llmsTxtCache = buildLlmsTxt('https://scanflow.ru', landing, loadArticles());
+    }
+    res.type('text/plain; charset=utf-8').send(llmsTxtCache);
+  });
+
   // GET /blog — canonical listing (no trailing slash).
   // /blog/ → 301 to /blog is handled by middleware near the top of this file,
   // before express.static gets to serve public/blog/index.html.
@@ -449,7 +468,9 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     if (!html) {
       const file = path.join(publicDir, 'blog', `${slug}.html`);
       if (!fs.existsSync(file)) return res.status(404).send('Not Found');
-      html = injectSiteConfig(fs.readFileSync(file, 'utf8'));
+      // Разметка BlogPosting и хлебных крошек — из articles.json (src/seo/articleSchema.ts).
+      const article = loadArticles().find((a) => a.slug === slug);
+      html = injectSiteConfig(injectArticleJsonLd(fs.readFileSync(file, 'utf8'), 'https://scanflow.ru', article));
       articleHtmlCache.set(slug, html);
     }
     res.type('html').send(html);
@@ -495,7 +516,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    res.status(404).sendFile(path.join(publicDir, '404.html'));
+    res.status(404).sendFile('404.html', { root: publicDir });
   });
 
   // Terminal error handler (must be the LAST app.use): multer → 413/400,

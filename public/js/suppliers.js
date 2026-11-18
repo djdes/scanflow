@@ -153,7 +153,7 @@ const Suppliers = {
           </button>
         </div>
       </div>
-      <p style="margin:6px 0 0;color:var(--error);font-size:13px">⚠ ${App.esc(errMsg)}</p>`;
+      <p style="margin:6px 0 0;color:var(--error);font-size:0.8125rem">⚠ ${App.esc(errMsg)}</p>`;
     card.querySelector('[data-action=dismiss]').onclick = () => card.remove();
     card.querySelector('[data-action=retry]').onclick = () => this._processFile(file, card);
   },
@@ -234,24 +234,21 @@ const Suppliers = {
     const canMerge = this.state.items.length > 1;
     const rows = this.state.items.map(s => `
       <tr>
-        <td data-label="ИНН"><span>${App.esc(s.inn)}${s.inn_valid === false ? ` ${this._badInnBadge()}` : ''}</span></td>
-        <td data-label="Название">${App.esc(s.name)}</td>
-        <td data-label="КПП">${App.esc(s.kpp || '')}</td>
-        <td data-label="БИК">${App.esc(s.bank_bic)}</td>
-        <td data-label="Счёт">${App.esc(s.account || '')}</td>
+        <td data-label="ИНН / КПП"><div class="sup-cell">${App.esc(s.inn)}${s.inn_valid === false ? ` ${this._badInnBadge()}` : ''}${s.kpp ? `<div class="sup-sub">КПП ${App.esc(s.kpp)}</div>` : ''}</div></td>
+        <td data-label="Название" class="sup-name">${App.esc(s.name)}</td>
+        <td data-label="Счёт / БИК"><div class="sup-cell"><span class="sup-num">${App.esc(s.account || '—')}</span><div class="sup-sub">БИК ${App.esc(s.bank_bic || '—')}</div></div></td>
         <td data-label="Проверен">${s.verified ? '<span class="badge badge-ok" style="padding:2px 8px">✓</span>' : '<span class="badge badge-warn" style="padding:2px 8px">!</span>'}</td>
-        <td data-label="Использован">${App.esc(s.last_used_at || '')}</td>
+        <td data-label="Использован">${App.esc(this._shortDate(s.last_used_at))}</td>
         <td class="cell-action">
-          ${canMerge ? `<button class="btn btn-outline btn-sm" onclick="Suppliers.openMerge('${App.esc(s.inn)}')" title="Перенести накладные и правила этой карточки в другую и удалить эту">Объединить с…</button>` : ''}
-          <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')">✎</button>
-          <button class="btn btn-danger btn-sm" onclick="Suppliers.remove('${App.esc(s.inn)}')">🗑</button>
+          <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')" aria-label="Изменить реквизиты ${App.esc(s.name)}">Изменить</button>
+          <button type="button" class="btn-icon-gear" aria-haspopup="menu" aria-label="Другие действия с поставщиком ${App.esc(s.name)}" title="Другие действия" onclick="Suppliers.openRowMenu('${App.esc(s.inn)}', ${canMerge ? 1 : 0}, this)">•••</button>
         </td>
       </tr>
     `).join('');
     wrap.innerHTML = `
       <div class="table-wrap">
-        <table class="cards-mobile">
-          <thead><tr><th>ИНН</th><th>Название</th><th>КПП</th><th>БИК</th><th>Счёт</th><th>Проверен</th><th>Использован</th><th></th></tr></thead>
+        <table class="cards-mobile suppliers-table">
+          <thead><tr><th>ИНН / КПП</th><th>Название</th><th>Счёт / БИК</th><th>Проверен</th><th>Использован</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -302,8 +299,15 @@ const Suppliers = {
 
   // Контрольная сумма ИНН не сходится — почти всегда опечатка распознавания
   // (7724357632 → 7724357832). Такую карточку сливают с верной.
+  // «2026-11-17 04:03:16» из базы → «17.11.2026»: раньше в колонке «Использован» стояла
+  // строка базы целиком, и она одна раздвигала таблицу.
+  _shortDate(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
+  },
+
   _badInnBadge() {
-    return '<span class="badge badge-error" style="padding:2px 8px" title="Контрольная сумма ИНН не сходится — вероятно, опечатка при распознавании. Объедините карточку с верной.">ИНН не проходит проверку</span>';
+    return '<span class="badge badge-error" style="padding:2px 8px" title="Контрольная сумма ИНН не сходится — вероятно, опечатка при распознавании. Объедините карточку с верной.">ИНН с ошибкой</span>';
   },
 
   // Название без ОПФ, кавычек, регистра и пробелов — чтобы двойники
@@ -328,12 +332,12 @@ const Suppliers = {
     modal.innerHTML = `
       <div class="modal-card card" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <h3 id="supplier-merge-title" style="margin-bottom:10px">Объединить карточку</h3>
-        <div id="supplier-merge-source" style="font-size:14px;margin-bottom:12px"></div>
+        <div id="supplier-merge-source" style="font-size:0.875rem;margin-bottom:12px"></div>
         <label style="display:flex;flex-direction:column;gap:4px;margin:0 0 12px">
-          <span style="font-size:12px;color:var(--text-secondary)">С какой карточкой объединить (она останется)</span>
+          <span style="font-size:0.75rem;color:var(--text-secondary)">С какой карточкой объединить (она останется)</span>
           <select id="supplier-merge-target"></select>
         </label>
-        <ul style="margin:0 0 14px 18px;padding:0;font-size:13px;color:var(--text-secondary);line-height:1.5">
+        <ul style="margin:0 0 14px 18px;padding:0;font-size:0.8125rem;color:var(--text-secondary);line-height:1.5">
           <li>накладные этой карточки перейдут к выбранной — с её ИНН и названием; что было на фото, в накладной сохранится;</li>
           <li>выученные правила поставщика (сопоставления позиций, исправления распознавания) перенесутся;</li>
           <li>эта карточка будет удалена.</li>
@@ -349,6 +353,15 @@ const Suppliers = {
     modal.addEventListener('click', (e) => { if (e.target === modal) this.closeMerge(); });
     modal.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.closeMerge(); });
     return modal;
+  },
+
+  // Одна кнопка «Изменить» и меню «•••» (2026-11-17): раньше в строке стояли три кнопки,
+  // «Объединить с…» обрезалось, а красная корзина кричала в каждой строке.
+  openRowMenu(inn, canMerge, anchor) {
+    if (typeof InvoiceCard === 'undefined') return;
+    const items = canMerge ? [{ label: 'Объединить с другой карточкой…', onClick: () => this.openMerge(inn) }, null] : [];
+    items.push({ label: 'Удалить поставщика', danger: true, onClick: () => this.remove(inn) });
+    InvoiceCard.openMenu(anchor, items, 'Действия с поставщиком');
   },
 
   // «Объединить с…»: выбор второй карточки из текущего списка. Цель должна

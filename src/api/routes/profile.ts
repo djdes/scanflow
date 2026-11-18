@@ -7,6 +7,7 @@ import {
 } from '../../notifications/telegram/chatIds';
 import { ALL_NOTIFY_MODES, ALL_EVENT_TYPES, type NotifyMode, type EventType } from '../../notifications/types';
 import { logger } from '../../utils/logger';
+import { hashPassword } from '../../auth/password';
 import { getEngineFlags } from '../../services/engineFlags';
 import { getCompanyAllKgSetting, setCompanyAllKg } from '../../services/companyUnits';
 
@@ -139,6 +140,29 @@ router.patch('/', async (req: Request, res: Response) => {
       units_all_kg_platform: (await getEngineFlags()).all_kg,
     },
   });
+});
+
+// Смена своего пароля из Профиля — без старого пароля и без письма (решение
+// владельца 2026-11-04): кто вошёл, тот и меняет. Пользователь — только из
+// ключа (req.user), не из тела. Ключ API не меняется: текущий вход и
+// интеграции на этом ключе продолжают работать.
+const MIN_PASSWORD_LEN = 6;
+const MAX_PASSWORD_LEN = 200;
+
+router.post('/password', async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  const password = (req.body ?? {}).password;
+  if (typeof password !== 'string' || password.trim().length < MIN_PASSWORD_LEN) {
+    res.status(400).json({ error: `Пароль должен быть не короче ${MIN_PASSWORD_LEN} символов` });
+    return;
+  }
+  if (password.length > MAX_PASSWORD_LEN) {
+    res.status(400).json({ error: `Пароль должен быть не длиннее ${MAX_PASSWORD_LEN} символов` });
+    return;
+  }
+  await userRepo.updatePasswordHash(req.user.id, hashPassword(password));
+  logger.info('Password changed from profile', { userId: req.user.id });
+  res.json({ data: { ok: true } });
 });
 
 // Legacy: kept for back-compat. Sends a test email if SMTP is set up. UI no

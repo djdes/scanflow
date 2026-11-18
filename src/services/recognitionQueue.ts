@@ -10,7 +10,9 @@ import { logger } from '../utils/logger';
 import { aiEngineState } from '../ai/engine';
 import { activeQueueJob } from './queueJobs';
 import { acquireRecognitionActivity } from './recognitionActivity';
+import { hasActiveDispatcherTask } from '../dispatcher/createTask';
 import type { UploadMeta } from '../watcher/fileWatcher';
+import { isXmlInvoice } from '../xml';
 
 export interface RecognitionWorker {
   processFile(filePath: string, fileName: string, engine?: string, meta?: UploadMeta): Promise<number>;
@@ -99,6 +101,11 @@ export async function runRecognitionQueuePass(target: RecognitionWorker): Promis
       if (inv) {
         invoiceId = inv.id;
         await recognitionJobRepo.linkInvoice(job, inv.id);
+        if (inv.status === 'ocr_processing' && await hasActiveDispatcherTask(inv.id, 15)) {
+          await recognitionJobRepo.deferDispatcher(job, inv.id, 900);
+          setImmediate(() => kickRecognitionQueue());
+          return;
+        }
         invoiceId = await target.processQueuedInvoice(inv.id, job.force_engine ?? undefined);
       } else {
         if (job.invoice_id) throw new Error('Накладная удалена. Автоматически создавать её заново нельзя');
@@ -112,6 +119,15 @@ export async function runRecognitionQueuePass(target: RecognitionWorker): Promis
         const merged = await invoiceRepo.resolveMergeTarget(invoiceId);
         if (merged) invoiceId = merged;
         else throw new Error('Результат распознавания не найден — задание сохранено для проверки');
+      } else if (inv.status === 'ocr_processing' && await hasActiveDispatcherTask(inv.id, 15)) {
+        await recognitionJobRepo.deferDispatcher(job, inv.id, 900);
+        setImmediate(() => kickRecognitionQueue());
+        return;
+      } else if (inv.status === 'error' && isXmlInvoice(inv)) {
+        // XML разбирается без модели: битый файл при повторе даст ту же ошибку. Не держим его
+        // в очереди вечно (баннер «В очереди распознавания», попытки раз в час) — нужен новый файл.
+        await recognitionJobRepo.settle(job, { invoiceId, error: (inv.error_message || 'Файл не читается как XML').slice(0, 2000), terminal: true });
+        return;
       } else if (!['processed', 'sent_to_1c', 'duplicate'].includes(inv.status)) {
         throw new Error(inv.error_message || 'Документ ещё не распознан');
       }
@@ -119,7 +135,12 @@ export async function runRecognitionQueuePass(target: RecognitionWorker): Promis
     } catch (error) {
       if (!invoiceId) invoiceId = (await invoiceRepo.findByFileHash(job.file_hash, job.owner_user_id))?.id ?? null;
       const text = (error as Error).message || 'Не удалось распознать накладную';
-      await recognitionJobRepo.settle(job, { invoiceId, error: text.slice(0, 2000), delaySeconds: retryDelaySeconds(job.attempts) });
+      const failed = invoiceId ? await invoiceRepo.getById(invoiceId).catch(() => undefined) : undefined;
+      // XML разбирается без модели: битый файл при повторе даст ту же ошибку. Не держим его
+      // в очереди вечно (баннер «В очереди распознавания», попытки раз в час) — нужен новый файл.
+      const terminal = !!failed && failed.status === 'error' && isXmlInvoice(failed);
+      await recognitionJobRepo.settle(job, { invoiceId, error: text.slice(0, 2000), delaySeconds: retryDelaySeconds(job.attempts), terminal });
+      if (terminal) { logger.warn('Recognition closed: XML cannot be parsed', { jobId: job.id, invoiceId, error: text }); return; }
       logger.warn('Recognition kept in durable queue', { jobId: job.id, invoiceId, attempts: job.attempts, error: text });
     } finally { clearInterval(heartbeat); target.unmarkProcessing?.(job.file_path); }
   } finally { running = false; release(); }

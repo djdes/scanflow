@@ -77,7 +77,7 @@ const NewItems = {
             <th>Строк / накл.</th>
             <th>Ед.</th>
             <th>Поставщики</th>
-            <th>Статус</th>
+            <th>Заявка в 1С</th>
             <th></th>
           </tr></thead>
           <tbody>${rows.join('')}</tbody>
@@ -116,10 +116,10 @@ const NewItems = {
         <td data-label="Строк / накладных"><span class="ni-cell"><strong>${Number(g.lines) || 0}</strong> / ${(g.invoices || []).length}</span></td>
         <td data-label="Ед."><div class="ni-cell">${esc(g.unit || '—')}${priceLine}</div></td>
         <td data-label="Поставщики">${suppliers}</td>
-        <td data-label="Статус">${this.statusHtml(g)}</td>
+        <td data-label="Заявка в 1С">${this.statusHtml(g)}</td>
         <td class="cell-action">
           <div class="ni-actions">
-            <button type="button" class="btn btn-sm btn-outline" data-action="open-map" data-i="${i}">Сопоставить с позицией 1С</button>
+            <button type="button" class="btn btn-sm btn-outline" data-action="open-map" data-i="${i}" title="Выбрать существующую позицию справочника 1С">Сопоставить</button>
             <button type="button" class="btn btn-sm btn-soft" data-action="open-create" data-i="${i}">${createLabel}</button>
           </div>
         </td>
@@ -129,7 +129,8 @@ const NewItems = {
   statusHtml(g) {
     const esc = (s) => App.esc(s);
     const r = g.request;
-    if (!r) return '<span class="badge badge-new">Нет в 1С</span>';
+    // На этой странице все товары без позиции 1С — «Нет в 1С» в каждой строке ничего не добавлял.
+    if (!r) return '';
     if (r.status === 'created') {
       return `<div class="ni-cell"><span class="badge badge-sent">Создана в 1С</span>
         <div class="ni-sub">Сопоставьте строки с новой позицией</div></div>`;

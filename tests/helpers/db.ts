@@ -94,6 +94,10 @@ export async function resetDb(): Promise<mysql.Pool> {
     'item_cost_rules',
     'invoice_items',
     'invoices',
+    // Корзина (миграция 95): снимки удалённых накладных ссылаются на id накладных и
+    // владельцев, которые после TRUNCATE переиспользуются.
+    'deleted_invoices',
+    'invoice_comments',
     'mapping_supplier_usage',
     'nomenclature_mappings',
     'onec_nomenclature',

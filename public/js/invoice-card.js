@@ -84,7 +84,7 @@ const InvoiceCard = {
       else pay = { state: 'progress', hint: 'черновик · ждёт подписи' };
     } else if (payment && payment.status === 'pending') pay = { state: 'progress', hint: 'создаётся' };
     else if (payment && payment.status === 'failed') pay = { state: 'error', hint: 'платёжка не создана', action: { kind: 'pay', label: 'Повторить' } };
-    else if (sber && (!sber.connected || !sber.payer_complete)) pay = { state: 'off', hint: 'СберБизнес не подключён' };
+    else if (sber && (!sber.connected || !sber.payer_complete)) pay = { state: 'off', hint: 'Сбер не подключён' };
     else if (!sber || payment === undefined) pay = { state: 'idle', hint: '…' };
     else pay = { state: 'idle', hint: checked === 6 ? 'сумма и назначение заполнены' : `нужна сверка 6 из 6`, action: { kind: 'pay', label: 'Создать платёжку' } };
 
@@ -121,6 +121,8 @@ const InvoiceCard = {
       null,
       { id: 'editHeader', label: 'Изменить реквизиты' },
       { id: 'compare', label: 'Сравнить с прошлой поставкой' },
+      // null здесь означал бы разделитель групп — поэтому необязательный пункт добавляем spread-ом.
+      ...(typeof Claim !== 'undefined' && Claim.available(inv) ? [{ id: 'claim', label: 'Претензия поставщику' }] : []),
       !xml || golden ? { id: 'golden', label: golden ? 'Убрать из эталонов' : 'Отметить эталоном' } : null,
       inv.status === 'sent_to_1c' ? { id: 'resetStatus', label: 'Сбросить статус «В 1С»' } : null,
       inv.completeness?.confirmed ? { id: 'pagesCheck', label: 'Снова проверять страницы' } : null,
@@ -182,12 +184,8 @@ const InvoiceCard = {
     if (inv.vat_sum != null && Number(inv.vat_sum) > 0) parts.push(`НДС ${App.formatMoney(inv.vat_sum)} ₽`);
     const n = (inv.items || []).length;
     if (n) parts.push(`${n} ${this.plural(n, 'позиция', 'позиции', 'позиций')}`);
+    // Дубликат — только плашкой под шапкой (#ic-duplicate / #invoice-sibling-banner), не второй раз здесь.
     const pills = [];
-    if (inv.duplicate_of || inv.status === 'duplicate') {
-      pills.push(`<span class="ic-pill ic-pill--amber">Дубликат${inv.duplicate_of ? ' #' + inv.duplicate_of : ''}</span>`);
-    } else if (Array.isArray(inv.possible_siblings) && inv.possible_siblings.length > 0 && inv.status !== 'sent_to_1c') {
-      pills.push(`<span class="ic-pill ic-pill--amber">Возможный дубликат #${inv.possible_siblings[0].id}</span>`);
-    }
     if (inv.status === 'error') pills.push('<span class="ic-pill ic-pill--red">Ошибка распознавания</span>');
     if (inv.status === 'waiting_ai') pills.push('<span class="ic-pill ic-pill--blue">Ждёт GPT</span>');
     if (['new', 'ocr_processing', 'parsing'].includes(inv.status)) pills.push('<span class="ic-pill ic-pill--blue">Распознаётся</span>');
@@ -202,7 +200,7 @@ const InvoiceCard = {
     this.states = states;
     if (!this.activeStep) this.activeStep = this.defaultStep(states);
     // Полное название и короткое — для узкой колонки (телефон: три шага в ряд).
-    const titles = { verify: ['Сверка с оригиналом', 'Сверка'], onec: ['Отправка в 1С', 'В 1С'], pay: ['Оплата в СберБизнес', 'Оплата'] };
+    const titles = { verify: ['Сверка', 'Сверка'], onec: ['Отправка в 1С', 'В 1С'], pay: ['Оплата', 'Оплата'] };
     el.innerHTML = this.STEPS.map((key, i) => {
       const s = states[key];
       const active = this.activeStep === key;
@@ -352,6 +350,7 @@ const InvoiceCard = {
       confirmMappings: (ev) => Invoices.confirmMappings(inv.id, ev),
       editHeader: () => Invoices.editHeader(inv.id),
       compare: () => InvoiceReview.compare(),
+      claim: () => Claim.open(inv),
       golden: () => this.toggleGolden(),
       resetStatus: () => Invoices.resetStatus(inv.id),
       pagesCheck: () => Invoices.setPagesConfirmed(inv.id, false),
@@ -437,7 +436,10 @@ const InvoiceCard = {
     const hasImages = !App.isXmlInvoice(inv);
     const items = [
       hasImages ? { label: 'Показать на скане', onClick: () => this.openScan(`item:${item.id}:row`) } : null,
+      item.onec_guid && typeof NomenclaturePicker !== 'undefined' ? { label: 'Сменить позицию 1С', onClick: () => NomenclaturePicker.open(inv.id, item.id) } : null,
       inv.status === 'processed' && !inv.approved_for_1c ? { label: 'Проверить количество и единицу', onClick: () => Invoices.reviewItemQuantity(inv.id, item.id) } : null,
+      item.onec_guid && typeof CatalogAliases !== 'undefined' ? { label: 'Синонимы товара', onClick: () => CatalogAliases.openFromInvoice(inv.id, item.id) } : null,
+      item.unit_cost?.basis && !item.unit_cost.calculation && typeof UnitCost !== 'undefined' ? { label: 'Рассчитать цену за единицу', onClick: () => UnitCost.open(inv.id, item.id) } : null,
       rawDiffers ? { label: `Как в накладной (${App.formatQty(item.raw_quantity)} ${item.raw_unit || ''}`.trim() + ')', onClick: () => Invoices.itemRevertRaw(inv.id, item.id) } : null,
       needsWork ? { label: 'Пересчитать количество', onClick: () => Invoices.itemReconvert(inv.id, item.id) } : null,
       (item.onec_guid || item.target_unit) && (needsWork || rawDiffers) ? { label: 'Запомнить пересчёт для поставщика', onClick: () => Invoices.itemRememberRule(inv.id, item.id) } : null,

@@ -22,7 +22,7 @@ async function seed(owner = 1, date = '2026-10-02', name = 'Молоко') {
     return { id, item: item.id };
 }
 describe.runIf((process.env.DB_NAME || '').includes('test'))('production invoice review', () => {
-    beforeEach(async () => { await resetDb(); vi.mocked(locateSource).mockReset(); await getDb().prepare("INSERT INTO users (id,username,password_hash,api_key,role) VALUES (1,'review1','x','rv1','user'),(2,'review2','x','rv2','admin')").run(); });
+    beforeEach(async () => { await resetDb(); vi.mocked(locateSource).mockReset(); await getDb().prepare("INSERT INTO users (id,username,password_hash,api_key,role,notify_events) VALUES (1,'review1','x','rv1','user','[]'),(2,'review2','x','rv2','admin','[]')").run(); });
     afterAll(closeTestDb);
     it('retains source anchors when their items move into a merged document', async () => {
         const source = await seed(), target = await seed();

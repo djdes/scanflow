@@ -53,7 +53,26 @@ export interface AiEngineState {
 }
 
 export async function aiEngineState(target?: AiTarget): Promise<AiEngineState> {
-  const t = target ?? await resolveAiTarget();
+  if (!target) {
+    const cfg = await invoiceRepo.getAnalyzerConfig();
+    if (cfg.mode === 'dispatcher') {
+      const model = isGptModel(cfg.gpt_model) ? (cfg.gpt_model as string) : DEFAULT_GPT_MODEL;
+      const hasPf = Boolean(
+        (cfg.projectsflow_token || config.projectsflowToken) &&
+        (cfg.projectsflow_project_id || config.projectsflowScanflowProjectId),
+      );
+      return {
+        engine: 'gpt',
+        model,
+        available: hasPf,
+        reason: hasPf ? null : 'not_connected',
+        retryAtMs: null,
+        text: hasPf ? `Диспетчер Ralph (${model}): подключено` : 'Диспетчер Ralph: не задан токен или проект ProjectsFlow',
+      };
+    }
+    target = aiTargetFromConfig(cfg);
+  }
+  const t = target;
   if (t.engine === 'claude') {
     const available = !!t.apiKey;
     return {

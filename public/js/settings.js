@@ -13,6 +13,18 @@ const Settings = {
       if (data) {
         this._mode = data.mode || 'gpt';
         this._canEdit = !!data.can_edit;
+        this._hasPfToken = !!data.has_projectsflow_token;
+        const modeSelect = document.getElementById('settings-analyzer-mode');
+        if (modeSelect) {
+          if (![...modeSelect.options].some(o => o.value === this._mode)) {
+            modeSelect.add(new Option(this._mode, this._mode));
+          }
+          modeSelect.value = this._mode;
+        }
+        const pfProj = document.getElementById('settings-pf-project-id');
+        if (pfProj && data.projectsflow_project_id) pfProj.value = data.projectsflow_project_id;
+        const pfTok = document.getElementById('settings-pf-token');
+        if (pfTok && data.projectsflow_token) pfTok.value = data.projectsflow_token;
         const gptSelect = document.getElementById('settings-gpt-model');
         if (gptSelect && data.gpt_model) {
           // Модель, которой нет в списке (задана через API), всё равно показываем.
@@ -26,10 +38,8 @@ const Settings = {
         const dadataInput = document.getElementById('settings-dadata-key');
         if (dadataInput && data.dadata_api_key) dadataInput.value = data.dadata_api_key;
         this._setDadataStatus(!!data.has_dadata_key);
-        this._initAutoSend(data);
         this._applyEditRights();
-        const warn = document.getElementById('mode-warning');
-        if (warn) warn.style.display = (this._canEdit && this._mode !== 'gpt') ? '' : 'none';
+        this._syncModeUi();
         this.chatgptRefresh();
       }
       this.loaded = true;
@@ -45,7 +55,7 @@ const Settings = {
 
   // Менять настройки может только админ: остальным — те же значения, но без правки.
   _applyEditRights() {
-    const ids = ['settings-gpt-model', 'settings-llm-mapper', 'settings-auto-send-1c', 'settings-auto-send-sber', 'settings-dadata-key'];
+    const ids = ['settings-analyzer-mode', 'settings-pf-project-id', 'settings-pf-token', 'settings-gpt-model', 'settings-llm-mapper', 'settings-auto-send-1c', 'settings-auto-send-sber', 'settings-dadata-key'];
     for (const id of ids) {
       const el = document.getElementById(id);
       if (el) el.disabled = !this._canEdit;
@@ -64,22 +74,6 @@ const Settings = {
     el.style.color = saved ? 'var(--green)' : 'var(--text-muted, #888)';
   },
 
-  // «Сразу отправлять в 1С» и «Сразу создавать платёжку» сохраняются при переключении.
-  _initAutoSend(data) {
-    for (const [id, field] of [['settings-auto-send-1c', 'auto_send_1c'], ['settings-auto-send-sber', 'auto_send_sber']]) {
-      const cb = document.getElementById(id);
-      if (!cb) continue;
-      cb.checked = !!data[field];
-      cb.addEventListener('change', async () => {
-        cb.disabled = true;
-        const ok = await this._put({ [field]: cb.checked });
-        if (ok) App.notify(`${cb.checked ? 'Включено' : 'Выключено'}: ${cb.closest('.form-group').querySelector('.toggle-wrap > span').textContent}`, 'success');
-        else cb.checked = !cb.checked;
-        cb.disabled = false;
-      });
-    }
-  },
-
   /** PUT /settings/analyzer с текущим режимом (API требует mode) и нужными полями. */
   async _put(fields) {
     try {
@@ -93,11 +87,52 @@ const Settings = {
     return false;
   },
 
+  onModeChange(mode) {
+    this._mode = mode || 'gpt';
+    this._syncModeUi();
+  },
+
+  _syncModeUi() {
+    const isDisp = this._mode === 'dispatcher';
+    const dispGroup = document.getElementById('dispatcher-group');
+    const chatGroup = document.getElementById('chatgpt-group');
+    const warn = document.getElementById('mode-warning');
+    if (dispGroup) dispGroup.style.display = isDisp ? '' : 'none';
+    if (chatGroup) chatGroup.style.display = isDisp ? 'none' : '';
+    if (warn) warn.style.display = (this._canEdit && this._mode !== 'gpt' && this._mode !== 'dispatcher') ? '' : 'none';
+    const statusEl = document.getElementById('dispatcher-status');
+    if (statusEl && isDisp) {
+      const proj = document.getElementById('settings-pf-project-id')?.value?.trim();
+      const hasTok = this._hasPfToken || !!(document.getElementById('settings-pf-token')?.value?.trim());
+      statusEl.textContent = (hasTok && proj)
+        ? 'Диспетчер Ralph подключён · очередь ProjectsFlow активна'
+        : 'Укажите Project ID и токен ProjectsFlow для работы диспетчера';
+      statusEl.style.color = (hasTok && proj) ? 'var(--green)' : 'var(--warning)';
+    }
+  },
+
   async save() {
+    const selectedMode = document.getElementById('settings-analyzer-mode')?.value || this._mode;
     const gptModel = document.getElementById('settings-gpt-model')?.value;
     const llmCb = document.getElementById('settings-llm-mapper');
-    const ok = await this._put({ gpt_model: gptModel, llm_mapper_enabled: llmCb ? llmCb.checked : true });
-    if (ok) App.notify('Настройки сохранены', 'success');
+    const payload = {
+      mode: selectedMode,
+      gpt_model: gptModel,
+      llm_mapper_enabled: llmCb ? llmCb.checked : true,
+    };
+    if (selectedMode === 'dispatcher') {
+      const pfProj = document.getElementById('settings-pf-project-id')?.value?.trim();
+      const pfTok = document.getElementById('settings-pf-token')?.value?.trim();
+      if (pfProj) payload.projectsflow_project_id = pfProj;
+      if (pfTok) payload.projectsflow_token = pfTok;
+    }
+    const ok = await this._put(payload);
+    if (ok) {
+      this._mode = selectedMode;
+      if (payload.projectsflow_token) this._hasPfToken = true;
+      this._syncModeUi();
+      App.notify('Настройки сохранены', 'success');
+    }
   },
 
   async saveDadata() {
@@ -113,7 +148,9 @@ const Settings = {
   async switchToGpt() {
     if (await this._put({ mode: 'gpt' })) {
       this._mode = 'gpt';
-      document.getElementById('mode-warning').style.display = 'none';
+      const modeSelect = document.getElementById('settings-analyzer-mode');
+      if (modeSelect) modeSelect.value = 'gpt';
+      this._syncModeUi();
       App.notify('Распознавание переключено на GPT', 'success');
     }
   },
@@ -198,13 +235,13 @@ const Settings = {
           ? '<span class="badge badge-error">Заблокирован</span>'
           : '<span class="badge badge-sent">Активен</span>';
         const companySub = u.company_name
-          ? `<div class="muted" style="font-size:12px">${esc(u.company_name)}</div>`
+          ? `<div class="muted" style="font-size:0.75rem">${esc(u.company_name)}</div>`
           : '';
         const emailSub = u.email
-          ? `<div class="muted" style="font-size:12px">${esc(u.email)}</div>`
-          : '<div class="muted" style="font-size:12px">без email</div>';
+          ? `<div class="muted" style="font-size:0.75rem">${esc(u.email)}</div>`
+          : '<div class="muted" style="font-size:0.75rem">без email</div>';
         const expSub = u.tariff_expires_at
-          ? `<div class="muted" style="font-size:12px">до ${esc(App.formatDate(u.tariff_expires_at))}</div>`
+          ? `<div class="muted" style="font-size:0.75rem">до ${esc(App.formatDate(u.tariff_expires_at))}</div>`
           : '';
         return `
         <tr style="${u.is_blocked ? 'opacity:0.65' : ''}">
@@ -226,7 +263,7 @@ const Settings = {
           </td>
           <td>
             <div>${Number(u.invoice_count || 0)} накл.</div>
-            <div class="muted" style="font-size:12px">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
+            <div class="muted" style="font-size:0.75rem">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
           </td>
           <td>${u.last_login_at ? esc(App.formatDateTime(u.last_login_at)) : '<span class="muted">—</span>'}</td>
           <td style="white-space:nowrap">
@@ -622,7 +659,7 @@ const Settings = {
     const url = App.esc(login.verification_url);
     box.style.display = '';
     box.innerHTML = `Откройте <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>, войдите в ChatGPT `
-      + `и введите код <strong style="font-size:18px;letter-spacing:2px">${App.esc(login.user_code)}</strong>. `
+      + `и введите код <strong style="font-size:1.125rem;letter-spacing:2px">${App.esc(login.user_code)}</strong>. `
       + `Код действует до ${new Date(login.expires_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. `
       + '<button type="button" class="btn btn-outline btn-sm" onclick="Settings.chatgptCancel()">Отменить</button>';
     this._chatgptLoginExpires = new Date(login.expires_at).getTime();
@@ -724,9 +761,9 @@ const Settings = {
       return;
     }
     host.innerHTML = `
-      <div class="card" style="margin-top:24px">
-        <h3 style="margin-bottom:6px">Эталонные накладные</h3>
-        <div class="field-hint" style="margin-bottom:16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
+      <details class="card settings-details" style="margin-top:24px">
+        <summary><h3 style="display:inline">Эталонные накладные</h3></summary>
+        <div class="field-hint" style="margin:10px 0 16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
           <button type="button" class="btn btn-primary" id="golden-run-btn">Прогнать эталоны</button>
           <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:400">не больше
@@ -736,7 +773,7 @@ const Settings = {
         </div>
         <div id="golden-runs"></div>
         <div id="golden-run-detail" style="margin-top:18px"></div>
-      </div>`;
+      </details>`;
     document.getElementById('golden-run-btn').addEventListener('click', (ev) => Settings._goldenStart(ev.currentTarget));
     document.getElementById('golden-refresh-btn').addEventListener('click', () => Settings._goldenRefresh());
     this._goldenRenderRuns(payload);
