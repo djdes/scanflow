@@ -49,7 +49,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 | OrdersFlow | og:image в PNG (#6, закрыт), цена тарифа в пререндере и JSON-LD (#11) |
 | TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12) |
 | scanflow | Dependabot (#15), gitleaks (#8), npm audit (#6, #9) — ждут решения |
-| yesbeatru | проверка секретов в PR (#537) |
+| yesbeatru | проверка секретов в PR (#537), зачёркнутая цена + `priceValidUntil` в JSON-LD товара (#590 main, #591 prod) |
 
 Дополняй таблицу в каждом PR этого скилла — или полагайся на `ledger.mjs`.
 
@@ -58,7 +58,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 - **scanflow** (лендинг/блог): JSON-LD `SoftwareApplication` + `Offer` по тарифам и `FAQPage`
   на главной; `BlogPosting` + `BreadcrumbList` в статьях; `hreflang`/canonical на пагинации.
 - ~~**OrdersFlow**: `Restaurant`/`Menu` JSON-LD на `/m/:slug`~~ — не делать: страница `noindex`, разметку поиск не увидит.
-- **yesbeatru**: `MusicRecording`/`Product` + `Offer` в карточке трека (цена, BPM, длительность) —
+- **yesbeatru**: ~~`Product` + `Offer`~~ (уже есть с 10.09); осталось `ItemList` в каталоге и `MusicRecording` (BPM, длительность) в карточке трека (цена, BPM, длительность) —
   витрина в Google/Яндексе; `ItemList` в каталоге. Выкладка — двумя PR (main + prod).
 - **TasksFlow**: `HowTo`-разметка на кластерных страницах блога; прайс-якорь «за сотрудника в месяц».
 - **HASSR-Online**: аудит Core Web Vitals лендинга (LCP-картинка с `fetchpriority=high`, `font-display`).
@@ -93,6 +93,9 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 сверка «разметка ↔ видимая цена» на проде: `curl` главной, вытащить `offers` из JSON-LD и
 числа рядом с «₽» из HTML без JS — расхождение = находка (так найден OrdersFlow #11: робот
 видел «0 ₽», а разметка — 4 900–19 900 ₽ при цене 15 000).
+Тренды по языку стека, а не по звёздам вообще (в общем топе — эмуляторы и хайп):
+`gh api -X GET search/repositories -f q="language:PHP created:>$(date -d '-90 days' +%F) stars:>100" -f sort=stars`
+(и `TypeScript`). OSS Insight trends с 01.03.2026 недоступен — не тратить на него время.
 Кандидаты на следующие разы: проверка сниппетов через Rich Results Test в Playwright;
 ежемесячный отчёт по позициям из Яндекс.Вебмастера (нужен токен в секретах среды);
 снимки «до/после» визуальных PR прямо в описании (скилл visual-check).
