@@ -1,4 +1,4 @@
-/* global MobileCore, Upload, RecognitionQueue, ShareInbox */
+/* global MobileCore, Upload, RecognitionQueue, ShareInbox, jsQR */
 // Мобильное приложение /m/ (спек docs/superpowers/specs/2026-11-06-mobile-app-design.md).
 // Экраны: вход, главная, список, накладная. Отправку фото не пишем заново —
 // это upload.js кабинета (очередь в IndexedDB, повторы, обход WebKit 319985);
@@ -103,6 +103,13 @@ const Mobile = {
     document.addEventListener('click', (e) => this.onClick(e));
 
     this.$('m-login-form').addEventListener('submit', (e) => { e.preventDefault(); this.login(); });
+    const qrInput = this.$('m-login-qr-input');
+    this.$('m-login-qr').addEventListener('click', () => qrInput.click());
+    qrInput.addEventListener('change', () => {
+      const file = qrInput.files[0];
+      qrInput.value = '';
+      if (file) this.submitLogin('/phone-qr/consume', () => this.readLoginQr(file), 'Не удалось войти по QR.');
+    });
     this.$('m-back').addEventListener('click', () => this.back());
     this.$('m-camera-input').addEventListener('change', (e) => this.onPicked(e.target, true));
     this.$('m-gallery-input').addEventListener('change', (e) => this.onPicked(e.target, false));
@@ -132,6 +139,14 @@ const Mobile = {
     clearTimeout(this.pollTimer);
     this.revokePhotos();
     const hash = location.hash || '#/';
+    if (hash.startsWith('#/qr-login/')) {
+      history.replaceState(history.state, '', '/m/');
+      if (!App.apiKey) {
+        this.show('login');
+        const token = this.loginQrToken(hash);
+        return this.submitLogin('/phone-qr/consume', () => ({ token }), 'Не удалось войти по QR.');
+      }
+    }
     const share = /^#\/share(?:\?n=(\d+))?$/.exec(hash);
     if (!App.apiKey) {
       // Прислали файлы через «Поделиться», а вход не выполнен: они ждут на
@@ -276,27 +291,71 @@ const Mobile = {
   },
 
   // ── Вход и выход ───────────────────────────────────────────────────────
-  async login() {
-    const user = this.$('m-login-user').value.trim();
-    const pass = this.$('m-login-pass').value;
+  login() {
+    const username = this.$('m-login-user').value.trim();
+    const password = this.$('m-login-pass').value;
+    return this.submitLogin('/login', () => {
+      if (!username || !password) throw new Error('Введите логин и пароль.');
+      return { username, password };
+    }, 'Неверный логин или пароль.');
+  },
+
+  loginQrToken(hash) {
+    return /^#\/qr-login\/([a-f0-9]{64})$/.exec(hash)?.[1];
+  },
+
+  async readLoginQr(file) {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    let decoded;
+    try {
+      image.src = objectUrl;
+      await image.decode();
+      const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      decoded = jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'dontInvert' });
+    } catch {
+      throw new Error('Не удалось прочитать фото. Попробуйте ещё раз.');
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+    if (!decoded) throw new Error('QR-код не найден. Снимите его ближе.');
+    let url;
+    try { url = new URL(decoded.data); } catch { /* посторонний код */ }
+    const token = url?.origin === location.origin && url.pathname === '/m/' && this.loginQrToken(url.hash);
+    if (!token) throw new Error('Нужен QR-код из профиля ScanFlow.');
+    return { token };
+  },
+
+  async submitLogin(path, getBody, failureMessage) {
     const error = this.$('m-login-error');
     const button = this.$('m-login-submit');
+    const qrButton = this.$('m-login-qr');
+    if (App.apiKey || button.disabled) return;
     error.hidden = true;
-    if (!user || !pass) { error.textContent = 'Введите логин и пароль.'; error.hidden = false; return; }
     button.disabled = true;
-    button.textContent = 'Входим…';
+    qrButton.disabled = true;
+    const activeButton = path === '/login' ? button : qrButton;
+    const label = activeButton.textContent;
+    activeButton.textContent = 'Входим…';
     try {
-      const res = await fetch('/api/auth/login', {
+      const body = await getBody();
+      const res = await fetch(`/api/auth${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user, password: pass }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.apiKey) throw new Error(data.error || 'Неверный логин или пароль.');
-      App.apiKey = data.apiKey;
+      if (!res.ok || !data.apiKey) throw new Error(data.error || failureMessage);
       localStorage.setItem('apiKey', data.apiKey);
-      localStorage.setItem('adminUsername', data.username || user);
+      localStorage.setItem('adminUsername', data.username || body.username);
       if (data.role) localStorage.setItem('adminRole', data.role);
+      App.apiKey = data.apiKey;
       this.$('m-login-pass').value = '';
       this.startUploads();
       // Повторный вход без перезагрузки: догрузить фото этого входа и снова
@@ -310,7 +369,8 @@ const Mobile = {
       error.hidden = false;
     } finally {
       button.disabled = false;
-      button.textContent = 'Войти';
+      qrButton.disabled = false;
+      activeButton.textContent = label;
     }
   },
 

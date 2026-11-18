@@ -50,6 +50,14 @@ describe('Мобильное приложение /m/', () => {
     expect(res.headers['cache-control']).toBe('no-cache');
   });
 
+  it('отдаёт сканер QR для экрана входа', async () => {
+    const shell = await request(app).get('/m/').expect(200);
+    expect(shell.text).toContain('/js/phone-qr-decoder.js');
+    const decoder = await request(app).get('/js/phone-qr-decoder.js').expect(200);
+    expect(decoder.headers['content-type']).toMatch(/javascript/);
+    expect(decoder.text).toContain('jsQR');
+  });
+
   it('манифест открывает приложение и даёт иконку под маску', async () => {
     const res = await request(app).get('/site.webmanifest');
     const manifest = JSON.parse(res.text);

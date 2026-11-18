@@ -416,12 +416,42 @@
       }
     },
 
+    async showPhoneQr() {
+      const button = document.getElementById('profile-phone-qr-btn');
+      const image = document.getElementById('profile-phone-qr-img');
+      const status = document.getElementById('profile-phone-qr-status');
+      const clearImage = () => {
+        image.hidden = true;
+        image.removeAttribute('src');
+      };
+      clearTimeout(this._phoneQrTimer);
+      clearImage();
+      button.disabled = true;
+      status.textContent = 'Создаём код…';
+      try {
+        const { image: qr, expiresIn } = await App.apiJson('/auth/phone-qr', { method: 'POST' });
+        image.src = qr;
+        image.hidden = false;
+        button.textContent = 'Обновить QR';
+        status.textContent = 'Наведите камеру телефона на код и откройте ссылку. В приложении можно нажать «Сканировать QR». Код действует две минуты.';
+        this._phoneQrTimer = setTimeout(() => {
+          clearImage();
+          status.textContent = 'Срок действия кода истёк.';
+        }, expiresIn * 1000);
+      } catch (err) {
+        status.textContent = err.message || 'Не удалось создать код.';
+      } finally {
+        button.disabled = false;
+      }
+    },
+
     init() {
       if (this._wired) {
         this.load();
         return;
       }
       this._wired = true;
+      document.getElementById('profile-phone-qr-btn').addEventListener('click', () => this.showPhoneQr());
       document.getElementById('profile-save').addEventListener('click', () => this.save());
       document.getElementById('profile-test').addEventListener('click', () => this.test());
       document

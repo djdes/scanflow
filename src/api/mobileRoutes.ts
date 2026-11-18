@@ -48,7 +48,12 @@ export function registerMobileRoutes(
   });
   app.get('/m/', (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(path.join(publicDir, 'mobile.html'));
+    res.sendFile('mobile.html', { root: publicDir });
+  });
+  const qrDecoder = require.resolve('jsqr');
+  app.get('/js/phone-qr-decoder.js', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.basename(qrDecoder), { root: path.dirname(qrDecoder) });
   });
 
   // «Поделиться → ScanFlow» на Android: файлы принимает service worker (sw.js)

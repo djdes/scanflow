@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { userRepo } from '../../database/repositories/userRepo';
+import { createHash, randomBytes } from 'node:crypto';
+import QRCode from 'qrcode';
+import { userRepo, type User } from '../../database/repositories/userRepo';
+import { apiKeyAuth } from '../middleware/auth';
 import {
   verifyPassword,
   hashPassword,
@@ -18,6 +21,8 @@ const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MIN_PASSWORD_LEN = 6;
 const MAGIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const PHONE_LOGIN_TTL_SECONDS = 120;
+const PHONE_LOGIN_TOKEN_RE = /^[a-f0-9]{64}$/;
 
 function magicTokenExpiry(): Date {
   return new Date(Date.now() + MAGIC_TOKEN_TTL_MS);
@@ -55,6 +60,55 @@ async function recordPdConsent(req: Request, userId: number, email: string): Pro
 function publicOrigin(req: Request): string {
   return process.env.PUBLIC_ORIGIN || `${req.protocol}://${req.get('host') || 'localhost'}`;
 }
+
+function loginSession(user: User) {
+  return {
+    apiKey: user.api_key,
+    username: user.username,
+    email: user.email,
+    role: user.role === 'admin' || user.is_superadmin ? 'admin' : user.role,
+    isSuperadmin: Boolean(user.is_superadmin),
+  };
+}
+
+function phoneTokenHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+router.post('/phone-qr', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+}, apiKeyAuth, async (req, res) => {
+  const apiKey = req.get('X-API-Key');
+  if (!apiKey || !req.user) {
+    res.status(401).json({ error: 'Войдите в кабинет ещё раз.' });
+    return;
+  }
+
+  const token = randomBytes(32).toString('hex');
+  // The fragment stays in the browser until the mobile app exchanges it by POST.
+  const url = new URL(`/m/#/qr-login/${token}`, publicOrigin(req));
+  const image = await QRCode.toDataURL(url.href, { width: 256, margin: 4 });
+  const issued = await userRepo.setPhoneLoginToken(req.user.id, apiKey, phoneTokenHash(token), PHONE_LOGIN_TTL_SECONDS);
+  if (!issued) {
+    res.status(401).json({ error: 'Войдите в кабинет ещё раз.' });
+    return;
+  }
+  res.json({ image, expiresIn: PHONE_LOGIN_TTL_SECONDS });
+});
+
+router.post('/phone-qr/consume', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const token = req.body?.token;
+  const user = typeof token === 'string' && PHONE_LOGIN_TOKEN_RE.test(token)
+    ? await userRepo.consumePhoneLoginToken(phoneTokenHash(token))
+    : undefined;
+  if (!user) {
+    res.status(404).json({ error: 'Код больше не действует. Покажите новый QR-код в профиле.' });
+    return;
+  }
+  res.json(loginSession(user));
+});
 
 // Email local-part → кандидат на username, обрезанный до правил USERNAME_RE.
 // Если коллизия (логин занят) — пробуем base, base2, base3, …
@@ -106,13 +160,7 @@ router.post('/login', async (req: Request, res: Response) => {
     logger.warn('Failed to update last_login_at', { userId: user.id, error: (e as Error).message });
   }
 
-  res.json({
-    apiKey: user.api_key,
-    username: user.username,
-    email: user.email,
-    role: user.role === 'admin' || user.is_superadmin ? 'admin' : user.role,
-    isSuperadmin: Boolean(user.is_superadmin),
-  });
+  res.json(loginSession(user));
 });
 
 // POST /api/auth/register — self-service signup. Creates a `user`-role
