@@ -100,13 +100,13 @@ const MobileCore = {
     const sending = count('queued', 'uploading');
     const reading = Math.max(count('server_queued', 'processing'), Number(serverQueued) || 0);
     const bar = (tone, text, extra = {}) => ({ tone, text, retry: false, dismiss: false, ...extra });
-    if (retrying && !online) return bar('amber', 'Нет интернета. Фото сохранены — отправим сами.');
+    if (retrying && !online) return bar('amber', 'Нет интернета. Отправим фото, когда появится связь.');
     if (sending) return bar('blue', `Отправляем ${sending} фото…`);
     if (final.length) {
       const reason = final.length === 1 && final[0].error ? ` ${String(final[0].error).replace(/\.?$/, '.')}` : '';
       return bar('red', `Не отправилось ${final.length} фото.${reason}`, { dismiss: true });
     }
-    if (retrying) return bar('red', `Не отправилось ${retrying} фото. Повторим сами.`, { retry: true });
+    if (retrying) return bar('amber', `В очереди ${retrying} фото. Повторим отправку автоматически.`, { retry: true });
     if (reading && !aiAvailable) return bar('amber', `Фото сохранены (${reading}). Прочитаем позже.`);
     if (reading) return bar('blue', `Читаем ${reading} фото…`);
     return null;

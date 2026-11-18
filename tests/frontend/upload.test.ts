@@ -7,12 +7,16 @@ let upload: any;
 let requests: Array<{ body: FormData; headers: Record<string, string> }>;
 let responseStatus: number;
 let responseBody: unknown;
+let responseEvent: 'abort' | 'timeout' | undefined;
+let connection: { onLine: boolean };
 let appStub: { notify: ReturnType<typeof vi.fn>; baseUrl: string; apiKey: string };
 
 beforeEach(() => {
   requests = [];
   responseStatus = 202;
   responseBody = { file_name: 'received.jpg', job_id: 11, queued: true };
+  responseEvent = undefined;
+  connection = { onLine: true };
   class Xhr {
     upload = { addEventListener: vi.fn() };
     listeners: Record<string, () => void> = {};
@@ -23,17 +27,21 @@ beforeEach(() => {
     addEventListener(event: string, listener: () => void) { this.listeners[event] = listener; }
     open() {}
     setRequestHeader(name: string, value: string) { this.headers[name] = value; }
-    send(body: FormData) { requests.push({ body, headers: this.headers }); this.listeners[this.status === 0 ? 'error' : 'load'](); }
+    send(body: FormData) {
+      requests.push({ body, headers: this.headers });
+      this.listeners[responseEvent ?? (this.status === 0 ? 'error' : 'load')]();
+    }
   }
   appStub = { notify: vi.fn(), baseUrl: '/api', apiKey: 'test-key' };
   upload = runInNewContext(`${script}\nUpload;`, {
     Blob, FormData, window: {}, XMLHttpRequest: Xhr, URL: { createObjectURL: vi.fn(() => 'blob:preview') },
-    App: appStub, console,
+    App: appStub, console, navigator: connection, Date: { now: () => Date.now() },
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms), clearTimeout: (id: NodeJS.Timeout) => clearTimeout(id),
   });
   upload.renderHistory = vi.fn();
   upload.updateCounter = vi.fn();
   upload._acquireWakeLock = vi.fn();
+  upload._renderWakeLockNotice = vi.fn();
   upload._pollForInvoiceId = vi.fn();
   upload.dbDelete = vi.fn(async () => {});
 });
@@ -103,7 +111,7 @@ describe('durable upload acknowledgement and automatic retry', () => {
     expect(upload.dbDelete).toHaveBeenCalledWith(7);
     expect(upload.history[0]).toMatchObject({ status: 'server_queued', jobId: 22 });
   });
-  it.each([0, 503, 408])('retains the photo and automatically retries an interrupted upload (HTTP %s)', async status => {
+  it.each([0, 408, 499, 502, 503, 504])('retains the photo and automatically retries an interrupted upload (HTTP %s)', async status => {
     vi.useFakeTimers();
     await send(status, { error: 'temporarily unavailable' });
     expect(upload.history[0]).toMatchObject({ status: 'error', autoRetry: true });
@@ -111,9 +119,50 @@ describe('durable upload acknowledgement and automatic retry', () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(upload._scheduleUpload).toHaveBeenCalledTimes(1);
   });
+  it.each(['abort', 'timeout'] as const)('releases the slot on %s and keeps retrying until a durable receipt', async event => {
+    vi.useFakeTimers();
+    const photo = file();
+    upload.history = [{ id: 7, name: photo.name, status: 'queued', _blob: photo }];
+    responseEvent = event;
+    upload._scheduleUpload(0, photo);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(upload._activeUploads).toBe(0);
+    expect(upload.history[0]).toMatchObject({ status: 'error', autoRetry: true });
+    expect(upload.dbDelete).not.toHaveBeenCalled();
+
+    responseEvent = undefined;
+    responseStatus = 502;
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(requests).toHaveLength(3);
+    expect(upload.dbDelete).not.toHaveBeenCalled();
+
+    responseStatus = 202;
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(requests).toHaveLength(4);
+    expect(upload.history[0]).toMatchObject({ status: 'server_queued', jobId: 11 });
+    expect(upload.dbDelete).toHaveBeenCalledExactlyOnceWith(7);
+  });
+  it('restores a queued photo offline and sends it as soon as the connection returns', async () => {
+    vi.useFakeTimers();
+    connection.onLine = false;
+    const photo = file();
+    upload.db = {};
+    upload.dbGetAll = vi.fn(async () => [{ id: 7, blob: photo, name: photo.name, owner: upload.ownerTag() }]);
+    await upload.retryPending();
+    expect(requests).toHaveLength(0);
+    expect(upload.history[0]).toMatchObject({ status: 'error', autoRetry: true });
+
+    connection.onLine = true;
+    upload._resumeRetries(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requests).toHaveLength(1);
+    expect(upload.dbDelete).toHaveBeenCalledExactlyOnceWith(7);
+  });
   it('respects Retry-After without waiting twice, and never auto-retries an invalid file', async () => {
     vi.useFakeTimers();
     await send(429, {});
+    upload._resumeRetries(true);
     await vi.advanceTimersByTimeAsync(9000);
     expect(upload._scheduleUpload).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
@@ -122,11 +171,12 @@ describe('durable upload acknowledgement and automatic retry', () => {
     await vi.advanceTimersByTimeAsync(60000);
     expect(upload._scheduleUpload).not.toHaveBeenCalled();
   });
-  it('does not report an unacknowledged 2xx as a successful upload', async () => {
+  it.each([{}, null, { job_id: 'not-a-receipt' }])('retries an unacknowledged 2xx (%j)', async body => {
     vi.useFakeTimers();
-    await send(202, {});
+    await send(202, body);
     expect(upload.history[0]).toMatchObject({ status: 'error', autoRetry: true });
     expect(upload.dbDelete).not.toHaveBeenCalled();
+    expect(upload.totalUploaded).toBe(0);
   });
   it('waits for the IndexedDB transaction commit before considering a photo locally saved', async () => {
     const tx: any = { objectStore: () => ({ add: () => ({ result: 42 }) }) };
@@ -270,7 +320,7 @@ describe('photo shrinking before upload', () => {
     upload.dbPut = vi.fn(async () => 8);
     upload._scheduleUpload = vi.fn();
     await upload.addFile(new File([Uint8Array.from([9, 9, 9, 9])], 'scan.png', { type: 'image/png' }));
-    expect(upload.dbPut).toHaveBeenCalledWith(shrunk, 'scan.jpg');
+    expect(upload.dbPut).toHaveBeenCalledWith(shrunk, 'scan.jpg', upload.ownerTag());
     expect(upload.history[0].name).toBe('scan.jpg');
     expect(upload._scheduleUpload).toHaveBeenCalledWith(0, shrunk);
   });
