@@ -127,9 +127,6 @@ jobs:
             echo "ONEC_USAGE_MCP_CONFIG ensured in .env"
           fi
 
-          # Проверяем доступ к назначенной компании базе до перезапуска приложения.
-          node dist/scripts/check-onec-usage.js || exit 1
-
           # Restart with PM2
           pm2 startOrRestart ecosystem.config.js 2>&1
           pm2 save 2>&1
@@ -200,3 +197,11 @@ jobs:
 
           echo "::error::Public endpoint is unavailable after deploy"
           exit 1
+
+      - name: Sync catalogs and verify 1C access
+        run: |
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=accept-new ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'bash -s' << 'ENDSSH'
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          cd ~/www/scanflow.ru/app && node dist/scripts/check-onec-usage.js
+          ENDSSH
