@@ -65,6 +65,8 @@
         <input class="m-field" id="m-login-pass" name="password" type="password" autocomplete="current-password" required>
         <p class="m-error" id="m-login-error" role="alert" hidden></p>
         <button type="submit" class="m-btn m-btn--primary" id="m-login-submit">Войти</button>
+        <button type="button" class="m-btn m-btn--ghost" id="m-login-qr">Сканировать QR</button>
+        <input type="file" id="m-login-qr-input" accept="image/*" capture="environment" hidden>
       </form>
       <p class="m-note">Нет аккаунта? <a href="/">Регистрация на сайте</a></p>
     </div>
@@ -221,6 +223,7 @@
 
   <script src="/js/mobile-core.js"></script>
   <script src="/js/share-inbox.js"></script>
+  <script src="/js/phone-qr-decoder.js"></script>
   <script src="/js/mobile.js"></script>
   <script src="/js/upload.js"></script>
   <script src="/js/recognition-queue.js"></script>

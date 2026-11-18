@@ -516,7 +516,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    res.status(404).sendFile(path.join(publicDir, '404.html'));
+    res.status(404).sendFile('404.html', { root: publicDir });
   });
 
   // Terminal error handler (must be the LAST app.use): multer → 413/400,

@@ -2627,6 +2627,11 @@ tr.inv-visited:hover td { opacity: 1; }
   line-height: 1.5;
 }
 
+#profile-phone-qr-img {
+  max-width: 100%;
+  height: auto;
+}
+
 .token-row {
   display: flex;
   gap: 8px;

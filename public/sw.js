@@ -6,7 +6,7 @@
 // Меняете список файлов — меняйте номер версии кеша.
 importScripts('/js/share-inbox.js');
 
-const CACHE = 'sf-m-v4';
+const CACHE = 'sf-m-v5';
 const NETWORK_TIMEOUT_MS = 4000;
 const SHELL = [
   '/m/',
@@ -14,6 +14,7 @@ const SHELL = [
   '/css/mobile.css',
   '/js/mobile-core.js',
   '/js/mobile.js',
+  '/js/phone-qr-decoder.js',
   '/js/upload.js',
   '/js/recognition-queue.js',
   '/js/share-inbox.js',

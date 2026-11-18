@@ -2776,6 +2776,23 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 97,
+    name: 'users.phone_login_token',
+    detect: async exec => (await hasColumn(exec, 'users', 'phone_login_expires_at'))
+      && (await hasIndex(exec, 'users', 'uq_users_phone_login_hash')),
+    run: async exec => {
+      if (!(await hasColumn(exec, 'users', 'phone_login_hash'))) {
+        await exec.query('ALTER TABLE users ADD COLUMN phone_login_hash BINARY(32) NULL');
+      }
+      if (!(await hasColumn(exec, 'users', 'phone_login_expires_at'))) {
+        await exec.query('ALTER TABLE users ADD COLUMN phone_login_expires_at DATETIME NULL');
+      }
+      if (!(await hasIndex(exec, 'users', 'uq_users_phone_login_hash'))) {
+        await exec.query('ALTER TABLE users ADD UNIQUE KEY uq_users_phone_login_hash (phone_login_hash)');
+      }
+    },
+  },
 ];
 
 export async function runMigrations(pool: Pool): Promise<void> {
