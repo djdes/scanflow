@@ -3,7 +3,7 @@ import { onecNomenclatureRepo } from '../database/repositories/onecNomenclatureR
 import { catalogMcpSource, syncCatalogFromMcp } from '../integration/onecCatalogMcp';
 import { configuredUsageOwners, getOnecUsage, usageSource } from '../integration/onecUsage';
 
-/** Проверка и синхронизация каталогов перед перезапуском при выкладке. */
+/** Проверка и синхронизация каталогов при выкладке. */
 async function main(): Promise<void> {
   const owners = configuredUsageOwners();
   for (const owner of owners) {
