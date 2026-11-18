@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 import { getDb } from '../database/db';
 import type { Invoice, InvoiceItem } from '../database/repositories/invoiceRepo';
 import { serializeEditValue } from '../database/repositories/editLogRepo';
+import { itemUnitRuleRepo } from '../database/repositories/itemUnitRuleRepo';
+import { makeSupplierKey } from '../database/repositories/supplierMappingRepo';
+import { itemNameKey } from '../mapping/nameKey';
+import { canonUnit } from '../mapping/unitConverter';
+import { companyAllKg } from './companyUnits';
 
 export class QuantityConfirmationError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -17,11 +22,19 @@ export function quantityReviewToken(item: InvoiceItem): string {
   ])).digest('hex');
 }
 
+export function canRememberItemWeight(item: InvoiceItem, targetUnit: string | null): boolean {
+  return Number(item.raw_quantity) > 0 && canonUnit(item.raw_unit)?.cls === 'count'
+    && canonUnit(targetUnit)?.unit === 'кг';
+}
+
 export async function confirmItemQuantity(invoiceId: number, itemId: number, owner: number, body: Record<string, unknown>) {
+  const rememberWeight = body.remember_weight === true;
   if (![invoiceId, itemId, owner].every(id => Number.isSafeInteger(id) && id > 0)
-      || typeof body.confirmed !== 'boolean' || typeof body.expected !== 'string' || !/^[a-f0-9]{64}$/.test(body.expected)) {
+      || typeof body.confirmed !== 'boolean' || typeof body.expected !== 'string' || !/^[a-f0-9]{64}$/.test(body.expected)
+      || (body.remember_weight !== undefined && typeof body.remember_weight !== 'boolean') || (rememberWeight && !body.confirmed)) {
     throw new QuantityConfirmationError(400, 'Нужны состояние подтверждения и актуальная версия строки');
   }
+  const allKg = rememberWeight && await companyAllKg(owner);
   const result = await getDb().transaction(async db => {
     const inv = await db.prepare('SELECT * FROM invoices WHERE id = ? AND owner_user_id = ? FOR UPDATE').get<Invoice>(invoiceId, owner);
     if (!inv) throw new QuantityConfirmationError(404, 'Строка не найдена');
@@ -41,6 +54,28 @@ export async function confirmItemQuantity(invoiceId: number, itemId: number, own
       }
       quantity = body.quantity;
       unit = body.unit.trim();
+    }
+    if (rememberWeight) {
+      const catalog = !allKg && item.onec_guid
+        ? await db.prepare('SELECT unit FROM onec_nomenclature_cards WHERE owner_user_id = ? AND guid = ?')
+          .get<{ unit: string | null }>(owner, item.onec_guid)
+        : undefined;
+      const target = allKg ? 'кг' : catalog?.unit ?? null;
+      const supplierKey = makeSupplierKey(inv.supplier_inn, inv.supplier);
+      const nameKey = itemNameKey(item.original_name);
+      const rawUnit = canonUnit(item.raw_unit)?.unit ?? null;
+      const factor = Number(quantity) / Number(item.raw_quantity);
+      if (!supplierKey || !nameKey || !canRememberItemWeight(item, target) || canonUnit(unit)?.unit !== 'кг'
+          || !Number.isFinite(factor) || factor <= 0 || factor > 100000) {
+        throw new QuantityConfirmationError(400, 'Вес можно запомнить при пересчёте количества упаковок в кг для известного поставщика');
+      }
+      const note = `1 ${rawUnit} = ${factor} кг (проверка количества)`;
+      await itemUnitRuleRepo.upsert(owner, { supplierKey, nameKey, rawUnit, targetUnit: 'кг', factor,
+        source: 'user', note, createdBy: owner }, db);
+      await db.prepare('INSERT INTO edit_log (owner_user_id,user_id,invoice_id,item_id,entity,field,old_value,new_value,context) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(owner, owner, invoiceId, itemId, 'rule', 'unit_rule', null,
+          serializeEditValue({ factor, target_unit: 'кг', raw_unit: rawUnit, supplier_key: supplierKey }),
+          JSON.stringify({ source: 'quantity_review', original_name: item.original_name }));
     }
     const changed = quantity !== item.quantity || unit !== item.unit;
     if (!changed && body.confirmed === (Number(item.qty_confirmed) === 1)) return item;

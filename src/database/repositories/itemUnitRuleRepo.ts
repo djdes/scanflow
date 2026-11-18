@@ -1,4 +1,4 @@
-import { getDb } from '../db';
+import { getDb, type DbAdapter } from '../db';
 
 /**
  * Правила пересчёта единиц «поставщик + товар» (миграция 68, пакет v2 п.3).
@@ -53,8 +53,8 @@ export const itemUnitRuleRepo = {
     return row ?? null;
   },
 
-  async upsert(ownerUserId: number, r: UpsertItemUnitRule): Promise<void> {
-    await getDb().prepare(`
+  async upsert(ownerUserId: number, r: UpsertItemUnitRule, db: DbAdapter = getDb()): Promise<void> {
+    await db.prepare(`
       INSERT INTO item_unit_rules (owner_user_id, supplier_key, name_key, raw_unit, target_unit, factor, source, note, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE target_unit = VALUES(target_unit), factor = VALUES(factor),

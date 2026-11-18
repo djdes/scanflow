@@ -1759,18 +1759,37 @@ const Invoices = {
     dialog.id = 'quantity-review-dialog';
     dialog.className = 'quantity-review-dialog';
     dialog.setAttribute('aria-labelledby', 'quantity-review-title');
-    dialog.innerHTML = `<form><h2 id="quantity-review-title">Проверить количество</h2><p class="quantity-review-name">${App.esc(item.original_name)}</p><p class="quantity-review-help">Укажите фактическое количество или вес. Для штучного товара можно оставить «шт».</p>${item.raw_quantity != null ? `<div class="quantity-review-source">В накладной: <strong>${App.esc(App.formatQty(item.raw_quantity))} ${App.esc(item.raw_unit || '')}</strong></div>` : ''}<div class="quantity-review-fields"><label>Количество / вес<input name="quantity" type="text" inputmode="decimal" autocomplete="off" required value="${App.esc(item.quantity == null ? '' : String(item.quantity).replace('.', ','))}"></label><label>Единица измерения<input name="unit" type="text" autocomplete="off" maxlength="32" required value="${App.esc(item.unit || '')}"></label></div><p class="quantity-review-help">Сумма строки: ${App.esc(App.formatMoney(item.total))} ₽. При изменении количества цена за единицу пересчитается, сумма сохранится.</p><label class="quantity-review-check"><input name="confirmed" type="checkbox" ${Number(item.qty_confirmed) === 1 ? 'checked' : ''}><span>Количество и единица измерения проверены, всё верно</span></label><p class="quantity-review-help">Подтверждение относится только к этой строке. Изменение чисел или позиции 1С снимет отметку.</p><p class="quantity-review-error" role="alert" hidden></p><div class="quantity-review-actions"><button type="button" class="btn btn-outline" data-cancel>Отмена</button>${Number(item.qty_confirmed) === 1 ? '<button type="button" class="btn btn-outline" data-revoke>Снять отметку</button>' : ''}<button type="submit" class="btn btn-primary" disabled>Сохранить</button></div></form>`;
+    const rememberWeightMarkup = item.can_remember_weight
+      ? '<div data-weight-rule hidden><label class="quantity-review-check"><input name="remember_weight" type="checkbox"><span></span></label></div>'
+      : '';
+    dialog.innerHTML = `<form><h2 id="quantity-review-title">Проверить количество</h2><p class="quantity-review-name">${App.esc(item.original_name)}</p><p class="quantity-review-help">Укажите фактическое количество или вес. Для штучного товара можно оставить «шт».</p>${item.raw_quantity != null ? `<div class="quantity-review-source">В накладной: <strong>${App.esc(App.formatQty(item.raw_quantity))} ${App.esc(item.raw_unit || '')}</strong></div>` : ''}<div class="quantity-review-fields"><label>Количество / вес<input name="quantity" type="text" inputmode="decimal" autocomplete="off" required value="${App.esc(item.quantity == null ? '' : String(item.quantity).replace('.', ','))}"></label><label>Единица измерения<input name="unit" type="text" autocomplete="off" maxlength="32" required value="${App.esc(item.unit || '')}"></label></div><p class="quantity-review-help">Сумма строки: ${App.esc(App.formatMoney(item.total))} ₽. При изменении количества цена за единицу пересчитается, сумма сохранится.</p><label class="quantity-review-check"><input name="confirmed" type="checkbox" ${Number(item.qty_confirmed) === 1 ? 'checked' : ''}><span>Количество и единица измерения проверены, всё верно</span></label><p class="quantity-review-help">Подтверждение относится только к этой строке. Изменение чисел или позиции 1С снимет отметку.</p>${rememberWeightMarkup}<p class="quantity-review-error" role="alert" hidden></p><div class="quantity-review-actions"><button type="button" class="btn btn-outline" data-cancel>Отмена</button>${Number(item.qty_confirmed) === 1 ? '<button type="button" class="btn btn-outline" data-revoke>Снять отметку</button>' : ''}<button type="submit" class="btn btn-primary" disabled>Сохранить</button></div></form>`;
     document.body.appendChild(dialog);
     const form = dialog.querySelector('form');
     const save = form.querySelector('[type="submit"]');
     const check = form.elements.namedItem('confirmed');
+    const remember = form.elements.namedItem('remember_weight');
     const error = form.querySelector('.quantity-review-error');
     let busy = false;
+    const readQuantity = () => Number(form.elements.namedItem('quantity').value.trim().replace(',', '.'));
+    const readUnit = () => form.elements.namedItem('unit').value.trim();
+    const updateWeightOption = () => {
+      if (!remember) return;
+      const label = remember.closest('[data-weight-rule]');
+      const factor = readQuantity() / Number(item.raw_quantity);
+      const eligible = this._normUnit(readUnit()) === 'кг' && Number.isFinite(factor) && factor > 0 && factor <= 100000;
+      label.hidden = !eligible;
+      if (!eligible) remember.checked = false;
+      else label.querySelector('span').textContent =
+        `Запомнить для этого товара у поставщика: 1 ${item.raw_unit} = ${factor.toLocaleString('ru-RU', { maximumSignificantDigits: 8 })} кг`;
+    };
+    updateWeightOption();
     check.onchange = () => { save.disabled = !check.checked; };
     save.disabled = !check.checked;
     ['quantity', 'unit'].forEach(name => form.elements.namedItem(name).addEventListener('input', () => {
       check.checked = false;
       save.disabled = true;
+      if (remember) remember.checked = false;
+      updateWeightOption();
     }));
     form.querySelector('[data-cancel]').onclick = () => dialog.close();
     const onNavigate = () => { if (!busy) dialog.close(); };
@@ -1783,8 +1802,9 @@ const Invoices = {
     }, { once: true });
     const submit = async confirmed => {
       if (busy) return;
-      const quantity = Number(form.elements.namedItem('quantity').value.trim().replace(',', '.'));
-      const unit = form.elements.namedItem('unit').value.trim();
+      const quantity = readQuantity();
+      const unit = readUnit();
+      const rememberWeight = confirmed && remember?.checked === true;
       if (confirmed && (!check.checked || !Number.isFinite(quantity) || quantity <= 0 || !unit)) {
         error.textContent = 'Укажите положительное количество, единицу и отметьте, что всё проверено.';
         error.hidden = false;
@@ -1795,11 +1815,14 @@ const Invoices = {
       form.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
       try {
         await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/quantity-confirmation`, {
-          method: 'POST', body: { confirmed, expected: item.qty_review_token, ...(confirmed ? { quantity, unit } : {}) },
+          method: 'POST', body: { confirmed, expected: item.qty_review_token,
+            ...(confirmed ? { quantity, unit, remember_weight: rememberWeight } : {}) },
         });
         dialog.close();
         if (location.hash.split('?')[0] === `#/invoices/${invoiceId}`) this.showDetail(invoiceId);
-        App.notify(confirmed ? 'Количество и единица подтверждены' : 'Подтверждение снято', 'success');
+        const message = rememberWeight ? 'Вес сохранён для следующих поставок'
+          : confirmed ? 'Количество и единица подтверждены' : 'Подтверждение снято';
+        App.notify(message, 'success');
       } catch (cause) {
         error.textContent = cause.message || 'Не удалось сохранить проверку';
         error.hidden = false;
