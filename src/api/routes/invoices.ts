@@ -1,7 +1,7 @@
 import { isInvoiceListView, REVIEW_REASON_SQL } from '../../database/repositories/invoiceListWorkflow';
 import { trashRepo, TrashRestoreError, TRASH_DAYS } from '../../database/repositories/trashRepo';
 import invoiceReviewRouter from './invoiceReview';
-import { confirmItemQuantity, quantityReviewToken, QuantityConfirmationError } from '../../services/itemQuantityConfirmation';
+import { canRememberItemWeight, confirmItemQuantity, quantityReviewToken, QuantityConfirmationError } from '../../services/itemQuantityConfirmation';
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -584,17 +584,23 @@ router.get('/:id', async (req: Request, res: Response) => {
   // Единица учёта позиции 1С у каждой строки — чтобы интерфейс видел
   // расхождение «в накладной шт, в 1С кг» и предлагал пересчёт (пакет v2).
   const guids = Array.from(new Set(enriched.items.map((it: any) => it.onec_guid).filter(Boolean)));
+  let unitsByGuid = new Map<string, string | null>();
   if (guids.length && raw.owner_user_id != null) {
     const units = await getDb().prepare(
       `SELECT guid, unit FROM onec_nomenclature_cards WHERE owner_user_id = ? AND guid IN (${guids.map(() => '?').join(',')})`,
     ).all<{ guid: string; unit: string | null }>(raw.owner_user_id, ...guids);
-    const byGuid = new Map(units.map(u => [u.guid, u.unit]));
-    enriched.items = enriched.items.map((it: any) => ({ ...it, onec_unit: it.onec_guid ? byGuid.get(it.onec_guid) ?? null : null }));
+    unitsByGuid = new Map(units.map(u => [u.guid, u.unit]));
   }
   // В какую единицу считается строка: «Всё в кг» — всегда кг (штучную позицию
   // обработка 1С при загрузке переведёт на кг), иначе — единица позиции 1С.
   const allKg = await companyAllKg(raw.owner_user_id);
-  enriched.items = enriched.items.map((it: any) => ({ ...it, target_unit: allKg ? 'кг' : it.onec_unit ?? null, qty_review_token: quantityReviewToken(it) }));
+  const knownSupplier = !!makeSupplierKey(raw.supplier_inn, raw.supplier);
+  enriched.items = enriched.items.map(it => {
+    const onecUnit = it.onec_guid ? unitsByGuid.get(it.onec_guid) ?? null : null;
+    const targetUnit = allKg ? 'кг' : onecUnit;
+    return { ...it, onec_unit: onecUnit, target_unit: targetUnit, qty_review_token: quantityReviewToken(it),
+      can_remember_weight: knownSupplier && canRememberItemWeight(it, targetUnit) };
+  });
   if (raw.owner_user_id != null) {
     const costs = await itemCostViews(raw.owner_user_id, raw, enriched.items);
     enriched.items = enriched.items.map((it: any, index: number) => ({ ...it, unit_cost: costs[index] }));
@@ -1940,7 +1946,7 @@ async function loadOwnedItem(req: Request, res: Response): Promise<{ item: Invoi
   return { item, invoice };
 }
 
-// Approval belongs to this row only; no supplier rule is learned.
+// Quantity confirmation can also save an explicitly requested supplier weight rule.
 router.post('/:invoiceId/items/:itemId/quantity-confirmation', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Требуется вход' });
   try {
