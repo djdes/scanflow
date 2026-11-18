@@ -99,13 +99,13 @@ describe('uploadSummary — полоса отправки', () => {
   it('отправляем', () => {
     expect(core.uploadSummary([{ status: 'uploading' }, { status: 'queued' }], true)).toEqual(bar('blue', 'Отправляем 2 фото…'));
   });
-  it('нет интернета — фото сохранены', () => {
+  it('нет интернета — фото ждут отправки', () => {
     expect(core.uploadSummary([{ status: 'error', autoRetry: true }], false))
-      .toEqual(bar('amber', 'Нет интернета. Фото сохранены — отправим сами.'));
+      .toEqual(bar('amber', 'Нет интернета. Отправим фото, когда появится связь.'));
   });
   it('сбой связи при сети — повторим сами, можно повторить сразу', () => {
     expect(core.uploadSummary([{ status: 'error', autoRetry: true }, { status: 'error', autoRetry: true }], true))
-      .toEqual(bar('red', 'Не отправилось 2 фото. Повторим сами.', { retry: true }));
+      .toEqual(bar('amber', 'В очереди 2 фото. Повторим отправку автоматически.', { retry: true }));
   });
   it('окончательная ошибка — причина и «Убрать», без обещания повторить', () => {
     expect(core.uploadSummary([{ status: 'error', autoRetry: false, error: 'Файл больше 20 МБ' }], true))
