@@ -641,6 +641,8 @@ const Upload = {
           this.history[idx].error = `Слишком много загрузок, подожди ${retryAfter}с`;
           this.history[idx].rateLimited = true;
           this.scheduleAutoRetry(idx, retryAfter * 1000);
+        } else if (xhr.status === 400 && data.code === 'upload_incomplete') {
+          this._waitForUpload(idx, 'Сервер получил только часть файла');
         } else if (xhr.status >= 500 || [0, 408, 425, 499].includes(xhr.status)) {
           this._waitForUpload(idx, typeof data.error === 'string' ? data.error : `Сервер не подтвердил приём (HTTP ${xhr.status})`);
         } else {

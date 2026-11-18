@@ -119,6 +119,17 @@ describe('durable upload acknowledgement and automatic retry', () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(upload._scheduleUpload).toHaveBeenCalledTimes(1);
   });
+  it('retries a partial upload reported by the server but leaves other HTTP 400 errors actionable', async () => {
+    vi.useFakeTimers();
+    await send(400, { code: 'upload_incomplete' });
+    expect(upload.dbDelete).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(upload._scheduleUpload).toHaveBeenCalledTimes(1);
+
+    await send(400, { error: 'No file uploaded' });
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(upload._scheduleUpload).not.toHaveBeenCalled();
+  });
   it.each(['abort', 'timeout'] as const)('releases the slot on %s and keeps retrying until a durable receipt', async event => {
     vi.useFakeTimers();
     const photo = file();
