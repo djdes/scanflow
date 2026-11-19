@@ -85,9 +85,65 @@ const Upload = {
     });
   },
 
+  // ====================  Старые фото  ====================
+  // 17.11.2026 с телефона ушли 13 снимков накладных 08–27.10, сохранённых из
+  // мессенджера: те же документы уже были загружены в октябре. Мессенджер пережимает
+  // фото, хеш файла другой, и сервер распознал их заново — в списке появились
+  // дубликаты. Поэтому перед отправкой спрашиваем про снимки старше недели.
+  STALE_PHOTO_DAYS: 7,
+
+  // Когда снят кадр: дата в имени файла (камера, Telegram, WhatsApp, сохранённое из
+  // мессенджера «<мс эпохи><случайные цифры>.jpg») и время изменения файла — более ранняя.
+  photoTakenAt(file, now = Date.now()) {
+    const MIN = Date.parse('2020-01-01T00:00:00Z');
+    const ok = (t) => Number.isFinite(t) && t >= MIN && t <= now + 86_400_000;
+    const name = String((file && file.name) || '');
+    const times = [];
+    const ms = name.match(/^(1\d{12})/);
+    if (ms && ok(Number(ms[1]))) times.push(Number(ms[1]));
+    const ymd = name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\d|3[01])/);
+    if (ymd) {
+      const t = Date.parse(`${ymd[1]}-${ymd[2]}-${ymd[3]}T12:00:00Z`);
+      if (ok(t)) times.push(t);
+    }
+    if (file && ok(Number(file.lastModified))) times.push(Number(file.lastModified));
+    return times.length ? Math.min(...times) : null;
+  },
+
+  // Снимки (не PDF и не XML) старше STALE_PHOTO_DAYS: [{ file, takenAt }].
+  stalePhotos(files, now = Date.now()) {
+    const limit = now - this.STALE_PHOTO_DAYS * 86_400_000;
+    const out = [];
+    for (const file of files) {
+      const name = String((file && file.name) || '').toLowerCase();
+      const isImage = /^image\//.test(String(file && file.type)) || /\.(jpe?g|png|bmp|tiff?|webp|heic)$/.test(name);
+      if (!isImage) continue;
+      const takenAt = this.photoTakenAt(file, now);
+      if (takenAt != null && takenAt < limit) out.push({ file, takenAt });
+    }
+    return out;
+  },
+
+  stalePhotosQuestion(old) {
+    const fmt = (t) => new Date(t).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Moscow' });
+    const times = old.map(o => o.takenAt);
+    const from = fmt(Math.min(...times));
+    const to = fmt(Math.max(...times));
+    const range = from === to ? from : `${from} — ${to}`;
+    return `${old.length} фото сняты давно: ${range}.\n\n`
+      + 'Возможно, эти накладные уже загружали — тогда повторная загрузка создаст дубликаты.\n\n'
+      + 'ОК — всё равно загрузить. Отмена — пропустить старые фото.';
+  },
+
   async _addMultiple(files) {
     // .xml — электронные УПД/ТОРГ-12 из ЭДО (Диадок, СБИС): разбираются без распознавания.
     const ALLOWED = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf', '.xml'];
+    const old = this.stalePhotos(files);
+    if (old.length && !window.confirm(this.stalePhotosQuestion(old))) {
+      const skip = new Set(old.map(o => o.file));
+      files = files.filter(f => !skip.has(f));
+      App.notify(`Пропущено старых фото: ${old.length}`, 'info');
+    }
     for (const file of files) {
       const ext = '.' + (file.name || '').split('.').pop().toLowerCase();
       if (!ALLOWED.includes(ext)) {
