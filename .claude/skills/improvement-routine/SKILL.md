@@ -53,12 +53,16 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 
 Дополняй таблицу в каждом PR этого скилла — или полагайся на `ledger.mjs`.
 
+### Ждут слияния (не повторять)
+
+- **yesbeatru**: зачёркнутая цена и `priceValidUntil` в JSON-LD товара. Открыты [#590 в `main`](https://github.com/djdes/yesbeatru/pull/590) и [#591 в `prod`](https://github.com/djdes/yesbeatru/pull/591).
+
 ### Идеи, ещё не сделанные (бери сверху, вычёркивай)
 
 - **scanflow** (лендинг/блог): JSON-LD `SoftwareApplication` + `Offer` по тарифам и `FAQPage`
   на главной; `BlogPosting` + `BreadcrumbList` в статьях; `hreflang`/canonical на пагинации.
 - ~~**OrdersFlow**: `Restaurant`/`Menu` JSON-LD на `/m/:slug`~~ — не делать: страница `noindex`, разметку поиск не увидит.
-- **yesbeatru**: `MusicRecording`/`Product` + `Offer` в карточке трека (цена, BPM, длительность) —
+- **yesbeatru**: ~~`Product` + `Offer`~~ (уже есть с 10.09); осталось `ItemList` в каталоге и `MusicRecording` (BPM, длительность) в карточке трека (цена, BPM, длительность) —
   витрина в Google/Яндексе; `ItemList` в каталоге. Выкладка — двумя PR (main + prod).
 - **TasksFlow**: `HowTo`-разметка на кластерных страницах блога; прайс-якорь «за сотрудника в месяц».
 - **HASSR-Online**: аудит Core Web Vitals лендинга (LCP-картинка с `fetchpriority=high`, `font-display`).
@@ -93,6 +97,9 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 сверка «разметка ↔ видимая цена» на проде: `curl` главной, вытащить `offers` из JSON-LD и
 числа рядом с «₽» из HTML без JS — расхождение = находка (так найден OrdersFlow #11: робот
 видел «0 ₽», а разметка — 4 900–19 900 ₽ при цене 15 000).
+Тренды по языку стека, а не по звёздам вообще (в общем топе — эмуляторы и хайп):
+`gh api -X GET search/repositories -f q="language:PHP created:>$(date -d '-90 days' +%F) stars:>100" -f sort=stars`
+(и `TypeScript`). OSS Insight trends с 01.03.2026 недоступен — не тратить на него время.
 Кандидаты на следующие разы: проверка сниппетов через Rich Results Test в Playwright;
 ежемесячный отчёт по позициям из Яндекс.Вебмастера (нужен токен в секретах среды);
 снимки «до/после» визуальных PR прямо в описании (скилл visual-check).
