@@ -49,9 +49,13 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 | OrdersFlow | og:image в PNG (#6, закрыт), цена тарифа в пререндере и JSON-LD (#11) |
 | TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12) |
 | scanflow | Dependabot (#15), gitleaks (#8), npm audit (#6, #9) — ждут решения |
-| yesbeatru | проверка секретов в PR (#537), зачёркнутая цена + `priceValidUntil` в JSON-LD товара (#590 main, #591 prod) |
+| yesbeatru | проверка секретов в PR (#537) |
 
 Дополняй таблицу в каждом PR этого скилла — или полагайся на `ledger.mjs`.
+
+### Ждут слияния (не повторять)
+
+- **yesbeatru**: зачёркнутая цена и `priceValidUntil` в JSON-LD товара. Открыты [#590 в `main`](https://github.com/djdes/yesbeatru/pull/590) и [#591 в `prod`](https://github.com/djdes/yesbeatru/pull/591).
 
 ### Идеи, ещё не сделанные (бери сверху, вычёркивай)
 
