@@ -91,13 +91,16 @@ jobs:
           cd ~/www/scanflow.ru/app
 
           # Create data dirs if missing
-          mkdir -p data/inbox data/processed data/failed
+          mkdir -p data/inbox data/processed data/failed data/promo-cache
 
           # Install all dependencies (need devDeps for tsc)
           npm ci 2>&1 || npm install 2>&1
 
           # Build TypeScript
           npm run build 2>&1
+
+          # Prebuild atomic JSON promo cache before pruning/restarting
+          node dist/scripts/refresh-promo-cache.js 2>&1 || true
 
           # Prune dev dependencies
           npm prune --production 2>&1

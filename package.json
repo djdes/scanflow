@@ -7,6 +7,8 @@
     "dev": "nodemon",
     "build": "tsc",
     "start": "node dist/index.js",
+    "promo-cache:refresh": "ts-node src/scripts/refresh-promo-cache.ts",
+    "promo-cache:status": "ts-node src/scripts/refresh-promo-cache.ts --status",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ocr": "ts-node src/scripts/test-ocr.ts",

@@ -36,8 +36,9 @@ cwww1C-JPGExchangetemp_invoice.json
 temp_*.json
 temp_*.txt
 
-# Backups (server-only)
+# Backups & promo JSON cache (server-only)
 data/backups/
+data/promo-cache/
 datainbox.gitkeep
 architecture.excalidraw
 improvements.excalidraw

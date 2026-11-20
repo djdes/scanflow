@@ -3,14 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
-import fs from 'fs';
-import { loadArticles } from '../seo/articles';
-import { buildSitemapXml } from '../seo/sitemap';
-import { renderListingHtml, renderPreviewHtml } from '../seo/blogRender';
-import { LEGAL_PAGES, LegalPage, legalOperator, renderLegalPage } from '../legal/documents';
-import { applyHeroVariants, injectSiteConfig } from '../seo/siteConfig';
-import { injectArticleJsonLd } from '../seo/articleSchema';
-import { buildLlmsTxt } from '../seo/llmsTxt';
+import { LEGAL_PAGES } from '../legal/documents';
+import { readOrBuildPromoBundle } from '../seo/promoCache';
+import { prefersMarkdown } from '../seo/promoMarkdown';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { apiKeyAuth, requireAdmin } from './middleware/auth';
@@ -78,7 +73,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
       const legal = /^\/legal\/([a-z]+)\.html$/.exec(req.path);
       return legal && (LEGAL_PAGES as readonly string[]).includes(legal[1])
         ? res.redirect(301, `/${legal[1]}`)
-        : res.status(404).sendFile(path.join(publicDir, '404.html'));
+        : res.status(404).sendFile('404.html', { root: publicDir });
     }
     next();
   });
@@ -421,90 +416,101 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     }
   });
 
-  // ─── SEO + Blog routes (must be before the SPA fallback) ───
+  // ─── SEO + Blog + AI Markdown routes (0 DB SELECT, 0 RAM heap cache) ───
 
-  // GET /sitemap.xml — generated on each request from articles.json (cheap;
-  // alternative would be a startup-time cache, but startup loadtime isn't
-  // worth the staleness on dev).
+  const sendPromoMarkdown = (
+    res: express.Response,
+    markdown: string,
+    canonicalUrl: string,
+    explicitMdUrl: boolean
+  ) => {
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Vary', 'Accept');
+    res.setHeader('Link', `<${canonicalUrl}>; rel="canonical"`);
+    res.setHeader('Content-Signal', 'search=yes, ai-input=yes, ai-train=no');
+    if (explicitMdUrl) {
+      res.setHeader('X-Robots-Tag', 'noindex, follow');
+    }
+    res.status(200).send(markdown);
+  };
+
   app.get('/sitemap.xml', (_req, res) => {
-    const articles = loadArticles();
-    const xml = buildSitemapXml('https://scanflow.ru', articles);
-    res.type('application/xml').send(xml);
+    const bundle = readOrBuildPromoBundle(publicDir);
+    res.type('application/xml').send(bundle.sitemapXml);
   });
 
-  // GET /llms.txt — описание сайта для ИИ-помощников (llmstxt.org). Собирается
-  // из главной и articles.json, своего текста не содержит (src/seo/llmsTxt.ts).
-  let llmsTxtCache: string | null = null;
   app.get('/llms.txt', (_req, res) => {
-    if (!llmsTxtCache) {
-      const landing = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-      llmsTxtCache = buildLlmsTxt('https://scanflow.ru', landing, loadArticles());
-    }
-    res.type('text/plain; charset=utf-8').send(llmsTxtCache);
+    const bundle = readOrBuildPromoBundle(publicDir);
+    res.setHeader('Content-Signal', 'search=yes, ai-input=yes, ai-train=no');
+    res.type('text/plain; charset=utf-8').send(bundle.llmsTxt);
   });
 
-  // GET /blog — canonical listing (no trailing slash).
-  // /blog/ → 301 to /blog is handled by middleware near the top of this file,
-  // before express.static gets to serve public/blog/index.html.
-  // Cache the listing-HTML-with-substituted-cards in memory; rebuild on every
-  // first request after server start (acceptable for SEO crawl needs).
-  let listingHtmlCache: string | null = null;
-  app.get('/blog', (_req, res) => {
-    if (!listingHtmlCache) {
-      const raw = fs.readFileSync(path.join(publicDir, 'blog/index.html'), 'utf8');
-      listingHtmlCache = injectSiteConfig(renderListingHtml(raw, loadArticles()));
-    }
-    res.type('html').send(listingHtmlCache);
+  app.get('/llms-full.txt', (_req, res) => {
+    const bundle = readOrBuildPromoBundle(publicDir);
+    res.setHeader('Content-Signal', 'search=yes, ai-input=yes, ai-train=no');
+    res.type('text/plain; charset=utf-8').send(bundle.llmsFullTxt);
   });
 
-  // GET /blog/:slug — serve the matching article HTML or 404. Slug must be
-  // safe (lowercase ascii + hyphens) to avoid path-traversal. Статья кешируется
-  // в памяти вместе с подставленными настройками страницы (siteConfig).
-  const articleHtmlCache = new Map<string, string>();
+  app.get('/index.md', (_req, res) => {
+    const bundle = readOrBuildPromoBundle(publicDir);
+    sendPromoMarkdown(res, bundle.landingMarkdown, 'https://scanflow.ru/', true);
+  });
+
+  app.get('/blog.md', (_req, res) => {
+    const bundle = readOrBuildPromoBundle(publicDir);
+    sendPromoMarkdown(res, bundle.blogIndexMarkdown, 'https://scanflow.ru/blog', true);
+  });
+
+  app.get('/blog', (req, res) => {
+    const bundle = readOrBuildPromoBundle(publicDir);
+    if (prefersMarkdown(req.headers.accept)) {
+      return sendPromoMarkdown(res, bundle.blogIndexMarkdown, 'https://scanflow.ru/blog', false);
+    }
+    res.setHeader('Vary', 'Accept');
+    res.type('html').send(bundle.blogIndexHtml);
+  });
+
   app.get('/blog/:slug', (req, res) => {
-    const slug = req.params.slug;
+    const rawParam = req.params.slug;
+    const isExplicitMd = rawParam.endsWith('.md') && rawParam.length > 3;
+    const slug = isExplicitMd ? rawParam.slice(0, -3) : rawParam;
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) return res.status(404).send('Not Found');
-    let html = articleHtmlCache.get(slug);
-    if (!html) {
-      const file = path.join(publicDir, 'blog', `${slug}.html`);
-      if (!fs.existsSync(file)) return res.status(404).send('Not Found');
-      // Разметка BlogPosting и хлебных крошек — из articles.json (src/seo/articleSchema.ts).
-      const article = loadArticles().find((a) => a.slug === slug);
-      html = injectSiteConfig(injectArticleJsonLd(fs.readFileSync(file, 'utf8'), 'https://scanflow.ru', article));
-      articleHtmlCache.set(slug, html);
+
+    const bundle = readOrBuildPromoBundle(publicDir);
+    const entry = bundle.articlesBySlug[slug];
+    if (!entry) return res.status(404).send('Not Found');
+
+    if (isExplicitMd || prefersMarkdown(req.headers.accept)) {
+      return sendPromoMarkdown(res, entry.markdown, `https://scanflow.ru/blog/${slug}`, isExplicitMd);
     }
-    res.type('html').send(html);
+    res.setHeader('Vary', 'Accept');
+    res.type('html').send(entry.html);
   });
 
-  // Правовые документы: политика обработки ПДн, согласие, пользовательское
-  // соглашение. Шаблоны — public/legal/*.html; реквизиты оператора подставляются
-  // из env (LEGAL_OPERATOR_*, см. src/legal/documents.ts) — в репозитории их нет.
-  const legalHtmlCache = new Map<LegalPage, string>();
   for (const slug of LEGAL_PAGES) {
-    app.get(`/${slug}`, (_req, res) => {
-      let html = legalHtmlCache.get(slug);
-      if (!html) {
-        const raw = fs.readFileSync(path.join(publicDir, 'legal', `${slug}.html`), 'utf8');
-        html = injectSiteConfig(renderLegalPage(raw, legalOperator()));
-        legalHtmlCache.set(slug, html);
+    app.get(`/${slug}.md`, (_req, res) => {
+      const bundle = readOrBuildPromoBundle(publicDir);
+      sendPromoMarkdown(res, bundle.legalBySlug[slug].markdown, `https://scanflow.ru/${slug}`, true);
+    });
+
+    app.get(`/${slug}`, (req, res) => {
+      const bundle = readOrBuildPromoBundle(publicDir);
+      if (prefersMarkdown(req.headers.accept)) {
+        return sendPromoMarkdown(res, bundle.legalBySlug[slug].markdown, `https://scanflow.ru/${slug}`, false);
       }
-      res.type('html').send(html);
+      res.setHeader('Vary', 'Accept');
+      res.type('html').send(bundle.legalBySlug[slug].html);
     });
   }
 
-  // Build the landing HTML once at first GET / and cache it. Crawlers
-  // see the three newest blog cards inline (good for internal linking).
-  // To refresh after publishing a new article, restart the server.
-  let landingHtmlCache: string | null = null;
-  function getLandingHtml(): string {
-    if (landingHtmlCache) return landingHtmlCache;
-    const raw = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-    landingHtmlCache = applyHeroVariants(injectSiteConfig(renderPreviewHtml(raw, loadArticles()) || raw));
-    return landingHtmlCache;
-  }
-
-  // Explicit landing route — must serve the rendered (with blog preview) HTML.
-  app.get('/', (_req, res) => res.type('html').send(getLandingHtml()));
+  app.get('/', (req, res) => {
+    const bundle = readOrBuildPromoBundle(publicDir);
+    if (prefersMarkdown(req.headers.accept)) {
+      return sendPromoMarkdown(res, bundle.landingMarkdown, 'https://scanflow.ru/', false);
+    }
+    res.setHeader('Vary', 'Accept');
+    res.type('html').send(bundle.landingHtml);
+  });
 
   // Всё, что не нашлось выше, — честный 404. Кабинет и лендинг маршрутизируются
   // через #hash, сервер этих путей не видит. Раньше здесь отдавалась главная
