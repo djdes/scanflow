@@ -46,7 +46,7 @@ export function renderCard(article: Article, opts: CardOpts = {}): string {
     `  <div class="blog-card-tags">${tagChips}</div>`,
     `  <h3>${escapeHtml(article.title)}</h3>`,
     `  <p class="blog-card-desc">${escapeHtml(article.description)}</p>`,
-    `  <div class="blog-card-meta"><b>${article.readingMinutes}</b> мин · ${escapeHtml(formatDateRu(article.date))}</div>`,
+    `  <div class="blog-card-meta"><b>${article.readingMinutes}</b> мин · <time datetime="${escapeHtml(article.date)}">${escapeHtml(formatDateRu(article.date))}</time></div>`,
     `</a>`,
   ].join('\n');
 }
