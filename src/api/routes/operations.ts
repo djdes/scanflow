@@ -73,13 +73,27 @@ function classifyPayment(row: ReconciliationRow): { code: string; label: string;
   return { code: 'pending', label: status === 'created' ? 'Черновик создан' : 'В обработке', tone: 'info' };
 }
 
-function aggregateRootCauses(rows: Array<ExceptionRow & { reasons: string[] }>) {
+// Человекочитаемые названия типов документа — те же, что в списке накладных
+// (Invoices._INVOICE_TYPES): в сводке стояли коды базы «упд», «торг_12».
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  счет_на_оплату: 'Счёт на оплату', торг_12: 'ТОРГ-12', упд: 'УПД', счет_фактура: 'Счёт-фактура',
+  акт: 'Акт', кассовый_чек: 'Кассовый чек', авансовый_отчет: 'Авансовый отчёт', прочее: 'Другой документ',
+};
+
+// Причина для группировки — без подробностей после двоеточия: «Не сопоставлено: 3» и
+// «Не сопоставлено: 4» — одна причина у двух накладных, а не две разные по одной.
+export function rootCauseName(reason: string): string {
+  const colon = reason.indexOf(':');
+  return colon > 0 ? reason.slice(0, colon).trim() : reason;
+}
+
+export function aggregateRootCauses(rows: Array<{ reasons: string[]; supplier?: string | null; invoice_type?: string | null }>) {
   const counts = (values: string[]) => [...values.reduce((map, value) => map.set(value, (map.get(value) || 0) + 1), new Map<string, number>())]
     .map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   return {
-    by_reason: counts(rows.flatMap(row => row.reasons)),
+    by_reason: counts(rows.flatMap(row => [...new Set(row.reasons.map(rootCauseName))])),
     by_supplier: counts(rows.map(row => row.supplier || 'Поставщик не определён')).slice(0, 10),
-    by_document_type: counts(rows.map(row => row.invoice_type || 'Тип не определён')),
+    by_document_type: counts(rows.map(row => (row.invoice_type && DOCUMENT_TYPE_LABELS[row.invoice_type]) || row.invoice_type || 'Тип не определён')),
   };
 }
 
