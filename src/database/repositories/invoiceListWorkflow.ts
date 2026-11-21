@@ -64,6 +64,13 @@ export const INVOICE_VIEW_SQL = {
     AND NOT EXISTS (SELECT 1 FROM sber_payments wp
       WHERE wp.invoice_id = invoices.id AND wp.status <> 'failed'
         AND COALESCE(wp.bank_status, '') NOT IN (${failedBankStatuses}))`,
+  // Не оплачены: рабочая накладная без отметки «оплачено вне сервиса» и без
+  // исполненной банком платёжки (на оплате / в банке / ошибка / нет платёжки).
+  unpaid: `invoices.status IN ('processed', 'sent_to_1c')
+    AND invoices.duplicate_of IS NULL AND invoices.paid_externally = 0
+    AND invoices.total_sum > 0
+    AND NOT EXISTS (SELECT 1 FROM sber_payments up
+      WHERE up.invoice_id = invoices.id AND up.status = 'created' AND up.bank_status = 'IMPLEMENTED')`,
 } as const;
 
 export type InvoiceListView = keyof typeof INVOICE_VIEW_SQL;

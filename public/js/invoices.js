@@ -156,6 +156,7 @@ const Invoices = {
       ready: ['Готовы к 1С', w.ready],
       queue: ['В очереди 1С', w.queue],
       payment: ['Без платёжки', w.payment, w.paymentSum ? `${App.formatMoney(w.paymentSum)} ₽` : ''],
+      unpaid: ['Не оплачены', w.unpaid, w.unpaidSum ? `${App.formatMoney(w.unpaidSum)} ₽` : ''],
     };
     for (const option of select.options) {
       const [label, count, extra] = labels[option.value] || [];
@@ -164,6 +165,13 @@ const Invoices = {
       option.textContent = tail ? `${label} (${tail})` : label;
     }
     select.value = this.currentView;
+    const unpaid = document.getElementById('invoices-unpaid');
+    if (unpaid) {
+      const n = Number(w.unpaid) || 0;
+      unpaid.hidden = n === 0;
+      unpaid.innerHTML = n ? `Не оплачено: <strong>${App.formatMoney(w.unpaidSum)} ₽</strong> · ${n} ${this._plural(n, 'накладная', 'накладные', 'накладных')}` : '';
+      unpaid.classList.toggle('is-active', this.currentView === 'unpaid');
+    }
     const sendReady = document.getElementById('btn-send-ready');
     if (sendReady) {
       sendReady.hidden = !(Number(w.ready) > 0);
@@ -172,7 +180,7 @@ const Invoices = {
   },
 
   setView(view) {
-    if (!['all', 'attention', 'ready', 'queue', 'payment'].includes(view)) return;
+    if (!['all', 'attention', 'ready', 'queue', 'payment', 'unpaid'].includes(view)) return;
     this.currentView = view;
     this.currentStatus = null;
     this.colFilters.sber = '';
@@ -282,7 +290,7 @@ const Invoices = {
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${App.esc(inv.invoice_number || inv.id)}"></td>
             <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small title="Накладная #${inv.id}">${App.formatDate(inv.invoice_date)}</small></div></td>
             <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span></div></td>
-            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${priceNote}</div></td>
+            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${this._vatLine(inv)}${priceNote}</div></td>
             <td class="col-state" data-label="1С"><div class="invoice-cell-stack">${this._onecPill(inv)}</div></td>
             <td class="col-state" data-label="Оплата"><div class="invoice-cell-stack">${this._payPill(inv)}</div></td>
             <td class="cell-action">${this._rowAction(inv)}<button type="button" class="btn-icon-gear" aria-label="Другие действия для накладной ${inv.id}" title="Другие действия" onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">•••</button></td>
@@ -788,7 +796,7 @@ const Invoices = {
     const saved = this._savedFilters()[index];
     if (!saved) return;
     const st = saved.state || {};
-    this.currentView = ['all', 'attention', 'ready', 'queue', 'payment'].includes(st.view) ? st.view : 'all';
+    this.currentView = ['all', 'attention', 'ready', 'queue', 'payment', 'unpaid'].includes(st.view) ? st.view : 'all';
     this.currentStatus = st.status || null;
     this.colFilters = { number: '', supplier: '', sumFrom: '', sumTo: '', sber: '', ...(st.colFilters || {}) };
     this.search = st.search || '';
@@ -955,6 +963,16 @@ const Invoices = {
     }
   },
 
+  // «в т.ч. НДС» под суммой в списке (вернули по просьбе владельца 2026-11-21).
+  _vatLine(inv) {
+    if (inv.vat_sum == null || inv.vat_sum === '') return '';
+    const v = Number(inv.vat_sum);
+    if (!Number.isFinite(v)) return '';
+    return v > 0
+      ? `<small class="list-vat">в т.ч. НДС ${App.formatMoney(v)}</small>`
+      : '<small class="list-vat">без НДС</small>';
+  },
+
   // Колонка «Оплата»: платёжка в СберБизнес или отметка «оплачено вне сервиса».
   _payPill(inv) {
     if (inv.paid_externally) return this._pill('green', 'Оплачено', 'вне сервиса');
@@ -964,7 +982,7 @@ const Invoices = {
     if (status === 'pending') return this._pill('blue', 'Создаётся');
     if (status === 'created') {
       const draft = !kind || kind === 'draft' || kind === 'unknown';
-      return this._pill('blue', draft ? 'Черновик' : 'В банке', draft ? 'ждёт подписи' : App.esc(inv.sber_bank_label || 'в работе банка'));
+      return this._pill('blue', draft ? 'На оплате' : 'В банке', draft ? 'ждёт подписи' : App.esc(inv.sber_bank_label || 'в работе банка'));
     }
     if (inv.sber_overdue) return this._pill('amber', 'Нет платёжки', `больше ${Number(inv.sber_overdue_days) || 14} дней`);
     return this._pill('grey', 'Нет платёжки');

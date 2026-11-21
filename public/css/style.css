@@ -6266,3 +6266,10 @@ body.has-bulk-bar #app-main { padding-bottom: 96px; }
   .queue-table > thead > tr > th { white-space: normal; hyphens: manual; }
   .queue-line-flags > span { white-space: normal; }
 }
+
+/* Список накладных: НДС под суммой и «Не оплачено» под заголовком (2026-11-21) */
+.invoice-cell-stack .list-vat { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; font-weight: 400; }
+.invoices-unpaid { display: block; margin-top: 4px; padding: 0; background: none; border: 0; font: inherit; font-size: 14px; color: var(--text-secondary); cursor: pointer; text-align: left; }
+.invoices-unpaid[hidden] { display: none; }
+.invoices-unpaid strong { color: var(--text); font-weight: 700; }
+.invoices-unpaid:hover, .invoices-unpaid.is-active { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }

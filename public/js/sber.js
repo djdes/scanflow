@@ -363,7 +363,7 @@ const Sber = {
           ? this._payLine('red', `Банк не провёл платёжку № ${number}`, `${App.esc(bank || 'Отклонена')}.${comment}`, check)
           : kind === 'in_progress'
             ? this._payLine('blue', `Платёжка № ${number} в работе банка${amount}`, `${App.esc(bank || 'Принята банком')}.${comment}`, check)
-            : this._payLine('blue', `Черновик № ${number} в СберБизнес${amount}`, `Подпишите платёжку в СберБизнес.${bank ? ` В банке: ${App.esc(bank)}.` : ''}${comment}`, check);
+            : this._payLine('blue', `На оплате · платёжка № ${number} в СберБизнес${amount}`, `Подпишите платёжку в СберБизнес.${bank ? ` В банке: ${App.esc(bank)}.` : ''}${comment}`, check);
       wrap.innerHTML = `${line}
         <div class="ic-pay-purpose"><small>Назначение платежа</small><div>${App.esc(payment.payment_purpose || '—')}</div></div>
         <div class="ic-panel-actions">
