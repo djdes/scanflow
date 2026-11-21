@@ -44,7 +44,7 @@ describe('колонка «Оплата»', () => {
     expect([tone(pill({})), text(pill({}))]).toEqual(['grey', 'Нет платёжки']);
     expect(text(pill({ sber_overdue: 1, sber_overdue_days: 14 }))).toBe('Нет платёжки больше 14 дней');
     expect(tone(pill({ sber_overdue: 1 }))).toBe('amber');
-    expect(text(pill({ sber_payment_status: 'created', sber_bank_kind: 'draft' }))).toBe('Черновик ждёт подписи');
+    expect(text(pill({ sber_payment_status: 'created', sber_bank_kind: 'draft' }))).toBe('На оплате ждёт подписи');
     expect(text(pill({ sber_payment_status: 'created', sber_bank_kind: 'in_progress', sber_bank_label: 'Принят банком' }))).toBe('В банке Принят банком');
     expect([tone(pill({ sber_payment_status: 'created', sber_bank_kind: 'paid' })), text(pill({ sber_payment_status: 'created', sber_bank_kind: 'paid' }))]).toEqual(['green', 'Оплачено исполнено банком']);
     expect(tone(pill({ sber_payment_status: 'failed' }))).toBe('red');
