@@ -6247,3 +6247,22 @@ body.has-bulk-bar #app-main { padding-bottom: 96px; }
 /* Поставщики: «Изменить» и «•••» в одну строку (2026-11-17). */
 .suppliers-table td.cell-action { white-space: nowrap; }
 .suppliers-table td.cell-action .btn-icon-gear { vertical-align: middle; margin-left: 4px; }
+/* Корзина на телефоне — карточками (2026-11-21): таблицей она была шире экрана, «Вернуть» и
+   «Удалить навсегда» уходили за правый край, дата удаления налезала на заголовок «Сумма». */
+@media (max-width: 640px) {
+  .trash-table.cards-mobile tbody tr td .invoice-cell-stack { align-items: flex-end; text-align: right; }
+  .trash-table.cards-mobile tbody tr td.cell-action { justify-content: space-between; }
+  .trash-table.cards-mobile tbody tr td.cell-action::before { content: none; }
+}
+/* Очередь в 1С на планшете и узком ноутбуке (641–1279 px, 2026-11-21): таблица была шире
+   рамки (на 1024 px с меню — 865 из 686 px), и «Разобрать» обрезалась правым краем. Кнопка
+   переезжает под поставщика, отдельная колонка действий скрыта, заголовок
+   «Перераспознавание» переносится. */
+.queue-toggle-inline { display: none; }
+@media (min-width: 641px) and (max-width: 1279px) {
+  .queue-table > thead > tr > th.col-act,
+  .queue-table > tbody > tr.queue-row > td.cell-action { display: none; }
+  .queue-toggle-inline { display: inline-flex; margin-top: 8px; }
+  .queue-table > thead > tr > th { white-space: normal; hyphens: manual; }
+  .queue-line-flags > span { white-space: normal; }
+}

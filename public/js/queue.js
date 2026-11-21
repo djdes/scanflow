@@ -241,8 +241,8 @@ const Queue = {
           <th>Готовность</th>
           <th>Строки</th>
           <th>Сбер</th>
-          <th>Перераспознавание</th>
-          <th></th>
+          <th>Перераспо&shy;знавание</th>
+          <th class="col-act"></th>
         </tr></thead>
         <tbody>${rows.map(r => this.rowHtml(r)).join('')}</tbody>
       </table>
@@ -266,6 +266,7 @@ const Queue = {
           <div class="queue-cell">
             <a class="queue-inv" href="#/invoices/${r.id}" title="Открыть накладную">${esc(this._title(r))}</a>
             <div class="queue-sub">${esc(r.supplier || 'поставщик не распознан')}</div>
+            <button type="button" class="btn btn-outline btn-sm queue-toggle-inline" data-action="toggle" data-id="${r.id}" aria-expanded="${isOpen}">${isOpen ? 'Свернуть' : 'Разобрать'}</button>
           </div>
         </td>
         <td class="queue-num" data-label="Сумма">
