@@ -77,7 +77,7 @@ describe('состояния шагов', () => {
   it('оплата: черновик, в банке, оплачено, отклонено, вне сервиса, Сбер не подключён', () => {
     const inv = base(all6);
     const pay = (p: any, s: any = sber) => card.stepStates(inv, s, p).pay;
-    expect(pay({ status: 'created', bank_status_kind: 'draft' })).toMatchObject({ state: 'progress', hint: 'черновик · ждёт подписи' });
+    expect(pay({ status: 'created', bank_status_kind: 'draft' })).toMatchObject({ state: 'progress', hint: 'на оплате · ждёт подписи' });
     expect(pay({ status: 'created', bank_status_kind: 'in_progress', bank_status_label: 'Принят банком' })).toMatchObject({ state: 'progress', hint: 'Принят банком' });
     expect(pay({ status: 'created', bank_status_kind: 'paid' }).state).toBe('done');
     expect(pay({ status: 'created', bank_status_kind: 'failed' }).state).toBe('error');
