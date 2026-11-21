@@ -480,7 +480,9 @@ export const invoiceRepo = {
       COALESCE(SUM(${INVOICE_VIEW_SQL.ready}), 0) AS ready,
       COALESCE(SUM(${INVOICE_VIEW_SQL.queue}), 0) AS queue,
       COALESCE(SUM(${INVOICE_VIEW_SQL.payment}), 0) AS payment,
-      COALESCE(SUM(CASE WHEN ${INVOICE_VIEW_SQL.payment} THEN total_sum ELSE 0 END), 0) AS paymentSum
+      COALESCE(SUM(CASE WHEN ${INVOICE_VIEW_SQL.payment} THEN total_sum ELSE 0 END), 0) AS paymentSum,
+      COALESCE(SUM(${INVOICE_VIEW_SQL.unpaid}), 0) AS unpaid,
+      COALESCE(SUM(CASE WHEN ${INVOICE_VIEW_SQL.unpaid} THEN total_sum ELSE 0 END), 0) AS unpaidSum
       FROM invoices ${where}`).get<Record<string, number>>(params);
     return Object.fromEntries(Object.entries(row || {}).map(([key, value]) => [key, Number(value)]));
   },

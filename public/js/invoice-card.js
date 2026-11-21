@@ -81,7 +81,7 @@ const InvoiceCard = {
       if (kind === 'paid') pay = { state: 'done', hint: 'оплачено' };
       else if (kind === 'failed') pay = { state: 'error', hint: payment.bank_status_label || 'банк отклонил платёж' };
       else if (kind === 'in_progress') pay = { state: 'progress', hint: payment.bank_status_label || 'в работе банка' };
-      else pay = { state: 'progress', hint: 'черновик · ждёт подписи' };
+      else pay = { state: 'progress', hint: 'на оплате · ждёт подписи' };
     } else if (payment && payment.status === 'pending') pay = { state: 'progress', hint: 'создаётся' };
     else if (payment && payment.status === 'failed') pay = { state: 'error', hint: 'платёжка не создана', action: { kind: 'pay', label: 'Повторить' } };
     else if (sber && (!sber.connected || !sber.payer_complete)) pay = { state: 'off', hint: 'Сбер не подключён' };

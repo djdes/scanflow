@@ -141,7 +141,7 @@
     <!-- Invoices Section -->
     <section id="view-invoices">
       <div class="section-header">
-        <div><h1 class="section-h1">Накладные</h1></div>
+        <div><h1 class="section-h1">Накладные</h1><button type="button" class="invoices-unpaid" id="invoices-unpaid" hidden onclick="Invoices.setView(Invoices.currentView === 'unpaid' ? 'all' : 'unpaid')" title="Показать неоплаченные накладные"></button></div>
         <div class="review-entry"><button type="button" class="btn btn-outline" onclick="InvoiceReview.start()">Проверить следующую →</button><a href="#/upload" class="btn btn-primary" id="btn-upload-from-list">＋ Загрузить накладную</a></div>
       </div>
       <div class="ai-status-banner" id="ai-status-banner" role="status" hidden></div>
@@ -163,7 +163,7 @@
             </div>
           </div>
           <div class="invoice-filter-panel" id="invoice-filters" hidden>
-            <label>Состояние<select class="filter-input" id="filter-view" onchange="Invoices.setView(this.value)"><option value="all">Все</option><option value="attention">Проверить</option><option value="ready">Готовы к 1С</option><option value="queue">В очереди 1С</option><option value="payment">Без платёжки</option></select></label>
+            <label>Состояние<select class="filter-input" id="filter-view" onchange="Invoices.setView(this.value)"><option value="all">Все</option><option value="attention">Проверить</option><option value="ready">Готовы к 1С</option><option value="queue">В очереди 1С</option><option value="payment">Без платёжки</option><option value="unpaid">Не оплачены</option></select></label>
             <label>Период<select class="filter-input" id="filter-period" onchange="Invoices.setPeriod(this.value)"><option value="all">За всё время</option><option value="today">Сегодня</option><option value="yesterday">Вчера</option><option value="7d">7 дней</option><option value="30d">30 дней</option><option value="custom" hidden>Свои даты</option></select></label>
             <label>Номер<input type="text" class="filter-input" id="filter-number" placeholder="Номер документа" oninput="Invoices.setColumnFilter('number', this.value)"></label>
             <label>Поставщик<input type="text" class="filter-input" id="filter-supplier" placeholder="Название" oninput="Invoices.setColumnFilter('supplier', this.value)"></label>
@@ -172,7 +172,7 @@
             <label>Сумма от<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-from" oninput="Invoices.setColumnFilter('sumFrom', this.value)"></label>
             <label>Сумма до<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" oninput="Invoices.setColumnFilter('sumTo', this.value)"></label>
             <label>Обработка<select class="filter-input" id="filter-status" onchange="Invoices.setColumnFilter('status', this.value)"><option value="">Все</option><option value="new">Новая</option><option value="processed">Распознана</option><option value="sent_to_1c">В 1С</option><option value="waiting_ai">Ждёт GPT</option><option value="error">Ошибка</option></select></label>
-            <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">Черновик в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option><option value="due_week">Оплатить на этой неделе</option><option value="due_overdue">Срок оплаты прошёл</option></select></label>
+            <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">На оплате в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option><option value="due_week">Оплатить на этой неделе</option><option value="due_overdue">Срок оплаты прошёл</option></select></label>
             <div class="filter-save"><button type="button" class="btn btn-outline btn-sm" id="filter-save" onclick="Invoices.saveCurrentFilter()" title="Сохранить текущие фильтры кнопкой над списком">Сохранить фильтры</button></div>
           </div>
           <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
