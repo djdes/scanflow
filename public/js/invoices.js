@@ -104,6 +104,13 @@ const Invoices = {
     await this.loadTable();
   },
 
+  _renderResultsLine() {
+    const el = document.getElementById('invoices-results');
+    if (!el) return;
+    el.textContent = [this._results, this._unread ? `новых: ${this._unread}` : ''].filter(Boolean).join(' · ');
+    el.title = this._unread ? 'Новые — ещё не открытые накладные, отмечены синей точкой' : '';
+  },
+
   async loadStats() {
     const request = this._statsRequest = (this._statsRequest || 0) + 1;
     try {
@@ -111,8 +118,9 @@ const Invoices = {
       if (request !== this._statsRequest) return;
       this._stats = data;
       this._renderSummary();
-      const container = document.getElementById('invoices-stats');
-      container.textContent = data.unreadCount ? `Непрочитанных: ${data.unreadCount}` : '';
+      // Число новых — в строке «Показано …» под списком, а не отдельной надписью по центру.
+      this._unread = Number(data.unreadCount) || 0;
+      this._renderResultsLine();
     } catch (e) {
       console.error('Failed to load stats', e);
     }
@@ -246,7 +254,8 @@ const Invoices = {
       const { data, total } = await App.apiJson(url);
       if (request !== this._listRequest) return;
       const resultTotal = Number(total ?? data?.length ?? 0);
-      document.getElementById('invoices-results').textContent = `Показано ${data?.length ? this.offset + 1 : 0}–${this.offset + (data?.length || 0)} из ${resultTotal}`;
+      this._results = `Показано ${data?.length ? this.offset + 1 : 0}–${this.offset + (data?.length || 0)} из ${resultTotal}`;
+      this._renderResultsLine();
       document.getElementById('invoices-pagination').innerHTML = '';
       // Запоминаем строки: панель массовых действий должна знать, у каких из
       // выделенных накладных закрыт чек-лист сверки (флаги приходят в списке).

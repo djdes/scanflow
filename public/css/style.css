@@ -140,6 +140,20 @@
   --accent-teal: #0e9aa7;
   --accent-purple: #8b5cf6;
   --accent-pink: #e0568f;
+
+  /* Псевдонимы старых имён (2026-11-23): стили и скрипты ссылались на
+     переменные, которых в кабинете нет, и элемент оставался без цвета или
+     фона (значок PDF на загрузке, кнопки «назад/вперёд» в карточке, статус
+     ключа DaData). Новый код — сразу основными именами выше. */
+  --card-bg: var(--card);
+  --bg-elevated: var(--card);
+  --danger: var(--error);
+  --green: var(--success);
+  --muted: var(--text-secondary);
+  --text-muted: var(--text-secondary);
+  --text-primary: var(--text);
+  --font-mono: var(--mono);
+  --primary-dark: var(--primary-hover);
 }
 
 /* Размер текста (переключатель внизу меню, public/js/text-size.js): все
@@ -592,11 +606,27 @@ tbody tr.clickable:hover { background: var(--primary-soft); }
 .ai-status-banner { background: var(--warning-soft); color: #92400e; border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; font-size: 0.875rem; overflow-wrap: anywhere; }
 .ai-status-banner[hidden] { display: none; }
 
-/* Свёрнутые карточки настроек («Проверки и пересчёт»). */
-.settings-details > summary { cursor: pointer; list-style: none; }
-.settings-details > summary::-webkit-details-marker { display: none; }
-.settings-details > summary::after { content: ' ▾'; color: var(--text-secondary); }
-.settings-details[open] > summary::after { content: ' ▴'; }
+/* Стрелка у раскрывающихся блоков кабинета (2026-11-23). Общий `details
+   summary { display: flex }` ниже прятал стрелку браузера, и «Что означают
+   показатели», вопросы на странице тарифа и т. п. выглядели как простой серый
+   текст. У .help-block свой знак «+ / −». */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details:not(.help-block) > summary::after {
+  content: '';
+  display: inline-block;
+  flex-shrink: 0;
+  width: 0.4em;
+  height: 0.4em;
+  margin-left: 0.6em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.7;
+  transform: translateY(-0.15em) rotate(45deg);
+  transition: transform var(--transition);
+}
+details[open]:not(.help-block) > summary::after { transform: translateY(0.1em) rotate(-135deg); }
+.settings-details > summary { cursor: pointer; }
 .badge-confidence-high { background: var(--success-soft); color: #065f46; }
 .badge-confidence-medium { background: var(--warning-soft); color: #92400e; }
 .badge-confidence-low { background: var(--error-soft); color: #991b1b; }
@@ -1332,6 +1362,8 @@ details[open] summary { margin-bottom: 12px; }
   .upload-row { flex-wrap: wrap; gap: 10px 12px; padding: 12px; }
   .upload-row__side { flex-basis: 100%; flex-wrap: wrap; padding-left: 56px; }
   .upload-row__side:has(> .upload-row__close:only-child) { flex-basis: auto; padding-left: 0; }
+  .upload-row__meta { flex-basis: 100%; }
+  .upload-row__meta::before { content: none; }
 }
 
 
@@ -2008,8 +2040,8 @@ tr.inv-visited:hover td { opacity: 1; }
 .report-list { display: grid; gap: 4px; }
 .report-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .report-list small { color: var(--text-tertiary); }
-.onec-create { display: flex; gap: 8px; margin-top: 18px; }
-.onec-create input { flex: 1; max-width: none; }
+.onec-create { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.onec-create input { flex: 1 1 12rem; min-width: 0; max-width: none; }
 .onec-secret { margin-top: 14px; }
 .onec-pairing-code { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .onec-pairing-code code { font-size: 1.375rem; letter-spacing: 2px; font-weight: 700; background: var(--bg); padding: 8px 12px; border-radius: 8px; user-select: all; }
@@ -2048,7 +2080,7 @@ tr.inv-visited:hover td { opacity: 1; }
 .onec-mode-note { margin-top: 12px; padding: 11px 13px; border-radius: 10px; background: color-mix(in srgb, #f59e0b 9%, var(--card)); color: var(--text-secondary); font-size: 0.75rem; line-height: 1.45; }
 .onec-official-link { display: inline-block; margin-top: 11px; color: var(--primary); font-size: 0.75rem; font-weight: 650; text-decoration: none; }
 .onec-official-link:hover { text-decoration: underline; }
-.onec-health { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 14px; }
+.onec-health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 14px; }
 .onec-health > div { padding: 11px; border-radius: 10px; background: var(--bg); }
 .onec-health span, .onec-health strong { display: block; font-size: 0.6875rem; }
 .onec-health span { margin-bottom: 4px; color: var(--text-tertiary); }
@@ -2071,13 +2103,15 @@ tr.inv-visited:hover td { opacity: 1; }
 .supplier-risk { margin-top: 8px; padding: 8px; border-radius: 8px; background: #fff4e5; color: #8a5a00; font-size: 0.6875rem; }
 
 @media (max-width: 960px) {
-  .operations-grid--control { grid-template-columns: 1fr; }
-  .operations-form-grid { grid-template-columns: 1fr 1fr; }
-  .operations-summary-strip { grid-template-columns: repeat(3, 1fr); }
-  .root-cause-grid, .report-grid { grid-template-columns: 1fr; }
-  .onec-fast-steps { grid-template-columns: 1fr 1fr; }
-  .onec-steps { grid-template-columns: 1fr 1fr; }
-  .delegate-form { grid-template-columns: 1fr 1fr; }
+  /* minmax(0, 1fr), а не 1fr (правило 38): иначе колонка не уже самого длинного
+     содержимого, и «Подключение 1С» на телефоне уезжало за край экрана. */
+  .operations-grid--control { grid-template-columns: minmax(0, 1fr); }
+  .operations-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operations-summary-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .root-cause-grid, .report-grid { grid-template-columns: minmax(0, 1fr); }
+  .onec-fast-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .onec-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .delegate-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 768px) {
@@ -2086,9 +2120,9 @@ tr.inv-visited:hover td { opacity: 1; }
   .operations-kpi { min-height: 82px; padding: 13px; }
   .operations-kpi span { font-size: 1.1875rem; }
   .operations-tabs { margin-left: -16px; margin-right: -16px; padding: 0 16px; }
-  .operations-grid--channels, .supplier-score-grid { grid-template-columns: 1fr; }
-  .operations-form-grid { grid-template-columns: 1fr; }
-  .operations-summary-strip { grid-template-columns: 1fr 1fr; }
+  .operations-grid--channels, .supplier-score-grid { grid-template-columns: minmax(0, 1fr); }
+  .operations-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .operations-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .forecast-grid { grid-template-columns: 1fr 1fr; }
   /* Сумма — в первой строке справа от номера. Без явного места она падала на третью строку
      в первую колонку и раздувала колонку галочки до своей ширины (~75 px пустоты слева). */
@@ -2518,6 +2552,10 @@ tr.inv-visited:hover td { opacity: 1; }
   align-items: center;
   margin-bottom: 28px;
 }
+/* На телефоне заголовок и статус — столбиком, статус слева, а не по центру. */
+@media (max-width: 768px) {
+  #view-profile .section-header { align-items: flex-start; }
+}
 
 .tg-status {
   display: inline-flex;
@@ -2641,8 +2679,10 @@ tr.inv-visited:hover td { opacity: 1; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-size: 0.875rem;
-  font-family: var(--mono);
-  letter-spacing: 0.2px;
+  /* Обычный шрифт (2026-11-23): моноширинный в полях профиля выглядел
+     «технически», а подсказка «Введите ID и нажмите Enter» не влезала на телефоне. */
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
   background: var(--card);
   color: var(--text);
   transition: all var(--transition);
@@ -4188,7 +4228,7 @@ tr.inv-visited:hover td { opacity: 1; }
 .date-nav__all { border-bottom: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; padding-bottom: 9px; }
 
 /* Настройка нескольких Telegram-чатов на странице «Профиль» */
-#profile-tg-chat { font-family: var(--font-mono, monospace); }
+#profile-tg-chat { font-family: var(--font); font-variant-numeric: tabular-nums; }
 
 /* Пузыри добавленных чатов */
 .chip-list {
@@ -4599,7 +4639,8 @@ select.filter-input { min-width: 104px; }
     padding-top: 8px;
     border-top: 1px dashed var(--border) !important;
   }
-  table.cards-mobile tbody tr td.cell-action::before { content: 'Действия'; color: var(--text-tertiary); }
+  /* Подпись «Действия» перед кнопками лишняя: кнопки говорят сами за себя. */
+  table.cards-mobile tbody tr td.cell-action::before { content: none; }
 }
 
 @media (max-width: 860px) {
@@ -4644,6 +4685,8 @@ tr.row-unit-mismatch td { background: var(--warning-soft); }
 .mapping-src-warn { border-color: var(--warning); color: #b45309; }
 
 /* Пакет v2: «Предложения правил» (самообучение) */
+.learning-off-hint { margin: 0 0 14px; padding: 10px 14px; border-radius: var(--radius-lg); background: var(--warning-soft); font-size: 0.8125rem; }
+.learning-off-hint a { color: var(--primary-hover); font-weight: 500; margin-left: 4px; }
 .learning-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .learning-toolbar .tabs { flex: 1 1 auto; }
 .learning-toolbar__run { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -4752,6 +4795,10 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
 .queue-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .queue-tile {
   min-width: 0;
+  /* Плитка-кнопка без подписи центровалась по высоте и стояла ниже соседних. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -5697,6 +5744,8 @@ dialog.review-confirm p {
 .ic-req span { font-size: 0.6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
 .ic-req b { font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ic-req.is-ok { background: var(--success-soft); border-color: #cfe3d3; }
+/* Название поставщика — в две строки, а не «ООО «Молочная ф…» (2026-11-23). */
+.ic-req--supplier b { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
 .ic-req.is-ok span { color: var(--success); }
 .ic-issues { list-style: none; margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: #fffaf0; border: 1px solid #f3e2bd; color: #8a5d10; font-size: 0.8125rem; display: grid; gap: 4px; }
 .ic-issues li::before { content: '•'; margin-right: 8px; }
@@ -6040,6 +6089,9 @@ button.ic-tag { cursor: pointer; }
   .ic-step { flex-direction: column; align-items: center; justify-content: flex-start; text-align: center; gap: 6px; padding: 10px 6px; min-height: 0; }
   .ic-step-long { display: none; }
   .ic-step-short { display: inline; }
+  /* Без этого основа 7.5rem из правила для ≤860px в колонке становилась высотой —
+     шаги на телефоне были ~200 px пустоты. */
+  .ic-step-text { flex: 0 0 auto; }
   .ic-step-text b { font-size: 0.84375rem; }
   .ic-step-text small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 0.71875rem; line-height: 1.3; }
   .ic-step-action { display: none; }

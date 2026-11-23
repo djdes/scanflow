@@ -9,7 +9,7 @@ export const billingPlans = [
     features: ['Всё из тарифа «Старт»', 'Черновики платежей в СберБизнес', 'ИИ-подбор товаров из каталога 1С', 'Приоритетная поддержка в Telegram'] },
   { id: 'business', name: 'Бизнес', monthlyPriceKopecks: 499000, pagesPerMonth: 10000,
     description: 'Для большого объёма закупок',
-    features: ['Всё из тарифа Pro', 'Webhook на свои события', 'Помощь с настройкой 1С', 'Расширенное сопровождение'] },
+    features: ['Всё из тарифа Pro', 'Уведомления в вашу систему', 'Помощь с настройкой 1С', 'Расширенное сопровождение'] },
 ] as const;
 
 export interface BillingUserContext {

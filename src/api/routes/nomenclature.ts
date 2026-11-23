@@ -157,7 +157,7 @@ router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
     res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });
   } catch (err) {
     logger.error('Nomenclature sync failed', { error: (err as Error).message });
-    res.status(500).json({ error: 'Sync failed: ' + (err as Error).message });
+    res.status(500).json({ error: 'Не удалось синхронизировать: ' + (err as Error).message });
   }
 });
 
@@ -180,7 +180,7 @@ router.delete('/', requireAdmin, async (req: Request, res: Response) => {
     res.json({ data: { deleted } });
   } catch (err) {
     logger.error('Nomenclature clear failed', { error: (err as Error).message });
-    res.status(500).json({ error: 'Clear failed: ' + (err as Error).message });
+    res.status(500).json({ error: 'Не удалось очистить: ' + (err as Error).message });
   }
 });
 

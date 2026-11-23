@@ -6,6 +6,11 @@ import { robustMedian } from '../pricing/medianOf';
 import { isXmlInvoice } from '../xml';
 import { storedInvoiceCompleteness } from '../services/invoiceCompleteness';
 
+/** «50 000 ₽» — как пишут деньги по-русски (было «50000.00 ₽»). */
+function rub(value: number): string {
+  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)} ₽`;
+}
+
 export interface QualitySubject {
   status: string;
   duplicate_of: number | null;
@@ -58,14 +63,14 @@ export function evaluateQualitySubject(subject: QualitySubject, settings: Automa
     add('unmapped', `Не сопоставлено с 1С: ${subject.unmapped_count}`);
   }
   if (subject.items_count > 0 && subject.min_confidence != null && subject.min_confidence < settings.min_mapping_confidence) {
-    add('low_confidence', `Позиция 1С подобрана неуверенно (${(subject.min_confidence * 100).toFixed(0)}% при пороге ${(settings.min_mapping_confidence * 100).toFixed(0)}%)`);
+    add('low_confidence', 'Не уверены в подобранной позиции 1С — проверьте');
   }
   if (settings.max_total != null && (subject.total_sum ?? 0) > settings.max_total) {
-    add('amount_limit', `Сумма выше лимита автопилота ${settings.max_total.toFixed(2)} ₽`);
+    add('amount_limit', `Сумма выше лимита автопилота ${rub(settings.max_total)}`);
   }
   if (settings.payment_approval_threshold != null
       && (subject.total_sum ?? 0) > settings.payment_approval_threshold) {
-    add('approval_required', `Сумма требует согласования от ${settings.payment_approval_threshold.toFixed(2)} ₽`);
+    add('approval_required', `Сумма требует согласования: больше ${rub(settings.payment_approval_threshold)}`);
   }
   if (settings.require_verified_supplier && subject.supplier_verified !== 1) {
     add('supplier_unverified', 'Реквизиты поставщика не подтверждены');

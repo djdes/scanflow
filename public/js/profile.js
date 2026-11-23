@@ -11,11 +11,11 @@
     if (connected) {
       el.classList.add('tg-status--online');
       el.classList.remove('tg-status--offline');
-      if (text) text.textContent = 'подключён';
+      if (text) text.textContent = 'Telegram подключён';
     } else {
       el.classList.remove('tg-status--online');
       el.classList.add('tg-status--offline');
-      if (text) text.textContent = 'не подключён';
+      if (text) text.textContent = 'Telegram не подключён';
     }
   }
 

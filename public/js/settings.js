@@ -263,7 +263,7 @@ const Settings = {
           </td>
           <td>
             <div>${Number(u.invoice_count || 0)} накл.</div>
-            <div class="muted" style="font-size:0.75rem">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
+            <div class="muted" style="font-size:0.75rem">${u.units_all_kg ? '⚖️ всё в кг' : 'единицы как в 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
           </td>
           <td>${u.last_login_at ? esc(App.formatDateTime(u.last_login_at)) : '<span class="muted">—</span>'}</td>
           <td style="white-space:nowrap">

@@ -100,7 +100,7 @@ router.post('/', requireAdmin, async (req: Request, res: Response) => {
 router.patch('/:id', requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: 'Invalid user id' });
+    res.status(400).json({ error: 'Неверный пользователь' });
     return;
   }
 
@@ -276,7 +276,7 @@ router.patch('/:id', requireAdmin, async (req: Request, res: Response) => {
 router.post('/:id/impersonate', requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: 'Invalid user id' });
+    res.status(400).json({ error: 'Неверный пользователь' });
     return;
   }
 
@@ -315,7 +315,7 @@ router.post('/:id/impersonate', requireAdmin, async (req: Request, res: Response
 router.post('/:id/regenerate-key', requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: 'Invalid user id' });
+    res.status(400).json({ error: 'Неверный пользователь' });
     return;
   }
 
@@ -339,7 +339,7 @@ router.patch('/:id/role', requireAdmin, async (req: Request, res: Response) => {
   const { role } = (req.body ?? {}) as { role?: string };
 
   if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: 'Invalid user id' });
+    res.status(400).json({ error: 'Неверный пользователь' });
     return;
   }
   if (typeof role !== 'string' || !VALID_ROLES.has(role)) {
@@ -349,7 +349,7 @@ router.patch('/:id/role', requireAdmin, async (req: Request, res: Response) => {
 
   const target = await userRepo.findById(id);
   if (!target) {
-    res.status(404).json({ error: 'User not found' });
+    res.status(404).json({ error: 'Пользователь не найден' });
     return;
   }
 
@@ -372,7 +372,7 @@ router.patch('/:id/units', requireAdmin, async (req: Request, res: Response) => 
   const id = Number(req.params.id);
   const { units_all_kg } = (req.body ?? {}) as { units_all_kg?: unknown };
   if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: 'Invalid user id' });
+    res.status(400).json({ error: 'Неверный пользователь' });
     return;
   }
   if (typeof units_all_kg !== 'boolean') {
@@ -381,7 +381,7 @@ router.patch('/:id/units', requireAdmin, async (req: Request, res: Response) => 
   }
   const target = await userRepo.findById(id);
   if (!target) {
-    res.status(404).json({ error: 'User not found' });
+    res.status(404).json({ error: 'Пользователь не найден' });
     return;
   }
   await setCompanyAllKg(id, units_all_kg);
