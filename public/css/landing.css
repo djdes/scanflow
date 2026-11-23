@@ -2136,6 +2136,11 @@ main > .tagline { padding-block: var(--s-800) var(--s-900); }
 .viz-pages__sheet[data-i="0"] { transform: translateX(-112px) rotate(-7deg); }
 .viz-pages__sheet[data-i="1"] { transform: translateY(-4px) rotate(1deg); }
 .viz-pages__sheet[data-i="2"] { transform: translateX(112px) rotate(6deg); }
+/* Узкий телефон: веер листов на ±112 px вылезал за край экрана на 320 px. */
+@media (max-width: 380px) {
+  .viz-pages__sheet[data-i="0"] { transform: translateX(-84px) rotate(-7deg); }
+  .viz-pages__sheet[data-i="2"] { transform: translateX(84px) rotate(6deg); }
+}
 
 .is-playing .viz-pages__sheet[data-i="0"] { transform: translate(-8px, 8px) rotate(-4deg); transition-delay: 300ms; }
 .is-playing .viz-pages__sheet[data-i="1"] { transform: translate(0, 4px) rotate(-1deg); transition-delay: 380ms; }

@@ -93,7 +93,7 @@ const Suppliers = {
     if (status === 502 || status === 503 || /unreachable|ProjectsFlow|502|503/i.test(serverMsg || '')) {
       return 'Сервис распознавания временно недоступен — нажмите «Повторить».';
     }
-    return serverMsg || `HTTP ${status}`;
+    return serverMsg || App.httpErrorText(status);
   },
 
   _setQueueCardProcessing(card, fileName) {
@@ -116,7 +116,7 @@ const Suppliers = {
       try {
         const res = await fetch(App.baseUrl + `/suppliers/extract-status/${jobId}`, { headers: { 'X-API-Key': App.apiKey } });
         data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (!res.ok) throw new Error(data.error || App.httpErrorText(res.status));
       } catch (err) {
         this._renderFailedCard(card, file, err.message);
         return;

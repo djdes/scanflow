@@ -66,12 +66,14 @@ export function renderTagChips(articles: Article[]): string {
 
 /**
  * Inject the chip and card markup into the listing HTML. The HTML must contain
- * the two comment placeholders. Cards: index 0 = featured, index 5 = full, rest regular.
+ * the two comment placeholders. Cards: index 0 = featured, rest regular; the last card
+ * spans both columns only when the count is odd — a full-width card in the middle
+ * left empty cells in the 2-column grid (7 статей → две дыры справа, 2026-11-23).
  */
 export function renderListingHtml(rawHtml: string, articles: Article[]): string {
   const cards = articles.map((a, i) => renderCard(a, {
     featured: i === 0,
-    full: i === 5,
+    full: articles.length % 2 === 1 && articles.length > 1 && i === articles.length - 1,
   })).join('\n');
   return rawHtml
     .replace('<!-- BLOG-CARDS-PLACEHOLDER -->', cards)

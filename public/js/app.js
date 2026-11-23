@@ -64,10 +64,11 @@ const App = {
     }
     this._progressStart();
     try {
-      const res = await fetch(this.baseUrl + path, { ...options, headers });
+      let res;
+      try { res = await fetch(this.baseUrl + path, { ...options, headers }); } catch { throw this.networkError(); }
       if (res.status === 401) {
         // 401 = ключ устарел/удалён. Уходим на лендинг, там единая форма входа.
-        this.logout('API-ключ не принят. Войдите ещё раз.');
+        this.logout('Вход устарел. Войдите ещё раз.');
         throw new Error('Unauthorized');
       }
       return res;
@@ -76,12 +77,29 @@ const App = {
     }
   },
 
+  // Текст ошибки, когда сервер не прислал своего: «HTTP 502» или «Failed to fetch»
+  // человеку ничего не говорят (2026-11-23).
+  httpErrorText(status) {
+    if (status === 413) return 'Файл слишком большой';
+    if (status === 429) return 'Слишком много запросов подряд. Подождите немного и повторите';
+    if (status >= 500) return 'Сервер не ответил. Повторите через минуту';
+    if (status === 404) return 'Не найдено — возможно, это уже удалили';
+    if (status === 403) return 'Нет доступа';
+    return `Не получилось (код ${status}). Повторите`;
+  },
+
+  networkError() {
+    const err = new Error('Нет связи с сервером. Проверьте интернет и повторите');
+    err.network = true;
+    return err;
+  },
+
   async apiJson(path, options = {}) {
     const res = await this.api(path, options);
     let body = null;
     try { body = await res.json(); } catch { /* not JSON */ }
     if (!res.ok) {
-      const msg = body && body.error ? body.error : `HTTP ${res.status}`;
+      const msg = body && body.error ? body.error : this.httpErrorText(res.status);
       const err = new Error(msg);
       err.status = res.status;
       err.body = body;

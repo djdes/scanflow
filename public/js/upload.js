@@ -644,10 +644,10 @@ const Upload = {
         } else if (xhr.status === 400 && data.code === 'upload_incomplete') {
           this._waitForUpload(idx, 'Сервер получил только часть файла');
         } else if (xhr.status >= 500 || [0, 408, 425, 499].includes(xhr.status)) {
-          this._waitForUpload(idx, typeof data.error === 'string' ? data.error : `Сервер не подтвердил приём (HTTP ${xhr.status})`);
+          this._waitForUpload(idx, typeof data.error === 'string' ? data.error : 'Сервер не подтвердил приём');
         } else {
           this.history[idx].status = 'error';
-          this.history[idx].error = typeof data.error === 'string' ? data.error : `HTTP ${xhr.status}`;
+          this.history[idx].error = typeof data.error === 'string' ? data.error : App.httpErrorText(xhr.status);
           App.notify('Ошибка: ' + this.history[idx].error, 'error');
         }
         this.renderHistory();

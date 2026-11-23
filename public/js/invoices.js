@@ -2137,7 +2137,7 @@ const Invoices = {
       const unmappedCount = (invoice.items || []).filter(it => !it.onec_guid).length;
       if (unmappedCount > 0) {
         const ok = confirm(
-          `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
+          `${unmappedCount} ${this._plural(unmappedCount, 'товар', 'товара', 'товаров')} без позиции 1С.\n\n` +
           `При загрузке в 1С они будут созданы как НОВЫЕ позиции в справочнике Номенклатура по их названию из скана.\n\n` +
           `Продолжить?`
         );
@@ -2149,7 +2149,7 @@ const Invoices = {
       if (suspect.length > 0) {
         const names = suspect.slice(0, 5).map(it => '• ' + (it.original_name || it.mapped_name || '')).join('\n');
         const ok = confirm(
-          `Количество под вопросом в ${suspect.length} строк(ах):\n${names}${suspect.length > 5 ? '\n…' : ''}\n\n` +
+          `Количество под вопросом — ${suspect.length} ${this._plural(suspect.length, 'строка', 'строки', 'строк')}:\n${names}${suspect.length > 5 ? '\n…' : ''}\n\n` +
           `Проверьте пересчёт единиц (кнопки под количеством). Всё равно отправить в 1С?`
         );
         if (!ok) return;
@@ -2365,22 +2365,22 @@ const Invoices = {
         if (requested === 0) {
           App.notify(all ? 'В накладной нет товаров' : 'Нет несопоставленных товаров', 'success');
         } else if (all) {
-          if (changed === 0) App.notify(`LLM подтвердил текущие сопоставления (${matched} из ${requested})`, 'success');
-          else App.notify(`LLM обновил ${changed} из ${requested} (подтверждено ${matched})`, 'success');
+          if (changed === 0) App.notify(`ИИ подтвердил выбранные позиции 1С (${matched} из ${requested})`, 'success');
+          else App.notify(`ИИ сменил позицию 1С у ${changed} из ${requested} товаров, подтвердил ${matched}`, 'success');
         } else if (matched === 0) {
-          App.notify(`LLM не нашёл совпадений (${requested} товаров)`, 'error');
+          App.notify(`ИИ не нашёл подходящих позиций 1С (товаров: ${requested})`, 'error');
         } else {
-          App.notify(`LLM сопоставил ${matched} из ${requested} товаров`, 'success');
+          App.notify(`ИИ подобрал позиции 1С: ${matched} из ${requested}`, 'success');
         }
         this.showDetail(id);
       } catch (e) {
-        App.notify('Ошибка LLM-маппинга: ' + e.message, 'error');
+        App.notify('Не удалось подобрать позиции ИИ: ' + e.message, 'error');
       }
     }));
   },
 
   async resetStatus(id) {
-    if (!confirm('Сбросить статус накладной? Она станет "Обработан" и исчезнет из списка готовых к 1С. Для повторной отправки нужно будет снова нажать "Отправить в 1С".')) {
+    if (!confirm('Вернуть накладную на проверку? Она уйдёт из списка готовых к 1С — чтобы отправить её снова, нажмите «Отправить в 1С».')) {
       return;
     }
     return this._withGuard(`reset:${id}`, async () => {
@@ -2395,7 +2395,7 @@ const Invoices = {
   },
 
   async unlinkDuplicate(id) {
-    if (!confirm('Снять отметку «дубликат»? Накладная превратится в обычную (status=processed), но items в неё не вернутся — для полноценной обработки нужно её удалить и переотсканировать.')) return;
+    if (!confirm('Снять отметку «дубликат»? Накладная станет обычной, но строки товаров в неё не вернутся — чтобы их получить, удалите её и загрузите фото заново.')) return;
     try {
       const res = await App.api(`/invoices/${id}/unlink-duplicate`, { method: 'POST' });
       if (!res.ok) {
