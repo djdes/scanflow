@@ -2,9 +2,11 @@ import { Router } from 'express';
 import { recognitionJobRepo, type RecognitionJob } from '../../database/repositories/recognitionJobRepo';
 import { kickRecognitionQueue } from '../../services/recognitionQueue';
 import { aiEngineState } from '../../ai/engine';
+import { repairUploadFileName } from '../../utils/uploadFileName';
 const router = Router();
 // Do not expose server paths, hashes, leases or another company's uploads.
-const view = (job: RecognitionJob) => ({ id: Number(job.id), original_name: job.original_name, state: job.state,
+// Имена, сохранённые до чтения формы как UTF-8, приходили кракозябрами — чиним при выдаче.
+const view = (job: RecognitionJob) => ({ id: Number(job.id), original_name: repairUploadFileName(job.original_name), state: job.state,
   invoice_id: job.invoice_id, attempts: job.attempts, last_error: job.last_error,
   next_attempt_at: job.next_attempt_at, created_at: job.created_at });
 router.get('/', async (req, res) => {

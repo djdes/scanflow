@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import { config } from '../../config';
 import { requireAdmin } from '../middleware/auth';
 import { automationRepo, AutomationSettings } from '../../database/repositories/automationRepo';
@@ -20,7 +21,7 @@ import { approvalDelegateRepo } from '../../database/repositories/approvalDelega
 import { userRepo } from '../../database/repositories/userRepo';
 
 const router = Router();
-const statementUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const statementUpload = multer({ ...MULTIPART_UTF8, storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
 function numericIds(value: unknown, limit = 100): number[] {
   if (!Array.isArray(value)) return [];

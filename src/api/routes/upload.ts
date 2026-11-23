@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import path from 'path';
 import { randomUUID } from 'node:crypto';
 import { config } from '../../config';
@@ -45,6 +46,7 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({
+  ...MULTIPART_UTF8,
   storage,
   fileFilter: (_req, file, cb) => {
     if (uploadExtension(file.originalname, file.mimetype)) {

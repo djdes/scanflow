@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repositories/onecNomenclatureRepo';
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { logger } from '../../utils/logger';
@@ -29,7 +30,7 @@ function hasMcpSource(ownerUserId: number): boolean {
   }
 }
 
-const catalogUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const catalogUpload = multer({ ...MULTIPART_UTF8, storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
 function receiveCatalogFile(req: Request, res: Response, next: NextFunction): void {
   catalogUpload.single('file')(req, res, error => {
