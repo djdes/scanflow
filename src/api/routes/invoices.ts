@@ -4,6 +4,7 @@ import invoiceReviewRouter from './invoiceReview';
 import { canRememberItemWeight, confirmItemQuantity, quantityReviewToken, QuantityConfirmationError } from '../../services/itemQuantityConfirmation';
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -246,6 +247,7 @@ export function setFileWatcher(fw: import('../../watcher/fileWatcher').FileWatch
 // and ingest the page as a SEPARATE invoice. addPageToInvoice reads it in place
 // (processedDir is already where the photo endpoint serves from).
 const addPagesUpload = multer({
+  ...MULTIPART_UTF8,
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, config.processedDir),
     filename: (_req, file, cb) => {

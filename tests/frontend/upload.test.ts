@@ -336,3 +336,23 @@ describe('photo shrinking before upload', () => {
     expect(upload._scheduleUpload).toHaveBeenCalledWith(0, shrunk);
   });
 });
+
+describe('upload list in plain words', () => {
+  it('names every state without technical words', () => {
+    expect(upload.statusView({ status: 'queued' })).toEqual({ tone: 'wait', label: 'Готовится к отправке' });
+    expect(upload.statusView({ status: 'uploading', progress: 45 })).toEqual({ tone: 'work', label: 'Отправляется · 45%' });
+    expect(upload.statusView({ status: 'server_queued' })).toEqual({ tone: 'wait', label: 'В очереди на распознавание' });
+    expect(upload.statusView({ status: 'server_queued', serverState: 'processing' }).label).toBe('Распознаётся…');
+    expect(upload.statusView({ status: 'server_queued', queueError: 'GPT не ответил' }))
+      .toMatchObject({ tone: 'warn', detail: 'GPT не ответил' });
+    expect(upload.statusView({ status: 'ok' })).toEqual({ tone: 'ok', label: 'Готово' });
+    expect(upload.statusView({ status: 'error', error: 'HTTP 413' })).toMatchObject({ tone: 'error', label: 'Не загрузилось', detail: 'HTTP 413' });
+    expect(upload.statusView({ status: 'error', autoRetry: true }).tone).toBe('warn');
+  });
+
+  it('shows a PDF as a file badge, not a broken picture', () => {
+    expect(upload.fileThumb('Счёт 617 от 23.11.2026.pdf', 'blob:x')).toContain('upload-row__thumb--pdf');
+    expect(upload.fileThumb('upd.XML')).toContain('upload-row__thumb--xml');
+    expect(upload.fileThumb('scan.jpg')).toContain('upload-row__thumb--photo');
+  });
+});

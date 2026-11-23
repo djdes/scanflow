@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -26,6 +27,7 @@ const router = Router();
 // a cross-filesystem rename (EXDEV when /tmp is tmpfs). Not data/inbox/, so the
 // file watcher never picks it up. Sync mode unlinks it after OCR.
 const extractUpload = multer({
+  ...MULTIPART_UTF8,
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
       try { fs.mkdirSync(config.supplierExtractDir, { recursive: true }); } catch { /* exists */ }
