@@ -211,7 +211,7 @@ router.put('/autopilot', requireAdmin, async (req: Request, res: Response) => {
   }
   if (body.min_mapping_confidence !== undefined) {
     const value = Number(body.min_mapping_confidence);
-    if (!Number.isFinite(value) || value < 0 || value > 1) return res.status(400).json({ error: 'min_mapping_confidence must be between 0 and 1' });
+    if (!Number.isFinite(value) || value < 0 || value > 1) return res.status(400).json({ error: 'Уверенность сопоставления — от 0 до 1' });
     patch.min_mapping_confidence = value;
   }
   for (const key of ['max_total', 'payment_approval_threshold'] as const) {
@@ -223,7 +223,7 @@ router.put('/autopilot', requireAdmin, async (req: Request, res: Response) => {
   }
   if (body.payment_cash_balance !== undefined) {
     const value = body.payment_cash_balance == null ? null : Number(body.payment_cash_balance);
-    if (value != null && (!Number.isFinite(value) || value < 0)) return res.status(400).json({ error: 'payment_cash_balance must be zero, a positive number or null' });
+    if (value != null && (!Number.isFinite(value) || value < 0)) return res.status(400).json({ error: 'Остаток на счёте — ноль или положительное число' });
     patch.payment_cash_balance = value;
   }
   res.json({ data: await automationRepo.update(patch) });
@@ -231,7 +231,7 @@ router.put('/autopilot', requireAdmin, async (req: Request, res: Response) => {
 
 router.get('/quality/:invoiceId', async (req: Request, res: Response) => {
   const invoiceId = Number(req.params.invoiceId);
-  if (!Number.isFinite(invoiceId) || !(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Invoice not found' });
+  if (!Number.isFinite(invoiceId) || !(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Накладная не найдена' });
   res.json({ data: await evaluateInvoiceQuality(invoiceId) });
 });
 
@@ -246,7 +246,7 @@ router.post('/approvals', async (req: Request, res: Response) => {
   const invoiceId = Number(req.body?.invoice_id);
   const action = req.body?.action as ApprovalAction;
   if (!Number.isFinite(invoiceId) || !['sber', '1c'].includes(action)) return res.status(400).json({ error: 'invoice_id and action are required' });
-  if (!(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Invoice not found' });
+  if (!(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Накладная не найдена' });
   const quality = await evaluateInvoiceQuality(invoiceId);
   const row = await approvalRepo.create(invoiceId, action, req.user?.id ?? null, req.body?.note);
   res.status(201).json({ data: row, quality });
@@ -257,10 +257,10 @@ router.post('/approvals/:id/decision', async (req: Request, res: Response) => {
   const decision = req.body?.decision as 'approved' | 'rejected';
   if (!Number.isFinite(id) || !['approved', 'rejected'].includes(decision)) return res.status(400).json({ error: 'decision must be approved or rejected' });
   const approval = await approvalRepo.getById(id);
-  if (!approval) return res.status(404).json({ error: 'Approval request not found' });
+  if (!approval) return res.status(404).json({ error: 'Запрос на согласование не найден' });
   if (!(await canDecideApproval(req, approval))) return res.status(403).json({ error: 'Нет права согласовать эту сумму' });
   const changed = await approvalRepo.decide(id, decision, req.user?.id ?? null, req.body?.note);
-  if (!changed) return res.status(409).json({ error: 'Approval request has already been decided' });
+  if (!changed) return res.status(409).json({ error: 'По этому запросу уже принято решение' });
   if (decision === 'rejected') return res.json({ success: true });
 
   try {

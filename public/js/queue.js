@@ -308,7 +308,8 @@ const Queue = {
     if (r.risk_counts && r.risk_counts.unit_mismatch) parts.push(`<span class="queue-warn">ед. не как в 1С: ${r.risk_counts.unit_mismatch}</span>`);
     if (r.risk_counts && r.risk_counts.unit_to_kg) parts.push(`<span class="queue-warn" title="При загрузке обработка 1С переведёт эти позиции на кг — остаток в прежней единице проверьте инвентаризацией">1С переведёт на кг: ${r.risk_counts.unit_to_kg}</span>`);
     const legacy = r.legacy_lines ? `<div class="queue-sub" title="Строки распознаны старой версией: пересчёт единиц мог быть неверным — перераспознайте, чтобы сравнить">старое распознавание: ${r.legacy_lines}</div>` : '';
-    return `${Number(r.lines) || 0} стр.${parts.length ? `<div class="queue-sub queue-line-flags">${parts.join('')}</div>` : ''}${legacy}`;
+    const lines = Number(r.lines) || 0;
+    return `${lines} ${this._plural(lines, 'строка', 'строки', 'строк')}${parts.length ? `<div class="queue-sub queue-line-flags">${parts.join('')}</div>` : ''}${legacy}`;
   },
 
   sberHtml(r) {

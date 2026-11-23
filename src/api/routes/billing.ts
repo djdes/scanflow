@@ -4,7 +4,7 @@ import { PaymentsDisabledError, robokassaGateway } from '../../billing/robokassa
 
 const router = Router();
 function requireUser(req: Request, res: Response): boolean {
-  if (!req.user) { res.status(401).json({ error: 'Authentication required' }); return false; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return false; }
   return true;
 }
 

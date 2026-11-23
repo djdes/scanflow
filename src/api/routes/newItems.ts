@@ -40,7 +40,7 @@ const GONE = 'Строк этой группы уже нет — их сопос
 function ownerOf(req: Request, res: Response): number | null {
   const id = req.user?.id;
   if (id == null) {
-    res.status(401).json({ error: 'Unauthorized' });
+    res.status(401).json({ error: 'Нужно войти заново' });
     return null;
   }
   return id;

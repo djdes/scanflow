@@ -189,7 +189,7 @@ const InvoiceReview = {
         el.innerHTML = `
       <div class="ic-verify-head"><div>${eyebrow}${head}</div>
         <button type="button" class="btn ${left && !this.open ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="InvoiceReview.toggleSource()" aria-expanded="${this.open}" aria-controls="invoice-source-workspace">${scanLabel}</button></div>
-      <div class="ic-reqs">${reqs.map(r => `<button type="button" class="ic-req${r.checked ? ' is-ok' : ''}${this.pendingVerify === r.key ? ' is-pending' : ''}" aria-pressed="${r.checked}" onclick="InvoiceReview.verify('${r.key}')" title="${r.checked ? 'Сверено. Нажмите, чтобы снять отметку' : 'Нажмите, чтобы сверить со сканом'}"><span>${r.checked ? this.ICON.check : ''}${App.esc(r.label)}</span><b title="${App.esc(r.value)}">${App.esc(r.value)}</b></button>`).join('')}</div>
+      <div class="ic-reqs">${reqs.map(r => `<button type="button" class="ic-req ic-req--${r.key}${r.checked ? ' is-ok' : ''}${this.pendingVerify === r.key ? ' is-pending' : ''}" aria-pressed="${r.checked}" onclick="InvoiceReview.verify('${r.key}')" title="${r.checked ? 'Сверено. Нажмите, чтобы снять отметку' : 'Нажмите, чтобы сверить со сканом'}"><span>${r.checked ? this.ICON.check : ''}${App.esc(r.label)}</span><b title="${App.esc(r.value)}">${App.esc(r.value)}</b></button>`).join('')}</div>
       ${issues.length ? `<ul class="ic-issues">${issues.map(t => `<li>${App.esc(t)}</li>`).join('')}</ul>` : ''}
       ${lock ? `<p class="ic-muted">${App.esc(lock)}</p>` : ''}
       <div class="ic-panel-actions">

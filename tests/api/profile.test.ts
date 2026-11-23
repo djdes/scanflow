@@ -223,7 +223,7 @@ describe('POST /api/profile/lookup-telegram-chat-id', () => {
     memTgToken = null;
     const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain('not set');
+    expect(res.body.error).toContain('Не указан токен');
   });
 
   it('returns 400 if body token has wrong shape', async () => {
@@ -237,7 +237,7 @@ describe('POST /api/profile/lookup-telegram-chat-id', () => {
     (getMe as any).mockRejectedValueOnce(new Error('Telegram API getMe failed: 401 Unauthorized'));
     const res = await request(makeApp()).post('/api/profile/lookup-telegram-chat-id').send({});
     expect(res.status).toBe(401);
-    expect(res.body.error).toContain('Invalid bot token');
+    expect(res.body.error).toContain('Telegram не принял токен бота');
   });
 
   it('returns 404 with bot_username when no updates exist', async () => {

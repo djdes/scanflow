@@ -120,16 +120,16 @@ router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => 
     return res.status(400).json({ error: 'access_token and refresh_token are required' });
   }
   if (account_number && !ACC_RE.test(account_number)) {
-    return res.status(400).json({ error: 'account_number must be 20 digits' });
+    return res.status(400).json({ error: 'Расчётный счёт — 20 цифр' });
   }
   if (payer_bank_bic && !BIC_RE.test(payer_bank_bic)) {
-    return res.status(400).json({ error: 'payer_bank_bic must be 9 digits' });
+    return res.status(400).json({ error: 'БИК банка — 9 цифр' });
   }
   if (payer_bank_corr_account && !ACC_RE.test(payer_bank_corr_account)) {
-    return res.status(400).json({ error: 'payer_bank_corr_account must be 20 digits' });
+    return res.status(400).json({ error: 'Корреспондентский счёт — 20 цифр' });
   }
   if (payer_inn && !INN_RE.test(payer_inn)) {
-    return res.status(400).json({ error: 'payer_inn must be 10 or 12 digits' });
+    return res.status(400).json({ error: 'ИНН — 10 или 12 цифр' });
   }
   // Пара из личного кабинета Sber API: access живёт 30 дней, refresh — 180.
   const parsed = expires_at ? new Date(expires_at) : null;
@@ -164,22 +164,22 @@ router.post('/seed-token', requireAdmin, async (req: Request, res: Response) => 
 
 router.patch('/payer', requireAdmin, async (req: Request, res: Response) => {
   const t = await sberTokenRepo.get(ownerOf(req));
-  if (!t) return res.status(404).json({ error: 'Sber not connected' });
+  if (!t) return res.status(404).json({ error: 'Сбербанк не подключён' });
   const {
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,
     account_number, org_name,
   } = req.body as Record<string, string | undefined>;
   if (payer_bank_bic && !BIC_RE.test(payer_bank_bic)) {
-    return res.status(400).json({ error: 'payer_bank_bic must be 9 digits' });
+    return res.status(400).json({ error: 'БИК банка — 9 цифр' });
   }
   if (payer_bank_corr_account && !ACC_RE.test(payer_bank_corr_account)) {
-    return res.status(400).json({ error: 'payer_bank_corr_account must be 20 digits' });
+    return res.status(400).json({ error: 'Корреспондентский счёт — 20 цифр' });
   }
   if (account_number && !ACC_RE.test(account_number)) {
-    return res.status(400).json({ error: 'account_number must be 20 digits' });
+    return res.status(400).json({ error: 'Расчётный счёт — 20 цифр' });
   }
   if (payer_inn && !INN_RE.test(payer_inn)) {
-    return res.status(400).json({ error: 'payer_inn must be 10 or 12 digits' });
+    return res.status(400).json({ error: 'ИНН — 10 или 12 цифр' });
   }
   await sberTokenRepo.updatePayerDetails({
     payer_inn, payer_kpp, payer_bank_bic, payer_bank_corr_account,

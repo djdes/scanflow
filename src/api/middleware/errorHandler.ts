@@ -17,6 +17,26 @@ function isIncompleteMultipart(err: unknown, req: Request): boolean {
 }
 
 /**
+ * Ошибка клиента с готовым текстом для человека (например, неподходящий тип
+ * файла в fileFilter multer). Без неё такая ошибка уходила как 500
+ * «Internal server error», и загрузчик повторял отправку без конца.
+ */
+export class ClientError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = 'ClientError';
+  }
+}
+
+/** Ответы multer по-русски: в строке загрузки человек видит этот текст. */
+const MULTER_MESSAGES: Partial<Record<string, string>> = {
+  LIMIT_FILE_SIZE: 'Файл слишком большой',
+  LIMIT_FILE_COUNT: 'Слишком много файлов за раз',
+  LIMIT_PART_COUNT: 'Слишком много файлов за раз',
+  LIMIT_UNEXPECTED_FILE: 'Сервер не ждал этот файл. Обновите страницу и отправьте ещё раз',
+};
+
+/**
  * Terminal error handler (must be the LAST app.use). Without it, multer
  * rejections (file too large / unsupported type) and any other thrown error
  * fall through to Express's default HTML 500; map them to clean JSON instead.
@@ -26,7 +46,11 @@ export function terminalErrorHandler(err: unknown, req: Request, res: Response, 
   if (res.headersSent) return next(err);
   if (err instanceof multer.MulterError) {
     const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
-    res.status(status).json({ error: err.message });
+    res.status(status).json({ error: MULTER_MESSAGES[err.code] ?? 'Не удалось принять файл', code: err.code });
+    return;
+  }
+  if (err instanceof ClientError) {
+    res.status(err.status).json({ error: err.message });
     return;
   }
   if (isIncompleteMultipart(err, req)) {
@@ -56,7 +80,7 @@ export function terminalErrorHandler(err: unknown, req: Request, res: Response, 
   }
   if (err) {
     logger.error('Unhandled request error', { error: (err as Error).message });
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Ошибка сервера. Попробуйте ещё раз' });
     return;
   }
   next();

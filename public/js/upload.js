@@ -638,7 +638,7 @@ const Upload = {
             xhr.getResponseHeader('Retry-After') ||
             xhr.getResponseHeader('RateLimit-Reset') || '60', 10) || 60);
           this.history[idx].status = 'error';
-          this.history[idx].error = `Слишком много загрузок, подожди ${retryAfter}с`;
+          this.history[idx].error = `Слишком много загрузок подряд — отправим снова через ${retryAfter} с`;
           this.history[idx].rateLimited = true;
           this.scheduleAutoRetry(idx, retryAfter * 1000);
         } else if (xhr.status === 400 && data.code === 'upload_incomplete') {

@@ -79,7 +79,7 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
  */
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   if (req.user?.role !== 'admin' && !req.user?.is_superadmin) {
-    res.status(403).json({ error: 'Admin access required' });
+    res.status(403).json({ error: 'Доступно только администратору' });
     return;
   }
   next();

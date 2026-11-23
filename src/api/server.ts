@@ -137,7 +137,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     max: 300,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: 'Too many requests, try again later' },
+    message: { error: 'Слишком много попыток входа. Попробуйте через несколько минут' },
   });
   app.use(globalLimiter);
 
@@ -156,7 +156,7 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     max: 120,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: 'Too many uploads, slow down' },
+    message: { error: 'Слишком много загрузок подряд. Подождите немного' },
   });
 
   // Inject dependencies
@@ -399,20 +399,20 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
   app.post('/magic/:token/consume', async (req, res) => {
     const token = req.params.token;
     if (!/^[a-f0-9]{32}$/.test(token)) {
-      res.status(404).json({ error: 'Magic link is invalid or expired' });
+      res.status(404).json({ error: 'Ссылка для входа устарела или уже использована' });
       return;
     }
     try {
       const user = await userRepo.consumeMagicToken(token);
       if (!user) {
-        res.status(404).json({ error: 'Magic link is invalid or expired' });
+        res.status(404).json({ error: 'Ссылка для входа устарела или уже использована' });
         return;
       }
       res.setHeader('Cache-Control', 'no-store');
       res.json({ apiKey: user.api_key, username: user.username, role: user.role });
     } catch (e) {
       logger.error('magic-link consume failed', { error: (e as Error).message });
-      res.status(500).json({ error: 'Internal error' });
+      res.status(500).json({ error: 'Ошибка сервера. Попробуйте ещё раз' });
     }
   });
 

@@ -63,7 +63,7 @@ const RecognitionQueue = {
     const banner = document.getElementById('recognition-queue-banner');
     if (banner) {
       banner.hidden = state.total === 0;
-      banner.innerHTML = `<strong>Распознаём фото: ${Number(state.total)}</strong><button type="button" class="info-tip" data-tip="Фото сохранены на сервере. Распознавание продолжится само, даже если закрыть страницу." aria-label="Подробнее об очереди распознавания">i</button><a href="#/upload">Очередь →</a>`;
+      banner.innerHTML = `<strong>Распознаём фото: ${Number(state.total)}</strong><button type="button" class="info-tip" data-tip="Фото сохранены на сервере. Распознавание продолжится само, даже если закрыть страницу." aria-label="Подробнее об очереди распознавания">i</button><a href="#/upload">Смотреть →</a>`;
     }
     const host = document.getElementById('recognition-queue-list');
     if (!host || typeof Upload === 'undefined') return;

@@ -146,6 +146,15 @@ const App = {
     host.innerHTML = group.tabs.map(([key, href, label]) =>
       `<a href="${href}" class="section-tab${key === active ? ' active' : ''}"${key === active ? ' aria-current="page"' : ''}>${this.esc(label)}</a>`).join('');
     host.hidden = false;
+    this.revealActiveTab(host, '.section-tab.active');
+  },
+
+  /** На телефоне ряд вкладок прокручивается: текущую вкладку — в середину, а не за край экрана. */
+  revealActiveTab(host, selector) {
+    const cur = host && host.querySelector(selector);
+    if (!cur || host.scrollWidth <= host.clientWidth) return;
+    const offset = cur.getBoundingClientRect().left - host.getBoundingClientRect().left + host.scrollLeft;
+    host.scrollLeft = Math.max(0, offset - (host.clientWidth - cur.offsetWidth) / 2);
   },
 
   setNavigationOpen(open) {

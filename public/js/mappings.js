@@ -23,8 +23,8 @@ const Mappings = {
     if (OnecCatalog.items.length === 0) {
       el.innerHTML = '<span style="color:#b91c1c">Справочник не выгружен.</span>';
     } else {
-      const ts = OnecCatalog.lastSyncedAt ? new Date(OnecCatalog.lastSyncedAt).toLocaleString('ru-RU') : '—';
-      el.innerHTML = `Справочник из 1С: <strong>${OnecCatalog.items.length}</strong> товаров · Последняя выгрузка: ${ts}`;
+      const ts = OnecCatalog.lastSyncedAt ? App.formatDateTime(OnecCatalog.lastSyncedAt) : '';
+      el.innerHTML = `Справочник из 1С: <strong>${OnecCatalog.items.length}</strong> товаров${ts ? ` · обновлён ${App.esc(ts)}` : ''}`;
     }
   },
 
