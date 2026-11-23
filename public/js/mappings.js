@@ -83,7 +83,7 @@ const Mappings = {
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input type="file" id="mappings-restore-file" accept=".json,application/json">
           <button class="btn btn-soft btn-sm" id="mappings-restore-check" disabled>Проверить</button>
-          <button class="btn btn-primary btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
+          <button class="btn btn-outline btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
         </div>
         <div id="mappings-restore-result" style="margin-top:12px"></div>
       </details>`;

@@ -320,7 +320,7 @@ const Operations = {
       <article class="card operations-panel">
         <div class="operations-panel__head"><div><span class="operations-eyebrow">Новая база 1С</span><h3>Безопасное подключение</h3></div></div>
         <p>У каждой базы свой ключ: он видит только каталог товаров, одобренные накладные и их фото.</p>
-        <form class="onec-create" onsubmit="Operations.createOnecConnection(event)"><input id="onec-connection-name" required maxlength="128" placeholder="Например: УНФ — новый магазин"><button class="btn btn-primary" type="submit">Создать подключение</button></form>${secret}
+        <form class="onec-create" onsubmit="Operations.createOnecConnection(event)"><input id="onec-connection-name" required maxlength="128" placeholder="Например: УНФ — новый магазин"><button class="btn btn-outline" type="submit">Создать подключение</button></form>${secret}
       </article>
       <article class="card operations-panel">
         <div class="operations-panel__head"><div><span class="operations-eyebrow">Каталог товаров</span><h3>${state.catalog?.items || 0} позиций из 1С</h3></div><small>${state.catalog?.last_synced_at ? `Обновлён ${App.esc(App.formatDateTime(state.catalog.last_synced_at))}` : 'Ещё не выгружен'}</small></div>
@@ -355,7 +355,7 @@ const Operations = {
         <summary>Ещё быстрее: вставить таблицу прямо из 1С или Excel · 2–3 минуты</summary>
         <p>Скопируйте вместе с заголовками колонки «Код», «Наименование», «Единица измерения» и вставьте ниже.</p>
         <textarea id="onec-catalog-paste" rows="6" placeholder="Код    Наименование    Единица измерения&#10;0001    Молоко 3,2%    шт"></textarea>
-        <button class="btn btn-primary btn-sm" type="button" onclick="Operations.importOnecPaste()">Загрузить вставленную таблицу</button>
+        <button class="btn btn-outline btn-sm" type="button" onclick="Operations.importOnecPaste()">Загрузить вставленную таблицу</button>
       </details>
       ${importResult}
       <div class="onec-mode-note"><strong>Полуавтомат:</strong> раз в неделю повторяйте «Вывести список» и загружайте файл без галочки замены — новые товары добавятся, существующие обновятся. Обычно 2–3 минуты.</div>

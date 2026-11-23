@@ -159,7 +159,7 @@
               <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
               <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры<span class="filter-count" id="invoice-filter-count" hidden></span></button>
               <button type="button" class="btn btn-outline btn-sm" id="btn-send-ready" hidden onclick="Invoices.sendAllReady(event)" title="Все накладные «Готовы к 1С» — не только на этой странице">Отправить готовые в 1С</button>
-              <button type="button" class="btn btn-outline btn-sm" id="btn-delete-duplicates" onclick="Invoices.deleteRecentDuplicates(event)" title="Удалить накладные, загруженные повторно за последние 24 часа. Оригиналы остаются">Удалить дубликаты за 24 ч</button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-delete-duplicates" onclick="Invoices.deleteRecentDuplicates(event)" title="Удалить накладные, загруженные повторно за последние 24 часа. Оригиналы остаются" hidden>Удалить дубликаты</button>
             </div>
           </div>
           <div class="invoice-filter-panel" id="invoice-filters" hidden>
@@ -741,7 +741,7 @@
           <div class="field-hint">Нужен для кнопки «Заполнить по ИНН» в карточке поставщика.</div>
         </div>
         <div class="form-actions settings-admin-only">
-          <button class="btn btn-primary" onclick="Settings.saveDadata()">Сохранить</button>
+          <button class="btn btn-outline" onclick="Settings.saveDadata()">Сохранить</button>
         </div>
       </div>
 
@@ -800,7 +800,7 @@
             </div>
             <div id="profile-onec-status" class="onec-conn-status"></div>
             <p class="field-hint">Нажмите «Получить код», затем в обработке 1С:УНФ вставьте его в поле «Код подключения» и нажмите «Подключить». Код действует ~15 минут.</p>
-            <button type="button" id="profile-onec-btn" class="btn btn-primary">Получить код</button>
+            <button type="button" id="profile-onec-btn" class="btn btn-outline">Получить код</button>
             <div id="profile-onec-code" class="onec-pairing-code" hidden></div>
             <div class="event-list">
               <div class="event-row">
@@ -1054,7 +1054,7 @@
                 </div>
               </div>
               <div class="form-actions">
-                <button type="submit" id="profile-password-save" class="btn btn-primary">Сменить пароль</button>
+                <button type="submit" id="profile-password-save" class="btn btn-outline">Сменить пароль</button>
                 <span id="profile-password-status" class="profile-status-msg" role="status" aria-live="polite"></span>
               </div>
             </form>

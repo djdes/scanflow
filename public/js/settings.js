@@ -268,7 +268,7 @@ const Settings = {
           <td>${u.last_login_at ? esc(App.formatDateTime(u.last_login_at)) : '<span class="muted">—</span>'}</td>
           <td style="white-space:nowrap">
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="btn btn-primary btn-sm" onclick="App.impersonateUser(${Number(u.id)})" title="Войти в кабинет этого пользователя в 1 клик">Войти в аккаунт</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="App.impersonateUser(${Number(u.id)})" title="Войти в кабинет этого пользователя в 1 клик">Войти в аккаунт</button>
               <button type="button" class="btn btn-outline btn-sm" onclick="Settings.openUserModal(${Number(u.id)})">Изменить</button>
             </div>
           </td>
@@ -281,7 +281,7 @@ const Settings = {
               <h3 style="margin-bottom:6px">Суперадмин · Аккаунты, доступы и тарифы</h3>
               <p class="field-hint" style="margin:0">Входите в любой кабинет в 1 клик, меняйте логин, email, пароль, роль, блокировку, тариф и настройки компании.</p>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="Settings.openUserModal(null)">+ Создать аккаунт</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="Settings.openUserModal(null)">+ Создать аккаунт</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -765,7 +765,7 @@ const Settings = {
         <summary><h3 style="display:inline">Эталонные накладные</h3></summary>
         <div class="field-hint" style="margin:10px 0 16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-          <button type="button" class="btn btn-primary" id="golden-run-btn">Прогнать эталоны</button>
+          <button type="button" class="btn btn-outline" id="golden-run-btn">Прогнать эталоны</button>
           <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:400">не больше
             <input type="number" id="golden-run-limit" min="1" max="50" value="10" style="width:76px"> накладных</label>
           <button type="button" class="btn btn-outline btn-sm" id="golden-refresh-btn">Обновить</button>

@@ -232,6 +232,12 @@ const Queue = {
       list.innerHTML = '<div class="card"><div class="empty-state"><div>В этом отборе накладных нет.</div></div></div>';
       return;
     }
+    // Колонки «Сбер» и «Перераспознавание» — только когда в них есть что показать:
+    // иначе это два столбца прочерков (а на телефоне — пустые строки «Сбер —»).
+    this._cols = {
+      sber: rows.some(r => r.paid_externally || r.sber),
+      reocr: rows.some(r => r.reocr),
+    };
     list.innerHTML = `<div class="table-wrap queue-table-wrap">
       <table class="queue-table">
         <thead><tr>
@@ -240,8 +246,8 @@ const Queue = {
           <th class="queue-num">Сумма</th>
           <th>Готовность</th>
           <th>Строки</th>
-          <th>Сбер</th>
-          <th>Перераспо&shy;знавание</th>
+          ${this._cols.sber ? '<th>Сбер</th>' : ''}
+          ${this._cols.reocr ? '<th>Перераспо&shy;знавание</th>' : ''}
           <th class="col-act"></th>
         </tr></thead>
         <tbody>${rows.map(r => this.rowHtml(r)).join('')}</tbody>
@@ -257,6 +263,7 @@ const Queue = {
 
   rowHtml(r) {
     const esc = (s) => App.esc(s);
+    const cols = this._cols || { sber: true, reocr: true };
     const isOpen = this.open === r.id;
     const checked = this.selected.has(r.id) ? ' checked' : '';
     return `
@@ -274,12 +281,12 @@ const Queue = {
         </td>
         <td data-label="Готовность"><div class="queue-cell">${this.readinessHtml(r)}</div></td>
         <td data-label="Строки"><div class="queue-cell">${this.linesHtml(r)}</div></td>
-        <td data-label="Сбер"><div class="queue-cell">${this.sberHtml(r)}</div></td>
-        <td data-label="Перераспознавание"><div class="queue-cell">${this.reocrCellHtml(r)}</div></td>
+        ${cols.sber ? `<td data-label="Сбер"${r.paid_externally || r.sber ? '' : ' class="queue-td-empty"'}><div class="queue-cell">${this.sberHtml(r)}</div></td>` : ''}
+        ${cols.reocr ? `<td data-label="Перераспознавание"${r.reocr ? '' : ' class="queue-td-empty"'}><div class="queue-cell">${this.reocrCellHtml(r)}</div></td>` : ''}
         <td class="cell-action">
           <button type="button" class="btn btn-outline btn-sm" data-action="toggle" data-id="${r.id}" aria-expanded="${isOpen}">${isOpen ? 'Свернуть' : 'Разобрать'}</button>
         </td>
-      </tr>${isOpen ? `<tr class="queue-panel-row"><td colspan="8" id="queue-panel">${this.panelHtml()}</td></tr>` : ''}`;
+      </tr>${isOpen ? `<tr class="queue-panel-row"><td colspan="${6 + (cols.sber ? 1 : 0) + (cols.reocr ? 1 : 0)}" id="queue-panel">${this.panelHtml()}</td></tr>` : ''}`;
   },
 
 

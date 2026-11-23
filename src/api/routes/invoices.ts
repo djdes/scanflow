@@ -360,8 +360,12 @@ router.get('/stats', async (req: Request, res: Response) => {
        AND i.status IN ('processed', 'sent_to_1c')${uid != null ? ` AND i.owner_user_id = ${Number(uid)}` : ''}`
   ).get<{ count: number; total_sum: number }>();
 
+  // Кнопка «Удалить дубликаты за 24 ч» видна, только когда есть что удалять — та же выборка, что у неё.
+  const recentDuplicates = req.user?.id != null ? (await recentDuplicatesForDeletion(req.user.id)).length : 0;
+
   res.json({
     data: {
+      recentDuplicates,
       workflow: await invoiceRepo.workflowStats(uid),
       byStatus,
       total: totalRow?.count ?? 0,

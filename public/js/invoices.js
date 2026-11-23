@@ -55,17 +55,22 @@ const Invoices = {
 
       const mkBtn = (inv, dir) => {
         if (!inv) return '';
-        const arrow = dir === 'prev' ? '←' : '→';
+        // Вверх/вниз по списку, а не «←»: стрелка влево рядом с «‹ Накладные»
+        // читалась как вторая кнопка «назад» (2026-11-23).
+        const arrow = dir === 'prev'
+          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>'
+          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
         const label = inv.supplier
           ? App.esc(inv.supplier)
           : (inv.invoice_number ? `№ ${App.esc(inv.invoice_number)}` : `#${inv.id}`);
         const visitedCls = visited.has(inv.id) ? ' visited' : '';
-        const ttip = [inv.supplier || '', inv.invoice_number ? `№${inv.invoice_number}` : ''].filter(Boolean).join(' ');
+        const who = [inv.supplier || '', inv.invoice_number ? `№ ${inv.invoice_number}` : ''].filter(Boolean).join(', ');
+        const ttip = `${dir === 'prev' ? 'Предыдущая накладная (K)' : 'Следующая накладная (J)'}${who ? `: ${who}` : ''}`;
         // Стрелка и имя — отдельные спаны: имя обрезается многоточием, стрелка
         // всегда видна (см. .inv-nav-arrow / .inv-nav-label). Полное имя — в title.
         const a = `<span class="inv-nav-arrow">${arrow}</span>`;
         const l = `<span class="inv-nav-label">${label}</span>`;
-        return `<a class="inv-nav-btn${visitedCls}" href="#" title="${App.esc(ttip)}"
+        return `<a class="inv-nav-btn${visitedCls}" href="#" data-nav="${dir}" title="${App.esc(ttip)}" aria-label="${App.esc(ttip)}"
                    onclick="event.preventDefault();Invoices.openInvoice(${inv.id})"
                 >${dir === 'prev' ? a + l : l + a}</a>`;
       };
@@ -121,6 +126,13 @@ const Invoices = {
       // Число новых — в строке «Показано …» под списком, а не отдельной надписью по центру.
       this._unread = Number(data.unreadCount) || 0;
       this._renderResultsLine();
+      // «Удалить дубликаты» — только когда за сутки есть повторные загрузки.
+      const dupBtn = document.getElementById('btn-delete-duplicates');
+      const dups = Number(data.recentDuplicates) || 0;
+      if (dupBtn) {
+        dupBtn.hidden = dups === 0;
+        dupBtn.textContent = `Удалить дубликаты (${dups})`;
+      }
     } catch (e) {
       console.error('Failed to load stats', e);
     }
@@ -221,7 +233,7 @@ const Invoices = {
   // В строке — только «В 1С →» у готовой накладной (2026-11-17): «Проверить» и «Открыть»
   // делали то же, что клик по строке. Место под кнопку держится, колонка не прыгает.
   _rowAction(inv) {
-    if (!inv.review_reason && !inv.sibling_is_copy && inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-primary btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
+    if (!inv.review_reason && !inv.sibling_is_copy && inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-soft btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
     return '<span class="inv-act inv-act--empty" aria-hidden="true"></span>';
   },
 
@@ -420,6 +432,11 @@ const Invoices = {
   // и оплаченное сервер не трогает.
   async deleteRecentDuplicates(ev) {
     const btn = ev?.currentTarget || document.getElementById('btn-delete-duplicates');
+    // Число на кнопке и её видимость — после того, как кнопка вернёт прежний вид.
+    try { return await this._deleteRecentDuplicates(btn); } finally { this.loadStats(); }
+  },
+
+  async _deleteRecentDuplicates(btn) {
     return this._withGuard('deleteRecentDuplicates', () => App.withBusyButton(btn, async () => {
       try {
         const { data: preview } = await App.apiJson('/invoices/delete-duplicates', { method: 'POST', body: { dry_run: true } });

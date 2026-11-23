@@ -4932,6 +4932,8 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
   .queue-table > tbody > tr.queue-row > td.col-check { width: auto; padding: 5px 0; text-align: right; }
   .queue-table > tbody > tr.queue-row > td.cell-action { justify-content: flex-end; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--border); }
   .queue-table > tbody > tr.queue-row > td.cell-action::before { content: none; }
+  /* Пустые «Сбер —» / «Перераспознавание —» на телефоне не рисуем (2026-11-23). */
+  .queue-table > tbody > tr.queue-row > td.queue-td-empty { display: none; }
   .queue-table > tbody > tr.queue-row.is-open { margin-bottom: 0; border-color: var(--primary); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .queue-table > tbody > tr.queue-panel-row { display: block; margin: 0 0 12px; border: 1px solid var(--primary); border-top: none; border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--bg); }
   .queue-table > tbody > tr.queue-panel-row > td { display: block; padding: 0; border: none; }
@@ -5711,6 +5713,7 @@ dialog.review-confirm p {
 .ic-step--queued .ic-step-text small, .ic-step--progress .ic-step-text small { color: var(--primary-hover); }
 .ic-step--error .ic-step-mark { background: var(--error); color: #fff; }
 .ic-step--error .ic-step-text small { color: var(--error); }
+.ic-step--warn .ic-step-text small { color: #9a6a12; }
 .ic-step--blocked, .ic-step--off { background: #fbfaf8; }
 .ic-step--blocked .ic-step-text b, .ic-step--off .ic-step-text b { color: var(--text-secondary); }
 
@@ -5946,8 +5949,9 @@ button.ic-tag { cursor: pointer; }
 @media (max-width: 860px) {
   .ic-head { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   .ic-head-main { order: 3; flex-basis: 100%; padding: 2px 4px 0; }
-  .ic-back span { display: none; }
-  .ic-thumb { margin-left: auto; }
+  /* «‹ Накладные» — со словом и на телефоне; переход вверх/вниз по списку — справа,
+     у скана, а не вплотную к «назад» (две стрелки подряд путались, 2026-11-23). */
+  .ic-nav { margin-left: auto; }
   .ic-sub { white-space: normal; }
   .ic-items tbody td { white-space: normal; }
   .ic-items tbody td.ic-num { white-space: nowrap; }
