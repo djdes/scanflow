@@ -51,9 +51,8 @@ const Shortcuts = {
       else if (k === 'x') { const cb = this.currentRow()?.querySelector('.row-check'); if (cb) { e.preventDefault(); cb.click(); } }
       else if (k === 'a') { const btn = this.currentRow()?.querySelector('button.inv-act'); if (btn) { e.preventDefault(); btn.click(); } }
     } else if (this.onCard()) {
-      const nav = [...document.querySelectorAll('#invoice-nav .inv-nav-btn')];
-      const prev = nav.find(a => a.querySelector('.inv-nav-arrow')?.textContent === '←');
-      const next = nav.find(a => a.querySelector('.inv-nav-arrow')?.textContent === '→');
+      const prev = document.querySelector('#invoice-nav .inv-nav-btn[data-nav="prev"]');
+      const next = document.querySelector('#invoice-nav .inv-nav-btn[data-nav="next"]');
       if (k === 'j' && next) { e.preventDefault(); next.click(); }
       else if (k === 'k' && prev) { e.preventDefault(); prev.click(); }
       else if (k === 'Escape' && !document.querySelector('.ic-menu, .info-tip__pop') && !document.getElementById('ic-layout')?.classList.contains('is-scan-open')) { App.navigate('#/invoices'); }
