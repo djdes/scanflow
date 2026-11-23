@@ -166,7 +166,7 @@
 
       const bad = parsed.filter(v => !this.isValidId(v));
       if (bad.length) {
-        App.notify(`Не похоже на chat_id: ${bad.slice(0, 3).join(', ')}`, 'error');
+        App.notify(`Не похоже на номер чата Telegram: ${bad.slice(0, 3).join(', ')}`, 'error');
         return;
       }
       const dupes = parsed.filter(v => this._chatIds.includes(v));

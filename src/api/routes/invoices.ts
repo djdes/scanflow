@@ -71,6 +71,7 @@ import { AiUnavailableError } from '../../ai/errors';
 import { mergeBlockedByNumber } from '../../services/mergeDecision';
 import { mergeInvoicePages, ManualMergeError } from '../../services/manualInvoiceMerge';
 import { aiEngineState } from '../../ai/engine';
+import { rub } from '../../utils/ru';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -862,7 +863,7 @@ router.post('/:id/send', async (req: Request, res: Response) => {
       && !(await approvalRepo.hasApproved(id, '1c'))) {
     const approval = await approvalRepo.create(id, '1c', req.user?.id ?? null, 'Автоматически создано по лимиту суммы');
     return res.status(409).json({
-      error: `Накладная выше лимита ${onecAutomation.payment_approval_threshold.toFixed(2)} ₽ и ожидает согласования`,
+      error: `Сумма больше ${rub(onecAutomation.payment_approval_threshold)} — накладная ждёт согласования`,
       needs_approval: true,
       approval_id: approval.id,
     });
@@ -2556,7 +2557,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       && !(await approvalRepo.hasApproved(id, 'sber'))) {
     const approval = await approvalRepo.create(id, 'sber', req.user?.id ?? null, 'Автоматически создано по лимиту суммы');
     return res.status(409).json({
-      error: `Платёж выше лимита ${automation.payment_approval_threshold.toFixed(2)} ₽ и ожидает согласования`,
+      error: `Платёж больше ${rub(automation.payment_approval_threshold)} — ждёт согласования`,
       needs_approval: true,
       approval_id: approval.id,
     });

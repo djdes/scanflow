@@ -5,11 +5,7 @@ import { canonUnit } from '../mapping/unitConverter';
 import { robustMedian } from '../pricing/medianOf';
 import { isXmlInvoice } from '../xml';
 import { storedInvoiceCompleteness } from '../services/invoiceCompleteness';
-
-/** «50 000 ₽» — как пишут деньги по-русски (было «50000.00 ₽»). */
-function rub(value: number): string {
-  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)} ₽`;
-}
+import { plural, rub } from '../utils/ru';
 
 export interface QualitySubject {
   status: string;
@@ -78,7 +74,7 @@ export function evaluateQualitySubject(subject: QualitySubject, settings: Automa
   // Карточку подобрали по названию: ИНН на фото с ней не совпал. Автопилот
   // такое не отправляет — сначала человек подтверждает поставщика.
   if ((subject.flagged_items ?? 0) > 0) {
-    add('unit_suspect', `Количество под вопросом: ${subject.flagged_items} ${subject.flagged_items === 1 ? 'строка' : 'строк(и)'} — проверьте пересчёт единиц`);
+    add('unit_suspect', `Количество под вопросом: ${subject.flagged_items} ${plural(subject.flagged_items ?? 0, 'строка', 'строки', 'строк')} — проверьте пересчёт единиц`);
   }
   if (subject.supplier_match === 'name') {
     add('supplier_by_name', 'Реквизиты поставщика подобраны по названию, а не по ИНН');

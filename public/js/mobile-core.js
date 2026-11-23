@@ -35,7 +35,8 @@ const MobileCore = {
       const reason = inv.review_reason || 'duplicate';
       return s('amber', 'Проверить', this.REASONS[reason] || 'Откройте и проверьте.', 'review');
     }
-    if (status === 'processed') return s('green', 'Готова', 'Можно отправлять в 1С.', 'send');
+    // Без подсказки: «Готова» и кнопка «Отправить в 1С» под ней уже говорят то же самое.
+    if (status === 'processed') return s('green', 'Готова', '', 'send');
     return { ...s('grey', String(status || '—'), ''), icon: null };
   },
 

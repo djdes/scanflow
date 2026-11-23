@@ -206,13 +206,19 @@ const Settings = {
   _tariffLabel(plan, limit) {
     const map = {
       beta: 'Открытая бета',
-      start: 'Старт (50 стр.)',
-      pro: 'Pro (1 000 стр.)',
-      business: 'Бизнес (10 000 стр.)',
+      start: 'Старт (50 страниц)',
+      pro: 'Pro (1 000 страниц)',
+      business: 'Бизнес (10 000 страниц)',
       unlimited: 'Безлимит',
     };
     const base = map[plan] || plan || 'Открытая бета';
-    return limit != null ? `${base} · до ${Number(limit).toLocaleString('ru-RU')} стр.` : base;
+    return limit != null ? `${base} · до ${Number(limit).toLocaleString('ru-RU')} ${this._pagesWord(limit)}` : base;
+  },
+
+  /** «страница / страницы / страниц» вместо «стр.». */
+  _pagesWord(n) {
+    const a = Math.abs(Math.trunc(Number(n) || 0)), m10 = a % 10, m100 = a % 100;
+    return m10 === 1 && m100 !== 11 ? 'страница' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'страницы' : 'страниц';
   },
 
   // Admin/Superadmin "Аккаунты, доступы и тарифы" card.
