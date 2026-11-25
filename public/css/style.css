@@ -4984,6 +4984,11 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
 .an-lead { margin: 0 0 10px; }
 
 .an-table td { vertical-align: top; }
+.ic-sub-sum { white-space: nowrap; }
+/* «Компании» в Настройках (2026-11-25): заголовки в одну строку раздували таблицу
+   до 1641 px при рамке ~950 на 1280 px — «Строк без позиции 1С», «Сопоставлений»
+   и «Сбер» были видны только прокруткой таблицы вбок. */
+.companies-table thead th { white-space: normal; vertical-align: bottom; line-height: 1.3; }
 .an-table thead th { white-space: normal; vertical-align: bottom; line-height: 1.3; }
 .an-table .an-cell-name, .an-table .an-cell-wrap { white-space: normal; min-width: 180px; }
 .an-cellv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -6085,6 +6090,17 @@ button.ic-tag { cursor: pointer; }
   .invoices-table tbody tr.clickable td.col-state::before { content: attr(data-label); display: block; margin-bottom: 4px; font-size: 0.6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
   .invoices-table tbody tr.clickable td.cell-action { grid-area: act; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 2px; padding-top: 10px !important; border-top: 1px dashed var(--border) !important; }
   .invoice-cell-stack .inv-pill-note { max-width: 100%; }
+  /* Плашки «1С»/«Оплата» на 320–360 px при крупном тексте обрезались краем
+     карточки («Не отправлен», «Нет платёжк»): колонка уже плашки — переносим слова. */
+  .invoices-table tbody tr.clickable td.col-state .inv-pill { max-width: 100%; height: auto; min-height: 24px; padding-top: 3px; padding-bottom: 3px; white-space: normal; line-height: 1.25; overflow-wrap: normal; word-break: normal; }
+}
+/* Крупный текст на узком телефоне: «1С» и «Оплата» — одна под другой, иначе
+   «Не отправлена» не помещалась в половину карточки. */
+@media (max-width: 380px) {
+  html[data-text] .invoices-table tbody tr.clickable { grid-template-areas: "check doc money" ". sup sup" ". onec onec" ". pay pay" "act act act"; }
+}
+@media (max-width: 340px) {
+  .invoices-table tbody tr.clickable { grid-template-areas: "check doc money" ". sup sup" ". onec onec" ". pay pay" "act act act"; }
 }
 
 /* Карточка накладной в узкой колонке: шаги — три в ряд, короткие названия, кнопка — в панели шага. */
