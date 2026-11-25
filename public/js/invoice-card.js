@@ -188,7 +188,7 @@ const InvoiceCard = {
     // число позиций — на вкладке «Товары · N» (раньше всё это шло здесь второй раз).
     const parts = [];
     if (inv.supplier) parts.push(App.esc(inv.supplier));
-    if (inv.total_sum != null) parts.push(`${App.formatMoney(inv.total_sum)} ₽`);
+    if (inv.total_sum != null) parts.push(`<span class="ic-sub-sum">${App.formatMoney(inv.total_sum)}&nbsp;₽</span>`);
     // Дубликат — только плашкой под шапкой (#ic-duplicate / #invoice-sibling-banner), не второй раз здесь.
     const pills = [];
     if (inv.status === 'error') pills.push('<span class="ic-pill ic-pill--red">Ошибка распознавания</span>');
