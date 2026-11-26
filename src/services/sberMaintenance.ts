@@ -3,8 +3,10 @@ import { sberPaymentRepo } from '../database/repositories/sberPaymentRepo';
 import { getValidAccessToken, withSberToken, SberAuthError, REFRESH_TOKEN_TTL_DAYS } from '../sber/oauth';
 import { getPaymentState, SberApiError, FINAL_BANK_STATUSES, bankStatusKind, bankStatusLabel } from '../sber/payments';
 import { secretStatus, parseDbUtc } from '../sber/appCredentials';
-import { sendOwnerAlert } from './ownerAlerts';
+import { sendOwnerAlert, lastOwnerAlertMs, markOwnerAlert } from './ownerAlerts';
+import { tlsStatus, fmtRuDate, TLS_WARN_DAYS } from './sberTls';
 import { logIntegrationEvent } from '../integration/integrationLog';
+import { sendErrorEmail } from '../utils/mailer';
 import { logger } from '../utils/logger';
 
 const SBER_PAGE = 'https://scanflow.ru/#/sber';
@@ -68,6 +70,41 @@ export async function warnSberSecretExpiry(): Promise<void> {
     await sendOwnerAlert(owner, 'sber_secret',
       `⚠️ Сбербанк: client_secret приложения ${when}. Без него токены не обновятся.\n`
       + `Откройте ${SBER_PAGE} и нажмите «Сделать бессрочным» (или вставьте новый секрет из личного кабинета Sber API).`, 24);
+  }
+}
+
+/** Интервал напоминаний о сертификате: чем ближе конец, тем чаще. */
+export function tlsReminderIntervalHours(daysLeft: number): number {
+  if (daysLeft <= 7) return 24;
+  if (daysLeft <= 30) return 24 * 7;
+  return 24 * 14;
+}
+
+/**
+ * TLS-сертификат Sber API живёт 12 месяцев, продлить через API нельзя —
+ * только выпустить новый в личном кабинете и загрузить на странице «Сбербанк».
+ * За 60 дней до конца напоминаем владельцам компаний с подключённым Сбером
+ * (Telegram) и администратору платформы (письмо на MAIL_TO).
+ */
+export async function warnSberTlsExpiry(): Promise<void> {
+  const owners = await sberTokenRepo.listOwners();
+  if (!owners.length) return;
+  const st = await tlsStatus();
+  if (st.days_left == null || st.valid_to == null || st.days_left > TLS_WARN_DAYS) return;
+  const date = fmtRuDate(new Date(st.valid_to));
+  const when = st.days_left < 0 ? `истёк ${date}` : st.days_left === 0 ? `истекает сегодня (${date})` : `истекает через ${st.days_left} дн. (${date})`;
+  const text = `⚠️ Сбербанк: TLS-сертификат Sber API ${when}. Без него платёжки в Сбер не создаются.\n`
+    + 'Что сделать: СберБизнес → Sber API → ваш сервис → «Сертификаты шифрования» → «Сгенерировать сертификат», '
+    + `скачайте .p12 и загрузите его на ${SBER_PAGE}. Старый сертификат продолжит работать до своего срока.`;
+  const interval = tlsReminderIntervalHours(st.days_left);
+  for (const owner of owners) {
+    await sendOwnerAlert(owner, 'sber_tls', text, interval);
+  }
+  // Сертификат общий для платформы — письмо администратору, с тем же интервалом.
+  const lastMail = await lastOwnerAlertMs(0, 'sber_tls_mail').catch(() => null);
+  if (lastMail == null || Date.now() - lastMail >= interval * 3_600_000) {
+    await sendErrorEmail(`Сбербанк: TLS-сертификат ${when}`, text);
+    await markOwnerAlert(0, 'sber_tls_mail', text);
   }
 }
 

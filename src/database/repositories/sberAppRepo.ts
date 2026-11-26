@@ -9,6 +9,12 @@ export interface SberAppRow {
   secret_expires_at: string | null;
   secret_perpetual: number;
   last_error: string | null;
+  /** Клиентский TLS-сертификат, загруженный через кабинет (миграция 94): .p12 (base64) и пароль — зашифрованы. */
+  tls_pfx_enc?: string | null;
+  tls_pass_enc?: string | null;
+  tls_valid_to?: string | null;
+  tls_subject?: string | null;
+  tls_set_at?: string | null;
   updated_at: string;
 }
 
@@ -33,5 +39,16 @@ export const sberAppRepo = {
       INSERT INTO sber_app (client_id, last_error, updated_at) VALUES (?, ?, NOW())
       ON DUPLICATE KEY UPDATE last_error = VALUES(last_error), updated_at = NOW()
     `).run(clientId, message ? message.slice(0, 500) : null);
+  },
+
+  /** Сохранить сертификат, загруженный через кабинет. validTo — DATETIME в UTC. */
+  async saveTls(clientId: string, data: { pfxEnc: string; passEnc: string; validTo: string; subject: string | null }): Promise<void> {
+    await getDb().prepare(`
+      INSERT INTO sber_app (client_id, tls_pfx_enc, tls_pass_enc, tls_valid_to, tls_subject, tls_set_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), NOW())
+      ON DUPLICATE KEY UPDATE tls_pfx_enc = VALUES(tls_pfx_enc), tls_pass_enc = VALUES(tls_pass_enc),
+        tls_valid_to = VALUES(tls_valid_to), tls_subject = VALUES(tls_subject),
+        tls_set_at = UTC_TIMESTAMP(), updated_at = NOW()
+    `).run(clientId, data.pfxEnc, data.passEnc, data.validTo, data.subject);
   },
 };

@@ -1,12 +1,17 @@
 import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pfxValidTo, pickFreshest, type TlsBundle } from './tlsCert';
+import { loadStoredTls } from './tlsStore';
+import { logger } from '../utils/logger';
 
 export interface SberFetchOptions {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
   timeoutMs?: number;
+  /** Другой клиентский сертификат на один запрос — проверка нового .p12 перед заменой. */
+  tls?: { pfx: Buffer; passphrase: string };
 }
 
 export interface SberResponse {
@@ -16,43 +21,86 @@ export interface SberResponse {
   json<T = unknown>(): T;
 }
 
-interface TlsBundle {
-  pfx: Buffer;
-  passphrase: string;
-  ca?: Buffer;
-}
-
 let cachedTls: TlsBundle | null = null;
+let cachedAt = 0;
+let loadingTls: Promise<TlsBundle> | null = null;
+let tlsGeneration = 0;
+/** Выбор пересматривается раз в час: другой процесс мог загрузить новый сертификат, а на сервер — положить файл. */
+const TLS_CACHE_MS = 3_600_000;
 
-function loadTls(): TlsBundle {
-  if (cachedTls) return cachedTls;
+/** Сертификат из .env (SBER_TLS_PFX + SBER_TLS_PFX_PASSWORD); null — не задан или файла нет. */
+function loadFileTls(): TlsBundle | null {
   const pfxPath = process.env.SBER_TLS_PFX;
   const passphrase = process.env.SBER_TLS_PFX_PASSWORD;
-  if (!pfxPath || !passphrase) {
-    throw new Error('SBER_TLS_PFX or SBER_TLS_PFX_PASSWORD not configured');
+  if (!pfxPath || !passphrase) return null;
+  let pfx: Buffer;
+  try {
+    pfx = fs.readFileSync(path.resolve(process.cwd(), pfxPath));
+  } catch (err) {
+    logger.warn('[sber] TLS certificate file from .env not readable', { error: (err as Error).message });
+    return null;
   }
-  const resolved = path.resolve(process.cwd(), pfxPath);
-  const pfx = fs.readFileSync(resolved);
-  let ca: Buffer | undefined;
-  const caPath = process.env.SBER_CA_CERT;
-  if (caPath) {
-    try {
-      ca = fs.readFileSync(path.resolve(process.cwd(), caPath));
-    } catch {
-      // CA file optional locally
-    }
-  }
-  cachedTls = { pfx, passphrase, ca };
-  return cachedTls;
+  return { pfx, passphrase, source: 'file', validTo: pfxValidTo(pfx, passphrase) };
 }
 
-// For tests
-export function _resetTlsCache(): void {
-  cachedTls = null;
+function loadCa(): Buffer | undefined {
+  const caPath = process.env.SBER_CA_CERT;
+  if (!caPath) return undefined;
+  try {
+    return fs.readFileSync(path.resolve(process.cwd(), caPath));
+  } catch {
+    return undefined; // CA file optional locally
+  }
 }
+
+/**
+ * Клиентский сертификат для соединений: из файла .env или загруженный через
+ * кабинет (БД) — тот, что действует дольше. Так новый сертификат начинает
+ * работать сразу после загрузки, а положенный на сервер вручную свежий файл
+ * тоже не проигрывает старому из БД.
+ */
+async function loadTls(): Promise<TlsBundle> {
+  if (cachedTls && Date.now() - cachedAt < TLS_CACHE_MS) return cachedTls;
+  if (!loadingTls) {
+    const generation = tlsGeneration;
+    loadingTls = (async () => {
+      let stored: TlsBundle | null = null;
+      try {
+        stored = await loadStoredTls();
+      } catch (err) {
+        logger.warn('[sber] stored TLS certificate not loaded', { error: (err as Error).message });
+      }
+      const picked = pickFreshest([loadFileTls(), stored]);
+      if (!picked) {
+        throw new Error('TLS-сертификат Сбера не задан: загрузите .p12 на странице «Сбербанк» (или SBER_TLS_PFX и SBER_TLS_PFX_PASSWORD в .env)');
+      }
+      const bundle = { ...picked, ca: loadCa() };
+      // Пока читали, загрузили новый сертификат — этот выбор устарел, не кэшируем.
+      if (generation === tlsGeneration) {
+        cachedTls = bundle;
+        cachedAt = Date.now();
+      }
+      return bundle;
+    })().finally(() => { if (generation === tlsGeneration) loadingTls = null; });
+  }
+  return loadingTls;
+}
+
+/** Сертификат, с которым сейчас идут запросы к Сберу (для страницы «Сбербанк»). */
+export async function activeTls(): Promise<Pick<TlsBundle, 'source' | 'validTo' | 'pfx' | 'passphrase'> | null> {
+  try { return await loadTls(); } catch { return null; }
+}
+
+/** Забыть выбранный сертификат: следующий запрос выберет заново (после загрузки нового). */
+export function resetTlsCache(): void {
+  cachedTls = null;
+  loadingTls = null;
+  tlsGeneration++;
+}
+export const _resetTlsCache = resetTlsCache;
 
 export async function sberFetch(url: string, options: SberFetchOptions = {}): Promise<SberResponse> {
-  const tls = loadTls();
+  const tls = options.tls ? { ...options.tls, ca: loadCa() } : await loadTls();
   const parsed = new URL(url);
   return new Promise<SberResponse>((resolve, reject) => {
     const req = https.request(

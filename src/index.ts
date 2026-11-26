@@ -20,7 +20,7 @@ import { supplierExtractJobRepo } from './database/repositories/supplierExtractJ
 import { notifySupplierExtractError, emit as emitNotification } from './notifications/events';
 import { seedAdminUser } from './auth/seedAdmin';
 import { runNightlyLearning } from './learning/learningService';
-import { keepSberTokensAlive, warnSberSecretExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
+import { keepSberTokensAlive, warnSberSecretExpiry, warnSberTlsExpiry, pollSberPaymentStatuses } from './services/sberMaintenance';
 import { checkOnecStall } from './services/companyHealth';
 import { sendWeeklyPriceDigests } from './notifications/priceDigest';
 import { trashRepo } from './database/repositories/trashRepo';
@@ -129,6 +129,7 @@ async function main(): Promise<void> {
   cron.schedule('15 4 * * *', () => {
     keepSberTokensAlive()
       .then(() => warnSberSecretExpiry())
+      .then(() => warnSberTlsExpiry())
       .catch(err => logger.error('sber keep-alive failed', { error: (err as Error).message }));
   });
   cron.schedule('*/30 7-21 * * *', () => {
