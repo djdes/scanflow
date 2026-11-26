@@ -439,6 +439,12 @@ export function createServer(fileWatcher: FileWatcher, mapper: NomenclatureMappe
     res.type('application/xml').send(bundle.sitemapXml);
   });
 
+  // RSS блога — до /blog/:slug (у того slug без точки, «rss.xml» ушёл бы в 404).
+  app.get('/blog/rss.xml', (_req, res) => {
+    const bundle = readOrBuildPromoBundle(publicDir);
+    res.type('application/rss+xml; charset=utf-8').send(bundle.rssXml);
+  });
+
   app.get('/llms.txt', (_req, res) => {
     const bundle = readOrBuildPromoBundle(publicDir);
     res.setHeader('Content-Signal', 'search=yes, ai-input=yes, ai-train=no');

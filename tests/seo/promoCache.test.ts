@@ -38,6 +38,20 @@ afterAll(() => {
 });
 
 describe('ScanFlow promo JSON snapshot cache & AI capabilities (0 DB SELECT)', () => {
+  it('serves the blog RSS feed and links it from blog pages', async () => {
+    const rss = await request(app).get('/blog/rss.xml');
+    expect(rss.status).toBe(200);
+    expect(rss.headers['content-type']).toMatch(/application\/rss\+xml/);
+    expect(rss.text).toContain('<rss version="2.0"');
+    expect(rss.text).toContain('<guid isPermaLink="true">https://scanflow.ru/blog/ocr-nakladnyh-kak-rabotaet</guid>');
+
+    const feedLink = 'type="application/rss+xml" title="Блог ScanFlow" href="https://scanflow.ru/blog/rss.xml"';
+    const blog = await request(app).get('/blog');
+    expect(blog.text).toContain(feedLink);
+    const article = await request(app).get('/blog/ocr-nakladnyh-kak-rabotaet');
+    expect(article.text).toContain(feedLink);
+  });
+
   it('writes promo-bundle.json atomically without leaving .tmp files', () => {
     const files = fs.readdirSync(tmpCacheDir);
     expect(files).toEqual(['promo-bundle.json']);
