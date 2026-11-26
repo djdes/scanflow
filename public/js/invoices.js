@@ -55,17 +55,22 @@ const Invoices = {
 
       const mkBtn = (inv, dir) => {
         if (!inv) return '';
-        const arrow = dir === 'prev' ? '←' : '→';
+        // Вверх/вниз по списку, а не «←»: стрелка влево рядом с «‹ Накладные»
+        // читалась как вторая кнопка «назад» (2026-11-23).
+        const arrow = dir === 'prev'
+          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>'
+          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
         const label = inv.supplier
           ? App.esc(inv.supplier)
           : (inv.invoice_number ? `№ ${App.esc(inv.invoice_number)}` : `#${inv.id}`);
         const visitedCls = visited.has(inv.id) ? ' visited' : '';
-        const ttip = [inv.supplier || '', inv.invoice_number ? `№${inv.invoice_number}` : ''].filter(Boolean).join(' ');
+        const who = [inv.supplier || '', inv.invoice_number ? `№ ${inv.invoice_number}` : ''].filter(Boolean).join(', ');
+        const ttip = `${dir === 'prev' ? 'Предыдущая накладная (K)' : 'Следующая накладная (J)'}${who ? `: ${who}` : ''}`;
         // Стрелка и имя — отдельные спаны: имя обрезается многоточием, стрелка
         // всегда видна (см. .inv-nav-arrow / .inv-nav-label). Полное имя — в title.
         const a = `<span class="inv-nav-arrow">${arrow}</span>`;
         const l = `<span class="inv-nav-label">${label}</span>`;
-        return `<a class="inv-nav-btn${visitedCls}" href="#" title="${App.esc(ttip)}"
+        return `<a class="inv-nav-btn${visitedCls}" href="#" data-nav="${dir}" title="${App.esc(ttip)}" aria-label="${App.esc(ttip)}"
                    onclick="event.preventDefault();Invoices.openInvoice(${inv.id})"
                 >${dir === 'prev' ? a + l : l + a}</a>`;
       };
@@ -104,6 +109,13 @@ const Invoices = {
     await this.loadTable();
   },
 
+  _renderResultsLine() {
+    const el = document.getElementById('invoices-results');
+    if (!el) return;
+    el.textContent = [this._results, this._unread ? `новых: ${this._unread}` : ''].filter(Boolean).join(' · ');
+    el.title = this._unread ? 'Новые — ещё не открытые накладные, отмечены синей точкой' : '';
+  },
+
   async loadStats() {
     const request = this._statsRequest = (this._statsRequest || 0) + 1;
     try {
@@ -111,8 +123,16 @@ const Invoices = {
       if (request !== this._statsRequest) return;
       this._stats = data;
       this._renderSummary();
-      const container = document.getElementById('invoices-stats');
-      container.textContent = data.unreadCount ? `Непрочитанных: ${data.unreadCount}` : '';
+      // Число новых — в строке «Показано …» под списком, а не отдельной надписью по центру.
+      this._unread = Number(data.unreadCount) || 0;
+      this._renderResultsLine();
+      // «Удалить дубликаты» — только когда за сутки есть повторные загрузки.
+      const dupBtn = document.getElementById('btn-delete-duplicates');
+      const dups = Number(data.recentDuplicates) || 0;
+      if (dupBtn) {
+        dupBtn.hidden = dups === 0;
+        dupBtn.textContent = `Удалить дубликаты (${dups})`;
+      }
     } catch (e) {
       console.error('Failed to load stats', e);
     }
@@ -213,7 +233,7 @@ const Invoices = {
   // В строке — только «В 1С →» у готовой накладной (2026-11-17): «Проверить» и «Открыть»
   // делали то же, что клик по строке. Место под кнопку держится, колонка не прыгает.
   _rowAction(inv) {
-    if (!inv.review_reason && !inv.sibling_is_copy && inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-primary btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
+    if (!inv.review_reason && !inv.sibling_is_copy && inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-soft btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
     return '<span class="inv-act inv-act--empty" aria-hidden="true"></span>';
   },
 
@@ -246,7 +266,8 @@ const Invoices = {
       const { data, total } = await App.apiJson(url);
       if (request !== this._listRequest) return;
       const resultTotal = Number(total ?? data?.length ?? 0);
-      document.getElementById('invoices-results').textContent = `Показано ${data?.length ? this.offset + 1 : 0}–${this.offset + (data?.length || 0)} из ${resultTotal}`;
+      this._results = `Показано ${data?.length ? this.offset + 1 : 0}–${this.offset + (data?.length || 0)} из ${resultTotal}`;
+      this._renderResultsLine();
       document.getElementById('invoices-pagination').innerHTML = '';
       // Запоминаем строки: панель массовых действий должна знать, у каких из
       // выделенных накладных закрыт чек-лист сверки (флаги приходят в списке).
@@ -411,6 +432,11 @@ const Invoices = {
   // и оплаченное сервер не трогает.
   async deleteRecentDuplicates(ev) {
     const btn = ev?.currentTarget || document.getElementById('btn-delete-duplicates');
+    // Число на кнопке и её видимость — после того, как кнопка вернёт прежний вид.
+    try { return await this._deleteRecentDuplicates(btn); } finally { this.loadStats(); }
+  },
+
+  async _deleteRecentDuplicates(btn) {
     return this._withGuard('deleteRecentDuplicates', () => App.withBusyButton(btn, async () => {
       try {
         const { data: preview } = await App.apiJson('/invoices/delete-duplicates', { method: 'POST', body: { dry_run: true } });
@@ -2111,7 +2137,7 @@ const Invoices = {
       const unmappedCount = (invoice.items || []).filter(it => !it.onec_guid).length;
       if (unmappedCount > 0) {
         const ok = confirm(
-          `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
+          `${unmappedCount} ${this._plural(unmappedCount, 'товар', 'товара', 'товаров')} без позиции 1С.\n\n` +
           `При загрузке в 1С они будут созданы как НОВЫЕ позиции в справочнике Номенклатура по их названию из скана.\n\n` +
           `Продолжить?`
         );
@@ -2123,7 +2149,7 @@ const Invoices = {
       if (suspect.length > 0) {
         const names = suspect.slice(0, 5).map(it => '• ' + (it.original_name || it.mapped_name || '')).join('\n');
         const ok = confirm(
-          `Количество под вопросом в ${suspect.length} строк(ах):\n${names}${suspect.length > 5 ? '\n…' : ''}\n\n` +
+          `Количество под вопросом — ${suspect.length} ${this._plural(suspect.length, 'строка', 'строки', 'строк')}:\n${names}${suspect.length > 5 ? '\n…' : ''}\n\n` +
           `Проверьте пересчёт единиц (кнопки под количеством). Всё равно отправить в 1С?`
         );
         if (!ok) return;
@@ -2339,22 +2365,22 @@ const Invoices = {
         if (requested === 0) {
           App.notify(all ? 'В накладной нет товаров' : 'Нет несопоставленных товаров', 'success');
         } else if (all) {
-          if (changed === 0) App.notify(`LLM подтвердил текущие сопоставления (${matched} из ${requested})`, 'success');
-          else App.notify(`LLM обновил ${changed} из ${requested} (подтверждено ${matched})`, 'success');
+          if (changed === 0) App.notify(`ИИ подтвердил выбранные позиции 1С (${matched} из ${requested})`, 'success');
+          else App.notify(`ИИ сменил позицию 1С у ${changed} из ${requested} товаров, подтвердил ${matched}`, 'success');
         } else if (matched === 0) {
-          App.notify(`LLM не нашёл совпадений (${requested} товаров)`, 'error');
+          App.notify(`ИИ не нашёл подходящих позиций 1С (товаров: ${requested})`, 'error');
         } else {
-          App.notify(`LLM сопоставил ${matched} из ${requested} товаров`, 'success');
+          App.notify(`ИИ подобрал позиции 1С: ${matched} из ${requested}`, 'success');
         }
         this.showDetail(id);
       } catch (e) {
-        App.notify('Ошибка LLM-маппинга: ' + e.message, 'error');
+        App.notify('Не удалось подобрать позиции ИИ: ' + e.message, 'error');
       }
     }));
   },
 
   async resetStatus(id) {
-    if (!confirm('Сбросить статус накладной? Она станет "Обработан" и исчезнет из списка готовых к 1С. Для повторной отправки нужно будет снова нажать "Отправить в 1С".')) {
+    if (!confirm('Вернуть накладную на проверку? Она уйдёт из списка готовых к 1С — чтобы отправить её снова, нажмите «Отправить в 1С».')) {
       return;
     }
     return this._withGuard(`reset:${id}`, async () => {
@@ -2369,7 +2395,7 @@ const Invoices = {
   },
 
   async unlinkDuplicate(id) {
-    if (!confirm('Снять отметку «дубликат»? Накладная превратится в обычную (status=processed), но items в неё не вернутся — для полноценной обработки нужно её удалить и переотсканировать.')) return;
+    if (!confirm('Снять отметку «дубликат»? Накладная станет обычной, но строки товаров в неё не вернутся — чтобы их получить, удалите её и загрузите фото заново.')) return;
     try {
       const res = await App.api(`/invoices/${id}/unlink-duplicate`, { method: 'POST' });
       if (!res.ok) {

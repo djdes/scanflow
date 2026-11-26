@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { loadArticles, Article } from './articles';
 import { buildSitemapXml } from './sitemap';
+import { buildRssXml, injectRssAlternateLink } from './rss';
 import { renderListingHtml, renderPreviewHtml } from './blogRender';
 import { LEGAL_PAGES, LegalPage, legalOperator, renderLegalPage } from '../legal/documents';
 import { applyHeroVariants, injectSiteConfig, siteConfig } from './siteConfig';
@@ -20,6 +21,12 @@ import {
 
 const SITE = 'https://scanflow.ru';
 const DATASET_NAME = 'promo-bundle';
+/**
+ * Версия формата снимка: входит в подпись. Меняйте при любой правке сборки
+ * (новое поле, новая вставка в <head>), иначе снимок, собранный прежним кодом
+ * при тех же файлах public/, отдавался бы и дальше.
+ */
+const BUNDLE_FORMAT = 2;
 
 export interface ScanflowPromoBundle {
   landingHtml: string;
@@ -36,6 +43,7 @@ export interface ScanflowPromoBundle {
     markdown: string;
   }>;
   sitemapXml: string;
+  rssXml: string;
   llmsTxt: string;
   llmsFullTxt: string;
 }
@@ -83,6 +91,7 @@ export function computePromoSourceSignature(
   env: NodeJS.ProcessEnv = process.env
 ): string {
   const h = crypto.createHash('sha256');
+  h.update(`format:${BUNDLE_FORMAT}`);
   h.update(JSON.stringify(siteConfig(env)));
   h.update(JSON.stringify(legalOperator(env)));
   h.update(statStamp(path.join(publicDir, 'index.html')));
@@ -125,7 +134,10 @@ export function buildPromoBundleFromDiskSources(
 
   const rawBlogListing = fs.readFileSync(path.join(publicDir, 'blog', 'index.html'), 'utf8');
   const blogIndexHtml = injectMarkdownAlternateLink(
-    ensureMainContentId(injectSiteConfig(renderListingHtml(rawBlogListing, articles), cfg)),
+    injectRssAlternateLink(
+      ensureMainContentId(injectSiteConfig(renderListingHtml(rawBlogListing, articles), cfg)),
+      SITE
+    ),
     `${SITE}/blog.md`
   );
   const blogIndexMarkdown = buildBlogIndexMarkdown(articles);
@@ -138,8 +150,11 @@ export function buildPromoBundleFromDiskSources(
     if (!fs.existsSync(file)) continue;
     const rawArticleHtml = fs.readFileSync(file, 'utf8');
     const renderedArticleHtml = injectMarkdownAlternateLink(
-      ensureMainContentId(
-        injectSiteConfig(injectArticleJsonLd(rawArticleHtml, SITE, article), cfg)
+      injectRssAlternateLink(
+        ensureMainContentId(
+          injectSiteConfig(injectArticleJsonLd(rawArticleHtml, SITE, article), cfg)
+        ),
+        SITE
       ),
       `${SITE}/blog/${article.slug}.md`
     );
@@ -197,6 +212,7 @@ export function buildPromoBundleFromDiskSources(
   }
 
   const sitemapXml = buildSitemapXml(SITE, articles);
+  const rssXml = buildRssXml(SITE, articles);
   const llmsTxt = buildLlmsTxt(SITE, rawLanding, articles);
   const llmsFullTxt = buildLlmsFullTxt(llmsTxt, landingMarkdown, articlesMdOrdered);
 
@@ -208,6 +224,7 @@ export function buildPromoBundleFromDiskSources(
     articlesBySlug,
     legalBySlug,
     sitemapXml,
+    rssXml,
     llmsTxt,
     llmsFullTxt,
   };

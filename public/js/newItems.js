@@ -74,8 +74,8 @@ const NewItems = {
         <table class="cards-mobile ni-table">
           <thead><tr>
             <th>Товар из накладных</th>
-            <th>Строк / накл.</th>
-            <th>Ед.</th>
+            <th>Где встречается</th>
+            <th>Единица</th>
             <th>Поставщики</th>
             <th>Заявка в 1С</th>
             <th></th>
@@ -85,6 +85,15 @@ const NewItems = {
       </div>`;
     }
     this.renderWaiting();
+  },
+
+  /** «3 строки в 2 накладных» вместо загадочного «3 / 2». */
+  _where(lines, invoices) {
+    const pl = (n, one, few, many) => {
+      const m10 = n % 10, m100 = n % 100;
+      return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+    };
+    return `${lines} ${pl(lines, 'строка', 'строки', 'строк')} в ${invoices} ${pl(invoices, 'накладной', 'накладных', 'накладных')}`;
   },
 
   _matches(g, q) {
@@ -113,8 +122,8 @@ const NewItems = {
     return `
       <tr class="ni-row${isOpen ? ' is-open' : ''}">
         <td data-label="Товар">${nameCell}</td>
-        <td data-label="Строк / накладных"><span class="ni-cell"><strong>${Number(g.lines) || 0}</strong> / ${(g.invoices || []).length}</span></td>
-        <td data-label="Ед."><div class="ni-cell">${esc(g.unit || '—')}${priceLine}</div></td>
+        <td data-label="Где встречается"><span class="ni-cell">${this._where(Number(g.lines) || 0, (g.invoices || []).length)}</span></td>
+        <td data-label="Единица"><div class="ni-cell">${esc(g.unit || '—')}${priceLine}</div></td>
         <td data-label="Поставщики">${suppliers}</td>
         <td data-label="Заявка в 1С">${this.statusHtml(g)}</td>
         <td class="cell-action">
@@ -333,7 +342,7 @@ const NewItems = {
       method: 'POST',
       body: { name_key: g.name_key, onec_guid: guid },
     });
-    App.notify(`Сопоставлено с «${data.name}»: ${data.lines} стр. в ${data.invoices} накл.`, 'success');
+    App.notify(`Сопоставлено с «${data.name}»: ${this._where(Number(data.lines) || 0, Number(data.invoices) || 0)}`, 'success');
     this.closeForm(false);
     await this.load();
   },

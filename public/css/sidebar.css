@@ -149,6 +149,19 @@
     text-decoration: none;
     white-space: nowrap;
   }
+  /* Узкий телефон (320–360 px): кнопка меню уезжала за правый край на 14 px. */
+  @media (max-width: 360px) {
+    .app-mobile-header .header-inner { padding: 0 12px; gap: 8px; }
+    .app-mobile-header .app-simple-link { padding: 0 10px; }
+  }
+  @media (max-width: 340px) {
+    .app-mobile-header .logo span { display: none; }
+  }
+  /* Крупный/огромный текст (html[data-text], 2026-11-25): на 360 px кнопка меню
+     уходила за правый край — слово ScanFlow прячем раньше, значок остаётся. */
+  @media (max-width: 380px) {
+    html[data-text] .app-mobile-header .logo span { display: none; }
+  }
   .app-sidebar {
     width: min(var(--sidebar-width), calc(100vw - 40px));
     z-index: 201;

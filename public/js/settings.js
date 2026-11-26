@@ -206,13 +206,19 @@ const Settings = {
   _tariffLabel(plan, limit) {
     const map = {
       beta: 'Открытая бета',
-      start: 'Старт (50 стр.)',
-      pro: 'Pro (1 000 стр.)',
-      business: 'Бизнес (10 000 стр.)',
+      start: 'Старт (50 страниц)',
+      pro: 'Pro (1 000 страниц)',
+      business: 'Бизнес (10 000 страниц)',
       unlimited: 'Безлимит',
     };
     const base = map[plan] || plan || 'Открытая бета';
-    return limit != null ? `${base} · до ${Number(limit).toLocaleString('ru-RU')} стр.` : base;
+    return limit != null ? `${base} · до ${Number(limit).toLocaleString('ru-RU')} ${this._pagesWord(limit)}` : base;
+  },
+
+  /** «страница / страницы / страниц» вместо «стр.». */
+  _pagesWord(n) {
+    const a = Math.abs(Math.trunc(Number(n) || 0)), m10 = a % 10, m100 = a % 100;
+    return m10 === 1 && m100 !== 11 ? 'страница' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'страницы' : 'страниц';
   },
 
   // Admin/Superadmin "Аккаунты, доступы и тарифы" card.
@@ -263,12 +269,12 @@ const Settings = {
           </td>
           <td>
             <div>${Number(u.invoice_count || 0)} накл.</div>
-            <div class="muted" style="font-size:0.75rem">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
+            <div class="muted" style="font-size:0.75rem">${u.units_all_kg ? '⚖️ всё в кг' : 'единицы как в 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
           </td>
           <td>${u.last_login_at ? esc(App.formatDateTime(u.last_login_at)) : '<span class="muted">—</span>'}</td>
           <td style="white-space:nowrap">
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="btn btn-primary btn-sm" onclick="App.impersonateUser(${Number(u.id)})" title="Войти в кабинет этого пользователя в 1 клик">Войти в аккаунт</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="App.impersonateUser(${Number(u.id)})" title="Войти в кабинет этого пользователя в 1 клик">Войти в аккаунт</button>
               <button type="button" class="btn btn-outline btn-sm" onclick="Settings.openUserModal(${Number(u.id)})">Изменить</button>
             </div>
           </td>
@@ -281,7 +287,7 @@ const Settings = {
               <h3 style="margin-bottom:6px">Суперадмин · Аккаунты, доступы и тарифы</h3>
               <p class="field-hint" style="margin:0">Входите в любой кабинет в 1 клик, меняйте логин, email, пароль, роль, блокировку, тариф и настройки компании.</p>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="Settings.openUserModal(null)">+ Создать аккаунт</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="Settings.openUserModal(null)">+ Создать аккаунт</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -533,7 +539,7 @@ const Settings = {
       const { data } = await res.json();
       const esc = (s) => App.esc(String(s ?? ''));
       const date = (s) => s ? esc(String(s).slice(0, 10).split('-').reverse().join('.')) : '<span class="muted">—</span>';
-      const rub = (n) => `${Math.round(Number(n) || 0).toLocaleString('ru-RU')} ₽`;
+      const rub = (n) => `${Math.round(Number(n) || 0).toLocaleString('ru-RU')}&nbsp;₽`;
       const rows = (data || []).map((c) => {
         const stalled = c.last_sent_at && c.sent_7d === 0 && c.invoices_7d > 0 && c.queue_count > 0;
         return `
@@ -547,7 +553,7 @@ const Settings = {
           <td>${c.invoices_30d} <span class="muted">/ ${c.invoices_total}</span></td>
           <td>${date(c.last_upload_at)}</td>
           <td>${date(c.last_sent_at)}${stalled ? ' <span class="badge badge-error" title="За неделю есть новые накладные, но в 1С ничего не ушло">стоит</span>' : ''}</td>
-          <td>${c.queue_count ? `${c.queue_count} · ${rub(c.queue_sum)}` : '—'}${c.queue_with_sber_payment ? `<div class="muted">с платёжкой: ${c.queue_with_sber_payment}</div>` : ''}</td>
+          <td>${c.queue_count ? `${c.queue_count} · <span style="white-space:nowrap">${rub(c.queue_sum)}</span>` : '—'}${c.queue_with_sber_payment ? `<div class="muted">с платёжкой: ${c.queue_with_sber_payment}</div>` : ''}</td>
           <td>${c.unmapped_lines_in_queue || '—'}</td>
           <td>${c.mappings} <span class="muted">/ ${c.catalog_items}</span></td>
           <td>${c.sber_connected ? '✓' : '—'}</td>
@@ -558,7 +564,7 @@ const Settings = {
           <h3 style="margin-bottom:6px">Компании</h3>
           <p class="field-hint" style="margin-bottom:16px">«Стоит» — за неделю загружены накладные, но в 1С ничего не ушло.</p>
           <div class="table-wrap">
-            <table class="data-table">
+            <table class="data-table companies-table">
               <thead><tr><th>Компания</th><th>Накладных 30 дн. / всего</th><th>Последняя загрузка</th><th>Последняя отправка в 1С</th><th>Очередь в 1С</th><th>Строк без позиции 1С</th><th>Сопоставлений / каталог</th><th>Сбер</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -765,7 +771,7 @@ const Settings = {
         <summary><h3 style="display:inline">Эталонные накладные</h3></summary>
         <div class="field-hint" style="margin:10px 0 16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-          <button type="button" class="btn btn-primary" id="golden-run-btn">Прогнать эталоны</button>
+          <button type="button" class="btn btn-outline" id="golden-run-btn">Прогнать эталоны</button>
           <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:400">не больше
             <input type="number" id="golden-run-limit" min="1" max="50" value="10" style="width:76px"> накладных</label>
           <button type="button" class="btn btn-outline btn-sm" id="golden-refresh-btn">Обновить</button>

@@ -26,7 +26,7 @@ const Analytics = {
   QUALITY_METRICS: [
     { key: 'edited', title: 'Правили строки',
       help: 'Доля строк, в которых после распознавания пришлось исправлять руками количество, единицу, цену, сумму или НДС, пересчитывать единицы, добавлять пропущенную строку или удалять лишнюю. Выбор позиции 1С и своё название для 1С сюда не входят — это сопоставление.' },
-    { key: 'flagged', title: 'Пересчёт под вопросом',
+    { key: 'flagged', title: 'Количество под вопросом',
       help: 'Доля строк, где ScanFlow не уверен в пересчёте единиц (например, «шт» в «кг») и просит проверить количество.' },
     { key: 'mismatch', title: 'Сумма не сходится',
       help: 'В скольких накладных сумма строк расходится с итогом накладной больше чем на 1% — обычно строка пропущена или прочитана неверно.' },
@@ -258,9 +258,9 @@ const Analytics = {
         t.tracked_lines ? `${editedLines} из ${t.tracked_lines + t.deleted_lines}` : 'правки ещё не записывались',
         this._toneLower(t.edited_share, th.edited)),
       tile(String(t.mismatch_invoices), `${this.plural(t.mismatch_invoices, 'накладная', 'накладные', 'накладных')} с несходящейся суммой`,
-        `строки сдвинуты — в ${t.misaligned_invoices}`, this._toneLower(t.mismatch_share, th.mismatch)),
-      tile(this.days(t.median_days_to_1c), 'от фото до 1С (медиана)',
-        `ушло в 1С ${t.sent_invoices} из ${t.invoices}`),
+        `сдвиг строк: ${t.misaligned_invoices}`, this._toneLower(t.mismatch_share, th.mismatch)),
+      tile(this.days(t.median_days_to_1c), 'обычно от фото до 1С',
+        `в 1С: ${t.sent_invoices} из ${t.invoices}`),
     ].join('');
   },
 
@@ -269,7 +269,8 @@ const Analytics = {
     const parts = [];
     const untracked = t.invoices - t.tracked_invoices;
     if (d.tracking_since && untracked > 0) {
-      parts.push(`Правки и флаги пересчёта ScanFlow записывает с ${this.esc(this.date(d.tracking_since))}. ${untracked} ${this.plural(untracked, 'накладная', 'накладные', 'накладных')} за период ${this.plural(untracked, 'загружена', 'загружены', 'загружены')} раньше: по ним видны сумма, сдвиг строк, сопоставление и отправка в 1С, а доли правок считаются по остальным.`);
+      const why = `${untracked} ${this.plural(untracked, 'накладная', 'накладные', 'накладных')} за период ${this.plural(untracked, 'загружена', 'загружены', 'загружены')} раньше: по ним видны сумма, сдвиг строк, сопоставление и отправка в 1С, а доли правок считаются по остальным.`;
+      parts.push(`Правки считаем с ${this.esc(this.date(d.tracking_since))}. <button type="button" class="info-tip" aria-label="Подробнее" data-tip="${this.esc(why)}">i</button>`);
     }
     if (d.truncated) parts.push('В периоде слишком много накладных — учтены последние 5 000. Выберите период короче.');
     return parts.length ? `<div class="an-note" role="note">${parts.map(p => `<p>${p}</p>`).join('')}</div>` : '';
@@ -316,14 +317,14 @@ const Analytics = {
       noTrack
         ? this._metricCell('Правили строки', null, '—', 'нет данных', noTrackHint)
         : this._metricCell('Правили строки', t.edited, this.share(s.edited_share),
-          `${editedTotal} из ${s.tracked_lines + s.deleted_lines} стр.`),
+          `${editedTotal} из ${s.tracked_lines + s.deleted_lines} ${this.plural(s.tracked_lines + s.deleted_lines, 'строки', 'строк', 'строк')}`),
       noTrack
-        ? this._metricCell('Пересчёт под вопросом', null, '—', 'нет данных', noTrackHint)
-        : this._metricCell('Пересчёт под вопросом', t.flagged, this.share(s.flagged_share), `${s.flagged_lines} стр.`),
+        ? this._metricCell('Количество под вопросом', null, '—', 'нет данных', noTrackHint)
+        : this._metricCell('Количество под вопросом', t.flagged, this.share(s.flagged_share), `${s.flagged_lines} ${this.plural(s.flagged_lines, 'строка', 'строки', 'строк')}`),
       this._metricCell('Сумма не сходится', t.mismatch, String(s.mismatch_invoices), `из ${s.invoices}`),
       this._metricCell('Строки сдвинуты', t.misaligned, String(s.misaligned_invoices), `из ${s.invoices}`),
       this._metricCell('Без позиции 1С', t.mapping, this.share(s.mapping_issue_share),
-        `${s.unmapped_lines + s.low_conf_lines} из ${s.lines} стр.`),
+        `${s.unmapped_lines + s.low_conf_lines} из ${s.lines} ${this.plural(s.lines, 'строки', 'строк', 'строк')}`),
       noTrack
         ? this._metricCell('Правили шапку', null, '—', 'нет данных', noTrackHint)
         : this._metricCell('Правили шапку', t.header, this.share(s.header_edit_share), `${s.header_edited_invoices} из ${s.tracked_invoices}`),

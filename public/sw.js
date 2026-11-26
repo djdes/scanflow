@@ -6,7 +6,7 @@
 // Меняете список файлов — меняйте номер версии кеша.
 importScripts('/js/share-inbox.js');
 
-const CACHE = 'sf-m-v5';
+const CACHE = 'sf-m-v7';
 const NETWORK_TIMEOUT_MS = 4000;
 const SHELL = [
   '/m/',

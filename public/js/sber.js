@@ -133,11 +133,11 @@ const Sber = {
     const actions = document.getElementById('sber-actions');
     const s = this.state.status;
     if (!s.connected) {
-      card.innerHTML = '<p>● <strong>Не подключено</strong></p>';
+      card.innerHTML = '<p><span style="color:var(--text-tertiary)">●</span> <strong>Не подключено</strong></p>';
       actions.innerHTML = `
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
           <button id="sber-connect-oauth" class="btn btn-primary" onclick="Sber.startOAuth(this)">Войти через Сбербанк</button>
-          <button class="btn btn-outline" onclick="Sber.toggleSeedForm()">Вставить токены из личного кабинета</button>
+          <button class="btn btn-outline" onclick="Sber.toggleSeedForm()">Ввести ключи вручную</button>
         </div>
         <div id="sber-seed-form" style="display:none"></div>
       `;

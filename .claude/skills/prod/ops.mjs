@@ -188,7 +188,10 @@ function runLog(runId) {
   const jobs = ghJson([repoPath(`actions/runs/${runId}/jobs`)]);
   const texts = [];
   for (const job of jobs.jobs || []) {
-    const t = gh([repoPath(`actions/jobs/${job.id}/logs`)], { allowFail: true });
+    // gh ≥ 2.10x отказывается печатать журнал с escape-последовательностями
+    // («pass --allow-escape-sequences»); старые версии флага не знают.
+    const t = gh([repoPath(`actions/jobs/${job.id}/logs`), '--allow-escape-sequences'], { allowFail: true })
+      ?? gh([repoPath(`actions/jobs/${job.id}/logs`)], { allowFail: true });
     if (t) texts.push(t);
   }
   return texts.join('\n').split(/\r?\n/).map((l) => l.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, ''));
@@ -214,8 +217,16 @@ async function roundTrip(state, { dispatched = false } = {}) {
   }
   if (!runId) runId = await findRun(state.id, Math.min(deadline, Date.now() + 120000));
   const run = await waitRun(runId, deadline);
-  const lines = runLog(runId);
-  const { meta, err, pub, blob } = extract(lines, state.id);
+  // Журнал задачи появляется в API не сразу после completed — без повтора ответ
+  // иногда «не находится», а потом журнал удаляется вместе с ответом.
+  let lines = runLog(runId);
+  let found = extract(lines, state.id);
+  for (let i = 0; i < 6 && !found.blob && !found.err && !found.pub; i++) {
+    await sleep(5000);
+    lines = runLog(runId);
+    found = extract(lines, state.id);
+  }
+  const { meta, err, pub, blob } = found;
   if (CONFIG.deleteLogs !== false) gh(['-X', 'DELETE', repoPath(`actions/runs/${runId}/logs`)], { allowFail: true });
   return { run, runId, meta, err, pub, blob, lines };
 }

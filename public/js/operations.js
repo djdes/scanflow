@@ -70,6 +70,8 @@ const Operations = {
       el.setAttribute('aria-selected', active ? 'true' : 'false');
     });
     if (button) button.focus({ preventScroll: true });
+    const bar = document.querySelector('[data-operations-tab]')?.parentElement;
+    if (bar) App.revealActiveTab(bar, '[data-operations-tab].active');
     this.render();
   },
 
@@ -86,7 +88,7 @@ const Operations = {
         <span>${pending}</span><small>на согласовании</small>
       </button>
       <button type="button" class="operations-kpi operations-kpi--danger" onclick="Operations.switchTab('suppliers')">
-        <span>${this.money(this.data.forecast.overdue)}</span><small>просрочено</small>
+        <span>${this.money(this.data.forecast.overdue)} ₽</span><small>просрочено</small>
       </button>
       <button type="button" class="operations-kpi operations-kpi--success" onclick="Operations.switchTab('control')">
         <span>${autopilot || 'Выкл.'}</span><small>автопилот</small>
@@ -120,7 +122,7 @@ const Operations = {
         <article class="card operations-panel">
           <div class="operations-panel__head">
             <div><span class="operations-eyebrow">Автопилот</span><h3>Правила безопасной обработки</h3></div>
-            <span class="status-badge ${s.auto_send_1c || s.auto_send_sber ? 'status-processed' : 'status-new'}">${s.auto_send_1c || s.auto_send_sber ? 'Активен' : 'Выключен'}</span>
+            <span class="reconcile-badge ${s.auto_send_1c || s.auto_send_sber ? 'reconcile-badge--success' : 'reconcile-badge--muted'}">${s.auto_send_1c || s.auto_send_sber ? 'Включён' : 'Выключен'}</span>
           </div>
           <div class="operations-switches">
             ${this.toggle('ops-auto-1c', 'Автоматически передавать в 1С', s.auto_send_1c, !canManage)}
@@ -130,7 +132,7 @@ const Operations = {
             ${this.toggle('ops-require-supplier', 'Требовать подтверждённого поставщика', s.require_verified_supplier, !canManage)}
           </div>
           <div class="operations-form-grid">
-            <label>Минимальная точность, %<input id="ops-min-confidence" type="number" min="0" max="100" step="1" value="${Math.round(s.min_mapping_confidence * 100)}"${canManage ? '' : ' disabled'}></label>
+            <label>Уверенность подбора позиции 1С, %<input id="ops-min-confidence" type="number" min="0" max="100" step="1" value="${Math.round(s.min_mapping_confidence * 100)}"${canManage ? '' : ' disabled'}></label>
             <label>Лимит автопилота, ₽<input id="ops-max-total" type="number" min="0" step="1000" value="${s.max_total || ''}" placeholder="Без лимита"${canManage ? '' : ' disabled'}></label>
             <label>Согласование платежа от, ₽<input id="ops-approval-threshold" type="number" min="0" step="1000" value="${s.payment_approval_threshold || ''}" placeholder="Не требуется"${canManage ? '' : ' disabled'}></label>
             <label>Доступно для платежей, ₽<input id="ops-cash-balance" type="number" min="0" step="1000" value="${s.payment_cash_balance ?? ''}" placeholder="Не задано"${canManage ? '' : ' disabled'}></label>
@@ -162,7 +164,7 @@ const Operations = {
     const root = this.data.root_causes || {};
     const group = (title, rows) => `<div class="root-cause-group"><strong>${title}</strong>${(rows || []).slice(0, 6).map(row => `<div><span>${App.esc(row.name)}</span><b>${row.count}</b></div>`).join('') || '<small>Нет данных</small>'}</div>`;
     return `<article class="card operations-panel operations-panel--wide">
-      <div class="operations-panel__head"><div><span class="operations-eyebrow">Первопричины</span><h3>Где теряется качество</h3></div><small>Группировка текущих исключений</small></div>
+      <div class="operations-panel__head"><div><span class="operations-eyebrow">Причины замечаний</span><h3>Где теряется качество</h3></div></div>
       <div class="root-cause-grid">${group('По причине', root.by_reason)}${group('По поставщику', root.by_supplier)}${group('По типу документа', root.by_document_type)}</div>
     </article>`;
   },
@@ -171,9 +173,9 @@ const Operations = {
     const users = (this.data.approval_users || []).filter(user => user.role !== 'admin');
     const delegates = this.data.approval_delegates || [];
     return `<article class="card operations-panel operations-panel--wide">
-      <div class="operations-panel__head"><div><span class="operations-eyebrow">Роли согласования</span><h3>Заместители и лимиты</h3></div><small>Доступ действует до указанной даты и не даёт прав администратора</small></div>
-      <form class="delegate-form" onsubmit="Operations.createApprovalDelegate(event)"><select id="delegate-user" required><option value="">Выберите пользователя</option>${users.map(user => `<option value="${user.id}">${App.esc(user.username)}</option>`).join('')}</select><input id="delegate-limit" type="number" min="0" placeholder="Лимит суммы, ₽"><input id="delegate-until" type="date"><button class="btn btn-primary btn-sm" type="submit">Назначить</button></form>
-      <div class="delegate-list">${delegates.map(row => `<div><span><strong>${App.esc(row.delegate_name)}</strong><small>${row.max_amount == null ? 'без лимита' : `до ${this.money(row.max_amount)}`} · ${row.valid_until ? `до ${App.esc(row.valid_until)}` : 'без срока'}</small></span><b>${row.active ? 'активен' : 'отозван'}</b>${row.active ? `<button class="btn btn-outline btn-sm" onclick="Operations.revokeApprovalDelegate(${row.id})">Отозвать</button>` : ''}</div>`).join('') || this.empty('Заместители не назначены')}</div>
+      <div class="operations-panel__head"><div><span class="operations-eyebrow">Роли согласования</span><h3>Заместители и лимиты <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Заместитель согласует платежи до своего лимита и до указанной даты. Прав администратора он не получает.">i</button></h3></div></div>
+      <form class="delegate-form" onsubmit="Operations.createApprovalDelegate(event)"><select id="delegate-user" required><option value="">Выберите пользователя</option>${users.map(user => `<option value="${user.id}">${App.esc(user.username)}</option>`).join('')}</select><input id="delegate-limit" type="number" min="0" placeholder="Лимит суммы, ₽"><input id="delegate-until" type="date"><button class="btn btn-outline btn-sm" type="submit">Назначить</button></form>
+      <div class="delegate-list">${delegates.map(row => `<div><span><strong>${App.esc(row.delegate_name)}</strong><small>${row.max_amount == null ? 'без лимита' : `до ${this.money(row.max_amount)}`} · ${row.valid_until ? `до ${App.esc(App.formatDate(row.valid_until))}` : 'без срока'}</small></span><b>${row.active ? 'активен' : 'отозван'}</b>${row.active ? `<button class="btn btn-outline btn-sm" onclick="Operations.revokeApprovalDelegate(${row.id})">Отозвать</button>` : ''}</div>`).join('') || this.empty('Заместители не назначены')}</div>
     </article>`;
   },
 
@@ -276,10 +278,10 @@ const Operations = {
       <article class="card channel-card">
         <div class="channel-card__icon">✈</div><div><span class="operations-eyebrow">Telegram</span><h3>Фото прямо в бот</h3><p>Отправьте фото, PDF или XML-файл УПД из ЭДО настроенному боту — накладная появится в ScanFlow.</p></div>
         <div class="channel-card__footer"><span class="reconcile-badge reconcile-badge--${c.telegram_enabled ? 'success' : 'muted'}">${c.telegram_enabled ? 'Приём включён' : c.telegram_ready ? 'Готов к включению' : 'Настройте бот в профиле'}</span>
-          <button class="btn ${c.telegram_enabled ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleTelegram(${c.telegram_enabled ? 'false' : 'true'})">${c.telegram_enabled ? 'Выключить' : 'Включить'}</button></div>
+          <button class="btn ${c.telegram_enabled || !c.telegram_ready ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleTelegram(${c.telegram_enabled ? 'false' : 'true'})">${c.telegram_enabled ? 'Выключить' : 'Включить'}</button></div>
       </article>
       <article class="card channel-card">
-        <div class="channel-card__icon">@</div><div><span class="operations-eyebrow">Email</span><h3>Вложения из почты</h3><p>Получите адрес и укажите его в пересылке писем — вложения станут накладными. Фото, PDF и XML из ЭДО до 20 МБ.</p></div>
+        <div class="channel-card__icon">@</div><div><span class="operations-eyebrow">Почта</span><h3>Вложения из почты</h3><p>Получите адрес и укажите его в пересылке писем — вложения станут накладными. Фото, PDF и XML из ЭДО до 20 МБ.</p></div>
         <div id="operations-email-url"></div>
         <div class="channel-card__footer"><span class="reconcile-badge reconcile-badge--${c.email_enabled ? 'success' : 'muted'}">${c.email_enabled ? 'Приём включён' : 'Выключено'}</span>
           <button class="btn ${c.email_enabled ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="Operations.toggleEmail(${c.email_enabled ? 'false' : 'true'})">${c.email_enabled ? 'Выключить' : 'Получить адрес'}</button></div>
@@ -316,24 +318,24 @@ const Operations = {
     </div>` : '';
     return `<div class="operations-grid operations-grid--control">
       <article class="card operations-panel">
-        <div class="operations-panel__head"><div><span class="operations-eyebrow">Новая база 1С</span><h3>Безопасное подключение</h3></div><span class="status-badge status-processed">Scoped token</span></div>
-        <p>Отдельный токен имеет доступ только к каталогу, одобренным документам, фото и возврату статуса.</p>
-        <form class="onec-create" onsubmit="Operations.createOnecConnection(event)"><input id="onec-connection-name" required maxlength="128" placeholder="Например: УНФ — новый магазин"><button class="btn btn-primary" type="submit">Создать подключение</button></form>${secret}
+        <div class="operations-panel__head"><div><span class="operations-eyebrow">Новая база 1С</span><h3>Безопасное подключение</h3></div></div>
+        <p>У каждой базы свой ключ: он видит только каталог товаров, одобренные накладные и их фото.</p>
+        <form class="onec-create" onsubmit="Operations.createOnecConnection(event)"><input id="onec-connection-name" required maxlength="128" placeholder="Например: УНФ — новый магазин"><button class="btn btn-outline" type="submit">Создать подключение</button></form>${secret}
       </article>
       <article class="card operations-panel">
-        <div class="operations-panel__head"><div><span class="operations-eyebrow">Каталог товаров</span><h3>${state.catalog?.items || 0} позиций из 1С</h3></div><small>${state.catalog?.last_synced_at ? `Обновлён ${App.esc(state.catalog.last_synced_at)}` : 'Ещё не выгружен'}</small></div>
-        <div class="onec-health"><div><span>Последний опрос</span><strong>${App.esc(state.last_poll_at || 'нет')}</strong></div><div><span>Нужна пересинхронизация</span><strong>${state.sync_state?.requested ? 'Да' : 'Нет'}</strong></div></div>
+        <div class="operations-panel__head"><div><span class="operations-eyebrow">Каталог товаров</span><h3>${state.catalog?.items || 0} позиций из 1С</h3></div><small>${state.catalog?.last_synced_at ? `Обновлён ${App.esc(App.formatDateTime(state.catalog.last_synced_at))}` : 'Ещё не выгружен'}</small></div>
+        <div class="onec-health"><div><span>1С обращалась</span><strong>${state.last_poll_at ? App.esc(App.formatDateTime(state.last_poll_at)) : 'ещё нет'}</strong></div><div><span>Каталог обновить заново</span><strong>${state.sync_state?.requested ? 'да, ждём 1С' : 'не нужно'}</strong></div></div>
         <button class="btn btn-outline btn-sm" onclick="Operations.downloadOnecSource('object')">Скачать модуль обработки</button>
         <button class="btn btn-outline btn-sm" onclick="Operations.downloadOnecSource('form')">Скачать модуль формы</button>
       </article>
     </div>
     <article class="card operations-panel operations-panel--wide onec-quickstart">
-      <div class="operations-panel__head"><div><span class="operations-eyebrow">Быстрый старт · 5–10 минут</span><h3>Загрузите товары без программиста 1С</h3></div><span class="status-badge status-processed">XLSX / CSV</span></div>
+      <div class="operations-panel__head"><div><span class="operations-eyebrow">Быстрый старт · 5–10 минут</span><h3>Загрузите товары без программиста 1С</h3></div></div>
       <p class="onec-quickstart__lead">Для первой оценки не нужно ставить обработку. В 1С выведите список номенклатуры, сохраните его как Excel и загрузите сюда — обязательна только колонка «Наименование».</p>
       <div class="onec-fast-steps">
         <div><b>1</b><span>1С → Номенклатура</span><small>Откройте обычный список товаров</small></div>
-        <div><b>2</b><span>Ещё → Вывести список…</span><small>Код, Наименование, Ед., при наличии GUID</small></div>
-        <div><b>3</b><span>Сохранить как XLSX</span><small>Или CSV/TSV — сайт сам найдёт колонки</small></div>
+        <div><b>2</b><span>Ещё → Вывести список…</span><small>Код, Наименование и Единица измерения</small></div>
+        <div><b>3</b><span>Сохранить как XLSX</span><small>Или CSV — сайт сам найдёт колонки</small></div>
         <div><b>4</b><span>Загрузить ниже</span><small>Каталог сразу готов для сопоставления</small></div>
       </div>
       <form class="onec-import-form" onsubmit="Operations.importOnecCatalog(event)">
@@ -353,14 +355,14 @@ const Operations = {
         <summary>Ещё быстрее: вставить таблицу прямо из 1С или Excel · 2–3 минуты</summary>
         <p>Скопируйте вместе с заголовками колонки «Код», «Наименование», «Единица измерения» и вставьте ниже.</p>
         <textarea id="onec-catalog-paste" rows="6" placeholder="Код    Наименование    Единица измерения&#10;0001    Молоко 3,2%    шт"></textarea>
-        <button class="btn btn-primary btn-sm" type="button" onclick="Operations.importOnecPaste()">Загрузить вставленную таблицу</button>
+        <button class="btn btn-outline btn-sm" type="button" onclick="Operations.importOnecPaste()">Загрузить вставленную таблицу</button>
       </details>
       ${importResult}
       <div class="onec-mode-note"><strong>Полуавтомат:</strong> раз в неделю повторяйте «Вывести список» и загружайте файл без галочки замены — новые товары добавятся, существующие обновятся. Обычно 2–3 минуты.</div>
       <a class="onec-official-link" href="https://v8.1c.ru/platforma/vyvod-spiskov/" target="_blank" rel="noopener">Официальная инструкция 1С по команде «Вывести список» ↗</a>
     </article>
-    <article class="card operations-panel operations-panel--wide"><div class="operations-panel__head"><div><span class="operations-eyebrow">Подключённые базы</span><h3>${connections.length}</h3></div></div><div class="onec-connections">${connections.map(row => `<div><span class="connection-dot ${row.active ? 'is-active' : ''}"></span><div><strong>${App.esc(row.name)}</strong><small>${row.active ? `токен ${App.esc(row.token_prefix)}… · использован ${App.esc(row.last_used_at || 'ещё нет')}` : `отозван ${App.esc(row.revoked_at || '')}`}</small></div>${row.active ? `<button class="btn btn-outline btn-sm" onclick="Operations.revokeOnecConnection(${row.id})">Отозвать</button>` : ''}</div>`).join('') || this.empty('Подключений пока нет')}</div></article>
-    <article class="card operations-panel operations-panel--wide"><div class="operations-panel__head"><div><span class="operations-eyebrow">Автоматический режим · 20–40 минут один раз</span><h3>Когда пробный запуск понравился</h3></div></div><ol class="onec-steps"><li>Создайте подключение и сохраните токен.</li><li>Обновите или соберите внешнюю обработку из исходников.</li><li>Вставьте токен в поле обработки и нажмите «Сохранить подключение».</li><li>Выберите категории и выгрузите номенклатуру.</li><li>Одобрите тестовую накладную в ScanFlow и загрузите её в 1С.</li><li>После проверки включите регламентную синхронизацию каждые 10–15 минут.</li></ol></article>`;
+    <article class="card operations-panel operations-panel--wide"><div class="operations-panel__head"><div><span class="operations-eyebrow">Подключённые базы</span><h3>${connections.length}</h3></div></div><div class="onec-connections">${connections.map(row => `<div><span class="connection-dot ${row.active ? 'is-active' : ''}"></span><div><strong>${App.esc(row.name)}</strong><small>${row.active ? `ключ ${App.esc(row.token_prefix)}… · ${row.last_used_at ? `1С обращалась ${App.esc(App.formatDateTime(row.last_used_at))}` : '1С ещё не обращалась'}` : `отозван ${App.esc(row.revoked_at ? App.formatDateTime(row.revoked_at) : '')}`}</small></div>${row.active ? `<button class="btn btn-outline btn-sm" onclick="Operations.revokeOnecConnection(${row.id})">Отозвать</button>` : ''}</div>`).join('') || this.empty('Подключений пока нет', false)}</div></article>
+    <article class="card operations-panel operations-panel--wide"><div class="operations-panel__head"><div><span class="operations-eyebrow">Автоматический режим · 20–40 минут один раз</span><h3>Когда пробный запуск понравился</h3></div></div><ol class="onec-steps"><li>Создайте подключение и сохраните токен.</li><li>Добавьте в 1С обработку ScanFlow (её ставит программист 1С).</li><li>Вставьте токен в поле обработки и нажмите «Сохранить подключение».</li><li>Выберите категории и выгрузите номенклатуру.</li><li>Одобрите тестовую накладную в ScanFlow и загрузите её в 1С.</li><li>После проверки включите в обработке загрузку по расписанию — каждые 10–15 минут.</li></ol></article>`;
   },
 
   renderAssistant() {
@@ -377,7 +379,8 @@ const Operations = {
     </article>`;
   },
 
-  empty(text) { return `<div class="operations-empty">✓ ${App.esc(text)}</div>`; },
+  // ✓ — только там, где «пусто» значит «всё хорошо»; для «подключений нет» галочка вводила в заблуждение.
+  empty(text, ok = true) { return `<div class="operations-empty">${ok ? '✓ ' : ''}${App.esc(text)}</div>`; },
 
   async saveAutopilot() {
     const numberOrNull = id => {

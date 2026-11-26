@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import path from 'path';
 import fs from 'fs';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
@@ -20,6 +21,7 @@ export function setInboundFileWatcher(value: FileWatcher): void { fileWatcher = 
 // .xml — электронные УПД/ТОРГ-12 из ЭДО (src/xml): разбираются без распознавания.
 const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf', '.xml']);
 const emailUpload = multer({
+  ...MULTIPART_UTF8,
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024, files: 10 },
 });

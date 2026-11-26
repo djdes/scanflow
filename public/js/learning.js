@@ -49,9 +49,8 @@ const Learning = {
     if (off) off.style.display = body.learning_enabled ? 'none' : 'block';
     const rows = body.data || [];
     if (!rows.length) {
-      host.innerHTML = `<div class="empty-state">${this.status === 'pending'
-        ? 'Новых предложений нет. Разбор идёт каждую ночь; можно запустить и сейчас.'
-        : 'Здесь пока пусто.'}</div>`;
+      host.innerHTML = `<div class="empty-state">${this.status !== 'pending' ? 'Здесь пока пусто.'
+        : body.learning_enabled ? 'Новых предложений нет. Следующий разбор — ночью.' : 'Новых предложений нет.'}</div>`;
       return;
     }
     host.innerHTML = rows.map(r => this.proposalCard(r)).join('');

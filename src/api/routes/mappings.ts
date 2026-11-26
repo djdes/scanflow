@@ -82,7 +82,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   const existing = await mappingRepo.getById(id, ownerOf(req));
 
   if (!existing) {
-    res.status(404).json({ error: 'Mapping not found' });
+    res.status(404).json({ error: 'Сопоставление не найдено' });
     return;
   }
 
@@ -101,7 +101,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const existing = await mappingRepo.getById(id, ownerOf(req));
 
   if (!existing) {
-    res.status(404).json({ error: 'Mapping not found' });
+    res.status(404).json({ error: 'Сопоставление не найдено' });
     return;
   }
 
@@ -114,7 +114,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 router.post('/:id/confirm', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   const existing = await mappingRepo.getById(id, ownerOf(req));
-  if (!existing || !existing.onec_guid) return res.status(404).json({ error: 'Mapping not found' });
+  if (!existing || !existing.onec_guid) return res.status(404).json({ error: 'Сопоставление не найдено' });
   await mappingRepo.confirm(existing.scanned_name, existing.onec_guid, existing.mapped_name_1c, ownerOf(req), req.user?.id ?? null);
   if (mapper) mapper.invalidateCache(ownerOf(req));
   return res.json({ data: await mappingRepo.getById(id, ownerOf(req)) });

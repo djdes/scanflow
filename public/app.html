@@ -159,7 +159,7 @@
               <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
               <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры<span class="filter-count" id="invoice-filter-count" hidden></span></button>
               <button type="button" class="btn btn-outline btn-sm" id="btn-send-ready" hidden onclick="Invoices.sendAllReady(event)" title="Все накладные «Готовы к 1С» — не только на этой странице">Отправить готовые в 1С</button>
-              <button type="button" class="btn btn-outline btn-sm" id="btn-delete-duplicates" onclick="Invoices.deleteRecentDuplicates(event)" title="Удалить накладные, загруженные повторно за последние 24 часа. Оригиналы остаются">Удалить дубликаты за 24 ч</button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-delete-duplicates" onclick="Invoices.deleteRecentDuplicates(event)" title="Удалить накладные, загруженные повторно за последние 24 часа. Оригиналы остаются" hidden>Удалить дубликаты</button>
             </div>
           </div>
           <div class="invoice-filter-panel" id="invoice-filters" hidden>
@@ -187,7 +187,6 @@
           </div>
           <div class="invoice-list-footer"><span id="invoices-results" aria-live="polite"></span><div class="pagination" id="invoices-pagination"></div></div>
         </div>
-        <div id="invoices-stats" class="stats-bar"></div>
       </div>
 
       <div id="invoice-detail" style="display:none">
@@ -386,8 +385,10 @@
     <!-- Upload Section (camera + drag-drop merged) -->
     <section id="view-upload">
       <div class="section-header">
-        <h2>Загрузить накладные</h2>
-        <p class="section-subtitle">Сфотографируйте накладную или выберите файлы — распознаем сами, страницу можно закрыть.</p>
+        <div>
+          <h2>Загрузить накладные</h2>
+          <p class="section-subtitle">Сфотографируйте накладную или выберите файлы — распознаем сами, страницу можно закрыть.</p>
+        </div>
       </div>
 
       <div class="card upload-card">
@@ -420,7 +421,7 @@
     <section id="view-mappings">
       <div class="section-header" style="margin-bottom:16px">
         <div>
-          <h2>Номенклатурные соответствия</h2>
+          <h2>Номенклатура</h2>
           <div id="mappings-catalog-status" class="section-subtitle">Загрузка...</div>
         </div>
       </div>
@@ -457,7 +458,7 @@
       <div id="mappings-mode-all-pane">
         <div class="filters" style="display:flex; gap:12px; align-items:center">
           <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)" style="flex:1" autocomplete="off" name="mappings-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
-          <button class="btn btn-primary btn-sm" onclick="Mappings.showAddForm()">+ Добавить</button>
+          <button class="btn btn-primary" onclick="Mappings.showAddForm()">+ Добавить</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -613,8 +614,10 @@
     <!-- Integration activity log -->
     <section id="view-integrations-log">
       <div class="section-header">
-        <h2>Журнал интеграций</h2>
-        <p class="section-subtitle">Что происходило с накладными в 1С и Сбербанке.</p>
+        <div>
+          <h2>Журнал интеграций</h2>
+          <p class="section-subtitle">Что происходило с накладными в 1С и Сбербанке.</p>
+        </div>
       </div>
       <div id="intlog-onec-status" class="card" style="margin-bottom:12px"></div>
       <div class="filters" id="intlog-filters" style="margin-bottom:12px"></div>
@@ -636,8 +639,7 @@
     <section id="view-operations">
       <div class="section-header operations-header">
         <div>
-          <h1 class="section-h1">Операционный центр</h1>
-          <p class="section-subtitle">Контроль документов, платежей и автоматизации в одном месте</p>
+          <h1 class="section-h1">Операции</h1>
         </div>
         <button type="button" class="btn btn-outline btn-sm" onclick="Operations.load(true)">Обновить</button>
       </div>
@@ -739,7 +741,7 @@
           <div class="field-hint">Нужен для кнопки «Заполнить по ИНН» в карточке поставщика.</div>
         </div>
         <div class="form-actions settings-admin-only">
-          <button class="btn btn-primary" onclick="Settings.saveDadata()">Сохранить</button>
+          <button class="btn btn-outline" onclick="Settings.saveDadata()">Сохранить</button>
         </div>
       </div>
 
@@ -768,7 +770,7 @@
           <p class="section-subtitle">Подключения вашей компании и уведомления о накладных</p>
         </div>
         <span id="profile-tg-status" class="tg-status tg-status--offline">
-          <span class="tg-status-dot"></span><span class="tg-status-text">не подключён</span>
+          <span class="tg-status-dot"></span><span class="tg-status-text">Telegram не подключён</span>
         </span>
       </div>
 
@@ -798,7 +800,7 @@
             </div>
             <div id="profile-onec-status" class="onec-conn-status"></div>
             <p class="field-hint">Нажмите «Получить код», затем в обработке 1С:УНФ вставьте его в поле «Код подключения» и нажмите «Подключить». Код действует ~15 минут.</p>
-            <button type="button" id="profile-onec-btn" class="btn btn-primary">Получить код</button>
+            <button type="button" id="profile-onec-btn" class="btn btn-outline">Получить код</button>
             <div id="profile-onec-code" class="onec-pairing-code" hidden></div>
             <div class="event-list">
               <div class="event-row">
@@ -898,7 +900,7 @@
             <div class="form-group">
               <label for="profile-email">Email для копий уведомлений <span class="muted" style="font-weight:400">(опционально)</span></label>
               <input type="email" id="profile-email" placeholder="you@example.com" autocomplete="email">
-              <div class="field-hint">Если задан — урджентные события (повышенные цены, ошибки) продублируются на почту.</div>
+              <div class="field-hint">Если указать — срочное (повышенные цены, ошибки) придёт и на почту.</div>
             </div>
 
             <div class="event-list">
@@ -1052,7 +1054,7 @@
                 </div>
               </div>
               <div class="form-actions">
-                <button type="submit" id="profile-password-save" class="btn btn-primary">Сменить пароль</button>
+                <button type="submit" id="profile-password-save" class="btn btn-outline">Сменить пароль</button>
                 <span id="profile-password-status" class="profile-status-msg" role="status" aria-live="polite"></span>
               </div>
             </form>
@@ -1101,8 +1103,8 @@
 
     <section id="view-learning">
       <h2>Предложения правил</h2>
-      <p class="field-hint" style="margin-bottom:14px">Правила пересчёта из ваших правок — работают только после «Принять». <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.">i</button></p>
-      <div id="learning-off-hint" class="card" style="display:none;margin-bottom:14px">Ночной разбор выключен — включается в «Настройки → Проверки и пересчёт». Разобрать можно и сейчас кнопкой справа.</div>
+      <p class="section-subtitle" style="margin-bottom:14px">Правила пересчёта из ваших правок — работают только после «Принять». <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.">i</button></p>
+      <div id="learning-off-hint" class="learning-off-hint" style="display:none">Ночной разбор выключен. <a href="#/settings">Включить в настройках →</a></div>
       <div class="learning-toolbar">
         <div class="tabs" id="learning-status-tabs">
           <button class="tab-btn active" data-status="pending">Ждут решения</button>

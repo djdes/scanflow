@@ -5,6 +5,7 @@ import { canonUnit } from '../mapping/unitConverter';
 import { robustMedian } from '../pricing/medianOf';
 import { isXmlInvoice } from '../xml';
 import { storedInvoiceCompleteness } from '../services/invoiceCompleteness';
+import { plural, rub } from '../utils/ru';
 
 export interface QualitySubject {
   status: string;
@@ -58,14 +59,14 @@ export function evaluateQualitySubject(subject: QualitySubject, settings: Automa
     add('unmapped', `Не сопоставлено с 1С: ${subject.unmapped_count}`);
   }
   if (subject.items_count > 0 && subject.min_confidence != null && subject.min_confidence < settings.min_mapping_confidence) {
-    add('low_confidence', `Позиция 1С подобрана неуверенно (${(subject.min_confidence * 100).toFixed(0)}% при пороге ${(settings.min_mapping_confidence * 100).toFixed(0)}%)`);
+    add('low_confidence', 'Не уверены в подобранной позиции 1С — проверьте');
   }
   if (settings.max_total != null && (subject.total_sum ?? 0) > settings.max_total) {
-    add('amount_limit', `Сумма выше лимита автопилота ${settings.max_total.toFixed(2)} ₽`);
+    add('amount_limit', `Сумма выше лимита автопилота ${rub(settings.max_total)}`);
   }
   if (settings.payment_approval_threshold != null
       && (subject.total_sum ?? 0) > settings.payment_approval_threshold) {
-    add('approval_required', `Сумма требует согласования от ${settings.payment_approval_threshold.toFixed(2)} ₽`);
+    add('approval_required', `Сумма требует согласования: больше ${rub(settings.payment_approval_threshold)}`);
   }
   if (settings.require_verified_supplier && subject.supplier_verified !== 1) {
     add('supplier_unverified', 'Реквизиты поставщика не подтверждены');
@@ -73,7 +74,7 @@ export function evaluateQualitySubject(subject: QualitySubject, settings: Automa
   // Карточку подобрали по названию: ИНН на фото с ней не совпал. Автопилот
   // такое не отправляет — сначала человек подтверждает поставщика.
   if ((subject.flagged_items ?? 0) > 0) {
-    add('unit_suspect', `Количество под вопросом: ${subject.flagged_items} ${subject.flagged_items === 1 ? 'строка' : 'строк(и)'} — проверьте пересчёт единиц`);
+    add('unit_suspect', `Количество под вопросом: ${subject.flagged_items} ${plural(subject.flagged_items ?? 0, 'строка', 'строки', 'строк')} — проверьте пересчёт единиц`);
   }
   if (subject.supplier_match === 'name') {
     add('supplier_by_name', 'Реквизиты поставщика подобраны по названию, а не по ИНН');

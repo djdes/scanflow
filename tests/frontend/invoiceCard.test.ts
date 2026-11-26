@@ -41,7 +41,9 @@ describe('состояния шагов', () => {
     const s = card.stepStates(base({ attr_checked_number: 1 }), sber, null);
     expect(s.verify).toMatchObject({ state: 'current', hint: '1 из 6 реквизитов' });
     expect(s.onec).toMatchObject({ state: 'idle', action: { kind: 'send1c' } });
-    expect(s.onec.hint).toContain('1 новый товар');
+    // Как строка («Позиция 1С не выбрана») и список («Проверить»): предупреждение, а не «1С создаст».
+    expect(s.onec).toMatchObject({ tone: 'warn', hint: '1 товар без позиции 1С' });
+    expect(s.onec.title).toContain('создаст его как новый товар');
     expect(s.pay).toMatchObject({ state: 'idle', hint: 'нужна сверка 6 из 6', action: { kind: 'pay' } });
     expect(card.defaultStep(s)).toBe('verify');
   });

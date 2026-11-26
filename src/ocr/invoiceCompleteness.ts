@@ -1,4 +1,5 @@
 import { isXmlInvoice } from '../xml';
+import { plural } from '../utils/ru';
 
 export interface InvoiceCompleteness {
   /** Сквозная нумерация прочитана у всех позиций; это не гарантия наличия последнего листа. */
@@ -34,7 +35,7 @@ export function invoiceCompleteness(invoice: {
     previous = n;
   }
   const ranges = missing.slice(0, 8).map(r => r.from === r.to ? String(r.from) : `${r.from}–${r.to}`).join(', ');
-  const suffix = missing.length > 8 ? ` и ещё ${missing.length - 8} диапазон(а)` : '';
+  const suffix = missing.length > 8 ? ` и ещё ${missing.length - 8} ${plural(missing.length - 8, 'пропуск', 'пропуска', 'пропусков')}` : '';
   const message = missing.length
     ? `Накладная, возможно, снята не полностью: не найдены позиции ${ranges}${suffix}. Добавьте фото недостающих страниц или проверьте нумерацию по оригиналу.`
     : null;

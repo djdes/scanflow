@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
+import { ClientError } from '../middleware/errorHandler';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -26,6 +28,7 @@ const router = Router();
 // a cross-filesystem rename (EXDEV when /tmp is tmpfs). Not data/inbox/, so the
 // file watcher never picks it up. Sync mode unlinks it after OCR.
 const extractUpload = multer({
+  ...MULTIPART_UTF8,
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
       try { fs.mkdirSync(config.supplierExtractDir, { recursive: true }); } catch { /* exists */ }
@@ -40,7 +43,7 @@ const extractUpload = multer({
     const allowed = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.pdf'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) cb(null, true);
-    else cb(new Error(`Unsupported file type: ${ext}`));
+    else cb(new ClientError(415, `Такой файл не подходит${ext ? ` (${ext})` : ''}. Подходят фото и PDF`));
   },
   limits: { fileSize: 20 * 1024 * 1024 },
 });
@@ -72,12 +75,12 @@ interface SupplierBody {
 
 function validateSupplier(body: SupplierBody | undefined): string | null {
   if (!body || typeof body !== 'object') return 'request body is missing or not application/json';
-  if (!body.inn || !INN_RE.test(body.inn)) return 'inn must be 10 or 12 digits';
+  if (!body.inn || !INN_RE.test(body.inn)) return 'ИНН — 10 или 12 цифр';
   if (!isValidInn(body.inn)) return INN_CHECKSUM_ERROR;
-  if (!body.name || body.name.trim().length === 0) return 'name is required';
-  if (!body.bank_bic || !BIC_RE.test(body.bank_bic)) return 'bank_bic must be 9 digits';
-  if (body.account && !ACC_RE.test(body.account)) return 'account must be 20 digits';
-  if (body.bank_corr_account && !ACC_RE.test(body.bank_corr_account)) return 'bank_corr_account must be 20 digits';
+  if (!body.name || body.name.trim().length === 0) return 'Укажите название поставщика';
+  if (!body.bank_bic || !BIC_RE.test(body.bank_bic)) return 'БИК банка — 9 цифр';
+  if (body.account && !ACC_RE.test(body.account)) return 'Расчётный счёт — 20 цифр';
+  if (body.bank_corr_account && !ACC_RE.test(body.bank_corr_account)) return 'Корреспондентский счёт — 20 цифр';
   return null;
 }
 
@@ -106,7 +109,7 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.get('/:inn', async (req: Request, res: Response) => {
   const supplier = await supplierRepo.findByInn((req.params.inn as string), ownerOf(req));
-  if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+  if (!supplier) return res.status(404).json({ error: 'Поставщик не найден' });
   return res.json({ supplier: withInnValid(supplier) });
 });
 
@@ -115,7 +118,7 @@ router.post('/', async (req: Request, res: Response) => {
   if (err) return res.status(400).json({ error: err });
   const body = req.body as Required<Pick<SupplierBody, 'inn' | 'name' | 'bank_bic'>> & SupplierBody;
   if (await supplierRepo.findByInn(body.inn, ownerOf(req))) {
-    return res.status(409).json({ error: 'Supplier with this INN already exists' });
+    return res.status(409).json({ error: 'Поставщик с таким ИНН уже есть' });
   }
   const supplier = await supplierRepo.create({
     inn: body.inn, name: body.name, bank_bic: body.bank_bic,
@@ -131,11 +134,11 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.patch('/:inn', async (req: Request, res: Response) => {
   const existing = await supplierRepo.findByInn((req.params.inn as string), ownerOf(req));
-  if (!existing) return res.status(404).json({ error: 'Supplier not found' });
+  if (!existing) return res.status(404).json({ error: 'Поставщик не найден' });
   const body = req.body as SupplierBody;
-  if (body.bank_bic && !BIC_RE.test(body.bank_bic)) return res.status(400).json({ error: 'bank_bic must be 9 digits' });
-  if (body.account && !ACC_RE.test(body.account)) return res.status(400).json({ error: 'account must be 20 digits' });
-  if (body.bank_corr_account && !ACC_RE.test(body.bank_corr_account)) return res.status(400).json({ error: 'bank_corr_account must be 20 digits' });
+  if (body.bank_bic && !BIC_RE.test(body.bank_bic)) return res.status(400).json({ error: 'БИК банка — 9 цифр' });
+  if (body.account && !ACC_RE.test(body.account)) return res.status(400).json({ error: 'Расчётный счёт — 20 цифр' });
+  if (body.bank_corr_account && !ACC_RE.test(body.bank_corr_account)) return res.status(400).json({ error: 'Корреспондентский счёт — 20 цифр' });
   await supplierRepo.update((req.params.inn as string), ownerOf(req), body);
   return res.json({ supplier: await supplierRepo.findByInn((req.params.inn as string), ownerOf(req)) });
 });
@@ -172,7 +175,7 @@ router.post('/:inn/merge-into/:targetInn', async (req: Request, res: Response) =
 // returning { extracted } directly. Never saves a supplier (user confirms via
 // POST /api/suppliers/merge).
 router.post('/extract-from-photo', extractUpload.single('file'), async (req: Request, res: Response) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
   const tmpPath = req.file.path;
   const ext = path.extname(req.file.originalname).toLowerCase();
   const cfg = await invoiceRepo.getAnalyzerConfig();
@@ -255,7 +258,7 @@ router.get('/extract-status/:jobId', async (req: Request, res: Response) => {
   const id = parseInt(req.params.jobId as string, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid job id' });
   const job = await supplierExtractJobRepo.getById(id);
-  if (!job) return res.status(404).json({ error: 'job not found' });
+  if (!job) return res.status(404).json({ error: 'Распознавание выписки не найдено' });
   if (job.status === 'done') {
     let extracted: unknown = null;
     try { extracted = JSON.parse(job.result_json || '{}'); } catch { extracted = {}; }
@@ -288,7 +291,7 @@ router.post('/merge', async (req: Request, res: Response) => {
 
 router.post('/lookup-dadata', async (req: Request, res: Response) => {
   const inn = (req.body as { inn?: string }).inn;
-  if (!inn || !INN_RE.test(inn)) return res.status(400).json({ error: 'inn must be 10 or 12 digits' });
+  if (!inn || !INN_RE.test(inn)) return res.status(400).json({ error: 'ИНН — 10 или 12 цифр' });
   try {
     // Key from the Settings UI (analyzer_config) takes precedence; lookupPartyByInn
     // falls back to process.env.DADATA_API_KEY when this is null.
@@ -298,7 +301,7 @@ router.post('/lookup-dadata', async (req: Request, res: Response) => {
     return res.json({ party });
   } catch (err) {
     if (err instanceof DadataNotConfiguredError) {
-      return res.status(503).json({ error: 'DaData not configured' });
+      return res.status(503).json({ error: 'Поиск по ИНН не настроен' });
     }
     return res.status(502).json({ error: (err as Error).message });
   }

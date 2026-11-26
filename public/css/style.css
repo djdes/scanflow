@@ -140,6 +140,20 @@
   --accent-teal: #0e9aa7;
   --accent-purple: #8b5cf6;
   --accent-pink: #e0568f;
+
+  /* Псевдонимы старых имён (2026-11-23): стили и скрипты ссылались на
+     переменные, которых в кабинете нет, и элемент оставался без цвета или
+     фона (значок PDF на загрузке, кнопки «назад/вперёд» в карточке, статус
+     ключа DaData). Новый код — сразу основными именами выше. */
+  --card-bg: var(--card);
+  --bg-elevated: var(--card);
+  --danger: var(--error);
+  --green: var(--success);
+  --muted: var(--text-secondary);
+  --text-muted: var(--text-secondary);
+  --text-primary: var(--text);
+  --font-mono: var(--mono);
+  --primary-dark: var(--primary-hover);
 }
 
 /* Размер текста (переключатель внизу меню, public/js/text-size.js): все
@@ -592,11 +606,27 @@ tbody tr.clickable:hover { background: var(--primary-soft); }
 .ai-status-banner { background: var(--warning-soft); color: #92400e; border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; font-size: 0.875rem; overflow-wrap: anywhere; }
 .ai-status-banner[hidden] { display: none; }
 
-/* Свёрнутые карточки настроек («Проверки и пересчёт»). */
-.settings-details > summary { cursor: pointer; list-style: none; }
-.settings-details > summary::-webkit-details-marker { display: none; }
-.settings-details > summary::after { content: ' ▾'; color: var(--text-secondary); }
-.settings-details[open] > summary::after { content: ' ▴'; }
+/* Стрелка у раскрывающихся блоков кабинета (2026-11-23). Общий `details
+   summary { display: flex }` ниже прятал стрелку браузера, и «Что означают
+   показатели», вопросы на странице тарифа и т. п. выглядели как простой серый
+   текст. У .help-block свой знак «+ / −». */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details:not(.help-block) > summary::after {
+  content: '';
+  display: inline-block;
+  flex-shrink: 0;
+  width: 0.4em;
+  height: 0.4em;
+  margin-left: 0.6em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.7;
+  transform: translateY(-0.15em) rotate(45deg);
+  transition: transform var(--transition);
+}
+details[open]:not(.help-block) > summary::after { transform: translateY(0.1em) rotate(-135deg); }
+.settings-details > summary { cursor: pointer; }
 .badge-confidence-high { background: var(--success-soft); color: #065f46; }
 .badge-confidence-medium { background: var(--warning-soft); color: #92400e; }
 .badge-confidence-low { background: var(--error-soft); color: #991b1b; }
@@ -1204,88 +1234,138 @@ details[open] summary { margin-bottom: 12px; }
   color: rgb(146,64,14);
 }
 
+/* Список загруженных файлов и очередь распознавания (2026-11-23): одна
+   строка на файл — миниатюра, имя, точка состояния + слова, справа ссылка или
+   кнопка. Цвет точки дублируется словами (не только цвет). */
 .upload-counter {
-  text-align: center;
-  color: var(--text-muted, #787774);
-  font-size: 0.875rem;
-  margin: 8px 0 12px;
-  min-height: 20px;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  margin: 4px 0 8px;
 }
+.upload-counter:empty { display: none; }
+.upload-retry-all { margin-bottom: 8px; }
 
-.upload-history-item {
+.upload-row {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 12px;
-  background: var(--bg, #fbfbfa);
-  border: 1px solid var(--border, #e9e9e7);
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   margin-bottom: 8px;
   transition: border-color 0.15s ease;
 }
-.upload-history-item:hover {
-  border-color: var(--border-hover, #d3d2ce);
-}
-.upload-history-item img {
-  width: 56px;
-  height: 74px;
-  object-fit: cover;
+.upload-row:hover { border-color: var(--border-hover); }
+.upload-row.is-error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); }
+
+.upload-row__thumb {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 52px;
   border-radius: 6px;
-  flex-shrink: 0;
-  background: #e9e9e7;
+  object-fit: cover;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
-.upload-history-info {
+.upload-row__thumb--pdf { background: var(--error-soft); border-color: color-mix(in srgb, var(--error) 25%, transparent); color: var(--error); }
+.upload-row__thumb--xml { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 25%, transparent); color: var(--primary); }
+
+.upload-row__main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 0;
+  gap: 3px;
 }
-.upload-history-name {
-  font-size: 0.8125rem;
-  color: var(--text-muted, #787774);
-  font-family: var(--mono);
+.upload-row__name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.upload-row__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 8px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.upload-row__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-tertiary);
+}
+.upload-row.is-work .upload-row__dot { background: var(--primary); animation: upload-dot-pulse 1.4s ease-in-out infinite; }
+.upload-row.is-ok .upload-row__dot { background: var(--success); }
+.upload-row.is-warn .upload-row__dot { background: var(--warning); }
+.upload-row.is-error .upload-row__dot { background: var(--error); }
+.upload-row.is-ok .upload-row__state { color: var(--success); font-weight: 500; }
+.upload-row.is-error .upload-row__state { color: var(--error); font-weight: 500; }
+@keyframes upload-dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .upload-row.is-work .upload-row__dot { animation: none; } }
+.upload-row__meta { color: var(--text-tertiary); }
+.upload-row__meta::before { content: '·'; margin-right: 8px; }
+.upload-row__detail {
+  font-size: 0.78125rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.upload-row.is-error .upload-row__detail { color: var(--error); }
 
-.upload-status {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 6px;
+.upload-row__side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.upload-row__link {
+  color: var(--primary-hover);
   font-size: 0.8125rem;
   font-weight: 500;
   text-decoration: none;
-  align-self: flex-start;
+  white-space: nowrap;
 }
-.upload-status-queued {
-  background: var(--bg, #f7f6f3);
-  color: var(--text-muted, #787774);
+.upload-row__link:hover { text-decoration: underline; }
+.upload-row__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
 }
-.upload-status-loading {
-  background: #dbeafe;
-  color: #1a72c9;
-}
-.upload-status-ok {
-  background: #dcfce7;
-  color: #166534;
-}
-.upload-status-ok:hover {
-  background: #bbf7d0;
-}
-.upload-status-error {
-  background: #fef2f2;
-  color: #991b1b;
+.upload-row__close:hover, .upload-row__close:focus-visible { background: var(--bg); color: var(--text); }
+
+@media (max-width: 600px) {
+  .upload-row { flex-wrap: wrap; gap: 10px 12px; padding: 12px; }
+  .upload-row__side { flex-basis: 100%; flex-wrap: wrap; padding-left: 56px; }
+  .upload-row__side:has(> .upload-row__close:only-child) { flex-basis: auto; padding-left: 0; }
+  .upload-row__meta { flex-basis: 100%; }
+  .upload-row__meta::before { content: none; }
 }
 
-.upload-error-detail {
-  font-size: 0.75rem;
-  color: var(--error, #991b1b);
-  line-height: 1.4;
-  margin-top: 2px;
-  word-break: break-word;
-}
 
 .upload-progress-bar {
   height: 4px;
@@ -1906,19 +1986,6 @@ tr.inv-visited:hover td { opacity: 1; }
 .supplier-terms { display: flex; align-items: center; gap: 8px; }
 .supplier-terms input { width: 62px; margin: 0; padding: 5px 7px; }
 .approval-card__error { color: var(--danger); display: block; margin-top: 4px; }
-.upload-history-file {
-  align-items: center;
-  background: color-mix(in srgb, var(--danger) 12%, var(--card));
-  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
-  border-radius: 8px;
-  color: var(--danger);
-  display: flex;
-  flex: 0 0 62px;
-  font-size: 0.8125rem;
-  font-weight: 800;
-  height: 62px;
-  justify-content: center;
-}
 .channel-card { display: flex; flex-direction: column; min-height: 290px; margin: 0; }
 .channel-card__icon { width: 48px; height: 48px; display: grid; place-items: center; margin-bottom: 16px; border-radius: 15px; background: var(--primary-soft); color: var(--primary); font-size: 1.3125rem; font-weight: 750; }
 .channel-card h3 { margin: 4px 0 8px; }
@@ -1973,8 +2040,8 @@ tr.inv-visited:hover td { opacity: 1; }
 .report-list { display: grid; gap: 4px; }
 .report-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .report-list small { color: var(--text-tertiary); }
-.onec-create { display: flex; gap: 8px; margin-top: 18px; }
-.onec-create input { flex: 1; max-width: none; }
+.onec-create { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.onec-create input { flex: 1 1 12rem; min-width: 0; max-width: none; }
 .onec-secret { margin-top: 14px; }
 .onec-pairing-code { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .onec-pairing-code code { font-size: 1.375rem; letter-spacing: 2px; font-weight: 700; background: var(--bg); padding: 8px 12px; border-radius: 8px; user-select: all; }
@@ -2013,7 +2080,7 @@ tr.inv-visited:hover td { opacity: 1; }
 .onec-mode-note { margin-top: 12px; padding: 11px 13px; border-radius: 10px; background: color-mix(in srgb, #f59e0b 9%, var(--card)); color: var(--text-secondary); font-size: 0.75rem; line-height: 1.45; }
 .onec-official-link { display: inline-block; margin-top: 11px; color: var(--primary); font-size: 0.75rem; font-weight: 650; text-decoration: none; }
 .onec-official-link:hover { text-decoration: underline; }
-.onec-health { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 14px; }
+.onec-health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 14px; }
 .onec-health > div { padding: 11px; border-radius: 10px; background: var(--bg); }
 .onec-health span, .onec-health strong { display: block; font-size: 0.6875rem; }
 .onec-health span { margin-bottom: 4px; color: var(--text-tertiary); }
@@ -2036,13 +2103,15 @@ tr.inv-visited:hover td { opacity: 1; }
 .supplier-risk { margin-top: 8px; padding: 8px; border-radius: 8px; background: #fff4e5; color: #8a5a00; font-size: 0.6875rem; }
 
 @media (max-width: 960px) {
-  .operations-grid--control { grid-template-columns: 1fr; }
-  .operations-form-grid { grid-template-columns: 1fr 1fr; }
-  .operations-summary-strip { grid-template-columns: repeat(3, 1fr); }
-  .root-cause-grid, .report-grid { grid-template-columns: 1fr; }
-  .onec-fast-steps { grid-template-columns: 1fr 1fr; }
-  .onec-steps { grid-template-columns: 1fr 1fr; }
-  .delegate-form { grid-template-columns: 1fr 1fr; }
+  /* minmax(0, 1fr), а не 1fr (правило 38): иначе колонка не уже самого длинного
+     содержимого, и «Подключение 1С» на телефоне уезжало за край экрана. */
+  .operations-grid--control { grid-template-columns: minmax(0, 1fr); }
+  .operations-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operations-summary-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .root-cause-grid, .report-grid { grid-template-columns: minmax(0, 1fr); }
+  .onec-fast-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .onec-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .delegate-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 768px) {
@@ -2051,9 +2120,9 @@ tr.inv-visited:hover td { opacity: 1; }
   .operations-kpi { min-height: 82px; padding: 13px; }
   .operations-kpi span { font-size: 1.1875rem; }
   .operations-tabs { margin-left: -16px; margin-right: -16px; padding: 0 16px; }
-  .operations-grid--channels, .supplier-score-grid { grid-template-columns: 1fr; }
-  .operations-form-grid { grid-template-columns: 1fr; }
-  .operations-summary-strip { grid-template-columns: 1fr 1fr; }
+  .operations-grid--channels, .supplier-score-grid { grid-template-columns: minmax(0, 1fr); }
+  .operations-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .operations-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .forecast-grid { grid-template-columns: 1fr 1fr; }
   /* Сумма — в первой строке справа от номера. Без явного места она падала на третью строку
      в первую колонку и раздувала колонку галочки до своей ширины (~75 px пустоты слева). */
@@ -2483,6 +2552,10 @@ tr.inv-visited:hover td { opacity: 1; }
   align-items: center;
   margin-bottom: 28px;
 }
+/* На телефоне заголовок и статус — столбиком, статус слева, а не по центру. */
+@media (max-width: 768px) {
+  #view-profile .section-header { align-items: flex-start; }
+}
 
 .tg-status {
   display: inline-flex;
@@ -2606,8 +2679,10 @@ tr.inv-visited:hover td { opacity: 1; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-size: 0.875rem;
-  font-family: var(--mono);
-  letter-spacing: 0.2px;
+  /* Обычный шрифт (2026-11-23): моноширинный в полях профиля выглядел
+     «технически», а подсказка «Введите ID и нажмите Enter» не влезала на телефоне. */
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
   background: var(--card);
   color: var(--text);
   transition: all var(--transition);
@@ -4153,7 +4228,7 @@ tr.inv-visited:hover td { opacity: 1; }
 .date-nav__all { border-bottom: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; padding-bottom: 9px; }
 
 /* Настройка нескольких Telegram-чатов на странице «Профиль» */
-#profile-tg-chat { font-family: var(--font-mono, monospace); }
+#profile-tg-chat { font-family: var(--font); font-variant-numeric: tabular-nums; }
 
 /* Пузыри добавленных чатов */
 .chip-list {
@@ -4564,7 +4639,8 @@ select.filter-input { min-width: 104px; }
     padding-top: 8px;
     border-top: 1px dashed var(--border) !important;
   }
-  table.cards-mobile tbody tr td.cell-action::before { content: 'Действия'; color: var(--text-tertiary); }
+  /* Подпись «Действия» перед кнопками лишняя: кнопки говорят сами за себя. */
+  table.cards-mobile tbody tr td.cell-action::before { content: none; }
 }
 
 @media (max-width: 860px) {
@@ -4609,6 +4685,8 @@ tr.row-unit-mismatch td { background: var(--warning-soft); }
 .mapping-src-warn { border-color: var(--warning); color: #b45309; }
 
 /* Пакет v2: «Предложения правил» (самообучение) */
+.learning-off-hint { margin: 0 0 14px; padding: 10px 14px; border-radius: var(--radius-lg); background: var(--warning-soft); font-size: 0.8125rem; }
+.learning-off-hint a { color: var(--primary-hover); font-weight: 500; margin-left: 4px; }
 .learning-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .learning-toolbar .tabs { flex: 1 1 auto; }
 .learning-toolbar__run { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -4717,6 +4795,10 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
 .queue-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .queue-tile {
   min-width: 0;
+  /* Плитка-кнопка без подписи центровалась по высоте и стояла ниже соседних. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -4850,6 +4932,8 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
   .queue-table > tbody > tr.queue-row > td.col-check { width: auto; padding: 5px 0; text-align: right; }
   .queue-table > tbody > tr.queue-row > td.cell-action { justify-content: flex-end; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--border); }
   .queue-table > tbody > tr.queue-row > td.cell-action::before { content: none; }
+  /* Пустые «Сбер —» / «Перераспознавание —» на телефоне не рисуем (2026-11-23). */
+  .queue-table > tbody > tr.queue-row > td.queue-td-empty { display: none; }
   .queue-table > tbody > tr.queue-row.is-open { margin-bottom: 0; border-color: var(--primary); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .queue-table > tbody > tr.queue-panel-row { display: block; margin: 0 0 12px; border: 1px solid var(--primary); border-top: none; border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--bg); }
   .queue-table > tbody > tr.queue-panel-row > td { display: block; padding: 0; border: none; }
@@ -4900,6 +4984,11 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
 .an-lead { margin: 0 0 10px; }
 
 .an-table td { vertical-align: top; }
+.ic-sub-sum { white-space: nowrap; }
+/* «Компании» в Настройках (2026-11-25): заголовки в одну строку раздували таблицу
+   до 1641 px при рамке ~950 на 1280 px — «Строк без позиции 1С», «Сопоставлений»
+   и «Сбер» были видны только прокруткой таблицы вбок. */
+.companies-table thead th { white-space: normal; vertical-align: bottom; line-height: 1.3; }
 .an-table thead th { white-space: normal; vertical-align: bottom; line-height: 1.3; }
 .an-table .an-cell-name, .an-table .an-cell-wrap { white-space: normal; min-width: 180px; }
 .an-cellv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -5058,11 +5147,6 @@ tr:hover .item-del-btn, .item-del-btn:focus { opacity: 0.6; }
 }
 .xml-doc__warnings ul { margin: 6px 0 0 18px; }
 .xml-doc__warnings li + li { margin-top: 3px; }
-.upload-history-file--xml {
-  background: var(--primary-soft);
-  border-color: color-mix(in srgb, var(--primary) 28%, transparent);
-  color: var(--primary);
-}
 @media (max-width: 640px) {
   .xml-doc { padding: 12px; gap: 10px; }
   .xml-doc__icon { flex-basis: 40px; height: 40px; font-size: 0.6875rem; }
@@ -5634,6 +5718,7 @@ dialog.review-confirm p {
 .ic-step--queued .ic-step-text small, .ic-step--progress .ic-step-text small { color: var(--primary-hover); }
 .ic-step--error .ic-step-mark { background: var(--error); color: #fff; }
 .ic-step--error .ic-step-text small { color: var(--error); }
+.ic-step--warn .ic-step-text small { color: #9a6a12; }
 .ic-step--blocked, .ic-step--off { background: #fbfaf8; }
 .ic-step--blocked .ic-step-text b, .ic-step--off .ic-step-text b { color: var(--text-secondary); }
 
@@ -5667,6 +5752,8 @@ dialog.review-confirm p {
 .ic-req span { font-size: 0.6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
 .ic-req b { font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ic-req.is-ok { background: var(--success-soft); border-color: #cfe3d3; }
+/* Название поставщика — в две строки, а не «ООО «Молочная ф…» (2026-11-23). */
+.ic-req--supplier b { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
 .ic-req.is-ok span { color: var(--success); }
 .ic-issues { list-style: none; margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: #fffaf0; border: 1px solid #f3e2bd; color: #8a5d10; font-size: 0.8125rem; display: grid; gap: 4px; }
 .ic-issues li::before { content: '•'; margin-right: 8px; }
@@ -5867,8 +5954,9 @@ button.ic-tag { cursor: pointer; }
 @media (max-width: 860px) {
   .ic-head { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   .ic-head-main { order: 3; flex-basis: 100%; padding: 2px 4px 0; }
-  .ic-back span { display: none; }
-  .ic-thumb { margin-left: auto; }
+  /* «‹ Накладные» — со словом и на телефоне; переход вверх/вниз по списку — справа,
+     у скана, а не вплотную к «назад» (две стрелки подряд путались, 2026-11-23). */
+  .ic-nav { margin-left: auto; }
   .ic-sub { white-space: normal; }
   .ic-items tbody td { white-space: normal; }
   .ic-items tbody td.ic-num { white-space: nowrap; }
@@ -6002,6 +6090,17 @@ button.ic-tag { cursor: pointer; }
   .invoices-table tbody tr.clickable td.col-state::before { content: attr(data-label); display: block; margin-bottom: 4px; font-size: 0.6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
   .invoices-table tbody tr.clickable td.cell-action { grid-area: act; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 2px; padding-top: 10px !important; border-top: 1px dashed var(--border) !important; }
   .invoice-cell-stack .inv-pill-note { max-width: 100%; }
+  /* Плашки «1С»/«Оплата» на 320–360 px при крупном тексте обрезались краем
+     карточки («Не отправлен», «Нет платёжк»): колонка уже плашки — переносим слова. */
+  .invoices-table tbody tr.clickable td.col-state .inv-pill { max-width: 100%; height: auto; min-height: 24px; padding-top: 3px; padding-bottom: 3px; white-space: normal; line-height: 1.25; overflow-wrap: normal; word-break: normal; }
+}
+/* Крупный текст на узком телефоне: «1С» и «Оплата» — одна под другой, иначе
+   «Не отправлена» не помещалась в половину карточки. */
+@media (max-width: 380px) {
+  html[data-text] .invoices-table tbody tr.clickable { grid-template-areas: "check doc money" ". sup sup" ". onec onec" ". pay pay" "act act act"; }
+}
+@media (max-width: 340px) {
+  .invoices-table tbody tr.clickable { grid-template-areas: "check doc money" ". sup sup" ". onec onec" ". pay pay" "act act act"; }
 }
 
 /* Карточка накладной в узкой колонке: шаги — три в ряд, короткие названия, кнопка — в панели шага. */
@@ -6010,6 +6109,9 @@ button.ic-tag { cursor: pointer; }
   .ic-step { flex-direction: column; align-items: center; justify-content: flex-start; text-align: center; gap: 6px; padding: 10px 6px; min-height: 0; }
   .ic-step-long { display: none; }
   .ic-step-short { display: inline; }
+  /* Без этого основа 7.5rem из правила для ≤860px в колонке становилась высотой —
+     шаги на телефоне были ~200 px пустоты. */
+  .ic-step-text { flex: 0 0 auto; }
   .ic-step-text b { font-size: 0.84375rem; }
   .ic-step-text small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 0.71875rem; line-height: 1.3; }
   .ic-step-action { display: none; }

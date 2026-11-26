@@ -7,7 +7,7 @@ vi.mock('../../src/utils/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { terminalErrorHandler } from '../../src/api/middleware/errorHandler';
+import { ClientError, terminalErrorHandler } from '../../src/api/middleware/errorHandler';
 import { logger } from '../../src/utils/logger';
 
 // Маршруты как в server.ts: параметр пути и SPA-фолбэк /{*splat}. Роутер
@@ -17,6 +17,8 @@ function makeApp(): express.Express {
   app.get('/api/items/:id', (req, res) => { res.json({ id: req.params.id }); });
   app.get('/boom', () => { throw new Error('kaput'); });
   app.get('/too-big', () => { throw new multer.MulterError('LIMIT_FILE_SIZE'); });
+  app.post('/api/strict', multer({ fileFilter: (_req, _file, cb) => cb(new ClientError(415, 'Такой файл не подходит (.doc). Подходят фото, PDF и XML')) }).single('file'),
+    (_req, res) => { res.sendStatus(202); });
   app.post('/api/upload', multer().single('file'), (_req, res) => { res.sendStatus(202); });
   app.get('/{*splat}', (_req, res) => { res.send('spa'); });
   app.use(terminalErrorHandler);
@@ -51,13 +53,21 @@ describe('terminalErrorHandler (п.20)', () => {
   it('прочие ошибки — как раньше: 500 и error-лог', async () => {
     const res = await request(makeApp()).get('/boom');
     expect(res.status).toBe(500);
-    expect(res.body).toEqual({ error: 'Internal server error' });
+    expect(res.body).toEqual({ error: 'Ошибка сервера. Попробуйте ещё раз' });
     expect(logger.error).toHaveBeenCalledWith('Unhandled request error', { error: 'kaput' });
   });
 
-  it('multer: слишком большой файл — 413', async () => {
+  it('multer: слишком большой файл — 413 и текст по-русски', async () => {
     const res = await request(makeApp()).get('/too-big');
     expect(res.status).toBe(413);
+    expect(res.body).toEqual({ error: 'Файл слишком большой', code: 'LIMIT_FILE_SIZE' });
+  });
+
+  it('неподходящий файл — ошибка клиента с текстом для человека, а не 500', async () => {
+    const res = await request(makeApp()).post('/api/strict').attach('file', Buffer.from('doc'), 'Договор.doc');
+    expect(res.status).toBe(415);
+    expect(res.body).toEqual({ error: 'Такой файл не подходит (.doc). Подходят фото, PDF и XML' });
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it('Safari-style empty multipart body returns an actionable 400 instead of 500', async () => {

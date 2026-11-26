@@ -52,11 +52,14 @@ describe('renderListingHtml', () => {
     expect(out).toContain('blog-tag-chip');
     expect(out).not.toContain('PLACEHOLDER');
   });
-  it('renders 6+ articles with featured(1st) + full(6th)', () => {
-    const arts = Array.from({ length: 6 }, (_, i) => a({ slug: `s${i}`, date: `2026-05-0${i+1}` }));
-    const out = renderListingHtml('<!-- BLOG-CARDS-PLACEHOLDER -->', arts);
-    expect((out.match(/blog-card--featured/g) || []).length).toBe(1);
-    expect((out.match(/blog-card--full/g) || []).length).toBe(1);
+  it('featured first; the last card is full-width only for an odd count (no holes in the grid)', () => {
+    const make = (n: number) => Array.from({ length: n }, (_, i) => a({ slug: `s${i}`, date: `2026-05-0${i+1}` }));
+    const even = renderListingHtml('<!-- BLOG-CARDS-PLACEHOLDER -->', make(6));
+    expect((even.match(/blog-card--featured/g) || []).length).toBe(1);
+    expect((even.match(/blog-card--full/g) || []).length).toBe(0);
+    const odd = renderListingHtml('<!-- BLOG-CARDS-PLACEHOLDER -->', make(7));
+    expect((odd.match(/blog-card--full/g) || []).length).toBe(1);
+    expect(odd.lastIndexOf('blog-card--full')).toBeGreaterThan(odd.lastIndexOf('blog-card--featured'));
   });
 });
 

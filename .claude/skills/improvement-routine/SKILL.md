@@ -47,7 +47,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 |---|---|
 | ProjectsFlow | JSON-LD главной с ценами и FAQ (#28), Dependabot (#26), soft-404 → настоящий 404 у SPA (#92) |
 | OrdersFlow | og:image в PNG (#6, закрыт), цена тарифа в пререндере и JSON-LD (#11) |
-| TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12) |
+| TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12), выгода длинного срока (#15), LCP лендинга (#16), `og:image` в PNG (#17, ждёт решения) |
 | scanflow | Dependabot (#15), gitleaks (#8), npm audit (#6, #9) — ждут решения |
 | yesbeatru | проверка секретов в PR (#537) |
 
@@ -55,11 +55,14 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 
 ### Ждут слияния (не повторять)
 
+- **TasksFlow**: `og:image` в PNG вместо SVG — [#17](https://github.com/djdes/TasksFlow/pull/17).
 - **yesbeatru**: зачёркнутая цена и `priceValidUntil` в JSON-LD товара. Открыты [#590 в `main`](https://github.com/djdes/yesbeatru/pull/590) и [#591 в `prod`](https://github.com/djdes/yesbeatru/pull/591).
 
 ### Идеи, ещё не сделанные (бери сверху, вычёркивай)
 
-- ~~**scanflow**: JSON-LD `SoftwareApplication` + `Offer` + `FAQPage` на главной, `BlogPosting` + `BreadcrumbList` в статьях~~ — уже есть (`public/index.html`, `src/seo/articleSchema.ts`, проверено 21.11).
+- ~~**scanflow**: JSON-LD главной и статей~~ — уже есть (`SoftwareApplication`, `FAQPage`, `BlogPosting`). Цена «0 ₽, открытая бета»
+  в разметке верна, пока идёт бета: тарифы 990/4 990 ₽ переносить в `offers` — когда включится оплата.
+  Осталось: RSS блога (`/blog/rss.xml`, как у OrdersFlow).
 - ~~**OrdersFlow**: `Restaurant`/`Menu` JSON-LD на `/m/:slug`~~ — не делать: страница `noindex`, разметку поиск не увидит.
 - **yesbeatru**: ~~`Product` + `Offer`~~ (уже есть с 10.09); осталось `ItemList` в каталоге и `MusicRecording` (BPM, длительность) в карточке трека (цена, BPM, длительность) —
   витрина в Google/Яндексе; `ItemList` в каталоге. Выкладка — двумя PR (main + prod).
@@ -99,9 +102,13 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 Тренды по языку стека, а не по звёздам вообще (в общем топе — эмуляторы и хайп):
 `gh api -X GET search/repositories -f q="language:PHP created:>$(date -d '-90 days' +%F) stars:>100" -f sort=stars`
 (и `TypeScript`). OSS Insight trends с 01.03.2026 недоступен — не тратить на него время.
+Сверка `<head>` всех боевых сайтов одной командой — `bash head-audit.sh` (рядом с этим файлом): код ответа,
+canonical, типы JSON-LD и чем на самом деле отвечает `og:image`. SVG или не-картинка в `og:image` = ссылка в
+Telegram/WhatsApp/VK без превью (так найден TasksFlow #17). Запускать в п. 0, до выбора идеи; единичное
+«НЕ ОТКРЫЛСЯ» — сбой прокси облака, перепроверить.
 Обход soft-404 по всем сайтам: `curl -o /dev/null -w '%{http_code}' https://<сайт>/no-such-page-xyz`;
 200 = находка (так найден ProjectsFlow #92; scanflow, OrdersFlow и TasksFlow уже отдают 404).
-Проверки боевых сайтов — с раннера GitHub Actions, а не из облачного контейнера: 21.11 из
+Проверки боевых сайтов (и `head-audit.sh`) — с раннера GitHub Actions, а не из облачного контейнера: 21.11 из
 контейнера не открылись scanflow.ru, wesetup.ru и yesbeat.ru (len=0), projectsflow.ru — через раз.
 Нужен еженедельный workflow `seo-probe.yml` (curl: код главной, неизвестного пути, robots,
 sitemap, llms.txt, canonical, og:image) с отчётом в summary; рутина читает итог через `actions_list`.

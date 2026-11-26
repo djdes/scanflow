@@ -70,7 +70,13 @@ const InvoiceCard = {
     else if (inv.approved_for_1c) onec = { state: 'queued', hint: 'ждёт загрузки в 1С' };
     else {
       const n = this.unmappedCount(inv);
-      onec = { state: 'idle', hint: n ? `1С создаст ${n} ${this.plural(n, 'новый товар', 'новых товара', 'новых товаров')}` : 'можно отправить', action: { kind: 'send1c', label: 'Отправить в 1С' } };
+      // Строка без позиции 1С — то же, что красное «Позиция 1С не выбрана» в строке и
+      // «Проверить» в списке: предупреждаем, а не успокаиваем (было «1С создаст N новых»).
+      onec = n
+        ? { state: 'idle', tone: 'warn', hint: `${n} ${this.plural(n, 'товар', 'товара', 'товаров')} без позиции 1С`,
+          title: `При отправке 1С создаст ${this.plural(n, 'его', 'их', 'их')} как ${this.plural(n, 'новый товар', 'новые товары', 'новые товары')} по названию со скана. Лучше выбрать позицию из 1С.`,
+          action: { kind: 'send1c', label: 'Отправить в 1С' } }
+        : { state: 'idle', hint: 'можно отправить', action: { kind: 'send1c', label: 'Отправить в 1С' } };
     }
 
     let pay;
@@ -178,12 +184,11 @@ const InvoiceCard = {
     if (!el) return;
     const title = inv.invoice_number ? `№ ${App.esc(inv.invoice_number)}` : 'Без номера';
     const date = inv.invoice_date ? ` <span class="ic-title-date">от ${App.esc(App.formatDate(inv.invoice_date))}</span>` : '';
+    // Под номером — только поставщик и сумма: НДС и ставка — в плитках сверки,
+    // число позиций — на вкладке «Товары · N» (раньше всё это шло здесь второй раз).
     const parts = [];
     if (inv.supplier) parts.push(App.esc(inv.supplier));
-    if (inv.total_sum != null) parts.push(`${App.formatMoney(inv.total_sum)} ₽`);
-    if (inv.vat_sum != null && Number(inv.vat_sum) > 0) parts.push(`НДС ${App.formatMoney(inv.vat_sum)} ₽`);
-    const n = (inv.items || []).length;
-    if (n) parts.push(`${n} ${this.plural(n, 'позиция', 'позиции', 'позиций')}`);
+    if (inv.total_sum != null) parts.push(`<span class="ic-sub-sum">${App.formatMoney(inv.total_sum)}&nbsp;₽</span>`);
     // Дубликат — только плашкой под шапкой (#ic-duplicate / #invoice-sibling-banner), не второй раз здесь.
     const pills = [];
     if (inv.status === 'error') pills.push('<span class="ic-pill ic-pill--red">Ошибка распознавания</span>');
@@ -209,7 +214,7 @@ const InvoiceCard = {
       const action = s.action && !active && !['blocked', 'off'].includes(s.state)
         ? `<button type="button" class="btn btn-outline btn-sm ic-step-action" onclick="event.stopPropagation();InvoiceCard.stepAction('${s.action.kind}', this)">${App.esc(s.action.label)}</button>`
         : '';
-      return `<div class="ic-step ic-step--${s.state}${active ? ' is-active' : ''}" role="tab" tabindex="0" aria-selected="${active}" data-step="${key}"
+      return `<div class="ic-step ic-step--${s.state}${s.tone ? ` ic-step--${s.tone}` : ''}${active ? ' is-active' : ''}" role="tab" tabindex="0" aria-selected="${active}" data-step="${key}"${s.title ? ` title="${App.esc(s.title)}"` : ''}
         onclick="InvoiceCard.selectStep('${key}')" onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();InvoiceCard.selectStep('${key}')}">
         <span class="ic-step-mark">${mark}</span>
         <span class="ic-step-text"><b><span class="ic-step-long">${titles[key][0]}</span><span class="ic-step-short">${titles[key][1]}</span></b><small>${App.esc(s.hint)}</small></span>${action}</div>`;

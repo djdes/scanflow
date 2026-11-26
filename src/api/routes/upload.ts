@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
+import { ClientError } from '../middleware/errorHandler';
 import path from 'path';
 import { randomUUID } from 'node:crypto';
 import { config } from '../../config';
@@ -45,13 +47,14 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({
+  ...MULTIPART_UTF8,
   storage,
   fileFilter: (_req, file, cb) => {
     if (uploadExtension(file.originalname, file.mimetype)) {
       cb(null, true);
     } else {
       const ext = path.extname(file.originalname).toLowerCase();
-      cb(new Error(`Unsupported file type: ${ext}. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`));
+      cb(new ClientError(415, `Такой файл не подходит${ext ? ` (${ext})` : ''}. Подходят фото, PDF и XML`));
     }
   },
   limits: {
@@ -62,7 +65,7 @@ const upload = multer({
 // POST /api/upload — upload JPEG manually
 router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded' });
+    res.status(400).json({ error: 'Файл не получен' });
     return;
   }
 

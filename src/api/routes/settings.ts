@@ -96,7 +96,7 @@ router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
         return;
       }
       if (!projectsflow_project_id && !current.projectsflow_project_id) {
-        res.status(400).json({ error: 'ProjectsFlow project ID is required for Dispatcher mode' });
+        res.status(400).json({ error: 'Для диспетчера нужен ID проекта ProjectsFlow' });
         return;
       }
     }
@@ -104,7 +104,7 @@ router.put('/analyzer', requireAdmin, async (req: Request, res: Response) => {
     if (mode === 'claude_api' && !anthropic_api_key) {
       const current = await invoiceRepo.getAnalyzerConfig();
       if (!current.anthropic_api_key) {
-        res.status(400).json({ error: 'Anthropic API key is required for Claude API mode' });
+        res.status(400).json({ error: 'Для режима Claude нужен ключ Anthropic' });
         return;
       }
       await invoiceRepo.updateAnalyzerConfig(mode, undefined, claude_model, llmFlag, auto1c, autoSber, projectsflow_token, projectsflow_project_id, dadataKey, gptModel);

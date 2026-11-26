@@ -85,9 +85,65 @@ const Upload = {
     });
   },
 
+  // ====================  Старые фото  ====================
+  // 17.11.2026 с телефона ушли 13 снимков накладных 08–27.10, сохранённых из
+  // мессенджера: те же документы уже были загружены в октябре. Мессенджер пережимает
+  // фото, хеш файла другой, и сервер распознал их заново — в списке появились
+  // дубликаты. Поэтому перед отправкой спрашиваем про снимки старше недели.
+  STALE_PHOTO_DAYS: 7,
+
+  // Когда снят кадр: дата в имени файла (камера, Telegram, WhatsApp, сохранённое из
+  // мессенджера «<мс эпохи><случайные цифры>.jpg») и время изменения файла — более ранняя.
+  photoTakenAt(file, now = Date.now()) {
+    const MIN = Date.parse('2020-01-01T00:00:00Z');
+    const ok = (t) => Number.isFinite(t) && t >= MIN && t <= now + 86_400_000;
+    const name = String((file && file.name) || '');
+    const times = [];
+    const ms = name.match(/^(1\d{12})/);
+    if (ms && ok(Number(ms[1]))) times.push(Number(ms[1]));
+    const ymd = name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\d|3[01])/);
+    if (ymd) {
+      const t = Date.parse(`${ymd[1]}-${ymd[2]}-${ymd[3]}T12:00:00Z`);
+      if (ok(t)) times.push(t);
+    }
+    if (file && ok(Number(file.lastModified))) times.push(Number(file.lastModified));
+    return times.length ? Math.min(...times) : null;
+  },
+
+  // Снимки (не PDF и не XML) старше STALE_PHOTO_DAYS: [{ file, takenAt }].
+  stalePhotos(files, now = Date.now()) {
+    const limit = now - this.STALE_PHOTO_DAYS * 86_400_000;
+    const out = [];
+    for (const file of files) {
+      const name = String((file && file.name) || '').toLowerCase();
+      const isImage = /^image\//.test(String(file && file.type)) || /\.(jpe?g|png|bmp|tiff?|webp|heic)$/.test(name);
+      if (!isImage) continue;
+      const takenAt = this.photoTakenAt(file, now);
+      if (takenAt != null && takenAt < limit) out.push({ file, takenAt });
+    }
+    return out;
+  },
+
+  stalePhotosQuestion(old) {
+    const fmt = (t) => new Date(t).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Moscow' });
+    const times = old.map(o => o.takenAt);
+    const from = fmt(Math.min(...times));
+    const to = fmt(Math.max(...times));
+    const range = from === to ? from : `${from} — ${to}`;
+    return `${old.length} фото сняты давно: ${range}.\n\n`
+      + 'Возможно, эти накладные уже загружали — тогда повторная загрузка создаст дубликаты.\n\n'
+      + 'ОК — всё равно загрузить. Отмена — пропустить старые фото.';
+  },
+
   async _addMultiple(files) {
     // .xml — электронные УПД/ТОРГ-12 из ЭДО (Диадок, СБИС): разбираются без распознавания.
     const ALLOWED = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.pdf', '.xml'];
+    const old = this.stalePhotos(files);
+    if (old.length && !window.confirm(this.stalePhotosQuestion(old))) {
+      const skip = new Set(old.map(o => o.file));
+      files = files.filter(f => !skip.has(f));
+      App.notify(`Пропущено старых фото: ${old.length}`, 'info');
+    }
     for (const file of files) {
       const ext = '.' + (file.name || '').split('.').pop().toLowerCase();
       if (!ALLOWED.includes(ext)) {
@@ -638,16 +694,16 @@ const Upload = {
             xhr.getResponseHeader('Retry-After') ||
             xhr.getResponseHeader('RateLimit-Reset') || '60', 10) || 60);
           this.history[idx].status = 'error';
-          this.history[idx].error = `Слишком много загрузок, подожди ${retryAfter}с`;
+          this.history[idx].error = `Слишком много загрузок подряд — отправим снова через ${retryAfter} с`;
           this.history[idx].rateLimited = true;
           this.scheduleAutoRetry(idx, retryAfter * 1000);
         } else if (xhr.status === 400 && data.code === 'upload_incomplete') {
           this._waitForUpload(idx, 'Сервер получил только часть файла');
         } else if (xhr.status >= 500 || [0, 408, 425, 499].includes(xhr.status)) {
-          this._waitForUpload(idx, typeof data.error === 'string' ? data.error : `Сервер не подтвердил приём (HTTP ${xhr.status})`);
+          this._waitForUpload(idx, typeof data.error === 'string' ? data.error : 'Сервер не подтвердил приём');
         } else {
           this.history[idx].status = 'error';
-          this.history[idx].error = typeof data.error === 'string' ? data.error : `HTTP ${xhr.status}`;
+          this.history[idx].error = typeof data.error === 'string' ? data.error : App.httpErrorText(xhr.status);
           App.notify('Ошибка: ' + this.history[idx].error, 'error');
         }
         this.renderHistory();
@@ -884,9 +940,70 @@ const Upload = {
     const errors = visible.filter(h => (h.status === 'error' && !h.autoRetry) || h.status === 'lost').length;
     const parts = [];
     if (this.totalUploaded > 0) parts.push(`Загружено: ${this.totalUploaded}`);
-    if (uploading > 0) parts.push(`В очереди: ${uploading}`);
+    // «Отправляются», а не «В очереди»: очередь распознавания на сервере — отдельно.
+    if (uploading > 0) parts.push(`Отправляются: ${uploading}`);
     if (errors > 0) parts.push(`Ошибок: ${errors}`);
     el.textContent = parts.join(' · ');
+  },
+
+  /**
+   * Состояние строки списка загрузок простыми словами: tone (wait | work | ok |
+   * warn | error — цвет точки), label и необязательная причина detail.
+   */
+  statusView(h) {
+    switch (h.status) {
+      case 'queued': return { tone: 'wait', label: 'Готовится к отправке' };
+      case 'uploading': {
+        const pct = Math.max(0, Math.min(100, Number(h.progress) || 0));
+        return { tone: 'work', label: `Отправляется · ${pct}%` };
+      }
+      case 'server_queued':
+        if (h.serverState === 'processing') return { tone: 'work', label: 'Распознаётся…' };
+        if (h.queueError) return { tone: 'warn', label: 'Не распознали с первого раза — повторим сами', detail: h.queueError };
+        return { tone: 'wait', label: 'В очереди на распознавание' };
+      case 'processing': return { tone: 'work', label: 'Распознаётся…' };
+      case 'ok': return { tone: 'ok', label: 'Готово' };
+      case 'cancelled': return { tone: 'wait', label: 'Отменено — накладную удалили' };
+      case 'lost': return { tone: 'error', label: 'Файл потерян', detail: h.error || 'Файл больше не доступен' };
+      default:
+        return h.autoRetry
+          ? { tone: 'warn', label: 'Не отправилось — отправим ещё раз сами', detail: h.error }
+          : { tone: 'error', label: 'Не загрузилось', detail: h.error };
+    }
+  },
+
+  /** Миниатюра строки: фото — превью, PDF и XML — значок с типом файла. */
+  fileThumb(name, url) {
+    const lower = String(name || '').toLowerCase();
+    if (lower.endsWith('.pdf')) return '<span class="upload-row__thumb upload-row__thumb--pdf" aria-hidden="true">PDF</span>';
+    if (lower.endsWith('.xml')) return '<span class="upload-row__thumb upload-row__thumb--xml" aria-hidden="true">XML</span>';
+    if (url) return `<img class="upload-row__thumb" src="${App.esc(url)}" alt="">`;
+    return '<span class="upload-row__thumb upload-row__thumb--photo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg></span>';
+  },
+
+  /** Одна строка списка — общая для загрузок этой вкладки и очереди на сервере. */
+  rowHtml({ thumb, name, tone, label, meta, detail, side, extra }) {
+    const esc = (s) => App.esc(s);
+    return `<div class="upload-row is-${tone}">
+      ${thumb}
+      <div class="upload-row__main">
+        <div class="upload-row__name" title="${esc(name)}">${esc(name)}</div>
+        <div class="upload-row__state"><span class="upload-row__dot" aria-hidden="true"></span><span>${esc(label)}</span>${meta ? `<span class="upload-row__meta">${esc(meta)}</span>` : ''}</div>
+        ${detail ? `<div class="upload-row__detail">${esc(detail)}</div>` : ''}
+        ${extra || ''}
+      </div>
+      ${side ? `<div class="upload-row__side">${side}</div>` : ''}
+    </div>`;
+  },
+
+  invoiceLink(id, filled) {
+    const safeId = Number(id);
+    if (!Number.isSafeInteger(safeId) || safeId <= 0) return '';
+    return `<a href="#/invoices/${safeId}" class="${filled ? 'btn btn-sm btn-outline' : 'upload-row__link'}">Накладная #${safeId} →</a>`;
+  },
+
+  closeButton(idx) {
+    return `<button type="button" class="upload-row__close" onclick="Upload.remove(${idx})" aria-label="Убрать из списка" title="Убрать из списка"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
   },
 
   renderHistory() {
@@ -906,81 +1023,42 @@ const Upload = {
 
     const errorCount = this.history.filter(h => h.status === 'error').length;
     const retryAllBtn = errorCount > 1
-      ? `<button class="btn btn-outline btn-sm" onclick="Upload.retryAllErrors()" style="margin-bottom:12px">↻ Повторить все (${errorCount})</button>`
+      ? `<button class="btn btn-outline btn-sm upload-retry-all" onclick="Upload.retryAllErrors()">↻ Повторить все (${errorCount})</button>`
       : '';
 
     container.innerHTML = retryAllBtn + items.map(h => {
-      let statusHtml = '';
-      let actionsHtml = '';
-      if (h.status === 'queued') {
-        statusHtml = '<span class="upload-status upload-status-queued">В очереди…</span>';
-      } else if (h.status === 'server_queued') {
-        statusHtml = `<span class="upload-status upload-status-queued">Фото сохранено на сервере · ${h.serverState === 'processing' ? 'распознаётся' : 'ждёт обработки'}</span>${h.invoiceId ? ` <a href="#/invoices/${Number(h.invoiceId)}">Накладная #${Number(h.invoiceId)}</a>` : ''}`;
-        if (h.queueError) statusHtml += `<div class="upload-error-detail">${esc(h.queueError)}. Повторная попытка будет автоматически.</div>`;
-      } else if (h.status === 'processing') {
-        // Файл загружен на сервер, watcher распознаёт (Claude API ~10-30 сек,
-        // multi-page до минуты). При наличии invoiceId показываем линк сразу.
-        const idTag = h.invoiceId
-          ? ` <a href="#/invoices/${h.invoiceId}" class="upload-status upload-status-ok">Накладная #${h.invoiceId}</a>`
-          : '';
-        statusHtml = `<span class="upload-status upload-status-loading">Распознаётся…</span>${idTag}`;
-      } else if (h.status === 'uploading') {
+      const view = this.statusView(h);
+      const detail = [h.localWarning, view.detail].filter(Boolean).join('. ');
+      let side = '';
+      let extra = '';
+      if (h.status === 'uploading') {
         const pct = Math.max(0, Math.min(100, h.progress || 0));
-        statusHtml = `
-          <span class="upload-status upload-status-loading">Загрузка ${pct}%…</span>
-          <div class="upload-progress-bar"><div class="upload-progress-fill" style="width:${pct}%"></div></div>
-        `;
+        extra = `<div class="upload-progress-bar"><div class="upload-progress-fill" style="width:${pct}%"></div></div>`;
+      } else if (h.status === 'server_queued' || h.status === 'processing') {
+        side = this.invoiceLink(h.invoiceId, false);
       } else if (h.status === 'ok') {
-        const id = Number(h.invoiceId);
-        const safeId = Number.isFinite(id) ? id : 0;
-        statusHtml = `<a href="#/invoices/${safeId}" class="upload-status upload-status-ok">Накладная #${safeId}</a>`;
+        side = this.invoiceLink(h.invoiceId, true) + this.closeButton(h.idx);
         if (h.elevated) {
           const e = h.elevated;
           const verb = this._plural(e.count, 'позиция', 'позиции', 'позиций');
-          statusHtml += `
+          extra = `
             <div class="upload-elevated-banner">
               <span class="upload-elevated-banner__icon">⚠</span>
               <div class="upload-elevated-banner__body">
                 <strong>Повышенная цена:</strong> ${e.count} ${verb} дороже обычной (до +${e.worstPct}%).
                 <div class="muted upload-elevated-banner__names">${esc(e.names)}</div>
-                <a href="#/invoices/${safeId}" class="upload-elevated-banner__link">Открыть накладную →</a>
               </div>
             </div>`;
         }
-        actionsHtml = `<button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Убрать</button>`;
       } else if (h.status === 'cancelled') {
-        statusHtml = '<span class="upload-status">Задание отменено при удалении накладной</span>';
-        actionsHtml = `<button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Убрать</button>`;
+        side = this.closeButton(h.idx);
       } else if (h.status === 'lost') {
-        statusHtml = `<span class="upload-status upload-status-error">Фото утеряно</span>
-          <div class="upload-error-detail">${esc(h.error || 'Файл больше не доступен')}.</div>`;
-        actionsHtml = `<button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Удалить</button>`;
-      } else {
-        statusHtml = h.autoRetry
-          ? '<span class="upload-status upload-status-queued">Ждёт отправки</span>'
-          : '<span class="upload-status upload-status-error">Ошибка</span>';
-        if (h.error) statusHtml += `<div class="upload-error-detail">${esc(h.error)}</div>`;
-        if (h.autoRetry) statusHtml += '<div class="upload-error-detail">Отправка повторится автоматически.</div>';
-        actionsHtml = `
-          <button class="btn btn-sm btn-primary" onclick="Upload.retry(${h.idx})">↻ Повторить</button>
-          <button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Удалить</button>
-        `;
+        side = `<button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Удалить</button>`;
+      } else if (h.status !== 'queued') {
+        side = `<button class="btn btn-sm btn-outline" onclick="Upload.retry(${h.idx})">↻ Повторить</button>
+          <button class="btn btn-sm btn-outline" onclick="Upload.remove(${h.idx})">Удалить</button>`;
       }
-      const lowerName = String(h.name || '').toLowerCase();
-      const preview = lowerName.endsWith('.pdf')
-        ? '<div class="upload-history-file" aria-hidden="true">PDF</div>'
-        : lowerName.endsWith('.xml')
-          ? '<div class="upload-history-file upload-history-file--xml" aria-hidden="true">XML</div>'
-          : `<img src="${esc(h.url)}" alt="">`;
-      return `<div class="upload-history-item">
-        ${preview}
-        <div class="upload-history-info">
-          <div class="upload-history-name">${esc(h.name)}</div>
-          ${h.localWarning ? `<div class="upload-error-detail">${esc(h.localWarning)}</div>` : ''}
-          ${statusHtml}
-          ${actionsHtml ? `<div class="upload-actions">${actionsHtml}</div>` : ''}
-        </div>
-      </div>`;
+      return this.rowHtml({ thumb: this.fileThumb(h.name, h.url), name: h.name, tone: view.tone, label: view.label, detail, side, extra });
     }).join('');
   },
 };

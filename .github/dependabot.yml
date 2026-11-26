@@ -5,6 +5,10 @@ updates:
     directory: "/"
     schedule: { interval: monthly }
     open-pull-requests-limit: 3
+    # Версии зафиксированы точно (правило 39 CLAUDE.md): обновлять только с проверкой на Node 20.
+    ignore:
+      - dependency-name: "pdfjs-dist"
+      - dependency-name: "@napi-rs/canvas"
     groups:
       minor-and-patch:
         update-types: [minor, patch]

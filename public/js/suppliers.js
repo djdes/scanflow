@@ -93,7 +93,7 @@ const Suppliers = {
     if (status === 502 || status === 503 || /unreachable|ProjectsFlow|502|503/i.test(serverMsg || '')) {
       return 'Сервис распознавания временно недоступен — нажмите «Повторить».';
     }
-    return serverMsg || `HTTP ${status}`;
+    return serverMsg || App.httpErrorText(status);
   },
 
   _setQueueCardProcessing(card, fileName) {
@@ -116,7 +116,7 @@ const Suppliers = {
       try {
         const res = await fetch(App.baseUrl + `/suppliers/extract-status/${jobId}`, { headers: { 'X-API-Key': App.apiKey } });
         data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (!res.ok) throw new Error(data.error || App.httpErrorText(res.status));
       } catch (err) {
         this._renderFailedCard(card, file, err.message);
         return;
@@ -238,7 +238,7 @@ const Suppliers = {
         <td data-label="Название" class="sup-name">${App.esc(s.name)}</td>
         <td data-label="Счёт / БИК"><div class="sup-cell"><span class="sup-num">${App.esc(s.account || '—')}</span><div class="sup-sub">БИК ${App.esc(s.bank_bic || '—')}</div></div></td>
         <td data-label="Проверен">${s.verified ? '<span class="badge badge-ok" style="padding:2px 8px">✓</span>' : '<span class="badge badge-warn" style="padding:2px 8px">!</span>'}</td>
-        <td data-label="Использован">${App.esc(this._shortDate(s.last_used_at))}</td>
+        <td data-label="Последний платёж">${App.esc(this._shortDate(s.last_used_at) || '—')}</td>
         <td class="cell-action">
           <button class="btn btn-outline btn-sm" onclick="Suppliers.edit('${App.esc(s.inn)}')" aria-label="Изменить реквизиты ${App.esc(s.name)}">Изменить</button>
           <button type="button" class="btn-icon-gear" aria-haspopup="menu" aria-label="Другие действия с поставщиком ${App.esc(s.name)}" title="Другие действия" onclick="Suppliers.openRowMenu('${App.esc(s.inn)}', ${canMerge ? 1 : 0}, this)">•••</button>
@@ -248,7 +248,7 @@ const Suppliers = {
     wrap.innerHTML = `
       <div class="table-wrap">
         <table class="cards-mobile suppliers-table">
-          <thead><tr><th>ИНН / КПП</th><th>Название</th><th>Счёт / БИК</th><th>Проверен</th><th>Использован</th><th></th></tr></thead>
+          <thead><tr><th>ИНН / КПП</th><th>Название</th><th>Счёт / БИК</th><th>Проверен</th><th>Последний платёж</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>

@@ -4,6 +4,7 @@ import invoiceReviewRouter from './invoiceReview';
 import { canRememberItemWeight, confirmItemQuantity, quantityReviewToken, QuantityConfirmationError } from '../../services/itemQuantityConfirmation';
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -70,6 +71,7 @@ import { AiUnavailableError } from '../../ai/errors';
 import { mergeBlockedByNumber } from '../../services/mergeDecision';
 import { mergeInvoicePages, ManualMergeError } from '../../services/manualInvoiceMerge';
 import { aiEngineState } from '../../ai/engine';
+import { rub } from '../../utils/ru';
 
 /**
  * Attach Sber payment status to a batch of invoices (for the list view —
@@ -246,6 +248,7 @@ export function setFileWatcher(fw: import('../../watcher/fileWatcher').FileWatch
 // and ingest the page as a SEPARATE invoice. addPageToInvoice reads it in place
 // (processedDir is already where the photo endpoint serves from).
 const addPagesUpload = multer({
+  ...MULTIPART_UTF8,
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, config.processedDir),
     filename: (_req, file, cb) => {
@@ -277,7 +280,7 @@ async function invoiceOwnershipGuard(
     if (!Number.isFinite(id)) { next(); return; }
     const inv = await invoiceRepo.getById(id);
     if (inv && inv.owner_user_id !== req.user?.id) {
-      res.status(404).json({ error: 'Invoice not found' });
+      res.status(404).json({ error: 'Накладная не найдена' });
       return;
     }
     next();
@@ -301,14 +304,14 @@ function ownerScopeFor(req: Request): number | undefined {
 // Корзина (2026-11-17): удалённые накладные своей компании за 30 дней. До /:id.
 router.get('/trash', async (req: Request, res: Response) => {
   const ownerId = req.user?.id;
-  if (ownerId == null) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  if (ownerId == null) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   res.json({ data: await trashRepo.list(ownerId), days: TRASH_DAYS });
 });
 
 router.post('/trash/:trashId/restore', async (req: Request, res: Response) => {
   const ownerId = req.user?.id;
   const trashId = Number(req.params.trashId);
-  if (ownerId == null) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  if (ownerId == null) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   if (!Number.isInteger(trashId) || trashId <= 0) { res.status(400).json({ error: 'bad trash id' }); return; }
   try {
     const invoiceId = await trashRepo.restore(trashId, ownerId);
@@ -327,7 +330,7 @@ router.post('/trash/:trashId/restore', async (req: Request, res: Response) => {
 router.delete('/trash/:trashId', async (req: Request, res: Response) => {
   const ownerId = req.user?.id;
   const trashId = Number(req.params.trashId);
-  if (ownerId == null) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  if (ownerId == null) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   if (!Number.isInteger(trashId) || trashId <= 0) { res.status(400).json({ error: 'bad trash id' }); return; }
   const ok = await trashRepo.deleteForever(trashId, ownerId);
   if (!ok) { res.status(404).json({ error: 'Запись в корзине не найдена' }); return; }
@@ -358,8 +361,12 @@ router.get('/stats', async (req: Request, res: Response) => {
        AND i.status IN ('processed', 'sent_to_1c')${uid != null ? ` AND i.owner_user_id = ${Number(uid)}` : ''}`
   ).get<{ count: number; total_sum: number }>();
 
+  // Кнопка «Удалить дубликаты за 24 ч» видна, только когда есть что удалять — та же выборка, что у неё.
+  const recentDuplicates = req.user?.id != null ? (await recentDuplicatesForDeletion(req.user.id)).length : 0;
+
   res.json({
     data: {
+      recentDuplicates,
       workflow: await invoiceRepo.workflowStats(uid),
       byStatus,
       total: totalRow?.count ?? 0,
@@ -459,7 +466,7 @@ router.get('/:id/photos', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -486,7 +493,7 @@ router.get('/:id/photos/:filename', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -498,7 +505,7 @@ router.get('/:id/photos/:filename', async (req: Request, res: Response) => {
     .map(f => f.trim());
 
   if (!fileNames.includes(requestedFile)) {
-    res.status(404).json({ error: 'File not found for this invoice' });
+    res.status(404).json({ error: 'Файл накладной не найден' });
     return;
   }
 
@@ -507,7 +514,7 @@ router.get('/:id/photos/:filename', async (req: Request, res: Response) => {
 
   const filePath = findStoredInvoiceFile(safeFilename);
   if (!filePath) {
-    res.status(404).json({ error: 'File not found on disk' });
+    res.status(404).json({ error: 'Файл накладной не найден' });
     return;
   }
 
@@ -547,10 +554,10 @@ router.get('/:id', async (req: Request, res: Response) => {
     // №654). Подсказываем фронту, куда переключиться, вместо «не найдено».
     const mergedInto = await invoiceRepo.resolveMergeTarget(id);
     if (mergedInto) {
-      res.status(404).json({ error: 'Invoice merged into another one', merged_into: mergedInto });
+      res.status(404).json({ error: 'Накладная уже объединена с другой', merged_into: mergedInto });
       return;
     }
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
   // Открытие детали владельцем помечает накладную прочитанной (идемпотентно —
@@ -625,7 +632,7 @@ router.get('/:id/edits', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Накладная не найдена' });
   const [edits, snapshots] = await Promise.all([
     editLogRepo.listForInvoice(id).catch(() => []),
     snapshotRepo.list(id).catch(() => []),
@@ -640,7 +647,7 @@ router.post('/:id/restore-snapshot', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Накладная не найдена' });
   const body = (req.body ?? {}) as { kind?: string; fields?: unknown };
   const kind: SnapshotKind = body.kind === 'baseline' ? 'baseline' : 'recognized';
   const fields = Array.isArray(body.fields)
@@ -672,9 +679,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice) return res.status(404).json({ error: 'Накладная не найдена' });
   if (invoice.owner_user_id !== req.user?.id) {
-    return res.status(404).json({ error: 'Invoice not found' });
+    return res.status(404).json({ error: 'Накладная не найдена' });
   }
 
   const body = req.body as Record<string, unknown>;
@@ -720,7 +727,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const invoice_date = trimOrNull(body.invoice_date);
   if (invoice_date !== undefined) {
     if (invoice_date !== null && !DATE_RE.test(invoice_date)) {
-      return res.status(400).json({ error: 'invoice_date must be YYYY-MM-DD' });
+      return res.status(400).json({ error: 'Дата накладной — в формате ГГГГ-ММ-ДД' });
     }
     update.invoice_date = invoice_date;
   }
@@ -731,7 +738,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const supplier_inn = trimOrNull(body.supplier_inn);
   if (supplier_inn !== undefined) {
     if (supplier_inn !== null && !INN_RE.test(supplier_inn)) {
-      return res.status(400).json({ error: 'supplier_inn must be 10 or 12 digits' });
+      return res.status(400).json({ error: 'ИНН поставщика — 10 или 12 цифр', code: 'no_inn' });
     }
     if (supplier_inn !== null && !isValidInn(supplier_inn)) {
       return res.status(400).json({ error: 'ИНН не проходит проверку контрольной суммы — проверьте цифры' });
@@ -742,7 +749,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const supplier_kpp = trimOrNull(body.supplier_kpp);
   if (supplier_kpp !== undefined) {
     if (supplier_kpp !== null && !KPP_RE.test(supplier_kpp)) {
-      return res.status(400).json({ error: 'supplier_kpp must be 9 digits' });
+      return res.status(400).json({ error: 'КПП поставщика — 9 цифр' });
     }
     update.supplier_kpp = supplier_kpp;
   }
@@ -750,7 +757,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const supplier_bik = trimOrNull(body.supplier_bik);
   if (supplier_bik !== undefined) {
     if (supplier_bik !== null && !BIC_RE.test(supplier_bik)) {
-      return res.status(400).json({ error: 'supplier_bik must be 9 digits' });
+      return res.status(400).json({ error: 'БИК банка — 9 цифр' });
     }
     update.supplier_bik = supplier_bik;
   }
@@ -758,7 +765,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const supplier_account = trimOrNull(body.supplier_account);
   if (supplier_account !== undefined) {
     if (supplier_account !== null && !ACC_RE.test(supplier_account)) {
-      return res.status(400).json({ error: 'supplier_account must be 20 digits' });
+      return res.status(400).json({ error: 'Расчётный счёт — 20 цифр' });
     }
     update.supplier_account = supplier_account;
   }
@@ -766,7 +773,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const supplier_corr_account = trimOrNull(body.supplier_corr_account);
   if (supplier_corr_account !== undefined) {
     if (supplier_corr_account !== null && !ACC_RE.test(supplier_corr_account)) {
-      return res.status(400).json({ error: 'supplier_corr_account must be 20 digits' });
+      return res.status(400).json({ error: 'Корреспондентский счёт — 20 цифр' });
     }
     update.supplier_corr_account = supplier_corr_account;
   }
@@ -781,7 +788,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (vat_sum !== undefined) update.vat_sum = vat_sum;
 
   if (Object.keys(update).length === 0) {
-    return res.status(400).json({ error: 'No editable fields in request body' });
+    return res.status(400).json({ error: 'Нечего сохранять' });
   }
 
   await invoiceRepo.updateInvoiceData(id, update);
@@ -835,7 +842,7 @@ router.post('/:id/send', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -856,7 +863,7 @@ router.post('/:id/send', async (req: Request, res: Response) => {
       && !(await approvalRepo.hasApproved(id, '1c'))) {
     const approval = await approvalRepo.create(id, '1c', req.user?.id ?? null, 'Автоматически создано по лимиту суммы');
     return res.status(409).json({
-      error: `Накладная выше лимита ${onecAutomation.payment_approval_threshold.toFixed(2)} ₽ и ожидает согласования`,
+      error: `Сумма больше ${rub(onecAutomation.payment_approval_threshold)} — накладная ждёт согласования`,
       needs_approval: true,
       approval_id: approval.id,
     });
@@ -923,13 +930,13 @@ router.post('/:id/send', async (req: Request, res: Response) => {
 router.post('/:id/confirm', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (!Number.isFinite(id) || id <= 0) {
-    res.status(400).json({ error: 'Invalid invoice id' });
+    res.status(400).json({ error: 'Неверный номер накладной' });
     return;
   }
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -968,7 +975,7 @@ router.post('/:id/reset', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -989,7 +996,7 @@ router.post('/:id/read', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
   const read = (req.body as { read?: boolean })?.read !== false; // по умолчанию true
@@ -1003,7 +1010,7 @@ router.post('/:id/paid-externally', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
   const value = (req.body as { value?: boolean })?.value !== false; // по умолчанию true
@@ -1035,7 +1042,7 @@ router.post('/:id/comments', async (req: Request, res: Response) => {
   if (!body) { res.status(400).json({ error: 'Пустая заметка' }); return; }
   if (body.length > 2000) { res.status(400).json({ error: 'Заметка длиннее 2000 символов' }); return; }
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice) { res.status(404).json({ error: 'Invoice not found' }); return; }
+  if (!invoice) { res.status(404).json({ error: 'Накладная не найдена' }); return; }
   const result = await getDb().prepare(
     'INSERT INTO invoice_comments (invoice_id, owner_user_id, user_id, author, body) VALUES (?, ?, ?, ?, ?)'
   ).run(id, invoice.owner_user_id ?? null, req.user?.id ?? null, req.user?.username ?? null, body);
@@ -1063,7 +1070,7 @@ router.post('/:id/pages-confirmed', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string);
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
   const value = (req.body as { value?: boolean })?.value !== false;
@@ -1085,7 +1092,7 @@ router.post('/:id/unapprove', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -1164,7 +1171,7 @@ router.post('/:id/remap', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -1362,7 +1369,7 @@ router.post('/:id/llm-remap', async (req: Request, res: Response) => {
   const includeAll = req.query.all === 'true' || req.query.all === '1';
   const invoice = await invoiceRepo.getById(id);
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -1389,7 +1396,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const invoice = await invoiceRepo.getById(id);
 
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -1427,7 +1434,7 @@ async function loadOwnedBatch(req: Request, res: Response): Promise<Invoice[] | 
   const loaded: Invoice[] = [];
   for (const invoice of invoices) {
     if (!invoice || invoice.owner_user_id !== req.user?.id) {
-      res.status(404).json({ error: 'Invoice not found' });
+      res.status(404).json({ error: 'Накладная не найдена' });
       return null;
     }
     loaded.push(invoice);
@@ -1448,7 +1455,7 @@ router.post('/send-1c-batch', async (req: Request, res: Response) => {
 // не только отмеченные на странице. { dry_run: true } — сколько и на какую сумму.
 router.post('/send-ready', async (req: Request, res: Response) => {
   const ownerId = req.user?.id;
-  if (ownerId == null) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  if (ownerId == null) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const ready = await invoiceRepo.getAll(undefined, 500, 0, ownerId, { view: 'ready' });
   if (req.body?.dry_run === true) {
     const sum = ready.reduce((acc, inv) => acc + (Number(inv.total_sum) || 0), 0);
@@ -1496,7 +1503,7 @@ async function recentDuplicatesForDeletion(ownerId: number): Promise<RecentDupli
 // показанного то, что всё ещё дубликат (новое, появившееся после показа, не трогаем).
 router.post('/delete-duplicates', async (req: Request, res: Response) => {
   const ownerId = req.user?.id;
-  if (ownerId == null) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  if (ownerId == null) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const candidates = await recentDuplicatesForDeletion(ownerId);
   if (req.body?.dry_run === true) {
     res.json({ data: { count: candidates.length, invoices: candidates.map(({ file_hash: _h, ...row }) => row) } });
@@ -1546,7 +1553,7 @@ router.post('/delete-batch', async (req: Request, res: Response) => {
     if (!visible) {
       // Preflight the whole batch before deleting anything. A mixed-owner batch
       // must not partially succeed, and 404 avoids leaking another tenant's ids.
-      res.status(404).json({ error: 'Invoice not found' });
+      res.status(404).json({ error: 'Накладная не найдена' });
       return;
     }
   }
@@ -1738,7 +1745,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
 
   const invoice = await invoiceRepo.getById(invoiceId);
   if (!invoice) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return;
   }
 
@@ -1748,12 +1755,12 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   const mappingOwnerId = invoice.owner_user_id ?? -1;
   const item = await invoiceRepo.getItemById(itemId);
   if (!item || item.invoice_id !== invoiceId) {
-    res.status(404).json({ error: 'Invoice item not found' });
+    res.status(404).json({ error: 'Строка накладной не найдена' });
     return;
   }
   const parentInvoice = await invoiceRepo.getById(invoiceId);
   if (!parentInvoice || parentInvoice.owner_user_id !== req.user?.id) {
-    res.status(404).json({ error: 'Invoice item not found' });
+    res.status(404).json({ error: 'Строка накладной не найдена' });
     return;
   }
 
@@ -1762,7 +1769,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
   if (onec_guid) {
     const onecRow = await onecNomenclatureRepo.getByGuid(onec_guid, mappingOwnerId);
     if (!onecRow) {
-      res.status(400).json({ error: 'onec_guid not found in onec_nomenclature' });
+      res.status(400).json({ error: 'Такой позиции нет в каталоге 1С — обновите каталог' });
       return;
     }
     resolvedName = onecRow.name;
@@ -1888,7 +1895,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
 
   const updatedItem = await invoiceRepo.getItemById(itemId);
   if (!updatedItem) {
-    res.status(500).json({ error: 'Failed to retrieve updated item' });
+    res.status(500).json({ error: 'Не удалось получить обновлённую строку' });
     return;
   }
   res.json({ data: updatedItem });
@@ -1900,7 +1907,7 @@ router.put('/:invoiceId/items/:itemId/map', async (req: Request, res: Response) 
 router.post('/:id/confirm-mappings', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Накладная не найдена' });
   const owner = invoice.owner_user_id;
   if (owner == null) return res.status(400).json({ error: 'У накладной нет владельца' });
   const items = await invoiceRepo.getItems(id);
@@ -1940,7 +1947,7 @@ async function loadOwnedItem(req: Request, res: Response): Promise<{ item: Invoi
   const item = await invoiceRepo.getItemById(itemId);
   const invoice = await invoiceRepo.getById(invoiceId);
   if (!item || item.invoice_id !== invoiceId || !invoice || invoice.owner_user_id !== req.user?.id) {
-    res.status(404).json({ error: 'Invoice item not found' });
+    res.status(404).json({ error: 'Строка накладной не найдена' });
     return null;
   }
   return { item, invoice };
@@ -2057,7 +2064,7 @@ async function loadOwnedInvoice(req: Request, res: Response): Promise<Invoice | 
   const id = parseInt(req.params.id as string, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'invalid id' }); return null; }
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice || invoice.owner_user_id !== req.user?.id) { res.status(404).json({ error: 'Invoice not found' }); return null; }
+  if (!invoice || invoice.owner_user_id !== req.user?.id) { res.status(404).json({ error: 'Накладная не найдена' }); return null; }
   return invoice;
 }
 
@@ -2125,7 +2132,7 @@ router.delete('/:invoiceId/items/:itemId', async (req: Request, res: Response) =
   const invoice = await invoiceRepo.getById(invoiceId);
   const item = await invoiceRepo.getItemById(itemId);
   if (!invoice || invoice.owner_user_id !== req.user?.id || !item || item.invoice_id !== invoiceId) {
-    return res.status(404).json({ error: 'Invoice item not found' });
+    return res.status(404).json({ error: 'Строка накладной не найдена' });
   }
   await invoiceRepo.deleteItem(itemId);
   await invoiceRepo.recalculateTotal(invoiceId, { keepVat: true });
@@ -2148,12 +2155,12 @@ router.patch('/:invoiceId/items/:itemId', async (req: Request, res: Response) =>
 
   const item = await invoiceRepo.getItemById(itemId);
   if (!item || item.invoice_id !== invoiceId) {
-    res.status(404).json({ error: 'Invoice item not found' });
+    res.status(404).json({ error: 'Строка накладной не найдена' });
     return;
   }
   const editedInvoice = await invoiceRepo.getById(invoiceId);
   if (!editedInvoice || editedInvoice.owner_user_id !== req.user?.id) {
-    res.status(404).json({ error: 'Invoice item not found' });
+    res.status(404).json({ error: 'Строка накладной не найдена' });
     return;
   }
 
@@ -2370,7 +2377,7 @@ router.post('/:id/rescan', async (req: Request, res: Response) => {
   if (!fileWatcher) return res.status(500).json({ error: 'FileWatcher not initialized' });
 
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice) return res.status(404).json({ error: 'Накладная не найдена' });
 
   // Модель недоступна — сразу понятный ответ, накладную не трогаем (отметки «сверено»
   // перераспознавание сбрасывает в самом начале).
@@ -2401,9 +2408,9 @@ router.post('/:id/unlink-duplicate', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice) return res.status(404).json({ error: 'Накладная не найдена' });
   if (invoice.duplicate_of == null) {
-    return res.status(400).json({ error: 'Invoice is not marked as duplicate' });
+    return res.status(400).json({ error: 'Накладная не помечена как дубликат' });
   }
   await invoiceRepo.unmarkAsDuplicate(id);
   return res.json({ success: true });
@@ -2416,7 +2423,7 @@ router.get('/:id/sber-preview', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Накладная не найдена' });
   const card = invoice.supplier_inn ? await supplierRepo.findByInn(invoice.supplier_inn, invoice.owner_user_id) : null;
   const tpl = (await userRepo.getPurposeTemplate(invoice.owner_user_id))
     ?? 'Оплата по накладной № {invoice_number} от {invoice_date_dot}, {vat_clause}';
@@ -2446,7 +2453,7 @@ router.get('/:id/sber-status', async (req: Request, res: Response) => {
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   // Платёжка — данные компании-владельца накладной: чужая → 404 (правило 19).
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Накладная не найдена' });
   const payment = await sberPaymentRepo.findByInvoiceId(id);
   return res.json({
     payment: payment ? {
@@ -2466,7 +2473,7 @@ router.delete('/:id/sber-payment', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice || invoice.owner_user_id !== req.user?.id) return res.status(404).json({ error: 'Накладная не найдена' });
   await sberPaymentRepo.deleteByInvoiceId(id);
   return res.json({ success: true });
 });
@@ -2490,10 +2497,10 @@ router.post('/:id/attr-check', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice) return res.status(404).json({ error: 'Накладная не найдена' });
   // 404, а не 403 — чтобы не подтверждать существование чужой накладной.
   if (invoice.owner_user_id !== req.user?.id) {
-    return res.status(404).json({ error: 'Invoice not found' });
+    return res.status(404).json({ error: 'Накладная не найдена' });
   }
 
   const { attr, value } = req.body ?? {};
@@ -2527,7 +2534,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!invoice) return res.status(404).json({ error: 'Накладная не найдена' });
 
   // Чек-лист сверенных реквизитов. Стоит ПЕРЕД созданием платежа и до любого
   // обращения к Сберу — непроверенная накладная не должна оставлять следов.
@@ -2550,7 +2557,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       && !(await approvalRepo.hasApproved(id, 'sber'))) {
     const approval = await approvalRepo.create(id, 'sber', req.user?.id ?? null, 'Автоматически создано по лимиту суммы');
     return res.status(409).json({
-      error: `Платёж выше лимита ${automation.payment_approval_threshold.toFixed(2)} ₽ и ожидает согласования`,
+      error: `Платёж больше ${rub(automation.payment_approval_threshold)} — ждёт согласования`,
       needs_approval: true,
       approval_id: approval.id,
     });
@@ -2565,7 +2572,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     } else {
       // status === 'created' | 'pending' — реальный конфликт.
       return res.status(409).json({
-        error: 'Payment already created for this invoice',
+        error: 'Платёжка по этой накладной уже создана',
         existing_status: existingPayment.status,
         existing_payment_number: existingPayment.sber_payment_number,
       });
@@ -2581,7 +2588,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     amountOverride = Math.round(n * 100) / 100;
   }
   if (amountOverride == null && (!invoice.total_sum || invoice.total_sum <= 0)) {
-    return res.status(400).json({ error: 'invoice has no total_sum' });
+    return res.status(400).json({ error: 'В накладной нет суммы — укажите её', code: 'no_total' });
   }
   // Нет ИНН — не отказ: ниже поставщика можно выбрать из справочника.
 
@@ -2594,10 +2601,10 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
   }
 
   const tokenRow = await sberTokenRepo.get(supplierOwnerId);
-  if (!tokenRow) return res.status(400).json({ error: 'Sber not connected' });
+  if (!tokenRow) return res.status(400).json({ error: 'Сбербанк не подключён', code: 'sber_not_connected' });
   if (!tokenRow.account_number || !tokenRow.org_name || !tokenRow.payer_inn ||
       !tokenRow.payer_bank_bic || !tokenRow.payer_bank_corr_account) {
-    return res.status(400).json({ error: 'payer details incomplete (settings → Сбербанк)' });
+    return res.status(400).json({ error: 'Не заполнены реквизиты плательщика: Настройки → Сбербанк', code: 'payer_incomplete' });
   }
 
   // Resolve supplier. Реквизиты для оплаты — ТОЛЬКО из справочника поставщиков:
@@ -2614,16 +2621,16 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
       bank_name?: string; address?: string;
     };
     if (!o.inn || !o.name || !o.bank_bic) {
-      return res.status(400).json({ error: 'supplier_overrides missing required fields (inn, name, bank_bic)' });
+      return res.status(400).json({ error: 'Заполните ИНН, название и БИК банка поставщика' });
     }
     if (!/^([0-9]{10}|[0-9]{12})$/.test(o.inn)) {
-      return res.status(400).json({ error: 'supplier_overrides.inn must be 10 or 12 digits' });
+      return res.status(400).json({ error: 'ИНН поставщика — 10 или 12 цифр' });
     }
     if (!isValidInn(o.inn)) {
       return res.status(400).json({ error: 'ИНН не проходит проверку контрольной суммы — проверьте цифры' });
     }
     if (!/^[0-9]{9}$/.test(o.bank_bic)) {
-      return res.status(400).json({ error: 'supplier_overrides.bank_bic must be 9 digits' });
+      return res.status(400).json({ error: 'БИК банка — 9 цифр' });
     }
     supplier = await supplierRepo.upsert({
       inn: o.inn, name: o.name, kpp: o.kpp ?? null,
@@ -2788,7 +2795,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
     });
   } catch (err) {
     if ((err as Error).message.includes('UNIQUE') || (err as Error).message.includes('Duplicate')) {
-      return res.status(409).json({ error: 'Payment already created for this invoice' });
+      return res.status(409).json({ error: 'Платёжка по этой накладной уже создана' });
     }
     throw err;
   }
@@ -2833,7 +2840,7 @@ router.post('/:id/send-sber', async (req: Request, res: Response) => {
         summary: `Ошибка платежа в Сбербанк по №${invoice.invoice_number ?? id}: HTTP ${err.status}`,
         detail: err.body,
       });
-      return res.status(502).json({ error: 'Sber API error', sber_status: err.status, sber_body: err.body });
+      return res.status(502).json({ error: 'Сбербанк вернул ошибку', sber_status: err.status, sber_body: err.body });
     }
     await sberPaymentRepo.updateStatus(id, {
       status: 'failed',
@@ -2860,7 +2867,7 @@ router.post('/:id/add-pages', addPagesUpload.array('files', 10), async (req: Req
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'invalid id' }); return; }
   if (!fileWatcher) { res.status(500).json({ error: 'FileWatcher not initialized' }); return; }
   const invoice = await invoiceRepo.getById(id);
-  if (!invoice) { res.status(404).json({ error: 'Invoice not found' }); return; }
+  if (!invoice) { res.status(404).json({ error: 'Накладная не найдена' }); return; }
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   // Электронный документ из XML — всегда целиком: страниц к нему не бывает.
   // Файлы multer уже положил в processed/ — убираем, чтобы не висели ничьими.

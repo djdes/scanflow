@@ -23,8 +23,8 @@ const Mappings = {
     if (OnecCatalog.items.length === 0) {
       el.innerHTML = '<span style="color:#b91c1c">Справочник не выгружен.</span>';
     } else {
-      const ts = OnecCatalog.lastSyncedAt ? new Date(OnecCatalog.lastSyncedAt).toLocaleString('ru-RU') : '—';
-      el.innerHTML = `Справочник из 1С: <strong>${OnecCatalog.items.length}</strong> товаров · Последняя выгрузка: ${ts}`;
+      const ts = OnecCatalog.lastSyncedAt ? App.formatDateTime(OnecCatalog.lastSyncedAt) : '';
+      el.innerHTML = `Справочник из 1С: <strong>${OnecCatalog.items.length}</strong> товаров${ts ? ` · обновлён ${App.esc(ts)}` : ''}`;
     }
   },
 
@@ -83,7 +83,7 @@ const Mappings = {
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input type="file" id="mappings-restore-file" accept=".json,application/json">
           <button class="btn btn-soft btn-sm" id="mappings-restore-check" disabled>Проверить</button>
-          <button class="btn btn-primary btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
+          <button class="btn btn-outline btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
         </div>
         <div id="mappings-restore-result" style="margin-top:12px"></div>
       </details>`;
@@ -541,7 +541,7 @@ const Mappings = {
     // Show sync info
     const syncEl = document.getElementById('catalog-sync-info');
     if (syncEl) {
-      const ts = OnecCatalog.lastSyncedAt ? new Date(OnecCatalog.lastSyncedAt).toLocaleString('ru-RU') : '—';
+      const ts = OnecCatalog.lastSyncedAt ? App.formatDateTime(OnecCatalog.lastSyncedAt) : '—';
       syncEl.textContent = `${OnecCatalog.items.length} товаров · Обновлено: ${ts}`;
     }
     let items = OnecCatalog.items || [];

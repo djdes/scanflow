@@ -314,7 +314,7 @@ html[data-text] .m-back:not([hidden]) ~ .m-brand span { display: none; }
   text-decoration: none;
   box-shadow: var(--m-shadow);
 }
-.m-tile strong { font-size: 2.5rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.m-tile strong { font-size: 2.5rem; line-height: 1.1; }
 .m-tile span { font-size: 1.125rem; font-weight: 600; }
 .m-tile--amber { background: var(--m-amber-bg); color: var(--m-amber); }
 .m-tile--green { background: var(--m-green-bg); color: var(--m-green); }
@@ -359,10 +359,10 @@ html[data-text] .m-back:not([hidden]) ~ .m-brand span { display: none; }
   justify-self: start;
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 34px;
   padding: 3px 12px;
   border-radius: 999px;
-  font-size: 1rem;
+  font-size: 1.125rem; /* 18 px, правило 48: статус — главное на карточке */
   font-weight: 650;
   white-space: nowrap;
   gap: 6px;
@@ -400,6 +400,8 @@ html[data-text] .m-back:not([hidden]) ~ .m-brand span { display: none; }
   text-align: center;
   text-decoration: none;
 }
+/* У всех вкладок место под счётчик одной высоты: иначе «Все» без числа стояла ниже соседних. */
+.m-seg__item > span { display: block; min-height: calc(0.9375rem * 1.4 + 2px); font-size: 0.9375rem; line-height: 1.4; }
 .m-seg__item span:not(:empty) {
   min-width: 26px;
   padding: 1px 7px;
