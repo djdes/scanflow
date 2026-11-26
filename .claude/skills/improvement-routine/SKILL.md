@@ -46,7 +46,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 | Репозиторий | Сделано |
 |---|---|
 | ProjectsFlow | JSON-LD главной с ценами и FAQ (#28), Dependabot (#26), soft-404 → настоящий 404 у SPA (#92) |
-| OrdersFlow | og:image в PNG (#6, закрыт), цена тарифа в пререндере и JSON-LD (#11) |
+| OrdersFlow | og:image в PNG (#6, закрыт), цена тарифа в пререндере и JSON-LD (#11), PNG-иконки (apple-touch, favicon.ico, манифест 192/512) + `logo`/`@id` у Organization и publisher статей (#16, ждёт решения) |
 | TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12), выгода длинного срока (#15), LCP лендинга (#16), `og:image` в PNG (#17, ждёт решения) |
 | scanflow | Dependabot (#15), gitleaks (#8), npm audit (#6, #9) — ждут решения |
 | yesbeatru | проверка секретов в PR (#537) |
@@ -59,6 +59,11 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 - **yesbeatru**: зачёркнутая цена и `priceValidUntil` в JSON-LD товара. Открыты [#590 в `main`](https://github.com/djdes/yesbeatru/pull/590) и [#591 в `prod`](https://github.com/djdes/yesbeatru/pull/591).
 
 ### Идеи, ещё не сделанные (бери сверху, вычёркивай)
+
+- **yesbeatru**: в `robots.txt` нет строки `Sitemap:` (карта — `/sitemap.xml`). Не делать вслепую: `robots.txt`
+  нет в `.github/prod-deploy-files.txt`, что лежит на проде — неизвестно (из облака yesbeat.ru не открывается),
+  а один `robots.txt` отдаётся на нескольких доменах. Там же `yandex.php` пишет дату YML как `H:m` (месяц вместо
+  минут) — тоже не в списке выкатки. Сначала сверка прода (`prod-drift-check`), потом PR в `main` + `prod`.
 
 - ~~**scanflow**: JSON-LD главной и статей~~ — уже есть (`SoftwareApplication`, `FAQPage`, `BlogPosting`). Цена «0 ₽, открытая бета»
   в разметке верна, пока идёт бета: тарифы 990/4 990 ₽ переносить в `offers` — когда включится оплата.
@@ -112,6 +117,10 @@ Telegram/WhatsApp/VK без превью (так найден TasksFlow #17). З
 контейнера не открылись scanflow.ru, wesetup.ru и yesbeat.ru (len=0), projectsflow.ru — через раз.
 Нужен еженедельный workflow `seo-probe.yml` (curl: код главной, неизвестного пути, robots,
 sitemap, llms.txt, canonical, og:image) с отчётом в summary; рутина читает итог через `actions_list`.
+Иконки — частая дыра: `apple-touch-icon` на SVG (iPhone не покажет), нет `/favicon.ico` (404), в манифесте нет PNG
+192/512 (Android не предложит установить), у `Organization` нет `logo` (так найден OrdersFlow #16). Проверка по
+коду, без прода: `grep -rn 'apple-touch-icon\|"icons"' --include=*.html --include=*.webmanifest --include=*.ts` во всех
+репозиториях; SVG в `apple-touch-icon` или манифест без PNG = находка.
 Кандидаты на следующие разы: проверка сниппетов через Rich Results Test в Playwright;
 ежемесячный отчёт по позициям из Яндекс.Вебмастера (нужен токен в секретах среды);
 снимки «до/после» визуальных PR прямо в описании (скилл visual-check).
