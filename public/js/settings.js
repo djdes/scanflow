@@ -38,7 +38,6 @@ const Settings = {
         const dadataInput = document.getElementById('settings-dadata-key');
         if (dadataInput && data.dadata_api_key) dadataInput.value = data.dadata_api_key;
         this._setDadataStatus(!!data.has_dadata_key);
-        this._initAutoSend(data);
         this._applyEditRights();
         this._syncModeUi();
         this.chatgptRefresh();
@@ -73,22 +72,6 @@ const Settings = {
     if (!el) return;
     el.textContent = saved ? 'Ключ сохранён' : 'Ключ не задан';
     el.style.color = saved ? 'var(--green)' : 'var(--text-muted, #888)';
-  },
-
-  // «Сразу отправлять в 1С» и «Сразу создавать платёжку» сохраняются при переключении.
-  _initAutoSend(data) {
-    for (const [id, field] of [['settings-auto-send-1c', 'auto_send_1c'], ['settings-auto-send-sber', 'auto_send_sber']]) {
-      const cb = document.getElementById(id);
-      if (!cb) continue;
-      cb.checked = !!data[field];
-      cb.addEventListener('change', async () => {
-        cb.disabled = true;
-        const ok = await this._put({ [field]: cb.checked });
-        if (ok) App.notify(`${cb.checked ? 'Включено' : 'Выключено'}: ${cb.closest('.form-group').querySelector('.toggle-wrap > span').textContent}`, 'success');
-        else cb.checked = !cb.checked;
-        cb.disabled = false;
-      });
-    }
   },
 
   /** PUT /settings/analyzer с текущим режимом (API требует mode) и нужными полями. */
@@ -223,13 +206,19 @@ const Settings = {
   _tariffLabel(plan, limit) {
     const map = {
       beta: 'Открытая бета',
-      start: 'Старт (50 стр.)',
-      pro: 'Pro (1 000 стр.)',
-      business: 'Бизнес (10 000 стр.)',
+      start: 'Старт (50 страниц)',
+      pro: 'Pro (1 000 страниц)',
+      business: 'Бизнес (10 000 страниц)',
       unlimited: 'Безлимит',
     };
     const base = map[plan] || plan || 'Открытая бета';
-    return limit != null ? `${base} · до ${Number(limit).toLocaleString('ru-RU')} стр.` : base;
+    return limit != null ? `${base} · до ${Number(limit).toLocaleString('ru-RU')} ${this._pagesWord(limit)}` : base;
+  },
+
+  /** «страница / страницы / страниц» вместо «стр.». */
+  _pagesWord(n) {
+    const a = Math.abs(Math.trunc(Number(n) || 0)), m10 = a % 10, m100 = a % 100;
+    return m10 === 1 && m100 !== 11 ? 'страница' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'страницы' : 'страниц';
   },
 
   // Admin/Superadmin "Аккаунты, доступы и тарифы" card.
@@ -252,13 +241,13 @@ const Settings = {
           ? '<span class="badge badge-error">Заблокирован</span>'
           : '<span class="badge badge-sent">Активен</span>';
         const companySub = u.company_name
-          ? `<div class="muted" style="font-size:12px">${esc(u.company_name)}</div>`
+          ? `<div class="muted" style="font-size:0.75rem">${esc(u.company_name)}</div>`
           : '';
         const emailSub = u.email
-          ? `<div class="muted" style="font-size:12px">${esc(u.email)}</div>`
-          : '<div class="muted" style="font-size:12px">без email</div>';
+          ? `<div class="muted" style="font-size:0.75rem">${esc(u.email)}</div>`
+          : '<div class="muted" style="font-size:0.75rem">без email</div>';
         const expSub = u.tariff_expires_at
-          ? `<div class="muted" style="font-size:12px">до ${esc(App.formatDate(u.tariff_expires_at))}</div>`
+          ? `<div class="muted" style="font-size:0.75rem">до ${esc(App.formatDate(u.tariff_expires_at))}</div>`
           : '';
         return `
         <tr style="${u.is_blocked ? 'opacity:0.65' : ''}">
@@ -280,12 +269,12 @@ const Settings = {
           </td>
           <td>
             <div>${Number(u.invoice_count || 0)} накл.</div>
-            <div class="muted" style="font-size:12px">${u.units_all_kg ? '⚖️ всё в кг' : 'ед. 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
+            <div class="muted" style="font-size:0.75rem">${u.units_all_kg ? '⚖️ всё в кг' : 'единицы как в 1С'}${u.telegram_chat_id ? ' · ✈️ TG' : ''}</div>
           </td>
           <td>${u.last_login_at ? esc(App.formatDateTime(u.last_login_at)) : '<span class="muted">—</span>'}</td>
           <td style="white-space:nowrap">
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="btn btn-primary btn-sm" onclick="App.impersonateUser(${Number(u.id)})" title="Войти в кабинет этого пользователя в 1 клик">Войти в аккаунт</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="App.impersonateUser(${Number(u.id)})" title="Войти в кабинет этого пользователя в 1 клик">Войти в аккаунт</button>
               <button type="button" class="btn btn-outline btn-sm" onclick="Settings.openUserModal(${Number(u.id)})">Изменить</button>
             </div>
           </td>
@@ -298,7 +287,7 @@ const Settings = {
               <h3 style="margin-bottom:6px">Суперадмин · Аккаунты, доступы и тарифы</h3>
               <p class="field-hint" style="margin:0">Входите в любой кабинет в 1 клик, меняйте логин, email, пароль, роль, блокировку, тариф и настройки компании.</p>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="Settings.openUserModal(null)">+ Создать аккаунт</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="Settings.openUserModal(null)">+ Создать аккаунт</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -550,7 +539,7 @@ const Settings = {
       const { data } = await res.json();
       const esc = (s) => App.esc(String(s ?? ''));
       const date = (s) => s ? esc(String(s).slice(0, 10).split('-').reverse().join('.')) : '<span class="muted">—</span>';
-      const rub = (n) => `${Math.round(Number(n) || 0).toLocaleString('ru-RU')} ₽`;
+      const rub = (n) => `${Math.round(Number(n) || 0).toLocaleString('ru-RU')}&nbsp;₽`;
       const rows = (data || []).map((c) => {
         const stalled = c.last_sent_at && c.sent_7d === 0 && c.invoices_7d > 0 && c.queue_count > 0;
         return `
@@ -564,7 +553,7 @@ const Settings = {
           <td>${c.invoices_30d} <span class="muted">/ ${c.invoices_total}</span></td>
           <td>${date(c.last_upload_at)}</td>
           <td>${date(c.last_sent_at)}${stalled ? ' <span class="badge badge-error" title="За неделю есть новые накладные, но в 1С ничего не ушло">стоит</span>' : ''}</td>
-          <td>${c.queue_count ? `${c.queue_count} · ${rub(c.queue_sum)}` : '—'}${c.queue_with_sber_payment ? `<div class="muted">с платёжкой: ${c.queue_with_sber_payment}</div>` : ''}</td>
+          <td>${c.queue_count ? `${c.queue_count} · <span style="white-space:nowrap">${rub(c.queue_sum)}</span>` : '—'}${c.queue_with_sber_payment ? `<div class="muted">с платёжкой: ${c.queue_with_sber_payment}</div>` : ''}</td>
           <td>${c.unmapped_lines_in_queue || '—'}</td>
           <td>${c.mappings} <span class="muted">/ ${c.catalog_items}</span></td>
           <td>${c.sber_connected ? '✓' : '—'}</td>
@@ -575,7 +564,7 @@ const Settings = {
           <h3 style="margin-bottom:6px">Компании</h3>
           <p class="field-hint" style="margin-bottom:16px">«Стоит» — за неделю загружены накладные, но в 1С ничего не ушло.</p>
           <div class="table-wrap">
-            <table class="data-table">
+            <table class="data-table companies-table">
               <thead><tr><th>Компания</th><th>Накладных 30 дн. / всего</th><th>Последняя загрузка</th><th>Последняя отправка в 1С</th><th>Очередь в 1С</th><th>Строк без позиции 1С</th><th>Сопоставлений / каталог</th><th>Сбер</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -676,7 +665,7 @@ const Settings = {
     const url = App.esc(login.verification_url);
     box.style.display = '';
     box.innerHTML = `Откройте <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>, войдите в ChatGPT `
-      + `и введите код <strong style="font-size:18px;letter-spacing:2px">${App.esc(login.user_code)}</strong>. `
+      + `и введите код <strong style="font-size:1.125rem;letter-spacing:2px">${App.esc(login.user_code)}</strong>. `
       + `Код действует до ${new Date(login.expires_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. `
       + '<button type="button" class="btn btn-outline btn-sm" onclick="Settings.chatgptCancel()">Отменить</button>';
     this._chatgptLoginExpires = new Date(login.expires_at).getTime();
@@ -778,11 +767,11 @@ const Settings = {
       return;
     }
     host.innerHTML = `
-      <div class="card" style="margin-top:24px">
-        <h3 style="margin-bottom:6px">Эталонные накладные</h3>
-        <div class="field-hint" style="margin-bottom:16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
+      <details class="card settings-details" style="margin-top:24px">
+        <summary><h3 style="display:inline">Эталонные накладные</h3></summary>
+        <div class="field-hint" style="margin:10px 0 16px">Прогон заново распознаёт проверенные накладные («☆ В эталоны») и показывает, что не совпало. В сами накладные ничего не пишется.</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-          <button type="button" class="btn btn-primary" id="golden-run-btn">Прогнать эталоны</button>
+          <button type="button" class="btn btn-outline" id="golden-run-btn">Прогнать эталоны</button>
           <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:400">не больше
             <input type="number" id="golden-run-limit" min="1" max="50" value="10" style="width:76px"> накладных</label>
           <button type="button" class="btn btn-outline btn-sm" id="golden-refresh-btn">Обновить</button>
@@ -790,7 +779,7 @@ const Settings = {
         </div>
         <div id="golden-runs"></div>
         <div id="golden-run-detail" style="margin-top:18px"></div>
-      </div>`;
+      </details>`;
     document.getElementById('golden-run-btn').addEventListener('click', (ev) => Settings._goldenStart(ev.currentTarget));
     document.getElementById('golden-refresh-btn').addEventListener('click', () => Settings._goldenRefresh());
     this._goldenRenderRuns(payload);

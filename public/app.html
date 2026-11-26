@@ -8,9 +8,21 @@
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ScanFlow">
   <!-- Geist с кириллицей, с нашего домена (/css/fonts.css), как на сайте. -->
   <link rel="preload" href="/fonts/geist-v5-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/geist-v5-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script>
+    // Размер текста (общий с приложением /m/: localStorage['sf-text']) — до
+    // отрисовки, чтобы страница не «прыгала». Переключатель — внизу меню.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('sf-text'); } catch (e) { /* приватный режим */ }
+      if (t === 'l' || t === 'xl') document.documentElement.setAttribute('data-text', t);
+    })();
+  </script>
   <link rel="stylesheet" href="/css/fonts.css">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/sidebar.css">
@@ -35,6 +47,9 @@
         </svg>
         <span>ScanFlow</span>
       </a>
+      <!-- Простое приложение для телефона. В установленном приложении на iPhone
+           нет кнопки «Назад» — без этой ссылки из кабинета не выйти. -->
+      <a href="/m/" class="app-simple-link">Простой режим</a>
       <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Открыть меню" aria-controls="app-sidebar" aria-expanded="false">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
@@ -52,42 +67,36 @@
         </svg>
         <span>ScanFlow</span>
       </a>
-      <span class="sidebar-brand-caption">Рабочий кабинет</span>
       <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Закрыть меню">×</button>
     </div>
+    <button type="button" class="sidebar-search" onclick="Shortcuts.openSearch()" aria-keyshortcuts="Control+K"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Поиск</span><kbd>Ctrl K</kbd></button>
     <nav id="app-primary-nav" aria-label="Основная навигация">
       <div class="sidebar-group">
-        <p class="sidebar-group-title">Документы</p>
-        <a href="#/invoices" data-tab="invoices"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Накладные</span></a>
-        <a href="#/upload" data-tab="upload"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>Загрузить накладную</span></a>
-        <a href="#/queue" data-tab="queue"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Очередь в 1С</span></a>
-        <a href="#/operations" data-tab="operations"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 12V8m4 4V4m4 8V6m4 6V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M1 14h14" stroke="currentColor" stroke-width="1.2" opacity=".5"/></svg><span>Операции</span></a>
-      </div>
-      <div class="sidebar-group">
-        <p class="sidebar-group-title">Аналитика</p>
-        <a href="#/analytics/quality" data-tab="analytics-quality"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 12V8m4 4V4m4 8V6m4 6V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M1 14h14" stroke="currentColor" stroke-width="1.2" opacity=".5"/></svg><span>Качество поставщиков</span></a>
-        <a href="#/analytics/prices" data-tab="analytics-prices"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 12V8m4 4V4m4 8V6m4 6V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M1 14h14" stroke="currentColor" stroke-width="1.2" opacity=".5"/></svg><span>Закупочные цены</span></a>
+        <p class="sidebar-group-title">Работа</p>
+        <a href="#/invoices" data-tab="invoices"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg><span>Накладные</span></a>
+        <a href="#/operations" data-tab="operations"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h13l-3-3M17 17H4l3 3"/></svg><span>Операции</span></a>
+        <a href="#/analytics/quality" data-tab="analytics"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-5 4 4 7-7"/><path d="M15 9h5v5"/></svg><span>Аналитика</span></a>
       </div>
       <div class="sidebar-group">
         <p class="sidebar-group-title">Справочники</p>
-        <a href="#/mappings" data-tab="mappings"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Номенклатура</span></a>
-        <a href="#/new-items" data-tab="new-items"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Новые товары</span></a>
-        <a href="#/suppliers" data-tab="suppliers"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 14a5.5 5.5 0 0111 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Поставщики</span></a>
-        <a href="#/learning" data-tab="learning"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4zM9 9h3v3H9zM5.5 7L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Предложения правил</span></a>
+        <a href="#/mappings" data-tab="mappings"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg><span>Номенклатура</span></a>
+        <a href="#/suppliers" data-tab="suppliers"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg><span>Поставщики</span></a>
       </div>
       <div class="sidebar-group">
-        <p class="sidebar-group-title">Интеграции</p>
-        <a href="#/sber" data-tab="sber"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Сбербанк</span></a>
-        <a href="#/integrations-log" data-tab="integrations-log"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Журнал</span></a>
-      </div>
-      <div class="sidebar-group">
-        <p class="sidebar-group-title">Мой кабинет</p>
-        <a href="#/billing" data-tab="billing"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 10h18M7 15h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Оплата</span></a>
-        <a href="#/settings" data-tab="settings"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" opacity="0.4"/></svg><span>Настройки</span></a>
-        <a href="#/profile" data-tab="profile"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 14a5.5 5.5 0 0111 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Профиль</span></a>
+        <p class="sidebar-group-title">Кабинет</p>
+        <a href="#/settings" data-tab="settings"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span>Настройки</span></a>
+        <a href="#/profile" data-tab="profile"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Профиль</span></a>
       </div>
     </nav>
     <div class="sidebar-footer">
+      <div class="text-size" role="radiogroup" aria-label="Размер текста">
+        <span class="text-size__label" aria-hidden="true">Текст</span>
+        <span class="text-size__options">
+          <button type="button" role="radio" data-text-size="m" aria-checked="true" aria-label="Обычный" title="Обычный"><span style="font-size:13px">А</span></button>
+          <button type="button" role="radio" data-text-size="l" aria-checked="false" aria-label="Крупный" title="Крупный"><span style="font-size:16px">А</span></button>
+          <button type="button" role="radio" data-text-size="xl" aria-checked="false" aria-label="Огромный" title="Огромный"><span style="font-size:19px">А</span></button>
+        </span>
+      </div>
       <button type="button" class="btn-logout" onclick="App.logout()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M11 11l3-3m0 0l-3-3m3 3H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Выйти</span></button>
     </div>
   </aside>
@@ -100,6 +109,8 @@
          это невалидная вложенность интерактивных элементов. Поэтому обёртка
          несёт id (весь существующий JS дёргает `#onboarding-banner`.hidden и
          продолжает работать), а сама ссылка — только класс. -->
+    <!-- Вкладки страниц, объединённых в один пункт меню (App.renderSectionTabs). -->
+    <div class="section-tabs" id="section-tabs" role="navigation" aria-label="Разделы страницы" hidden></div>
     <div class="onboarding-banner-wrap" id="onboarding-banner" hidden>
       <a href="#/onboarding" class="onboarding-banner">
         <span class="onboarding-banner__icon" aria-hidden="true">
@@ -130,25 +141,30 @@
     <!-- Invoices Section -->
     <section id="view-invoices">
       <div class="section-header">
-        <div><h1 class="section-h1">Накладные</h1><p class="invoice-list-lead">Обработка, проверка и оплата документов</p></div>
+        <div><h1 class="section-h1">Накладные</h1><button type="button" class="invoices-unpaid" id="invoices-unpaid" hidden onclick="Invoices.setView(Invoices.currentView === 'unpaid' ? 'all' : 'unpaid')" title="Показать неоплаченные накладные"></button></div>
         <div class="review-entry"><button type="button" class="btn btn-outline" onclick="InvoiceReview.start()">Проверить следующую →</button><a href="#/upload" class="btn btn-primary" id="btn-upload-from-list">＋ Загрузить накладную</a></div>
       </div>
       <div class="ai-status-banner" id="ai-status-banner" role="status" hidden></div>
       <div id="invoices-list">
         <div id="recognition-queue-banner" class="recognition-queue-banner" role="status" hidden></div>
         <div id="unit-cost-alerts" class="unit-cost-alerts" aria-live="polite" hidden></div>
-        <div class="invoice-summary" id="invoices-summary" role="group" aria-label="Быстрые фильтры: сводка по всем накладным компании"></div>
         <div class="invoice-list-workspace">
           <div class="invoices-toolbar">
             <div class="search-field">
               <input type="search" id="invoices-search" placeholder="Номер, поставщик или ИНН" oninput="Invoices.setSearch(this.value)" autocomplete="off" name="invoices-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')" aria-label="Поиск накладных" aria-keyshortcuts="/">
               <kbd class="search-field__shortcut" aria-hidden="true">/</kbd>
             </div>
-            <div class="period-filter" id="invoices-period"></div>
-            <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры</button>
-            <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
+            <div class="saved-filters" id="saved-filters" role="group" aria-label="Сохранённые фильтры" hidden></div>
+            <div class="invoices-toolbar__actions">
+              <button type="button" class="filter-reset" id="filter-reset" hidden onclick="Invoices.resetColumnFilters()">Сбросить</button>
+              <button type="button" class="btn btn-outline btn-sm" id="invoice-filter-toggle" onclick="Invoices.toggleFilters()" aria-expanded="false" aria-controls="invoice-filters">Фильтры<span class="filter-count" id="invoice-filter-count" hidden></span></button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-send-ready" hidden onclick="Invoices.sendAllReady(event)" title="Все накладные «Готовы к 1С» — не только на этой странице">Отправить готовые в 1С</button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-delete-duplicates" onclick="Invoices.deleteRecentDuplicates(event)" title="Удалить накладные, загруженные повторно за последние 24 часа. Оригиналы остаются" hidden>Удалить дубликаты</button>
+            </div>
           </div>
           <div class="invoice-filter-panel" id="invoice-filters" hidden>
+            <label>Состояние<select class="filter-input" id="filter-view" onchange="Invoices.setView(this.value)"><option value="all">Все</option><option value="attention">Проверить</option><option value="ready">Готовы к 1С</option><option value="queue">В очереди 1С</option><option value="payment">Без платёжки</option><option value="unpaid">Не оплачены</option></select></label>
+            <label>Период<select class="filter-input" id="filter-period" onchange="Invoices.setPeriod(this.value)"><option value="all">За всё время</option><option value="today">Сегодня</option><option value="yesterday">Вчера</option><option value="7d">7 дней</option><option value="30d">30 дней</option><option value="custom" hidden>Свои даты</option></select></label>
             <label>Номер<input type="text" class="filter-input" id="filter-number" placeholder="Номер документа" oninput="Invoices.setColumnFilter('number', this.value)"></label>
             <label>Поставщик<input type="text" class="filter-input" id="filter-supplier" placeholder="Название" oninput="Invoices.setColumnFilter('supplier', this.value)"></label>
             <label>Загружено с<input type="date" class="filter-input" id="filter-date-from" onchange="Invoices.setColumnFilter('dateFrom', this.value)"></label>
@@ -156,7 +172,8 @@
             <label>Сумма от<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-from" oninput="Invoices.setColumnFilter('sumFrom', this.value)"></label>
             <label>Сумма до<input type="text" inputmode="decimal" class="filter-input" id="filter-sum-to" oninput="Invoices.setColumnFilter('sumTo', this.value)"></label>
             <label>Обработка<select class="filter-input" id="filter-status" onchange="Invoices.setColumnFilter('status', this.value)"><option value="">Все</option><option value="new">Новая</option><option value="processed">Распознана</option><option value="sent_to_1c">В 1С</option><option value="waiting_ai">Ждёт GPT</option><option value="error">Ошибка</option></select></label>
-            <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">Черновик в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option></select></label>
+            <label>Платёж<select class="filter-input" id="filter-sber" onchange="Invoices.setColumnFilter('sber', this.value)"><option value="">Все</option><option value="settled">Оплачено</option><option value="draft">На оплате в Сбер</option><option value="missing">Без платёжки в Сбер</option><option value="failed">Ошибка отправки в Сбер</option><option value="due_week">Оплатить на этой неделе</option><option value="due_overdue">Срок оплаты прошёл</option></select></label>
+            <div class="filter-save"><button type="button" class="btn btn-outline btn-sm" id="filter-save" onclick="Invoices.saveCurrentFilter()" title="Сохранить текущие фильтры кнопкой над списком">Сохранить фильтры</button></div>
           </div>
           <div id="invoices-bulk-bar" class="bulk-bar" style="display:none"></div>
           <div class="table-wrap">
@@ -170,10 +187,17 @@
           </div>
           <div class="invoice-list-footer"><span id="invoices-results" aria-live="polite"></span><div class="pagination" id="invoices-pagination"></div></div>
         </div>
-        <div id="invoices-stats" class="stats-bar"></div>
       </div>
 
       <div id="invoice-detail" style="display:none">
+        <!-- Скелетон карточки: виден, пока грузится другая накладная (Invoices.showDetail),
+             вместо прежней карточки, которая иначе мелькала и перерисовывалась кусками. -->
+        <div class="ic-skeleton" id="ic-skeleton" aria-hidden="true">
+          <div class="card ics-head"><span class="skeleton-bar ics-back"></span><div class="ics-head-main"><span class="skeleton-bar ics-title"></span><span class="skeleton-bar ics-sub"></span></div><span class="skeleton-bar ics-thumb"></span></div>
+          <div class="ics-steps"><span class="skeleton-bar"></span><span class="skeleton-bar"></span><span class="skeleton-bar"></span></div>
+          <div class="card ics-panel"><span class="skeleton-bar ics-w60"></span><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-btn"></span></div>
+          <div class="card ics-items"><span class="skeleton-bar ics-tabs"></span><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div><div class="ics-row"><span class="skeleton-bar ics-w40"></span><span class="skeleton-bar ics-w20"></span><span class="skeleton-bar ics-w12"></span><span class="skeleton-bar ics-w12"></span></div></div>
+        </div>
         <!-- Карточка «по шагам» (спек 2026-10-09): шапка, предупреждения, шаги, панель шага,
              товары и скан справа. Рисуют InvoiceCard, Invoices, InvoiceReview и Sber. -->
         <div class="ic-layout" id="ic-layout">
@@ -199,6 +223,7 @@
                 <button type="button" class="ic-tab active" role="tab" aria-selected="true" data-tab="items" onclick="Invoices.switchTab('items', this)">Товары <span class="ic-tab-count" id="ic-items-count"></span></button>
                 <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="supplier" onclick="Invoices.switchTab('supplier', this)">Поставщик и банк</button>
                 <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="history" onclick="Invoices.switchTab('history', this)">История</button>
+                <button type="button" class="ic-tab" role="tab" aria-selected="false" data-tab="notes" onclick="Invoices.switchTab('notes', this)">Заметки <span class="ic-tab-count" id="ic-notes-count"></span></button>
               </div>
               <div id="invoice-tab-items" role="tabpanel">
                 <div id="invoice-price-warning"></div>
@@ -221,6 +246,13 @@
                 <div id="invoice-items-toolbar"></div>
               </div>
               <div id="invoice-tab-supplier" role="tabpanel" hidden><div id="invoice-supplier-details"></div></div>
+              <div id="invoice-tab-notes" role="tabpanel" hidden>
+                <div id="invoice-notes-list" class="ic-notes" aria-live="polite"></div>
+                <form class="ic-notes-form" onsubmit="Invoices.addNote(event)">
+                  <textarea id="invoice-note-input" rows="2" maxlength="2000" placeholder="Заметка к накладной: что проверить, с кем договорились, почему пауза" aria-label="Текст заметки"></textarea>
+                  <button type="submit" class="btn btn-outline btn-sm">Добавить</button>
+                </form>
+              </div>
               <div id="invoice-tab-history-wrap" role="tabpanel" hidden>
                 <div id="invoice-tab-history"></div>
                 <details class="ic-ocr"><summary id="ic-ocr-summary">Текст распознавания</summary><div class="ocr-text" id="invoice-ocr-text"></div></details>
@@ -233,15 +265,15 @@
     </section>
 
     <!-- Onboarding Wizard — открывается автоматически при первом входе с пустой
-         базой; пользователь может закрыть через «Пропустить wizard». -->
+         базой; пользователь может закрыть через «Пропустить настройку». -->
     <section id="view-onboarding">
       <div class="onboarding-shell">
         <div class="onboarding-head">
           <div class="onboarding-eyebrow">Добро пожаловать</div>
           <h1 class="onboarding-title">3 шага и ScanFlow готов работать</h1>
           <p class="onboarding-sub">Каждый занимает пару минут. Шаг 2 можно пропустить — банк подключите потом из настроек.</p>
-          <button type="button" class="onboarding-skip-all" id="onboarding-skip-all" title="Пропустить онбординг — карточка появится позже в дашборде">
-            Пропустить wizard
+          <button type="button" class="onboarding-skip-all" id="onboarding-skip-all" title="К шагам можно вернуться позже">
+            Пропустить настройку
           </button>
         </div>
 
@@ -272,7 +304,7 @@
                 <span class="onboarding-step__status" id="step1-status">Активный</span>
               </div>
               <h3>Отсканируйте первую накладную</h3>
-              <p>Загрузите фото или PDF любой накладной — примерно через полминуты получите распознанные позиции, поставщика и сумму. Это твой первый тест системы.</p>
+              <p>Загрузите фото или PDF любой накладной — примерно через полминуты получите распознанные позиции, поставщика и сумму. Это ваша первая проверка системы.</p>
               <div class="onboarding-step__actions">
                 <a href="#/upload" class="btn btn-primary" data-onboarding-cta="upload">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -298,7 +330,7 @@
                 <span class="onboarding-step__optional">Можно пропустить</span>
               </div>
               <h3>Подключите банк — черновики платёжек автоматом</h3>
-              <p>Подключите СберБизнес — из каждой одобренной накладной автоматически появится черновик платёжного поручения. Подписание токеном остаётся на твоей стороне, ScanFlow только готовит документ.</p>
+              <p>Подключите СберБизнес — из каждой одобренной накладной автоматически появится черновик платёжного поручения. Подписание токеном остаётся на вашей стороне, ScanFlow только готовит документ.</p>
               <div class="onboarding-step__actions">
                 <a href="#/sber" class="btn btn-primary" data-action="connect-sber" data-onboarding-cta="sber">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 6h10M3 10h10M3 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -353,8 +385,10 @@
     <!-- Upload Section (camera + drag-drop merged) -->
     <section id="view-upload">
       <div class="section-header">
-        <h2>Загрузить накладные</h2>
-        <p class="section-subtitle">Сфотографируйте на камеру или выберите файлы — система загрузит и распознает их асинхронно.</p>
+        <div>
+          <h2>Загрузить накладные</h2>
+          <p class="section-subtitle">Сфотографируйте накладную или выберите файлы — распознаем сами, страницу можно закрыть.</p>
+        </div>
       </div>
 
       <div class="card upload-card">
@@ -387,7 +421,7 @@
     <section id="view-mappings">
       <div class="section-header" style="margin-bottom:16px">
         <div>
-          <h2>Номенклатурные соответствия</h2>
+          <h2>Номенклатура</h2>
           <div id="mappings-catalog-status" class="section-subtitle">Загрузка...</div>
         </div>
       </div>
@@ -424,7 +458,7 @@
       <div id="mappings-mode-all-pane">
         <div class="filters" style="display:flex; gap:12px; align-items:center">
           <input type="text" id="mappings-search" placeholder="Поиск по товару или варианту..." oninput="Mappings.filter(this.value)" style="flex:1" autocomplete="off" name="mappings-search-nofill" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
-          <button class="btn btn-primary btn-sm" onclick="Mappings.showAddForm()">+ Добавить</button>
+          <button class="btn btn-primary" onclick="Mappings.showAddForm()">+ Добавить</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -515,7 +549,7 @@
       <div class="section-header">
         <div>
           <h2>Новые товары</h2>
-          <p class="section-subtitle">Строки неотправленных накладных, для которых нет позиции в 1С, — по товарам. Сопоставьте товар с позицией справочника или попросите 1С создать новую с нужными единицей и группой.</p>
+          <p class="section-subtitle">Товары из неотправленных накладных, которых нет в 1С. <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Сопоставьте товар с позицией справочника или попросите 1С создать новую — с нужными единицей и группой. Строки всех накладных с этим товаром обновятся сразу.">i</button></p>
         </div>
       </div>
       <div class="ni-toolbar">
@@ -532,7 +566,7 @@
       <div class="section-header">
         <div>
           <h2>Качество поставщиков</h2>
-          <p class="section-subtitle">Как часто накладные каждого поставщика приходится исправлять руками. Сначала — поставщики, с накладными которых больше всего хлопот.</p>
+          <p class="section-subtitle">У кого больше всего ручных правок. <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Как часто накладные каждого поставщика приходится исправлять руками. Порядок «Сначала проблемные»: сначала поставщики с красными показателями, затем с жёлтыми. Наведите на заголовок столбца, чтобы прочитать, что он значит.">i</button></p>
         </div>
       </div>
       <div class="an-toolbar">
@@ -562,7 +596,7 @@
       <div class="section-header">
         <div>
           <h2>Закупочные цены</h2>
-          <p class="section-subtitle">Сколько стоит единица товара у поставщиков: как менялась цена, у кого дешевле и что подорожало. Цены — за единицу позиции 1С, по распознанным накладным.</p>
+          <p class="section-subtitle">Почём покупаем, у кого дешевле и что подорожало. <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Цена — за единицу позиции 1С после пересчёта единиц, по распознанным накладным. Строки с пересчётом под вопросом, в другой единице и явные ошибки цены (в 5 раз дальше обычной) не учитываются.">i</button></p>
         </div>
       </div>
       <div class="an-toolbar">
@@ -580,8 +614,10 @@
     <!-- Integration activity log -->
     <section id="view-integrations-log">
       <div class="section-header">
-        <h2>Журнал интеграций</h2>
-        <p class="section-subtitle">Что происходило с накладными в 1С и Сбербанке. Номер накладной открывает её скан</p>
+        <div>
+          <h2>Журнал интеграций</h2>
+          <p class="section-subtitle">Что происходило с накладными в 1С и Сбербанке.</p>
+        </div>
       </div>
       <div id="intlog-onec-status" class="card" style="margin-bottom:12px"></div>
       <div class="filters" id="intlog-filters" style="margin-bottom:12px"></div>
@@ -603,8 +639,7 @@
     <section id="view-operations">
       <div class="section-header operations-header">
         <div>
-          <h1 class="section-h1">Операционный центр</h1>
-          <p class="section-subtitle">Контроль документов, платежей и автоматизации в одном месте</p>
+          <h1 class="section-h1">Операции</h1>
         </div>
         <button type="button" class="btn btn-outline btn-sm" onclick="Operations.load(true)">Обновить</button>
       </div>
@@ -614,10 +649,8 @@
       <div class="tabs operations-tabs" role="tablist" aria-label="Разделы операционного центра">
         <button class="tab-btn active" data-operations-tab="control" onclick="Operations.switchTab('control', this)">Контроль</button>
         <button class="tab-btn" data-operations-tab="payments" onclick="Operations.switchTab('payments', this)">Платежи</button>
-        <button class="tab-btn" data-operations-tab="suppliers" onclick="Operations.switchTab('suppliers', this)">Поставщики</button>
-        <button class="tab-btn" data-operations-tab="channels" onclick="Operations.switchTab('channels', this)">Каналы</button>
+        <button class="tab-btn" data-operations-tab="suppliers" onclick="Operations.switchTab('suppliers', this)">Прогноз и поставщики</button>
         <button class="tab-btn" data-operations-tab="reports" onclick="Operations.switchTab('reports', this)">Отчёты</button>
-        <button class="tab-btn" data-operations-tab="onec" onclick="Operations.switchTab('onec', this)">1С</button>
         <button class="tab-btn" data-operations-tab="assistant" onclick="Operations.switchTab('assistant', this)">Помощник</button>
       </div>
 
@@ -691,28 +724,9 @@
         </div>
       </div>
 
-      <div class="card" style="margin-top:24px">
-        <h3 style="margin-bottom:12px">Автоматизация</h3>
-        <div class="form-group">
-          <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="settings-auto-send-1c">
-              <span class="toggle-slider"></span>
-            </label>
-            <span>Сразу отправлять в 1С</span>
-          </div>
-          <div class="field-hint">Распознанная накладная без ошибок сразу уходит в 1С.</div>
-        </div>
-        <div class="form-group" style="margin-top:16px">
-          <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="settings-auto-send-sber">
-              <span class="toggle-slider"></span>
-            </label>
-            <span>Сразу создавать платёжку в Сбере</span>
-          </div>
-          <div class="field-hint">Черновик создаётся только для подтверждённых поставщиков.</div>
-        </div>
+      <div class="card settings-link-card" style="margin-top:24px">
+        <div><h3>Автоматизация</h3><p class="field-hint">«Сразу отправлять в 1С», платёжки в Сбер и правила проверки — в одном месте.</p></div>
+        <a class="btn btn-outline btn-sm" href="#/operations">Открыть правила автопилота →</a>
       </div>
 
       <div class="card" style="margin-top:24px">
@@ -727,7 +741,7 @@
           <div class="field-hint">Нужен для кнопки «Заполнить по ИНН» в карточке поставщика.</div>
         </div>
         <div class="form-actions settings-admin-only">
-          <button class="btn btn-primary" onclick="Settings.saveDadata()">Сохранить</button>
+          <button class="btn btn-outline" onclick="Settings.saveDadata()">Сохранить</button>
         </div>
       </div>
 
@@ -743,7 +757,7 @@
     <!-- Profile Section -->
     <section id="view-billing" aria-labelledby="billing-title">
       <div class="section-header">
-        <div><h1 class="section-h1" id="billing-title">Оплата</h1><p class="billing-lead">Ваш доступ к ScanFlow, тарифы и платёжные документы</p></div>
+        <div><h1 class="section-h1" id="billing-title">Оплата</h1><p class="billing-lead">Ваш доступ к ScanFlow и тарифы после беты</p></div>
         <span class="billing-beta-tag">Открытая бета</span>
       </div>
       <div id="billing-content" aria-live="polite" aria-busy="false"></div>
@@ -756,13 +770,24 @@
           <p class="section-subtitle">Подключения вашей компании и уведомления о накладных</p>
         </div>
         <span id="profile-tg-status" class="tg-status tg-status--offline">
-          <span class="tg-status-dot"></span><span class="tg-status-text">не подключён</span>
+          <span class="tg-status-dot"></span><span class="tg-status-text">Telegram не подключён</span>
         </span>
       </div>
 
       <div class="profile-grid">
         <div class="profile-col">
-          <div id="profile-product-assistant" class="card profile-card"></div>
+          <div class="card profile-card">
+            <div class="card-header">
+              <div>
+                <h2>Вход на телефоне</h2>
+                <p class="card-subtitle">Откройте этот аккаунт на телефоне без пароля.</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline" id="profile-phone-qr-btn">Показать QR</button>
+            <p class="field-hint" id="profile-phone-qr-status" role="status"></p>
+            <img id="profile-phone-qr-img" width="256" height="256" alt="QR-код для входа на телефоне" hidden>
+          </div>
+
           <div class="card profile-card">
             <div class="card-header">
               <div>
@@ -775,7 +800,7 @@
             </div>
             <div id="profile-onec-status" class="onec-conn-status"></div>
             <p class="field-hint">Нажмите «Получить код», затем в обработке 1С:УНФ вставьте его в поле «Код подключения» и нажмите «Подключить». Код действует ~15 минут.</p>
-            <button type="button" id="profile-onec-btn" class="btn btn-primary">Получить код</button>
+            <button type="button" id="profile-onec-btn" class="btn btn-outline">Получить код</button>
             <div id="profile-onec-code" class="onec-pairing-code" hidden></div>
             <div class="event-list">
               <div class="event-row">
@@ -795,8 +820,8 @@
           <div class="card profile-card">
             <div class="card-header">
               <div>
-                <h2>Подключение</h2>
-                <p class="card-subtitle">Введите два значения, полученные у @BotFather и в /getUpdates</p>
+                <h2>Уведомления в Telegram</h2>
+                <p class="card-subtitle">Chat ID и токен своего бота — как их получить, подсказка ниже</p>
               </div>
               <svg class="card-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>
@@ -868,14 +893,14 @@
             <div class="card-header">
               <div>
                 <h2>Какие события присылать</h2>
-                <p class="card-subtitle">Срочные события всегда отдельным сообщением, остальные обновляют один thread на накладную</p>
+                <p class="card-subtitle">Срочное приходит отдельным сообщением, остальное обновляет одно сообщение о накладной</p>
               </div>
             </div>
 
             <div class="form-group">
               <label for="profile-email">Email для копий уведомлений <span class="muted" style="font-weight:400">(опционально)</span></label>
               <input type="email" id="profile-email" placeholder="you@example.com" autocomplete="email">
-              <div class="field-hint">Если задан — урджентные события (повышенные цены, ошибки) продублируются на почту.</div>
+              <div class="field-hint">Если указать — срочное (повышенные цены, ошибки) придёт и на почту.</div>
             </div>
 
             <div class="event-list">
@@ -895,7 +920,7 @@
                 <span class="event-icon">✅</span>
                 <div class="event-info">
                   <div class="event-name">Накладная распознана</div>
-                  <div class="event-desc">OCR + Claude отработали, накладная готова к проверке</div>
+                  <div class="event-desc">Накладная распознана и готова к проверке</div>
                 </div>
                 <label class="toggle">
                   <input type="checkbox" id="evt-invoice_recognized" data-event="invoice_recognized">
@@ -907,7 +932,7 @@
                 <span class="event-icon">🚨</span>
                 <div class="event-info">
                   <div class="event-name">Ошибка распознавания <span class="event-tag">срочно</span></div>
-                  <div class="event-desc">Накладная ушла в статус error — нужно вмешательство</div>
+                  <div class="event-desc">Распознать не удалось — нужно посмотреть</div>
                 </div>
                 <label class="toggle">
                   <input type="checkbox" id="evt-recognition_error" data-event="recognition_error">
@@ -919,7 +944,7 @@
                 <span class="event-icon">⚠️</span>
                 <div class="event-info">
                   <div class="event-name">Подозрительная сумма <span class="event-tag">срочно</span></div>
-                  <div class="event-desc">Сумма строк не сходится с total_sum</div>
+                  <div class="event-desc">Сумма строк не сходится с итогом накладной</div>
                 </div>
                 <label class="toggle">
                   <input type="checkbox" id="evt-suspicious_total" data-event="suspicious_total">
@@ -966,7 +991,7 @@
               <div class="event-row">
                 <span class="event-icon">✏️</span>
                 <div class="event-info">
-                  <div class="event-name">Правка в дашборде</div>
+                  <div class="event-name">Правка в кабинете</div>
                   <div class="event-desc">Кто-то отредактировал товар или сумму</div>
                 </div>
                 <label class="toggle">
@@ -1029,11 +1054,13 @@
                 </div>
               </div>
               <div class="form-actions">
-                <button type="submit" id="profile-password-save" class="btn btn-primary">Сменить пароль</button>
+                <button type="submit" id="profile-password-save" class="btn btn-outline">Сменить пароль</button>
                 <span id="profile-password-status" class="profile-status-msg" role="status" aria-live="polite"></span>
               </div>
             </form>
           </div>
+          <!-- Помощник по товарам — необязательное подключение (2026-11-17): внизу, а не первым блоком. -->
+          <div id="profile-product-assistant" class="card profile-card"></div>
         </div>
 
         <aside class="profile-aside">
@@ -1066,10 +1093,18 @@
     </section>
 
     <!-- Learning Section (пакет v2, п.15) -->
+    <!-- Корзина (2026-11-17): удалённые накладные 30 дней можно вернуть. -->
+    <section id="view-trash">
+      <div class="section-header">
+        <div><h1 class="section-h1">Корзина</h1><p class="section-subtitle">Удалённые накладные хранятся 30 дней вместе с фото, потом удаляются навсегда.</p></div>
+      </div>
+      <div class="card table-wrap"><table class="invoices-table trash-table cards-mobile"><thead><tr><th>Документ</th><th>Поставщик</th><th class="col-money">Сумма, ₽</th><th>Удалена</th><th class="col-act"><span class="sr-only">Действия</span></th></tr></thead><tbody id="trash-tbody"></tbody></table></div>
+    </section>
+
     <section id="view-learning">
       <h2>Предложения правил</h2>
-      <p class="field-hint" style="margin-bottom:14px">Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.</p>
-      <div id="learning-off-hint" class="card" style="display:none;margin-bottom:14px">Ночной разбор выключен (флаг движка «Ночной разбор правок» в настройках). Запустить разбор вручную можно и сейчас.</div>
+      <p class="section-subtitle" style="margin-bottom:14px">Правила пересчёта из ваших правок — работают только после «Принять». <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Каждую ночь ScanFlow разбирает ваши правки количества и строки, где цена за единицу 1С выбивалась из обычной, и предлагает правило пересчёта «товар + поставщик». Сами правила применяются только после того, как вы их примете: принятое правило сразу пересчитывает этот товар в неотправленных накладных и во всех следующих.">i</button></p>
+      <div id="learning-off-hint" class="learning-off-hint" style="display:none">Ночной разбор выключен. <a href="#/settings">Включить в настройках →</a></div>
       <div class="learning-toolbar">
         <div class="tabs" id="learning-status-tabs">
           <button class="tab-btn active" data-status="pending">Ждут решения</button>
@@ -1078,12 +1113,12 @@
         </div>
         <div class="learning-toolbar__run">
           <button class="btn btn-soft btn-sm" onclick="Learning.run(false, this)" title="Разобрать правки и цены без обращения к ИИ">Разобрать сейчас</button>
-          <button class="btn btn-soft btn-sm" onclick="Learning.run(true, this)" title="Дополнительно спросить Claude о строках, которые разбор не объяснил">Разобрать с ИИ</button>
+          <button class="btn btn-soft btn-sm" onclick="Learning.run(true, this)" title="Дополнительно спросить ИИ о строках, которые разбор не объяснил">Разобрать с ИИ</button>
         </div>
       </div>
       <div id="learning-proposals"></div>
       <h3 style="margin:28px 0 8px">Правила пересчёта</h3>
-      <p class="field-hint" style="margin-bottom:10px">Действующие правила «товар + поставщик → единица 1С». Выключенное правило перестаёт применяться к новым накладным; уже пересчитанные строки не меняются.</p>
+      <p class="field-hint" style="margin-bottom:10px">Действующие правила «товар + поставщик → единица 1С». <button type="button" class="info-tip" aria-label="Подробнее" data-tip="Выключенное правило перестаёт применяться к новым накладным; уже пересчитанные строки не меняются.">i</button></p>
       <div id="learning-rules"></div>
     </section>
 
@@ -1176,6 +1211,9 @@
 <script src="/js/invoice-review.js"></script>
 <script src="/js/invoice-card.js"></script>
 <script src="/js/upload.js"></script>
+<script src="/js/app-nudge.js"></script>
+<script src="/js/text-size.js"></script>
+<script src="/js/info-tip.js"></script>
 <script src="/js/mappings.js"></script>
 <script src="/js/newItems.js"></script>
 <script src="/js/queue.js"></script>
@@ -1192,5 +1230,8 @@
 <script src="/js/analytics.js"></script>
 <script src="/js/onboarding.js"></script>
 <script src="/js/onboarding-hint.js"></script>
+<script src="/js/trash.js"></script>
+<script src="/js/claim.js"></script>
+<script src="/js/shortcuts.js"></script>
 </body>
 </html>

@@ -19,7 +19,9 @@ describe('колонка «1С»', () => {
   const pill = (inv: any) => I._onecPill({ status: 'processed', approved_for_1c: 0, onec_status: 'not_sent', ...inv });
   it('по пути в 1С: не отправлена → в очереди → в 1С', () => {
     expect([tone(pill({})), text(pill({}))]).toEqual(['grey', 'Не отправлена']);
-    expect([tone(pill({ approved_for_1c: 1 })), text(pill({ approved_for_1c: 1 }))]).toEqual(['blue', 'В очереди ждёт загрузки']);
+    // Пока 1С не забрала — «отозвать» прямо в списке (окно отмены, 2026-11-17); забрала — «ждёт загрузки».
+    expect([tone(pill({ approved_for_1c: 1 })), text(pill({ approved_for_1c: 1 }))]).toEqual(['blue', 'В очереди отозвать']);
+    expect(text(pill({ approved_for_1c: 1, onec_pulled_at: '2026-11-17 10:00:00' }))).toBe('В очереди ждёт загрузки');
     expect([tone(pill({ status: 'sent_to_1c', onec_status: 'posted' })), text(pill({ status: 'sent_to_1c', onec_status: 'posted' }))]).toEqual(['green', 'В 1С']);
     expect(text(pill({ status: 'sent_to_1c', onec_status: 'created' }))).toBe('В 1С не проведена');
     // «Сбросить статус» оставляет прежний ответ 1С — накладная снова не отправлена.
@@ -42,7 +44,7 @@ describe('колонка «Оплата»', () => {
     expect([tone(pill({})), text(pill({}))]).toEqual(['grey', 'Нет платёжки']);
     expect(text(pill({ sber_overdue: 1, sber_overdue_days: 14 }))).toBe('Нет платёжки больше 14 дней');
     expect(tone(pill({ sber_overdue: 1 }))).toBe('amber');
-    expect(text(pill({ sber_payment_status: 'created', sber_bank_kind: 'draft' }))).toBe('Черновик ждёт подписи');
+    expect(text(pill({ sber_payment_status: 'created', sber_bank_kind: 'draft' }))).toBe('На оплате ждёт подписи');
     expect(text(pill({ sber_payment_status: 'created', sber_bank_kind: 'in_progress', sber_bank_label: 'Принят банком' }))).toBe('В банке Принят банком');
     expect([tone(pill({ sber_payment_status: 'created', sber_bank_kind: 'paid' })), text(pill({ sber_payment_status: 'created', sber_bank_kind: 'paid' }))]).toEqual(['green', 'Оплачено исполнено банком']);
     expect(tone(pill({ sber_payment_status: 'failed' }))).toBe('red');
@@ -91,14 +93,17 @@ describe('кнопка действия строки', () => {
     expect(html).not.toContain('не в кг');
     expect(I._unitMismatch(item)).toBe(false);
     expect(I._itemTags({ id: 1 }, { ...item, qty_confirmed: 0 })).toContain('нужен вес');
-    expect(I._itemTags({ id: 1 }, { ...item, onec_guid: null })).toContain('не выбрана позиция 1С');
+    // «Позиция 1С не выбрана» — одной строкой в nom-picker, отдельной метки нет (2026-11-17).
+    expect(I._itemTags({ id: 1 }, { ...item, onec_guid: null })).not.toContain('не выбрана позиция 1С');
   });
+  // С 2026-11-17 в строке только «В 1С →» у готовой: «Проверить»/«Открыть» делали то же, что
+  // клик по строке. У остальных — пустое место той же ширины, колонка не прыгает.
   it('одной ширины; «В 1С →» только у готовой к отправке', () => {
     const a = (inv: any) => I._rowAction({ id: 7, status: 'processed', approved_for_1c: 0, ...inv });
     for (const html of [a({}), a({ review_reason: 'total' }), a({ status: 'sent_to_1c' }), a({ duplicate_of: 2 })]) expect(html).toContain('inv-act');
     expect(text(a({}))).toBe('В 1С →');
-    expect(text(a({ review_reason: 'total' }))).toBe('Проверить');
-    expect(text(a({ duplicate_of: 2 }))).toBe('Открыть');
-    expect(text(a({ approved_for_1c: 1 }))).toBe('Открыть');
+    expect(text(a({ review_reason: 'total' }))).toBe('');
+    expect(text(a({ duplicate_of: 2 }))).toBe('');
+    expect(text(a({ approved_for_1c: 1 }))).toBe('');
   });
 });

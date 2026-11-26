@@ -64,10 +64,11 @@ const App = {
     }
     this._progressStart();
     try {
-      const res = await fetch(this.baseUrl + path, { ...options, headers });
+      let res;
+      try { res = await fetch(this.baseUrl + path, { ...options, headers }); } catch { throw this.networkError(); }
       if (res.status === 401) {
         // 401 = ключ устарел/удалён. Уходим на лендинг, там единая форма входа.
-        this.logout('API-ключ не принят. Войдите ещё раз.');
+        this.logout('Вход устарел. Войдите ещё раз.');
         throw new Error('Unauthorized');
       }
       return res;
@@ -76,12 +77,29 @@ const App = {
     }
   },
 
+  // Текст ошибки, когда сервер не прислал своего: «HTTP 502» или «Failed to fetch»
+  // человеку ничего не говорят (2026-11-23).
+  httpErrorText(status) {
+    if (status === 413) return 'Файл слишком большой';
+    if (status === 429) return 'Слишком много запросов подряд. Подождите немного и повторите';
+    if (status >= 500) return 'Сервер не ответил. Повторите через минуту';
+    if (status === 404) return 'Не найдено — возможно, это уже удалили';
+    if (status === 403) return 'Нет доступа';
+    return `Не получилось (код ${status}). Повторите`;
+  },
+
+  networkError() {
+    const err = new Error('Нет связи с сервером. Проверьте интернет и повторите');
+    err.network = true;
+    return err;
+  },
+
   async apiJson(path, options = {}) {
     const res = await this.api(path, options);
     let body = null;
     try { body = await res.json(); } catch { /* not JSON */ }
     if (!res.ok) {
-      const msg = body && body.error ? body.error : `HTTP ${res.status}`;
+      const msg = body && body.error ? body.error : this.httpErrorText(res.status);
       const err = new Error(msg);
       err.status = res.status;
       err.body = body;
@@ -94,13 +112,67 @@ const App = {
     window.location.hash = hash;
   },
 
-  // Keep the current page visible in the left navigation.
+  // Меню — 8 пунктов (решение владельца 2026-11-17). Родственные страницы живут под одним
+  // пунктом и переключаются вкладками сверху; их адреса прежние, закладки и ссылки работают.
+  SECTION_GROUPS: [
+    { nav: 'invoices', label: 'Накладные', tabs: [
+      ['invoices', '#/invoices', 'Накладные'],
+      ['queue', '#/queue', 'Очередь в 1С'],
+      ['trash', '#/trash', 'Корзина'],
+    ] },
+    { nav: 'analytics', label: 'Аналитика', tabs: [
+      ['analytics-quality', '#/analytics/quality', 'Качество поставщиков'],
+      ['analytics-prices', '#/analytics/prices', 'Закупочные цены'],
+    ] },
+    { nav: 'mappings', label: 'Номенклатура', tabs: [
+      ['mappings', '#/mappings', 'Номенклатура'],
+      ['new-items', '#/new-items', 'Новые товары'],
+      ['learning', '#/learning', 'Предложения правил'],
+    ] },
+    { nav: 'settings', label: 'Настройки', tabs: [
+      ['settings', '#/settings', 'Основные'],
+      ['sber', '#/sber', 'Сбербанк'],
+      ['ops-channels', '#/operations/channels', 'Приём документов'],
+      ['ops-onec', '#/operations/onec', 'Подключение 1С'],
+      ['integrations-log', '#/integrations-log', 'Журнал интеграций'],
+    ] },
+    { nav: 'profile', label: 'Профиль', tabs: [
+      ['profile', '#/profile', 'Профиль'],
+      ['billing', '#/billing', 'Тариф и оплата'],
+    ] },
+  ],
+
+  // Keep the current page visible in the left navigation (and its tabs, if it is grouped).
   activateNavTab(tab) {
-    const links = document.querySelectorAll(`#app-primary-nav a[data-tab="${tab}"]`);
+    const group = this.SECTION_GROUPS.find(g => g.tabs.some(([key]) => key === tab));
+    // «Загрузить» в меню больше нет — подсвечиваем «Накладные», откуда туда ведёт кнопка.
+    // Карточка накладной и загрузка живут под «Накладными», но без вкладок списка.
+    const navKey = group ? group.nav : (['upload', 'invoice-detail'].includes(tab) ? 'invoices' : tab);
+    const links = document.querySelectorAll(`#app-primary-nav a[data-tab="${navKey}"]`);
     links.forEach((link) => {
       link.classList.add('active');
       link.setAttribute('aria-current', 'page');
     });
+    this.renderSectionTabs(group, tab);
+  },
+
+  renderSectionTabs(group, active) {
+    const host = document.getElementById('section-tabs');
+    if (!host) return;
+    if (!group) { host.hidden = true; host.innerHTML = ''; return; }
+    host.setAttribute('aria-label', group.label);
+    host.innerHTML = group.tabs.map(([key, href, label]) =>
+      `<a href="${href}" class="section-tab${key === active ? ' active' : ''}"${key === active ? ' aria-current="page"' : ''}>${this.esc(label)}</a>`).join('');
+    host.hidden = false;
+    this.revealActiveTab(host, '.section-tab.active');
+  },
+
+  /** На телефоне ряд вкладок прокручивается: текущую вкладку — в середину, а не за край экрана. */
+  revealActiveTab(host, selector) {
+    const cur = host && host.querySelector(selector);
+    if (!cur || host.scrollWidth <= host.clientWidth) return;
+    const offset = cur.getBoundingClientRect().left - host.getBoundingClientRect().left + host.scrollLeft;
+    host.scrollLeft = Math.max(0, offset - (host.clientWidth - cur.offsetWidth) / 2);
   },
 
   setNavigationOpen(open) {
@@ -131,6 +203,7 @@ const App = {
     this.setNavigationOpen(false);
     // Hide all sections
     document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
+    this.renderSectionTabs(null);
 
     // Страницы накладных (список и карточка) — «широкие»: там таблицы на 10
     // колонок, и в общие 1200px они не влезали, хотя справа пустовало место.
@@ -161,7 +234,7 @@ const App = {
 
     if (hash.startsWith('#/invoices/')) {
       document.getElementById('view-invoices').style.display = 'block';
-      this.activateNavTab('invoices');
+      this.activateNavTab('invoice-detail');
       const id = parseInt(hash.split('/')[2]);
       if (!Number.isFinite(id) || id <= 0) {
         this.notify('Некорректный ID накладной', 'error');
@@ -222,10 +295,19 @@ const App = {
       document.getElementById('view-integrations-log').style.display = 'block';
       this.activateNavTab('integrations-log');
       IntegrationsLog.load();
-    } else if (hash === '#/operations') {
-      document.getElementById('view-operations').style.display = 'block';
-      this.activateNavTab('operations');
-      Operations.load();
+    } else if (hash === '#/trash') {
+      document.getElementById('view-trash').style.display = 'block';
+      this.activateNavTab('trash');
+      Trash.load();
+    } else if (hash.startsWith('#/operations')) {
+      // «Приём документов» и «Подключение 1С» — вкладки «Настроек», рисует их Operations.
+      const sub = hash.split('/')[2] || '';
+      const embedded = ['channels', 'onec'].includes(sub);
+      const section = document.getElementById('view-operations');
+      section.style.display = 'block';
+      section.classList.toggle('ops-embedded', embedded);
+      this.activateNavTab(embedded ? `ops-${sub}` : 'operations');
+      Operations.open(embedded ? sub : (Operations.EMBEDDED.includes(Operations.activeTab) ? 'control' : Operations.activeTab));
     } else if (hash === '#/settings') {
       document.getElementById('view-settings').style.display = 'block';
       this.activateNavTab('settings');
@@ -366,7 +448,7 @@ const App = {
     const bar = document.createElement('div');
     bar.id = 'impersonation-banner';
     bar.setAttribute('role', 'status');
-    bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px;border-radius:10px;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.4);color:var(--text-primary);font-size:14px;';
+    bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px;border-radius:10px;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.4);color:var(--text-primary);font-size:0.875rem;';
     bar.innerHTML = `<span>👁 Вы просматриваете кабинет от лица аккаунта <strong>${this.esc(currentUsername)}</strong> (вход из суперадмина <strong>${this.esc(saved.username || 'admin')}</strong>)</span>`
       + `<button type="button" class="btn btn-outline btn-sm" onclick="App.exitImpersonation()">← Вернуться в суперадмин</button>`;
     main.prepend(bar);

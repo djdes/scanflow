@@ -183,11 +183,11 @@ const Sber = {
     const actions = document.getElementById('sber-actions');
     const s = this.state.status;
     if (!s.connected) {
-      card.innerHTML = '<p>● <strong>Не подключено</strong></p>';
+      card.innerHTML = '<p><span style="color:var(--text-tertiary)">●</span> <strong>Не подключено</strong></p>';
       actions.innerHTML = `
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
           <button id="sber-connect-oauth" class="btn btn-primary" onclick="Sber.startOAuth(this)">Войти через Сбербанк</button>
-          <button class="btn btn-outline" onclick="Sber.toggleSeedForm()">Вставить токены из личного кабинета</button>
+          <button class="btn btn-outline" onclick="Sber.toggleSeedForm()">Ввести ключи вручную</button>
         </div>
         <div id="sber-seed-form" style="display:none"></div>
       `;
@@ -280,7 +280,7 @@ const Sber = {
             <div>Нажмите <b>«Сохранить токен»</b>. Готово — доступ продлён.</div>
           </li>
         </ol>
-        <p class="muted" style="margin-top:8px;font-size:12px">
+        <p class="muted" style="margin-top:8px;font-size:0.75rem">
           Названия разделов на портале могут немного отличаться. Проще всего — кнопка <b>«Войти через Сбербанк»</b>:
           ScanFlow получит токены сам и будет их продлевать.
         </p>
@@ -414,7 +414,7 @@ const Sber = {
           ? this._payLine('red', `Банк не провёл платёжку № ${number}`, `${App.esc(bank || 'Отклонена')}.${comment}`, check)
           : kind === 'in_progress'
             ? this._payLine('blue', `Платёжка № ${number} в работе банка${amount}`, `${App.esc(bank || 'Принята банком')}.${comment}`, check)
-            : this._payLine('blue', `Черновик № ${number} в СберБизнес${amount}`, `Подпишите платёжку в СберБизнес.${bank ? ` В банке: ${App.esc(bank)}.` : ''}${comment}`, check);
+            : this._payLine('blue', `На оплате · платёжка № ${number} в СберБизнес${amount}`, `Подпишите платёжку в СберБизнес.${bank ? ` В банке: ${App.esc(bank)}.` : ''}${comment}`, check);
       wrap.innerHTML = `${line}
         <div class="ic-pay-purpose"><small>Назначение платежа</small><div>${App.esc(payment.payment_purpose || '—')}</div></div>
         <div class="ic-panel-actions">

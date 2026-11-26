@@ -1,7 +1,11 @@
 User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=no
 Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
 Disallow: /app.html
 Disallow: /camera
+Disallow: /m/
 Disallow: /api/
 
 Sitemap: https://scanflow.ru/sitemap.xml

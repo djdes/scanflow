@@ -179,16 +179,17 @@ const InvoiceReview = {
         const left = reqs.filter(r => !r.checked).length;
         const xml = App.isXmlInvoice(inv);
         const issues = this.issues(inv, d);
+        // Как сверять — в значке «i», а не строкой на экране.
         const head = left
-            ? `<b>Сверьте реквизиты ${xml ? 'с документом' : 'со сканом'}</b> <span>— нажмите на реквизит, сравните с бумагой и подтвердите</span>`
-            : '<b>Все реквизиты сверены</b> <span>— можно отправлять в 1С и создавать платёжку</span>';
+            ? `<b>Сверьте реквизиты ${xml ? 'с документом' : 'со сканом'}</b><button type="button" class="info-tip" data-tip="Нажмите на реквизит — ${xml ? 'документ' : 'скан'} откроется на нём. Сравните с бумагой и нажмите «Совпадает»." aria-label="Как сверять реквизиты">i</button>`
+            : '<b>Все реквизиты сверены ✓</b>';
         const eyebrow = this.session ? `<span class="ic-eyebrow">Режим проверки · просмотрено ${this.seen.length}</span>` : '';
         const scanLabel = this.open ? 'Скрыть скан' : xml ? 'Открыть документ' : 'Открыть скан для сверки';
         const lock = d && !d.editable ? this.lockReason(inv) : '';
         el.innerHTML = `
       <div class="ic-verify-head"><div>${eyebrow}${head}</div>
         <button type="button" class="btn ${left && !this.open ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="InvoiceReview.toggleSource()" aria-expanded="${this.open}" aria-controls="invoice-source-workspace">${scanLabel}</button></div>
-      <div class="ic-reqs">${reqs.map(r => `<button type="button" class="ic-req${r.checked ? ' is-ok' : ''}${this.pendingVerify === r.key ? ' is-pending' : ''}" aria-pressed="${r.checked}" onclick="InvoiceReview.verify('${r.key}')" title="${r.checked ? 'Сверено. Нажмите, чтобы снять отметку' : 'Нажмите, чтобы сверить со сканом'}"><span>${r.checked ? this.ICON.check : ''}${App.esc(r.label)}</span><b title="${App.esc(r.value)}">${App.esc(r.value)}</b></button>`).join('')}</div>
+      <div class="ic-reqs">${reqs.map(r => `<button type="button" class="ic-req ic-req--${r.key}${r.checked ? ' is-ok' : ''}${this.pendingVerify === r.key ? ' is-pending' : ''}" aria-pressed="${r.checked}" onclick="InvoiceReview.verify('${r.key}')" title="${r.checked ? 'Сверено. Нажмите, чтобы снять отметку' : 'Нажмите, чтобы сверить со сканом'}"><span>${r.checked ? this.ICON.check : ''}${App.esc(r.label)}</span><b title="${App.esc(r.value)}">${App.esc(r.value)}</b></button>`).join('')}</div>
       ${issues.length ? `<ul class="ic-issues">${issues.map(t => `<li>${App.esc(t)}</li>`).join('')}</ul>` : ''}
       ${lock ? `<p class="ic-muted">${App.esc(lock)}</p>` : ''}
       <div class="ic-panel-actions">

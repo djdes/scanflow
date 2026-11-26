@@ -35,17 +35,55 @@ const RecognitionQueue = {
     }
   },
   schedule() { clearTimeout(this.timer); this.timer = setTimeout(() => this.refresh(), 30000); },
+  /** Задания сервера без тех, что уже в списке загрузок этой вкладки. */
+  visibleJobs(state, history) {
+    const local = new Set((history || []).filter(h => h.jobId && h.status !== 'removed').map(h => Number(h.jobId)));
+    return (state.data || []).filter(job => !local.has(Number(job.id)));
+  },
+  /** Состояние задания простыми словами — те же tone, что у строк загрузки. */
+  jobView(job) {
+    if (job.state === 'processing') return { tone: 'work', label: 'Распознаётся…' };
+    if (job.state === 'retry') {
+      const at = this.shortTime(job.next_attempt_at);
+      return { tone: 'warn', label: `Не распознали — повторим ${at ? `в ${at}` : 'позже'}`, detail: job.last_error || '' };
+    }
+    return { tone: 'wait', label: 'В очереди на распознавание', detail: job.last_error || '' };
+  },
+  /** «16:03» сегодня, «22.11, 16:03» — в другой день. */
+  shortTime(value, now = new Date()) {
+    const d = new Date(String(value || '').replace(' ', 'T'));
+    if (isNaN(d.getTime())) return '';
+    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return d.toDateString() === now.toDateString() ? time
+      : `${d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}, ${time}`;
+  },
   render() {
     const state = this.data;
     if (!state) return;
     const banner = document.getElementById('recognition-queue-banner');
     if (banner) {
       banner.hidden = state.total === 0;
-      banner.innerHTML = `<strong>В очереди распознавания: ${Number(state.total)}</strong><span>Фото сохранены на сервере. Обработка продолжится автоматически.</span><a href="#/upload">Открыть очередь →</a>`;
+      banner.innerHTML = `<strong>Распознаём фото: ${Number(state.total)}</strong><button type="button" class="info-tip" data-tip="Фото сохранены на сервере. Распознавание продолжится само, даже если закрыть страницу." aria-label="Подробнее об очереди распознавания">i</button><a href="#/upload">Смотреть →</a>`;
     }
     const host = document.getElementById('recognition-queue-list');
-    if (!host) return;
-    host.innerHTML = `<div class="recognition-queue-heading"><h3>Постоянная очередь · ${Number(state.total)}</h3><button type="button" class="btn btn-outline btn-sm" onclick="RecognitionQueue.refresh()">Обновить</button></div><p class="recognition-queue-help">Принятые фото останутся здесь до успешного распознавания. Закрытие страницы и перезапуск сервера не удаляют задания.</p>${!state.ai.available && state.total ? `<p class="recognition-queue-reason">${App.esc(state.ai.text)}. Очередь ждёт восстановления.</p>` : ''}${state.data.length ? state.data.map(job => `<article class="recognition-queue-job"><div><strong>${App.esc(job.original_name)}</strong><span>${job.state === 'processing' ? 'Распознаётся' : job.state === 'retry' ? 'Сохранено · ожидает повторной попытки' : 'Сохранено · в очереди'}</span>${job.last_error ? `<p>${App.esc(job.last_error)}</p>` : ''}<small>Принято: ${App.esc(App.formatDateTime(job.created_at))}${job.attempts ? ` · Попыток: ${Number(job.attempts)}` : ''}${job.state === 'retry' ? ` · Следующая: ${App.esc(App.formatDateTime(job.next_attempt_at))}` : ''}</small></div><div>${job.invoice_id ? `<a href="#/invoices/${Number(job.invoice_id)}">Накладная #${Number(job.invoice_id)}</a>` : ''}${job.state === 'retry' ? `<button type="button" class="btn btn-outline btn-sm" data-recognition-retry="${job.id}">Повторить сейчас</button>` : ''}</div></article>`).join('') : '<p class="recognition-queue-help">Нет фотографий, ожидающих обработки.</p>'}${state.total > state.data.length ? `<p>Показаны первые ${state.data.length} из ${Number(state.total)} заданий. Остальные также сохранены и будут обработаны по порядку.</p>` : ''}<p class="recognition-queue-action-error" role="alert" hidden></p>`;
+    if (!host || typeof Upload === 'undefined') return;
+    // Файлы, загруженные в этой вкладке, уже есть в списке выше — второй раз не показываем.
+    const jobs = this.visibleJobs(state, Upload.history);
+    const shown = Number(state.total) - (state.data.length - jobs.length);
+    const reason = !state.ai.available && state.total
+      ? `<p class="recognition-queue-reason">${App.esc(state.ai.text)}. Файлы сохранены — распознаем, как только ИИ снова заработает.</p>` : '';
+    // Пустую очередь не показываем (2026-11-17): блок появляется, только когда есть что ждать.
+    host.hidden = shown <= 0 && !reason;
+    const rows = jobs.map(job => {
+      const view = this.jobView(job);
+      const side = (job.invoice_id ? Upload.invoiceLink(job.invoice_id, false) : '')
+        + (job.state === 'retry' ? `<button type="button" class="btn btn-outline btn-sm" data-recognition-retry="${Number(job.id)}">Повторить сейчас</button>` : '');
+      return Upload.rowHtml({ thumb: Upload.fileThumb(job.original_name), name: job.original_name, tone: view.tone,
+        label: view.label, meta: `принято ${this.shortTime(job.created_at)}`, detail: view.detail, side });
+    }).join('');
+    const more = state.total > state.data.length
+      ? `<p class="recognition-queue-help">И ещё ${Number(state.total) - state.data.length} — распознаем по порядку.</p>` : '';
+    host.innerHTML = `${shown > 0 ? `<div class="recognition-queue-heading"><h3>Ждут распознавания · ${shown}</h3><button type="button" class="info-tip" data-tip="Файлы уже на сервере и распознаются по очереди. Страницу можно закрыть — ничего не пропадёт." aria-label="Подробнее об очереди распознавания">i</button></div>` : ''}${reason}${rows}${shown > 0 ? more : ''}<p class="recognition-queue-action-error" role="alert" hidden></p>`;
     host.querySelectorAll('[data-recognition-retry]').forEach(button => { button.onclick = async () => {
       button.disabled = true;
       try { await App.apiJson(`/recognition-queue/${button.dataset.recognitionRetry}/retry`, { method: 'POST' }); await this.refresh(); }

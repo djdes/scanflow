@@ -14,11 +14,13 @@ const UnitCost = {
   formula(calculation) {
     return `${this.number(calculation.packages)} × ${this.number(calculation.units_per_pack)} = ${this.number(calculation.total_units)} ${this.countUnit(calculation.unit_kind, calculation.total_units)}; ${this.number(calculation.total, true)} ₽ ÷ ${this.number(calculation.total_units)} = ${this.number(calculation.unit_price, true)} ₽`;
   },
+  // В строке товара — только готовый расчёт; «Рассчитать цену за единицу» — в меню строки «⋯».
   rowHtml(invoiceId, item) {
     const state = item.unit_cost;
-    if (!state?.basis) return '';
+    if (!state?.basis || !state.calculation) return '';
     const calculation = state.calculation;
-    return `<div class="unit-cost-row">${calculation ? `<strong>${App.esc(this.price(calculation))}</strong><span>${App.esc(this.formula(calculation))}</span>` : ''}<button type="button" class="unit-cost-open" onclick="UnitCost.open(${invoiceId}, ${item.id})">${calculation ? state.rule_id ? 'Сохранённая формула' : 'Проверить и запомнить формулу' : 'Рассчитать цену за единицу'}</button></div>`;
+    // Одной строкой (2026-11-17): цена за единицу, формула — в подсказке, короткая ссылка.
+    return `<div class="unit-cost-row"><strong title="${App.esc(this.formula(calculation))}">${App.esc(this.price(calculation))}</strong><button type="button" class="unit-cost-open" onclick="UnitCost.open(${invoiceId}, ${item.id})" title="${App.esc(this.formula(calculation))}">${state.rule_id ? 'сохранённая формула' : 'проверить и запомнить формулу'}</button></div>`;
   },
   stopFeed() { clearTimeout(this._feedTimer); this._feedRun = (this._feedRun || 0) + 1; },
   isHome() { return ['#/invoices', '#/', ''].includes(location.hash.split('?')[0]); },
@@ -47,13 +49,23 @@ const UnitCost = {
   loadFeedWhenVisible() {
     this._feedTimer = setTimeout(() => { if (this.isHome()) this.loadFeed(); }, 60000);
   },
+  _collapsed() { try { return localStorage.getItem('sf-unit-cost-collapsed') === '1'; } catch { return false; } },
+  _setCollapsed(value) { try { localStorage.setItem('sf-unit-cost-collapsed', value ? '1' : '0'); } catch { /* storage unavailable */ } },
   renderFeed() {
     const host = document.getElementById('unit-cost-alerts');
     if (!host) return;
     const rows = this._feed || [];
     host.hidden = rows.length === 0;
     if (!rows.length) { host.innerHTML = ''; return; }
-    host.innerHTML = `<div class="unit-cost-feed-heading"><strong>Рассчитана цена за единицу</strong><span>Проверьте формулу и сохраните её для следующих поставок</span></div><div class="unit-cost-feed-list">${rows.slice(0, this._visible || 3).map(row => `<article class="unit-cost-alert"><div><a class="unit-cost-position" href="#/invoices/${row.invoice_id}?item=${row.item_id}">${App.esc(row.original_name)}</a><p>${App.esc(row.supplier || 'Поставщик не указан')} · Накладная № ${App.esc(row.invoice_number || row.invoice_id)}</p><strong>${App.esc(this.price(row.calculation))}</strong><p class="unit-cost-equation">${App.esc(this.formula(row.calculation))}</p>${row.rule_id ? '<small>Рассчитано по сохранённой формуле</small>' : '<small>Предложение по названию — требуется ваше подтверждение</small>'}</div><div class="unit-cost-alert-actions"><button type="button" class="btn btn-outline btn-sm" data-cost-edit="${row.item_id}">${row.rule_id ? 'Проверить формулу' : 'Проверить и запомнить'}</button><button type="button" class="unit-cost-dismiss" data-cost-dismiss="${row.item_id}" aria-label="Скрыть этот расчёт с главной">Скрыть</button></div></article>`).join('')}</div>${rows.length > this._visible || this._cursor ? '<button type="button" class="btn btn-outline btn-sm" data-cost-more>Ещё расчёты</button>' : ''}<p class="unit-cost-feed-action-error" role="alert" hidden></p>`;
+    // Компактный вид (решение владельца 2026-11-17): одна строка на расчёт — товар, поставщик
+    // и номер, цена; формула — во всплывающей подсказке. Блок сворачивается, выбор запомнен.
+    const collapsed = this._collapsed();
+    const visible = rows.slice(0, this._visible || 3);
+    const moreLeft = rows.length > (this._visible || 3) || this._cursor;
+    host.classList.toggle('is-collapsed', collapsed);
+    host.innerHTML = `<div class="unit-cost-feed-heading"><button type="button" class="unit-cost-toggle" data-cost-toggle aria-expanded="${!collapsed}" aria-controls="unit-cost-feed-list"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><strong>Цена за единицу</strong><span class="unit-cost-count">${rows.length}${this._cursor ? '+' : ''}</span></button><button type="button" class="info-tip" aria-label="Подробнее" data-tip="Рассчитали цену за штуку по названию товара. Проверьте формулу и сохраните её — следующие поставки посчитаются сами">i</button></div><div class="unit-cost-feed-list" id="unit-cost-feed-list"${collapsed ? ' hidden' : ''}>${visible.map(row => `<article class="unit-cost-alert"><a class="unit-cost-position" href="#/invoices/${row.invoice_id}?item=${row.item_id}" title="${App.esc(row.original_name)}">${App.esc(row.original_name)}</a><span class="unit-cost-meta" title="${App.esc(row.supplier || 'Поставщик не указан')}">${App.esc(row.supplier || 'Поставщик не указан')} · № ${App.esc(row.invoice_number || row.invoice_id)}</span><strong class="unit-cost-price" title="${App.esc(this.formula(row.calculation))}${row.rule_id ? ' — по сохранённой формуле' : ' — предложение по названию'}">${App.esc(this.price(row.calculation))}</strong><span class="unit-cost-equation" title="${App.esc(this.formula(row.calculation))}">${App.esc(this.formula(row.calculation))}</span><span class="unit-cost-alert-actions"><button type="button" class="btn btn-outline btn-sm unit-cost-check" data-cost-edit="${row.item_id}">${row.rule_id ? 'Формула' : 'Проверить'}</button><button type="button" class="unit-cost-dismiss" data-cost-dismiss="${row.item_id}" aria-label="Скрыть расчёт «${App.esc(row.original_name)}» с главной" title="Скрыть с главной"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></span></article>`).join('')}${moreLeft ? '<button type="button" class="unit-cost-more" data-cost-more>Ещё расчёты</button>' : ''}</div><p class="unit-cost-feed-action-error" role="alert" hidden></p>`;
+    const toggle = host.querySelector('[data-cost-toggle]');
+    if (toggle) toggle.onclick = () => { this._setCollapsed(!this._collapsed()); this.renderFeed(); };
     host.querySelectorAll('[data-cost-edit]').forEach(button => { button.onclick = () => {
       const row = rows.find(item => item.item_id === Number(button.dataset.costEdit));
       if (row) this.open(row.invoice_id, row.item_id);

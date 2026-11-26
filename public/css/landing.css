@@ -595,6 +595,24 @@ html.js [data-animate].visible {
   transform: none;
 }
 
+/* Первый экран не ждёт скрипт (15.11.2026). Раньше заголовок и подзаголовок героя
+   были скрыты (opacity: 0), пока в конце страницы не загрузится landing.js и
+   IntersectionObserver не добавит .visible: на телефоне текст появлялся на 2,8–3 с
+   при первой отрисовке 1,4 с — это и было LCP страницы (Core Web Vitals, поиск).
+   Теперь герой проявляется CSS-анимацией с первой отрисовки, движение то же. */
+@keyframes hero-in {
+  from { opacity: 0; transform: translateY(var(--s-400)); }
+  to   { opacity: 1; transform: none; }
+}
+
+html.js .hero [data-animate] {
+  opacity: 1;
+  transform: none;
+  transition: none;
+  animation: hero-in var(--dur-reveal) var(--ease) both;
+  animation-delay: calc(var(--d, 0) * 80ms);
+}
+
 [data-delay="1"] { --d: 1; }
 [data-delay="2"] { --d: 2; }
 [data-delay="3"] { --d: 3; }
@@ -2118,6 +2136,11 @@ main > .tagline { padding-block: var(--s-800) var(--s-900); }
 .viz-pages__sheet[data-i="0"] { transform: translateX(-112px) rotate(-7deg); }
 .viz-pages__sheet[data-i="1"] { transform: translateY(-4px) rotate(1deg); }
 .viz-pages__sheet[data-i="2"] { transform: translateX(112px) rotate(6deg); }
+/* Узкий телефон: веер листов на ±112 px вылезал за край экрана на 320 px. */
+@media (max-width: 380px) {
+  .viz-pages__sheet[data-i="0"] { transform: translateX(-84px) rotate(-7deg); }
+  .viz-pages__sheet[data-i="2"] { transform: translateX(84px) rotate(6deg); }
+}
 
 .is-playing .viz-pages__sheet[data-i="0"] { transform: translate(-8px, 8px) rotate(-4deg); transition-delay: 300ms; }
 .is-playing .viz-pages__sheet[data-i="1"] { transform: translate(0, 4px) rotate(-1deg); transition-delay: 380ms; }
@@ -4291,6 +4314,8 @@ body.login-open { overflow: hidden; }
     transform: none;
     transition: opacity var(--dur-fade) var(--ease);
   }
+
+  html.js .hero [data-animate] { animation: none; }
 
   *,
   *::before,

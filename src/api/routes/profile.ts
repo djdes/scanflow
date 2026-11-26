@@ -21,10 +21,10 @@ const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOT_TOKEN_RX = /^\d+:[A-Za-z0-9_-]{30,}$/;
 
 router.get('/', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
 
   const cfg = await userRepo.getNotifyConfig(req.user.id);
-  if (!cfg) { res.status(404).json({ error: 'User config not found' }); return; }
+  if (!cfg) { res.status(404).json({ error: 'Настройки пользователя не найдены' }); return; }
 
   const tg = await userRepo.getTelegramConfig(req.user.id);
 
@@ -50,7 +50,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 router.patch('/', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const { email, notify_mode, notify_events, telegram_chat_id, telegram_bot_token, units_all_kg } = req.body ?? {};
 
   const userUpdate: Record<string, unknown> = {};
@@ -58,7 +58,7 @@ router.patch('/', async (req: Request, res: Response) => {
 
   if (email !== undefined) {
     if (email !== null && (typeof email !== 'string' || !EMAIL_RX.test(email))) {
-      res.status(400).json({ error: 'Invalid email' }); return;
+      res.status(400).json({ error: 'Неверный email' }); return;
     }
     userUpdate.email = email;
   }
@@ -99,7 +99,7 @@ router.patch('/', async (req: Request, res: Response) => {
   }
   if (telegram_bot_token !== undefined) {
     if (telegram_bot_token !== null && (typeof telegram_bot_token !== 'string' || !BOT_TOKEN_RX.test(telegram_bot_token))) {
-      res.status(400).json({ error: 'telegram_bot_token must match bot id:secret format' }); return;
+      res.status(400).json({ error: 'Токен бота выглядит иначе: цифры, двоеточие и ключ — скопируйте его из @BotFather целиком' }); return;
     }
     tgUpdate.bot_token = telegram_bot_token;
   }
@@ -111,7 +111,7 @@ router.patch('/', async (req: Request, res: Response) => {
   const hasTgUpdates = Object.keys(tgUpdate).length > 0;
 
   if (!hasUserUpdates && !hasTgUpdates && units_all_kg === undefined) {
-    res.status(400).json({ error: 'No fields to update' }); return;
+    res.status(400).json({ error: 'Нечего сохранять' }); return;
   }
 
   if (hasUserUpdates) {
@@ -150,7 +150,7 @@ const MIN_PASSWORD_LEN = 6;
 const MAX_PASSWORD_LEN = 200;
 
 router.post('/password', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const password = (req.body ?? {}).password;
   if (typeof password !== 'string' || password.trim().length < MIN_PASSWORD_LEN) {
     res.status(400).json({ error: `Пароль должен быть не короче ${MIN_PASSWORD_LEN} символов` });
@@ -169,10 +169,10 @@ router.post('/password', async (req: Request, res: Response) => {
 // longer surfaces this — Telegram replaced email — but the endpoint stays
 // alive so older bookmarks / scripts don't 404.
 router.post('/test-email', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const cfg = await userRepo.getNotifyConfig(req.user.id);
-  if (!cfg?.email) { res.status(400).json({ error: 'No email configured' }); return; }
-  if (!smtpConfigured()) { res.status(503).json({ error: 'SMTP not configured on server' }); return; }
+  if (!cfg?.email) { res.status(400).json({ error: 'Не указан email' }); return; }
+  if (!smtpConfigured()) { res.status(503).json({ error: 'Отправка почты на сервере не настроена' }); return; }
   try {
     await sendNotification(
       cfg.email,
@@ -187,15 +187,15 @@ router.post('/test-email', async (req: Request, res: Response) => {
 });
 
 router.post('/test-telegram', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const tg = await userRepo.getTelegramConfig(req.user.id);
   if (!tg?.chat_id || !tg?.bot_token) {
-    res.status(400).json({ error: 'Telegram not configured (chat_id and bot_token required)' });
+    res.status(400).json({ error: 'Сначала подключите Telegram-бота в профиле' });
     return;
   }
   const chatIds = parseValidChatIds(tg.chat_id);
   if (chatIds.length === 0) {
-    res.status(400).json({ error: 'Telegram not configured (chat_id and bot_token required)' });
+    res.status(400).json({ error: 'Сначала подключите Telegram-бота в профиле' });
     return;
   }
   // Шлём в КАЖДЫЙ чат и отвечаем поштучно: при нескольких получателях общий
@@ -244,21 +244,21 @@ const CHAT_ID_CONFIRMATION_TEMPLATE =
 // The user still has to click "Сохранить" — we don't auto-persist. That keeps the
 // click-Save habit consistent with the rest of the form.
 router.post('/lookup-telegram-chat-id', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
 
   // Token may come from request body (user just typed it but hasn't saved yet)
   // or from DB (already saved). Body takes precedence.
   const tokenFromBody = req.body?.telegram_bot_token;
   if (tokenFromBody !== undefined && tokenFromBody !== null) {
     if (typeof tokenFromBody !== 'string' || !BOT_TOKEN_RX.test(tokenFromBody)) {
-      res.status(400).json({ error: 'telegram_bot_token must match bot id:secret format' });
+      res.status(400).json({ error: 'Токен бота выглядит иначе: цифры, двоеточие и ключ — скопируйте его из @BotFather целиком' });
       return;
     }
   }
   const tg = await userRepo.getTelegramConfig(req.user.id);
   const token = (tokenFromBody as string | undefined) || tg?.bot_token || null;
   if (!token) {
-    res.status(400).json({ error: 'Telegram bot token is not set' });
+    res.status(400).json({ error: 'Не указан токен Telegram-бота' });
     return;
   }
 
@@ -271,7 +271,7 @@ router.post('/lookup-telegram-chat-id', async (req: Request, res: Response) => {
   } catch (err) {
     const msg = (err as Error).message;
     if (msg.includes('401') && msg.includes('Unauthorized')) {
-      res.status(401).json({ error: 'Invalid bot token: Unauthorized' });
+      res.status(401).json({ error: 'Telegram не принял токен бота — проверьте его' });
       return;
     }
     logger.warn('lookup: getMe failed', { error: msg });
@@ -335,14 +335,14 @@ router.post('/lookup-telegram-chat-id', async (req: Request, res: Response) => {
 
 // GET /api/profile/sber-template — текущий шаблон назначения платежа
 router.get('/sber-template', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const template = await userRepo.getPurposeTemplate(req.user.id);
   res.json({ template });
 });
 
 // PATCH /api/profile/sber-template — обновить шаблон
 router.patch('/sber-template', async (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  if (!req.user) { res.status(401).json({ error: 'Нужно войти заново' }); return; }
   const template = (req.body as { template?: string }).template;
   if (typeof template !== 'string' || template.length === 0 || template.length > 400) {
     res.status(400).json({ error: 'template must be a non-empty string up to 400 chars' });

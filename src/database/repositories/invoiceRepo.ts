@@ -126,7 +126,7 @@ export interface ListFilters {
   sumFrom?: number;
   sumTo?: number;
   /** 'paid' — есть платёж в Сбере или отметка «оплачено вне сервиса»; 'unpaid' — ни того, ни другого. */
-  sber?: 'paid' | 'unpaid' | 'settled' | 'draft' | 'missing' | 'failed';
+  sber?: 'paid' | 'unpaid' | 'settled' | 'draft' | 'missing' | 'failed' | 'due_week' | 'due_overdue';
   view?: InvoiceListView;
 }
 
@@ -371,11 +371,23 @@ function invoiceListWhere(status?: string, ownerUserId?: number, opts?: ListFilt
       draft: `invoices.paid_externally = 0 AND EXISTS (SELECT 1 FROM sber_payments sp WHERE sp.invoice_id = invoices.id AND sp.status = 'created' AND (sp.bank_status IS NULL OR sp.bank_status IN ('CREATED', 'PARTSIGNED')))`,
       missing: INVOICE_VIEW_SQL.payment,
       failed: FAILED_PAYMENT_SQL,
+      // Срок оплаты — как в «Операциях → Платежи»: своя дата накладной или дата
+      // накладной + отсрочка поставщика (по умолчанию 7 дней). Только без платёжки.
+      due_week: `${INVOICE_VIEW_SQL.payment} AND ${PAYMENT_DUE_SQL} BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)`,
+      due_overdue: `${INVOICE_VIEW_SQL.payment} AND ${PAYMENT_DUE_SQL} < CURDATE()`,
     };
     if (opts?.sber && paymentFilters[opts.sber]) conds.push(paymentFilters[opts.sber]);
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     return { where, params };
 }
+
+/** Срок оплаты накладной (DATE или NULL) — та же формула, что в operationsRepo. */
+const PAYMENT_DUE_SQL = `COALESCE(invoices.payment_due_date,
+  CASE WHEN invoices.invoice_date REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+       THEN DATE_ADD(STR_TO_DATE(invoices.invoice_date, '%Y-%m-%d'), INTERVAL COALESCE((
+         SELECT sc.payment_terms_days FROM supplier_cards sc
+          WHERE sc.inn = invoices.supplier_inn AND sc.owner_user_id <=> invoices.owner_user_id LIMIT 1), 7) DAY)
+       ELSE NULL END)`;
 
 export const invoiceRepo = {
   async create(data: CreateInvoiceData): Promise<Invoice> {
@@ -468,7 +480,9 @@ export const invoiceRepo = {
       COALESCE(SUM(${INVOICE_VIEW_SQL.ready}), 0) AS ready,
       COALESCE(SUM(${INVOICE_VIEW_SQL.queue}), 0) AS queue,
       COALESCE(SUM(${INVOICE_VIEW_SQL.payment}), 0) AS payment,
-      COALESCE(SUM(CASE WHEN ${INVOICE_VIEW_SQL.payment} THEN total_sum ELSE 0 END), 0) AS paymentSum
+      COALESCE(SUM(CASE WHEN ${INVOICE_VIEW_SQL.payment} THEN total_sum ELSE 0 END), 0) AS paymentSum,
+      COALESCE(SUM(${INVOICE_VIEW_SQL.unpaid}), 0) AS unpaid,
+      COALESCE(SUM(CASE WHEN ${INVOICE_VIEW_SQL.unpaid} THEN total_sum ELSE 0 END), 0) AS unpaidSum
       FROM invoices ${where}`).get<Record<string, number>>(params);
     return Object.fromEntries(Object.entries(row || {}).map(([key, value]) => [key, Number(value)]));
   },
@@ -1058,6 +1072,18 @@ export const invoiceRepo = {
       `SELECT 1 AS x FROM invoice_items WHERE invoice_id = ? AND onec_guid IS NULL LIMIT 1`
     ).get<{ x: number }>(invoiceId);
     return !!row;
+  },
+
+  /**
+   * Почему накладную надо проверить (`total`, `mapping`, …) или null — то же
+   * правило, что у списка и карточек-фильтров (REVIEW_REASON_SQL). Карточке
+   * оно нужно, чтобы не предлагать «Отправить в 1С» непроверенной накладной.
+   */
+  async reviewReason(id: number): Promise<string | null> {
+    const row = await getDb().prepare(
+      `SELECT (${REVIEW_REASON_SQL}) AS review_reason FROM invoices WHERE invoices.id = ?`,
+    ).get<{ review_reason: string | null }>(id);
+    return row?.review_reason ?? null;
   },
 
   async getWithItems(id: number): Promise<(Invoice & { items: Array<InvoiceItem & { median_price: number | null; median_price_unit: string | null; median_samples: number | null }> }) | undefined> {

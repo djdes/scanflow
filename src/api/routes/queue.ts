@@ -48,7 +48,7 @@ export function setMapper(m: NomenclatureMapper): void {
 function ownerOf(req: Request, res: Response): number | null {
   const id = req.user?.id;
   if (id == null) {
-    res.status(401).json({ error: 'Unauthorized' });
+    res.status(401).json({ error: 'Нужно войти заново' });
     return null;
   }
   return id;
@@ -144,7 +144,7 @@ async function loadOwnedInvoice(req: Request, res: Response, owner: number) {
   const id = parseId(req.params.id);
   const inv = id != null ? await invoiceRepo.getById(id) : undefined;
   if (!inv || inv.owner_user_id !== owner) {
-    res.status(404).json({ error: 'Invoice not found' });
+    res.status(404).json({ error: 'Накладная не найдена' });
     return null;
   }
   return inv;

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import { config } from '../../config';
 import { requireAdmin } from '../middleware/auth';
 import { automationRepo, AutomationSettings } from '../../database/repositories/automationRepo';
@@ -20,7 +21,7 @@ import { approvalDelegateRepo } from '../../database/repositories/approvalDelega
 import { userRepo } from '../../database/repositories/userRepo';
 
 const router = Router();
-const statementUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const statementUpload = multer({ ...MULTIPART_UTF8, storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
 function numericIds(value: unknown, limit = 100): number[] {
   if (!Array.isArray(value)) return [];
@@ -73,13 +74,27 @@ function classifyPayment(row: ReconciliationRow): { code: string; label: string;
   return { code: 'pending', label: status === 'created' ? 'Черновик создан' : 'В обработке', tone: 'info' };
 }
 
-function aggregateRootCauses(rows: Array<ExceptionRow & { reasons: string[] }>) {
+// Человекочитаемые названия типов документа — те же, что в списке накладных
+// (Invoices._INVOICE_TYPES): в сводке стояли коды базы «упд», «торг_12».
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  счет_на_оплату: 'Счёт на оплату', торг_12: 'ТОРГ-12', упд: 'УПД', счет_фактура: 'Счёт-фактура',
+  акт: 'Акт', кассовый_чек: 'Кассовый чек', авансовый_отчет: 'Авансовый отчёт', прочее: 'Другой документ',
+};
+
+// Причина для группировки — без подробностей после двоеточия: «Не сопоставлено: 3» и
+// «Не сопоставлено: 4» — одна причина у двух накладных, а не две разные по одной.
+export function rootCauseName(reason: string): string {
+  const colon = reason.indexOf(':');
+  return colon > 0 ? reason.slice(0, colon).trim() : reason;
+}
+
+export function aggregateRootCauses(rows: Array<{ reasons: string[]; supplier?: string | null; invoice_type?: string | null }>) {
   const counts = (values: string[]) => [...values.reduce((map, value) => map.set(value, (map.get(value) || 0) + 1), new Map<string, number>())]
     .map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   return {
-    by_reason: counts(rows.flatMap(row => row.reasons)),
+    by_reason: counts(rows.flatMap(row => [...new Set(row.reasons.map(rootCauseName))])),
     by_supplier: counts(rows.map(row => row.supplier || 'Поставщик не определён')).slice(0, 10),
-    by_document_type: counts(rows.map(row => row.invoice_type || 'Тип не определён')),
+    by_document_type: counts(rows.map(row => (row.invoice_type && DOCUMENT_TYPE_LABELS[row.invoice_type]) || row.invoice_type || 'Тип не определён')),
   };
 }
 
@@ -196,7 +211,7 @@ router.put('/autopilot', requireAdmin, async (req: Request, res: Response) => {
   }
   if (body.min_mapping_confidence !== undefined) {
     const value = Number(body.min_mapping_confidence);
-    if (!Number.isFinite(value) || value < 0 || value > 1) return res.status(400).json({ error: 'min_mapping_confidence must be between 0 and 1' });
+    if (!Number.isFinite(value) || value < 0 || value > 1) return res.status(400).json({ error: 'Уверенность сопоставления — от 0 до 1' });
     patch.min_mapping_confidence = value;
   }
   for (const key of ['max_total', 'payment_approval_threshold'] as const) {
@@ -208,7 +223,7 @@ router.put('/autopilot', requireAdmin, async (req: Request, res: Response) => {
   }
   if (body.payment_cash_balance !== undefined) {
     const value = body.payment_cash_balance == null ? null : Number(body.payment_cash_balance);
-    if (value != null && (!Number.isFinite(value) || value < 0)) return res.status(400).json({ error: 'payment_cash_balance must be zero, a positive number or null' });
+    if (value != null && (!Number.isFinite(value) || value < 0)) return res.status(400).json({ error: 'Остаток на счёте — ноль или положительное число' });
     patch.payment_cash_balance = value;
   }
   res.json({ data: await automationRepo.update(patch) });
@@ -216,7 +231,7 @@ router.put('/autopilot', requireAdmin, async (req: Request, res: Response) => {
 
 router.get('/quality/:invoiceId', async (req: Request, res: Response) => {
   const invoiceId = Number(req.params.invoiceId);
-  if (!Number.isFinite(invoiceId) || !(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Invoice not found' });
+  if (!Number.isFinite(invoiceId) || !(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Накладная не найдена' });
   res.json({ data: await evaluateInvoiceQuality(invoiceId) });
 });
 
@@ -231,7 +246,7 @@ router.post('/approvals', async (req: Request, res: Response) => {
   const invoiceId = Number(req.body?.invoice_id);
   const action = req.body?.action as ApprovalAction;
   if (!Number.isFinite(invoiceId) || !['sber', '1c'].includes(action)) return res.status(400).json({ error: 'invoice_id and action are required' });
-  if (!(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Invoice not found' });
+  if (!(await canAccessInvoice(req, invoiceId))) return res.status(404).json({ error: 'Накладная не найдена' });
   const quality = await evaluateInvoiceQuality(invoiceId);
   const row = await approvalRepo.create(invoiceId, action, req.user?.id ?? null, req.body?.note);
   res.status(201).json({ data: row, quality });
@@ -242,10 +257,10 @@ router.post('/approvals/:id/decision', async (req: Request, res: Response) => {
   const decision = req.body?.decision as 'approved' | 'rejected';
   if (!Number.isFinite(id) || !['approved', 'rejected'].includes(decision)) return res.status(400).json({ error: 'decision must be approved or rejected' });
   const approval = await approvalRepo.getById(id);
-  if (!approval) return res.status(404).json({ error: 'Approval request not found' });
+  if (!approval) return res.status(404).json({ error: 'Запрос на согласование не найден' });
   if (!(await canDecideApproval(req, approval))) return res.status(403).json({ error: 'Нет права согласовать эту сумму' });
   const changed = await approvalRepo.decide(id, decision, req.user?.id ?? null, req.body?.note);
-  if (!changed) return res.status(409).json({ error: 'Approval request has already been decided' });
+  if (!changed) return res.status(409).json({ error: 'По этому запросу уже принято решение' });
   if (decision === 'rejected') return res.json({ success: true });
 
   try {

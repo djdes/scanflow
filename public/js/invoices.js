@@ -55,17 +55,22 @@ const Invoices = {
 
       const mkBtn = (inv, dir) => {
         if (!inv) return '';
-        const arrow = dir === 'prev' ? '←' : '→';
+        // Вверх/вниз по списку, а не «←»: стрелка влево рядом с «‹ Накладные»
+        // читалась как вторая кнопка «назад» (2026-11-23).
+        const arrow = dir === 'prev'
+          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>'
+          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
         const label = inv.supplier
           ? App.esc(inv.supplier)
           : (inv.invoice_number ? `№ ${App.esc(inv.invoice_number)}` : `#${inv.id}`);
         const visitedCls = visited.has(inv.id) ? ' visited' : '';
-        const ttip = [inv.supplier || '', inv.invoice_number ? `№${inv.invoice_number}` : ''].filter(Boolean).join(' ');
+        const who = [inv.supplier || '', inv.invoice_number ? `№ ${inv.invoice_number}` : ''].filter(Boolean).join(', ');
+        const ttip = `${dir === 'prev' ? 'Предыдущая накладная (K)' : 'Следующая накладная (J)'}${who ? `: ${who}` : ''}`;
         // Стрелка и имя — отдельные спаны: имя обрезается многоточием, стрелка
         // всегда видна (см. .inv-nav-arrow / .inv-nav-label). Полное имя — в title.
         const a = `<span class="inv-nav-arrow">${arrow}</span>`;
         const l = `<span class="inv-nav-label">${label}</span>`;
-        return `<a class="inv-nav-btn${visitedCls}" href="#" title="${App.esc(ttip)}"
+        return `<a class="inv-nav-btn${visitedCls}" href="#" data-nav="${dir}" title="${App.esc(ttip)}" aria-label="${App.esc(ttip)}"
                    onclick="event.preventDefault();Invoices.openInvoice(${inv.id})"
                 >${dir === 'prev' ? a + l : l + a}</a>`;
       };
@@ -90,10 +95,25 @@ const Invoices = {
     this._currentInvoiceId = null;
     if (typeof InvoiceCard !== 'undefined') InvoiceCard.closeMenu();
     document.getElementById('view-invoices')?.classList.remove('is-detail');
-    document.getElementById('invoices-list').style.display = 'block';
+    const listEl = document.getElementById('invoices-list');
+    const fromDetail = listEl.style.display === 'none';
+    listEl.style.display = 'block';
+    if (fromDetail) {
+      listEl.classList.remove('is-entering');
+      void listEl.offsetWidth;
+      listEl.classList.add('is-entering');
+    }
     document.getElementById('invoice-detail').style.display = 'none';
     if (typeof UnitCost !== 'undefined') UnitCost.loadFeed();
+    this._bindDropUpload();
     await this.loadTable();
+  },
+
+  _renderResultsLine() {
+    const el = document.getElementById('invoices-results');
+    if (!el) return;
+    el.textContent = [this._results, this._unread ? `новых: ${this._unread}` : ''].filter(Boolean).join(' · ');
+    el.title = this._unread ? 'Новые — ещё не открытые накладные, отмечены синей точкой' : '';
   },
 
   async loadStats() {
@@ -103,8 +123,16 @@ const Invoices = {
       if (request !== this._statsRequest) return;
       this._stats = data;
       this._renderSummary();
-      const container = document.getElementById('invoices-stats');
-      container.textContent = data.unreadCount ? `Непрочитанных: ${data.unreadCount} · Сводка показывает все накладные компании` : 'Сводка показывает все накладные компании';
+      // Число новых — в строке «Показано …» под списком, а не отдельной надписью по центру.
+      this._unread = Number(data.unreadCount) || 0;
+      this._renderResultsLine();
+      // «Удалить дубликаты» — только когда за сутки есть повторные загрузки.
+      const dupBtn = document.getElementById('btn-delete-duplicates');
+      const dups = Number(data.recentDuplicates) || 0;
+      if (dupBtn) {
+        dupBtn.hidden = dups === 0;
+        dupBtn.textContent = `Удалить дубликаты (${dups})`;
+      }
     } catch (e) {
       console.error('Failed to load stats', e);
     }
@@ -117,7 +145,14 @@ const Invoices = {
     if (!el) return;
     try {
       const { data } = await App.apiJson('/ai/status');
-      if (data.available && !data.waiting) { el.hidden = true; return; }
+      // Плашка — только когда накладные реально ждут ИИ. Просто «не подключён» — точка
+      // у пункта «Настройки» в меню (подключают там), без строки над каждым списком.
+      const navSettings = document.querySelector('#app-primary-nav a[data-tab="settings"]');
+      if (navSettings) {
+        navSettings.classList.toggle('nav-alert', !data.available);
+        navSettings.title = data.available ? '' : `Распознавание приостановлено: ${data.text}`;
+      }
+      if (!data.waiting) { el.hidden = true; return; }
       const head = data.available
         ? 'GPT снова доступен — накладные, которые ждали, распознаются'
         : `Распознавание приостановлено: ${data.text}`;
@@ -128,25 +163,44 @@ const Invoices = {
     }
   },
 
-  // Пять равных карточек-фильтров (спек 2026-10-09): число крупно, подпись мелко, выбранная — в рамке.
+  // Состояние накладной — в панели «Фильтры» (решение владельца 2026-11-17: карточки-фильтры
+  // над списком убраны). Числа — в подписях пунктов, у «Без платёжки» ещё и сумма.
   _renderSummary() {
+    const select = document.getElementById('filter-view');
+    if (!select) return;
     const data = this._stats || {};
     const w = data.workflow || {};
-    const cards = [
-      ['all', 'Все накладные', data.total, 'Вся компания', 'neutral'],
-      ['attention', 'Требуют внимания', w.attention, 'Реквизиты, товары, ошибки', 'warning'],
-      ['ready', 'Готовы к отправке', w.ready, 'Без замечаний', 'success'],
-      ['queue', 'В очереди 1С', w.queue, 'Ждут загрузки в 1С', 'primary'],
-      ['payment', 'Без платёжки', w.payment, w.paymentSum ? `На ${App.formatMoney(w.paymentSum)} ₽` : 'В СберБизнес', 'neutral'],
-    ];
-    document.getElementById('invoices-summary').innerHTML = cards.map(([key, label, count, hint, tone]) => `
-      <button type="button" class="invoice-summary-card invoice-summary-card--${tone}" aria-pressed="${this.currentView === key}" onclick="Invoices.setView('${key}')">
-        <span>${label}</span><strong>${count ?? '—'}</strong><small>${App.esc(hint)}</small>
-      </button>`).join('');
+    const labels = {
+      all: ['Все', data.total],
+      attention: ['Проверить', w.attention],
+      ready: ['Готовы к 1С', w.ready],
+      queue: ['В очереди 1С', w.queue],
+      payment: ['Без платёжки', w.payment, w.paymentSum ? `${App.formatMoney(w.paymentSum)} ₽` : ''],
+      unpaid: ['Не оплачены', w.unpaid, w.unpaidSum ? `${App.formatMoney(w.unpaidSum)} ₽` : ''],
+    };
+    for (const option of select.options) {
+      const [label, count, extra] = labels[option.value] || [];
+      if (!label) continue;
+      const tail = [count != null ? count : null, extra || null].filter(v => v != null && v !== '').join(' · ');
+      option.textContent = tail ? `${label} (${tail})` : label;
+    }
+    select.value = this.currentView;
+    const unpaid = document.getElementById('invoices-unpaid');
+    if (unpaid) {
+      const n = Number(w.unpaid) || 0;
+      unpaid.hidden = n === 0;
+      unpaid.innerHTML = n ? `Не оплачено: <strong>${App.formatMoney(w.unpaidSum)} ₽</strong> · ${n} ${this._plural(n, 'накладная', 'накладные', 'накладных')}` : '';
+      unpaid.classList.toggle('is-active', this.currentView === 'unpaid');
+    }
+    const sendReady = document.getElementById('btn-send-ready');
+    if (sendReady) {
+      sendReady.hidden = !(Number(w.ready) > 0);
+      sendReady.textContent = `Отправить готовые в 1С · ${Number(w.ready) || 0}`;
+    }
   },
 
   setView(view) {
-    if (!['all', 'attention', 'ready', 'queue', 'payment'].includes(view)) return;
+    if (!['all', 'attention', 'ready', 'queue', 'payment', 'unpaid'].includes(view)) return;
     this.currentView = view;
     this.currentStatus = null;
     this.colFilters.sber = '';
@@ -176,16 +230,18 @@ const Invoices = {
     return reasons[inv.review_reason] || '';
   },
 
+  // В строке — только «В 1С →» у готовой накладной (2026-11-17): «Проверить» и «Открыть»
+  // делали то же, что клик по строке. Место под кнопку держится, колонка не прыгает.
   _rowAction(inv) {
-    if (inv.review_reason || inv.sibling_is_copy) return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Проверить</button>`;
-    if (inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-primary btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
-    return `<button type="button" class="btn btn-outline btn-sm inv-act" onclick="event.stopPropagation();Invoices.openInvoice(${inv.id})">Открыть</button>`;
+    if (!inv.review_reason && !inv.sibling_is_copy && inv.status === 'processed' && !inv.approved_for_1c && !inv.duplicate_of) return `<button type="button" class="btn btn-soft btn-sm inv-act" onclick="Invoices.sendTo1C(${inv.id}, event, true)">В 1С →</button>`;
+    return '<span class="inv-act inv-act--empty" aria-hidden="true"></span>';
   },
 
   async loadTable() {
     const request = ++this._listRequest;
     this.loadStats();
     this._renderPeriod();
+    this._renderSavedFilters();
     // Набор строк меняется — прежнее выделение больше не относится к этим строкам.
     this._selected.clear();
     this._renderBulkBar();
@@ -210,7 +266,8 @@ const Invoices = {
       const { data, total } = await App.apiJson(url);
       if (request !== this._listRequest) return;
       const resultTotal = Number(total ?? data?.length ?? 0);
-      document.getElementById('invoices-results').textContent = `Показано ${data?.length ? this.offset + 1 : 0}–${this.offset + (data?.length || 0)} из ${resultTotal}`;
+      this._results = `Показано ${data?.length ? this.offset + 1 : 0}–${this.offset + (data?.length || 0)} из ${resultTotal}`;
+      this._renderResultsLine();
       document.getElementById('invoices-pagination').innerHTML = '';
       // Запоминаем строки: панель массовых действий должна знать, у каких из
       // выделенных накладных закрыт чек-лист сверки (флаги приходят в списке).
@@ -244,21 +301,17 @@ const Invoices = {
           <td colspan="7">${Invoices._dayHeaderLabel(day, dayCounts[day])}</td>
         </tr>`);
         }
-        const review = this._reviewText(inv);
+        // Одна строка — одно упоминание проблемы (2026-11-17): причина проверки — подписью
+        // под плашкой «1С», дубликат — там же ссылкой; под поставщиком ничего не пишем.
         const priceCount = Number(inv.elevated_price_count) || 0;
-        const notes = [review, priceCount ? `${priceCount} ${this._plural(priceCount, 'позиция', 'позиции', 'позиций')} дороже обычного` : ''].filter(Boolean);
+        const priceNote = priceCount ? `<small class="invoice-price-note" title="${priceCount} ${this._plural(priceCount, 'позиция', 'позиции', 'позиций')} дороже обычного более чем на 10%">↑ ${priceCount} дороже</small>` : '';
         const dupTargetId = inv.duplicate_of || (inv.sibling_is_copy ? inv.sibling_duplicate_id : null);
-        const dupBadgeHtml = dupTargetId
-          ? `<a href="#/invoices/${dupTargetId}" onclick="event.stopPropagation()" class="invoice-duplicate-link">⚠ Дубликат #${dupTargetId}</a>`
-          : (inv.sibling_duplicate_id
-            ? `<a href="#/invoices/${inv.sibling_duplicate_id}" onclick="event.stopPropagation()" class="invoice-duplicate-link">Есть повтор #${inv.sibling_duplicate_id}</a>`
-            : '');
         rowsHtml.push(`
           <tr class="clickable${(inv.review_reason || dupTargetId) ? ' invoice-needs-review' : ''}${!inv.read_at ? ' unread' : ''}${this.isVisited(inv.id) ? ' inv-visited' : ''}" data-day="${day}" onclick="Invoices.openInvoice(${inv.id})">
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${inv.id}" onclick="event.stopPropagation()" onchange="Invoices.toggleSelect(${inv.id}, this.checked)" aria-label="Выбрать накладную ${App.esc(inv.invoice_number || inv.id)}"></td>
-            <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small>${App.formatDate(inv.invoice_date)} · #${inv.id}</small>${dupBadgeHtml}</div></td>
-            <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span>${notes.length ? `<small class="inv-notes">${notes.map(n => App.esc(n)).join(' · ')}</small>` : ''}</div></td>
-            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${this._vatLine(inv)}</div></td>
+            <td data-label="Документ"><div class="invoice-cell-stack"><a class="invoice-document-number" href="#/invoices/${inv.id}" onclick="event.preventDefault();event.stopPropagation();Invoices.openInvoice(${inv.id})">${App.esc(inv.invoice_number || 'Без номера')}</a><small title="Накладная #${inv.id}">${App.formatDate(inv.invoice_date)}</small></div></td>
+            <td data-label="Поставщик"><div class="invoice-cell-stack"><span class="inv-supplier">${App.esc(inv.supplier || 'Не указан')}</span></div></td>
+            <td class="invoice-money-cell" data-label="Сумма"><div class="invoice-cell-stack"><strong>${App.formatMoney(inv.total_sum)}</strong>${this._vatLine(inv)}${priceNote}</div></td>
             <td class="col-state" data-label="1С"><div class="invoice-cell-stack">${this._onecPill(inv)}</div></td>
             <td class="col-state" data-label="Оплата"><div class="invoice-cell-stack">${this._payPill(inv)}</div></td>
             <td class="cell-action">${this._rowAction(inv)}<button type="button" class="btn-icon-gear" aria-label="Другие действия для накладной ${inv.id}" title="Другие действия" onclick="Invoices.openRowMenu(${inv.id}, ${inv.read_at ? 1 : 0}, ${inv.paid_externally ? 1 : 0}, event)">•••</button></td>
@@ -329,12 +382,93 @@ const Invoices = {
     this._renderBulkBar();
   },
 
+  // Удалить выбранные — в корзину (вернуть можно 30 дней).
+  async bulkDelete(ev) {
+    const ids = [...this._selected];
+    if (!ids.length) return;
+    const noun = this._plural(ids.length, 'накладную', 'накладные', 'накладных');
+    if (!window.confirm(`Удалить ${ids.length} ${noun}? Они попадут в корзину на 30 дней.`)) return;
+    return this._withGuard('bulkDelete', () => App.withBusyButton(ev?.currentTarget, async () => {
+      try {
+        const { data } = await App.apiJson('/invoices/delete-batch', { method: 'POST', body: { ids } });
+        App.notify(`В корзине: ${data.deleted}${data.deleted < data.total ? `, пропущено ${data.total - data.deleted} (распознаются)` : ''}`, 'success');
+        await this.loadTable();
+      } catch (e) { App.notify(e.message || 'Не удалось удалить', 'error'); }
+    }));
+  },
+
+  // «На согласование»: то же действие, что было в «Операциях → Требуют внимания».
+  async bulkRequestApproval(ev) {
+    const ids = [...this._selected];
+    if (!ids.length) return;
+    return this._withGuard('bulkApproval', () => App.withBusyButton(ev?.currentTarget, async () => {
+      try {
+        const { data } = await App.apiJson('/operations/exceptions/bulk', { method: 'POST', body: { invoice_ids: ids, action: 'request_1c' } });
+        const failed = (data.results || []).filter(row => !row.success).length;
+        App.notify(failed ? `На согласовании: ${ids.length - failed}, не удалось: ${failed}` : `На согласовании: ${ids.length}`, failed ? 'error' : 'success');
+        this.clearSelection();
+      } catch (e) { App.notify(e.message || 'Не удалось отправить на согласование', 'error'); }
+    }));
+  },
+
+  // «Отправить готовые в 1С»: все накладные в состоянии «Готовы к 1С», не только эта страница.
+  async sendAllReady(ev) {
+    return this._withGuard('sendAllReady', () => App.withBusyButton(ev?.currentTarget, async () => {
+      try {
+        const { data: preview } = await App.apiJson('/invoices/send-ready', { method: 'POST', body: { dry_run: true } });
+        if (!preview.count) { App.notify('Готовых к 1С накладных нет', 'info'); return; }
+        const noun = this._plural(preview.count, 'накладную', 'накладные', 'накладных');
+        if (!window.confirm(`Отправить в 1С ${preview.count} ${noun} на ${App.formatMoney(preview.total_sum)} ₽?`)) return;
+        const { data } = await App.apiJson('/invoices/send-ready', { method: 'POST', body: {} });
+        const skipped = (data.skipped || []).length;
+        App.notify(`В очереди 1С: ${data.sent}${skipped ? `, пропущено ${skipped} (сумма выше порога согласования или уже отправлены)` : ''}`, data.sent ? 'success' : 'info');
+        await this.loadTable();
+      } catch (e) { App.notify(e.message || 'Не удалось отправить', 'error'); }
+    }));
+  },
+
+  // «Удалить дубликаты за 24 часа»: сначала сервер называет, что удалит (dry_run),
+  // после подтверждения удаляет ровно эти накладные. Оригиналы, отправленное в 1С
+  // и оплаченное сервер не трогает.
+  async deleteRecentDuplicates(ev) {
+    const btn = ev?.currentTarget || document.getElementById('btn-delete-duplicates');
+    // Число на кнопке и её видимость — после того, как кнопка вернёт прежний вид.
+    try { return await this._deleteRecentDuplicates(btn); } finally { this.loadStats(); }
+  },
+
+  async _deleteRecentDuplicates(btn) {
+    return this._withGuard('deleteRecentDuplicates', () => App.withBusyButton(btn, async () => {
+      try {
+        const { data: preview } = await App.apiJson('/invoices/delete-duplicates', { method: 'POST', body: { dry_run: true } });
+        const rows = preview?.invoices || [];
+        if (!rows.length) { App.notify('Дубликатов за последние 24 часа нет', 'info'); return; }
+        const list = rows.slice(0, 8).map(r => `• № ${r.invoice_number || '—'}${r.supplier ? ` — ${r.supplier}` : ''} (#${r.id})`).join('\n');
+        const more = rows.length > 8 ? `\n…и ещё ${rows.length - 8}` : '';
+        const noun = this._plural(rows.length, 'дубликат', 'дубликата', 'дубликатов');
+        if (!window.confirm(`Удалить ${rows.length} ${noun} за последние 24 часа?\n\n${list}${more}\n\nОригиналы останутся. Удалённые попадут в корзину на 30 дней.`)) return;
+        const { data } = await App.apiJson('/invoices/delete-duplicates', { method: 'POST', body: { ids: rows.map(r => r.id) } });
+        const deleted = Number(data?.deleted) || 0;
+        const skipped = Number(data?.skipped) || 0;
+        App.notify(`Удалено: ${deleted}${skipped ? `, пропущено: ${skipped} (распознаются или уже не дубликаты)` : ''}`, deleted ? 'success' : 'info');
+        await this.loadTable();
+      } catch (e) {
+        App.notify(e?.message || 'Не удалось удалить дубликаты', 'error');
+      }
+    }));
+  },
+
+  // Панель массовых действий — плавающая внизу экрана: раньше она вставлялась над
+  // таблицей, и при первом выделении список и кнопки строк съезжали вниз.
   _renderBulkBar() {
     const bar = document.getElementById('invoices-bulk-bar');
     if (!bar) return;
     const n = this._selected.size;
+    const listShown = document.getElementById('invoices-list')?.style.display !== 'none';
+    document.body.classList.toggle('has-bulk-bar', n > 0 && listShown);
     if (n === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
     bar.style.display = '';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Действия с выбранными накладными');
 
     // Сбер требует закрытого чек-листа сверки — сервер отклонит непроверенные
     // (см. гейт в POST /:id/send-sber). Показываем это ДО нажатия: раньше
@@ -355,6 +489,8 @@ const Invoices = {
       <button class="btn btn-primary btn-sm" onclick="Invoices.bulkSend('onec', event)">&rarr; 1С</button>
       <button class="btn btn-primary btn-sm"${sberAttrs} onclick="Invoices.bulkSend('sber', event)">&rarr; Сбер</button>
       <button class="btn btn-primary btn-sm"${sberAttrs} onclick="Invoices.bulkSend('both', event)">&rarr; 1С и Сбер</button>
+      <button class="btn btn-outline btn-sm" onclick="Invoices.bulkRequestApproval(event)" title="Отправить выбранные на согласование: руководитель одобрит передачу в 1С">На согласование</button>
+      <button class="btn btn-outline btn-sm bulk-danger" onclick="Invoices.bulkDelete(event)">Удалить</button>
       <button class="btn btn-outline btn-sm" onclick="Invoices.clearSelection()">Снять выделение</button>
       ${hint}`;
   },
@@ -435,7 +571,7 @@ const Invoices = {
       document.body.appendChild(modal);
     }
     modal.innerHTML = `<div style="background:var(--card,#fff);border-radius:12px;max-width:520px;width:100%;padding:22px;max-height:80vh;overflow:auto">
-      <div style="font-size:16px;font-weight:600;margin-bottom:8px">Результат массовой отправки</div>
+      <div style="font-size:1rem;font-weight:600;margin-bottom:8px">Результат массовой отправки</div>
       <div style="color:var(--text-secondary,#64748b)">${lines.map(l => App.esc(l)).join('<br>')}</div>
       ${skippedBlocks}
       <div style="margin-top:18px;text-align:right"><button class="btn btn-primary" id="bulk-report-ok">Понятно</button></div>
@@ -505,26 +641,20 @@ const Invoices = {
     return `<span class="date-group-row__date">${rel}${full}</span>${cnt}`;
   },
 
-  // Compact "Период" presets. Server-side, so they span ALL pages — unlike the
-  // old left sidebar, which only hid rows already loaded on the current page.
+  // «Период» — выпадающий список в панели «Фильтры» (чипсы над списком убраны).
+  // Свои даты в полях «Загружено с/по» показываются пунктом «Свои даты».
   _renderPeriod() {
-    const el = document.getElementById('invoices-period');
+    const el = document.getElementById('filter-period');
     if (!el) return;
-    const presets = [
-      { key: 'all', label: 'Все' },
-      { key: 'today', label: 'Сегодня' },
-      { key: 'yesterday', label: 'Вчера' },
-      { key: '7d', label: '7 дней' },
-      { key: '30d', label: '30 дней' },
-    ];
-    el.innerHTML = `<span class="period-filter__label">Период:</span>` + presets.map(p =>
-      `<button type="button" class="period-btn${this.period === p.key ? ' active' : ''}" aria-pressed="${this.period === p.key ? 'true' : 'false'}" onclick="Invoices.setPeriod('${p.key}')">${p.label}</button>`
-    ).join('');
+    const custom = el.querySelector('option[value="custom"]');
+    if (custom) custom.hidden = this.period !== 'custom';
+    el.value = this.period;
   },
 
   // Set the upload-date range from a preset and reload from the server (offset
   // reset). `to` is the EXCLUSIVE upper bound (next day).
   setPeriod(key) {
+    if (!['all', 'today', 'yesterday', '7d', '30d'].includes(key)) { this._renderPeriod(); return; }
     this.period = key;
     const pad = n => String(n).padStart(2, '0');
     const iso = dt => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
@@ -604,10 +734,16 @@ const Invoices = {
       || this.currentStatus || this.dateFrom || this.dateTo || this.currentView !== 'all');
   },
 
-  // Кнопка «Сбросить» появляется, только когда что-то реально выбрано.
+  // Кнопка «Сбросить» появляется, только когда что-то реально выбрано; на кнопке
+  // «Фильтры» — сколько фильтров включено (панель может быть свёрнута).
   _syncFilterReset() {
     const btn = document.getElementById('filter-reset');
     if (btn) btn.hidden = !this._anyColumnFilter();
+    const f = this.colFilters;
+    const active = [f.number, f.supplier, f.sumFrom || f.sumTo, f.sber, this.currentStatus,
+      this.dateFrom || this.dateTo, this.currentView !== 'all'].filter(Boolean).length;
+    const badge = document.getElementById('invoice-filter-count');
+    if (badge) { badge.textContent = String(active); badge.hidden = active === 0; }
   },
 
   resetColumnFilters() {
@@ -622,9 +758,112 @@ const Invoices = {
     ['filter-number', 'filter-supplier', 'filter-sum-from', 'filter-sum-to',
      'filter-date-from', 'filter-date-to', 'filter-status', 'filter-sber']
       .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    this._renderPeriod();
     this._syncFilterReset();
     clearTimeout(this._filterTimer);
     this.loadTable();
+  },
+
+  // ── Загрузка перетаскиванием на список (2026-11-17) ────────────────────────
+  // Файлы можно бросить прямо на список — тот же загрузчик, что на странице
+  // «Загрузить» (очередь в IndexedDB, повторы, сжатие), без перехода туда.
+  _bindDropUpload() {
+    if (this._dropBound) return;
+    const list = document.getElementById('invoices-list');
+    if (!list || typeof Upload === 'undefined') return;
+    this._dropBound = true;
+    const overlay = document.createElement('div');
+    overlay.className = 'list-drop-overlay';
+    overlay.hidden = true;
+    overlay.innerHTML = '<div><strong>Отпустите, чтобы загрузить</strong><span>фото, PDF или XML — распознаем и добавим в список</span></div>';
+    list.appendChild(overlay);
+    let depth = 0;
+    const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+    list.addEventListener('dragenter', e => { if (!hasFiles(e)) return; depth++; overlay.hidden = false; });
+    list.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+    list.addEventListener('dragleave', e => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) overlay.hidden = true; });
+    list.addEventListener('drop', async e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0; overlay.hidden = true;
+      const files = Array.from(e.dataTransfer.files || []);
+      if (!files.length) return;
+      Upload.init();
+      App.notify(`Загружаем: ${files.length} ${this._plural(files.length, 'файл', 'файла', 'файлов')}`, 'info');
+      await Upload._addMultiple(files);
+    });
+  },
+
+  // ── Сохранённые фильтры (2026-11-17) ──────────────────────────────────────
+  // Набор фильтров — кнопкой над списком. Хранится в браузере (localStorage):
+  // это удобство конкретного человека, а не данные компании.
+  _SAVED_KEY: 'sf-invoice-filters',
+  _savedFilters() {
+    try { const v = JSON.parse(localStorage.getItem(this._SAVED_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  },
+  _storeSavedFilters(list) {
+    try { localStorage.setItem(this._SAVED_KEY, JSON.stringify(list.slice(0, 12))); } catch { /* storage unavailable */ }
+    this._renderSavedFilters();
+  },
+  _filterState() {
+    return { view: this.currentView, period: this.period, dateFrom: this.dateFrom, dateTo: this.dateTo,
+      status: this.currentStatus, colFilters: { ...this.colFilters }, search: this.search };
+  },
+  saveCurrentFilter() {
+    if (!this._anyColumnFilter() && !this.search) { App.notify('Сначала выберите фильтры', 'info'); return; }
+    const name = (window.prompt('Название набора фильтров', '') || '').trim().slice(0, 40);
+    if (!name) return;
+    const list = this._savedFilters().filter(f => f.name !== name);
+    list.push({ name, state: this._filterState() });
+    this._storeSavedFilters(list);
+    App.notify(`Сохранено: «${name}»`, 'success');
+  },
+  applySavedFilter(index) {
+    const saved = this._savedFilters()[index];
+    if (!saved) return;
+    const st = saved.state || {};
+    this.currentView = ['all', 'attention', 'ready', 'queue', 'payment', 'unpaid'].includes(st.view) ? st.view : 'all';
+    this.currentStatus = st.status || null;
+    this.colFilters = { number: '', supplier: '', sumFrom: '', sumTo: '', sber: '', ...(st.colFilters || {}) };
+    this.search = st.search || '';
+    const search = document.getElementById('invoices-search');
+    if (search) search.value = this.search;
+    if (['today', 'yesterday', '7d', '30d'].includes(st.period)) {
+      this._syncFilterInputs();
+      this.setPeriod(st.period); // пересчитывает даты от сегодняшнего дня и грузит список
+      this._renderSummary();
+      return;
+    }
+    this.period = st.period === 'custom' ? 'custom' : 'all';
+    this.dateFrom = st.dateFrom || null;
+    this.dateTo = st.dateTo || null;
+    this.offset = 0;
+    this._syncFilterInputs();
+    this._renderSummary();
+    this._syncFilterReset();
+    this.loadTable();
+  },
+  removeSavedFilter(index, ev) {
+    ev?.stopPropagation();
+    const list = this._savedFilters();
+    list.splice(index, 1);
+    this._storeSavedFilters(list);
+  },
+  _syncFilterInputs() {
+    const f = this.colFilters;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    set('filter-number', f.number); set('filter-supplier', f.supplier);
+    set('filter-sum-from', f.sumFrom); set('filter-sum-to', f.sumTo); set('filter-sber', f.sber);
+    set('filter-status', this.currentStatus);
+    set('filter-date-from', this.dateFrom);
+    set('filter-date-to', this.dateTo ? this._prevDayIso(this.dateTo) : '');
+  },
+  _renderSavedFilters() {
+    const host = document.getElementById('saved-filters');
+    if (!host) return;
+    const list = this._savedFilters();
+    host.hidden = list.length === 0;
+    host.innerHTML = list.map((f, i) => `<span class="saved-filter"><button type="button" class="saved-filter__apply" onclick="Invoices.applySavedFilter(${i})">${App.esc(f.name)}</button><button type="button" class="saved-filter__remove" onclick="Invoices.removeSavedFilter(${i}, event)" aria-label="Удалить набор «${App.esc(f.name)}»" title="Удалить набор">×</button></span>`).join('');
   },
 
   // Debounced server-side search over invoice number / supplier / ИНН.
@@ -635,16 +874,6 @@ const Invoices = {
     this._searchTimer = setTimeout(() => this.loadTable(), 300);
   },
 
-  // Renders the «Цены ↑» cell: how many line items are priced >10% above the
-  // usual (median) price. Reddish badge when > 0, muted «—» when none. The
-  // count is computed server-side (attachElevatedPriceCount) using the same
-  // rule as the detail page, so list and card never disagree.
-  _elevatedCell(inv) {
-    const n = inv.elevated_price_count || 0;
-    if (n <= 0) return '<span style="color:#cbd5e1" title="Нет позиций дороже обычного">—</span>';
-    const noun = this._plural(n, 'позиция', 'позиции', 'позиций');
-    return `<span style="display:inline-block;min-width:20px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:12px" title="${n} ${noun} дороже обычного более чем на 10%">${n}</span>`;
-  },
 
   // Плашка статуса в списке: точка + текст, подпись мелко под ней. Цвета одни на
   // обе колонки: серый — ещё нет, синий — в работе, зелёный — готово, янтарный —
@@ -654,17 +883,33 @@ const Invoices = {
   },
 
   // Колонка «1С»: где накладная на пути в 1С.
+  // Плашка-дубликат со ссылкой на оригинал (подпись — ссылка, а не просто текст).
+  _dupPill(text, targetId) {
+    const link = targetId ? `<a class="inv-pill-note invoice-duplicate-link" href="#/invoices/${targetId}" onclick="event.stopPropagation()" title="Открыть оригинал #${targetId}">оригинал #${targetId}</a>` : '';
+    return `<span class="inv-pill inv-pill--amber"><i aria-hidden="true"></i>${text}</span>${link}`;
+  },
+
+  // Короткая причина «Проверить» под плашкой; полный текст — в подсказке.
+  REVIEW_SHORT: { error: 'ошибка распознавания', incomplete_pages: 'не все страницы', total: 'сумма не сходится', header: 'нет реквизитов', items: 'нет товаров', quantity: 'количество', mapping: 'нет позиций 1С', supplier: 'поставщик по названию' },
+
   _onecPill(inv) {
-    if (inv.duplicate_of || inv.status === 'duplicate') return this._pill('amber', 'Дубликат', 'не отправляется');
-    if (inv.sibling_is_copy && inv.status !== 'sent_to_1c') return this._pill('amber', 'Дубликат?', `есть #${inv.sibling_duplicate_id}`);
+    if (inv.duplicate_of || inv.status === 'duplicate') return this._dupPill('Дубликат', inv.duplicate_of);
+    if (inv.sibling_is_copy && inv.status !== 'sent_to_1c') return this._dupPill('Дубликат?', inv.sibling_duplicate_id);
     if (inv.status === 'error') return this._pill('red', 'Ошибка', 'распознавания');
     if (inv.status === 'waiting_ai') return this._pill('blue', 'Ждёт GPT', 'распознается позже');
     if (['new', 'ocr_processing', 'parsing'].includes(inv.status)) return this._pill('blue', 'Распознаётся');
     if (['error', 'rejected'].includes(inv.onec_status)) return this._pill('red', 'Не принята', App.esc(inv.onec_error || 'ошибка 1С'));
     // «В 1С» — по статусу накладной: после «Сбросить статус» onec_status остаётся прежним.
     if (inv.status === 'sent_to_1c') return this._pill('green', 'В 1С', inv.onec_status === 'created' ? 'не проведена' : '');
+    // Пока 1С не забрала (свежую накладную она не берёт ещё 5 минут после распознавания —
+    // окно второй страницы), отправку — в том числе автопилота — можно отозвать прямо здесь.
+    if (inv.approved_for_1c && !inv.onec_pulled_at) return `<span class="inv-pill inv-pill--blue"><i aria-hidden="true"></i>В очереди</span><button type="button" class="inv-pill-undo" onclick="Invoices.unapproveForOneC(${inv.id}, event)" title="Отозвать отправку, пока 1С не забрала накладную">отозвать</button>`;
     if (inv.approved_for_1c) return this._pill('blue', 'В очереди', 'ждёт загрузки');
-    if (inv.review_reason) return this._pill('amber', 'Проверить');
+    if (inv.review_reason === 'duplicate') return this._dupPill('Дубликат?', null);
+    if (inv.review_reason) {
+      const full = App.esc(this._reviewText(inv));
+      return `<span class="inv-pill inv-pill--amber" title="${full}"><i aria-hidden="true"></i>Проверить</span><small class="inv-pill-note" title="${full}">${App.esc(this.REVIEW_SHORT[inv.review_reason] || '')}</small>`;
+    }
     return this._pill('grey', 'Не отправлена');
   },
 
@@ -744,14 +989,14 @@ const Invoices = {
     }
   },
 
-  // «в т.ч. НДС» под суммой в списке — раньше НДС был виден только внутри накладной.
+  // «в т.ч. НДС» под суммой в списке (вернули по просьбе владельца 2026-11-21).
   _vatLine(inv) {
-    if (inv.vat_sum == null) return '';
+    if (inv.vat_sum == null || inv.vat_sum === '') return '';
     const v = Number(inv.vat_sum);
     if (!Number.isFinite(v)) return '';
     return v > 0
-      ? `<div class="list-vat">в т.ч. НДС ${App.formatMoney(v)}</div>`
-      : '<div class="list-vat">без НДС</div>';
+      ? `<small class="list-vat">в т.ч. НДС ${App.formatMoney(v)}</small>`
+      : '<small class="list-vat">без НДС</small>';
   },
 
   // Колонка «Оплата»: платёжка в СберБизнес или отметка «оплачено вне сервиса».
@@ -763,7 +1008,7 @@ const Invoices = {
     if (status === 'pending') return this._pill('blue', 'Создаётся');
     if (status === 'created') {
       const draft = !kind || kind === 'draft' || kind === 'unknown';
-      return this._pill('blue', draft ? 'Черновик' : 'В банке', draft ? 'ждёт подписи' : App.esc(inv.sber_bank_label || 'в работе банка'));
+      return this._pill('blue', draft ? 'На оплате' : 'В банке', draft ? 'ждёт подписи' : App.esc(inv.sber_bank_label || 'в работе банка'));
     }
     if (inv.sber_overdue) return this._pill('amber', 'Нет платёжки', `больше ${Number(inv.sber_overdue_days) || 14} дней`);
     return this._pill('grey', 'Нет платёжки');
@@ -774,9 +1019,17 @@ const Invoices = {
     document.getElementById('invoices-list').style.display = 'none';
     document.getElementById('invoice-detail').style.display = 'block';
     document.getElementById('view-invoices')?.classList.add('is-detail');
+    document.body.classList.remove('has-bulk-bar');
 
     const switching = this._currentInvoiceId !== id;
     this._currentInvoiceId = id;
+    // Другая накладная: скелетон вместо прежней карточки, пока не придут данные.
+    const detailEl = document.getElementById('invoice-detail');
+    if (switching) {
+      detailEl.classList.add('is-loading');
+      document.getElementById('ic-layout')?.classList.remove('is-entering');
+      window.scrollTo(0, 0);
+    }
     this._photosLoaded = false;
     this._photoFiles = [];
     InvoicePhotoViewer.close();
@@ -791,6 +1044,7 @@ const Invoices = {
     try {
       const { data } = await App.apiJson(`/invoices/${id}`);
       if (id !== this._currentInvoiceId) return;
+      this._revealDetail(switching);
       if (!data) {
         App.notify('Накладная не найдена', 'error');
         App.navigate('#/invoices');
@@ -811,6 +1065,7 @@ const Invoices = {
 
       // История — для любой накладной, в т.ч. дубликата.
       this.renderHistory(data).catch(e => console.error('renderHistory failed', e));
+      this.loadNotes(data.id);
 
       // Поставщик и банк — словами, без служебных кодов.
       this._renderSupplierTab(data);
@@ -827,18 +1082,15 @@ const Invoices = {
           ? duplicateReasons.map(reason => App.esc(reason)).join(' · ')
           : 'Совпали ключевые реквизиты документа';
         const probability = data.duplicate_score ? `, вероятность ${Math.round(data.duplicate_score * 100)}%` : '';
+        // Одна строка (2026-11-17): подробности — в подсказке, действия — короткие.
+        const dupTitle = `${App.esc(probability.replace(/^, /, ''))}${probability ? ' — ' : ''}${evidence}. Отправка в 1С и оплата по дубликату заблокированы.`;
         dupEl.innerHTML = `
-          <div class="duplicate-banner">
-            <div class="duplicate-banner-text">
-              <strong>⚠ Дубликат накладной</strong>
-              <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a>
-              ${App.esc(probability)} — ${evidence}. Отправка в 1С и оплата по дубликату заблокированы.
-            </div>
-            <div class="duplicate-banner-actions">
-              <a class="btn btn-outline btn-sm" href="#/invoices/${data.duplicate_of}">Открыть оригинал №${data.duplicate_of}</a>
-              <button class="btn btn-outline btn-sm" onclick="Invoices.unlinkDuplicate(${data.id})">Не дубликат</button>
-              <button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить дубликат</button>
-            </div>
+          <div class="duplicate-banner duplicate-banner--compact" title="${dupTitle}">
+            <span class="duplicate-banner-text"><strong>⚠ Дубликат</strong> накладной <a href="#/invoices/${data.duplicate_of}">№${data.duplicate_of}</a></span>
+            <span class="duplicate-banner-actions">
+              <button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить копию</button>
+              <button class="btn-link" onclick="Invoices.unlinkDuplicate(${data.id})">Не дубликат</button>
+            </span>
           </div>`;
         const itemsTbodyDup = document.getElementById('invoice-items-tbody');
         if (data.items && data.items.length > 0) {
@@ -868,24 +1120,20 @@ const Invoices = {
         banner.innerHTML = sibs.map(s => {
           const sameSum = data.total_sum != null && s.total_sum != null && Math.abs(Number(data.total_sum) - Number(s.total_sum)) <= 1;
           const isLikelyDup = sameSum || s.status === 'sent_to_1c' || (data.status !== 'sent_to_1c' && s.id < data.id);
+          const hint = `${s.items_count} позиц., ${App.formatMoney(s.total_sum)} ₽. ${isLikelyDup
+            ? 'В базе уже есть документ с тем же номером, датой и поставщиком. Проверьте перед отправкой в 1С и оплатой.'
+            : (isXml
+              ? 'Эта накладная загружена из XML целиком — если там фото того же документа, лишнюю накладную удалите.'
+              : 'Возможно, это страницы одной накладной.')}`;
           return `
-          <div class="duplicate-banner">
-            <div class="duplicate-banner-text">
-              <strong>${isLikelyDup ? '⚠ Внимание — возможный дубликат накладной:' : 'Похоже на ту же накладную:'}</strong>
-              <a href="#/invoices/${s.id}">№${s.id}</a>
-              — ${s.items_count} позиц., ${App.formatMoney(s.total_sum)} ₽${s.status === 'sent_to_1c' ? ', <b>уже отправлена в 1С</b>' : ''}.
-              ${isLikelyDup
-                ? 'В базе уже есть документ с тем же номером, датой и поставщиком. Проверьте перед отправкой в 1С и оплатой.'
-                : (isXml
-                  ? 'Эта накладная загружена из XML целиком — если там фото того же документа, лишнюю накладную удалите.'
-                  : 'Возможно, это страницы одной накладной.')}
-            </div>
-            <div class="duplicate-banner-actions">
-              <a class="btn btn-outline btn-sm" href="#/invoices/${s.id}">Открыть №${s.id}</a>
-              ${data.status !== 'sent_to_1c' ? `<button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить эту копию</button>` : ''}
-              ${isXml ? '' : `<button class="btn btn-outline btn-sm"
+          <div class="duplicate-banner duplicate-banner--compact${isLikelyDup ? '' : ' duplicate-banner--info'}" title="${App.esc(hint)}">
+            <span class="duplicate-banner-text"><strong>${isLikelyDup ? '⚠ Возможный дубликат' : 'Похоже на ту же накладную'}</strong> <a href="#/invoices/${s.id}">№${s.id}</a>${s.status === 'sent_to_1c' ? ' · уже в 1С' : ''}</span>
+            <span class="duplicate-banner-actions">
+              ${data.status !== 'sent_to_1c' && isLikelyDup ? `<button class="btn btn-danger btn-sm" onclick="Invoices.deleteInvoice(${data.id})">Удалить копию</button>` : ''}
+              ${isXml ? '' : `<button class="${isLikelyDup ? 'btn-link' : 'btn btn-outline btn-sm'}"
                 onclick="Invoices.mergeSibling(${data.id}, ${s.id}, ${sentWarn})">Объединить страницы</button>`}
-            </div>
+              ${data.status !== 'sent_to_1c' && !isLikelyDup ? `<button class="btn-link" onclick="Invoices.deleteInvoice(${data.id})">Удалить копию</button>` : ''}
+            </span>
           </div>`;
         }).join('');
       } else if (banner) {
@@ -927,6 +1175,7 @@ const Invoices = {
       // уходит до распознавания, поэтому ссылка на неё успевает разойтись по
       // чатам, а сама строка при склейке удаляется. Сервер подсказывает
       // приёмника — переключаемся на него вместо «не найдено».
+      if (id === this._currentInvoiceId) this._revealDetail(false);
       const mergedInto = e?.body?.merged_into;
       if (mergedInto) {
         App.notify(`Эта страница вошла в накладную #${mergedInto} — открываем её`, 'info');
@@ -936,6 +1185,19 @@ const Invoices = {
       console.error('Failed to load invoice detail', e);
       App.notify('Ошибка загрузки накладной', 'error');
     }
+  },
+
+  // Снять скелетон карточки; animate — карточка проявляется плавно (рендер идёт в том же
+  // кадре, поэтому прежняя накладная не мелькает).
+  _revealDetail(animate) {
+    const detailEl = document.getElementById('invoice-detail');
+    if (!detailEl?.classList.contains('is-loading')) return;
+    detailEl.classList.remove('is-loading');
+    const layout = document.getElementById('ic-layout');
+    if (!layout || !animate) return;
+    layout.classList.remove('is-entering');
+    void layout.offsetWidth; // перезапуск анимации
+    layout.classList.add('is-entering');
   },
 
   // Строка товара: «как в накладной» + позиция 1С, количество с пересчётом серым,
@@ -955,7 +1217,7 @@ const Invoices = {
         : '<span class="nom-badge nom-badge-missing" title="Позиция 1С ещё не выбрана для этой строки">●</span>';
     const safeName = App.esc(item.mapped_name || item.original_name || '');
     const tags = this._itemTags(data, item);
-    const flagged = tags.includes('ic-tag--amber') || tags.includes('ic-tag--red');
+    const flagged = tags.includes('ic-tag--amber') || tags.includes('ic-tag--red') || (!item.onec_guid && !item.name_overridden);
     const rawDiffers = item.raw_quantity != null && (Number(item.raw_quantity) !== Number(item.quantity) || this._normUnit(item.raw_unit) !== this._normUnit(item.unit));
     const convText = item.conv_note
       ? String(item.conv_note).split(' = ')[0].replace(/\s*—\s*подобрано.*$/, '').replace(/\s*\([^)]*\)\s*$/, '')
@@ -972,9 +1234,8 @@ const Invoices = {
           <div class="ic-row-onec">
             <div class="nom-picker">
               ${badge}
-              <span class="nom-picker-current">${item.onec_guid || item.name_overridden ? safeName : 'Товар из 1С не выбран'}</span>
-              <button type="button" class="nom-picker-open" onclick="NomenclaturePicker.open(${data.id}, ${item.id})" aria-label="${item.onec_guid ? 'Изменить' : 'Выбрать'} позицию 1С для строки ${no}">${item.onec_guid ? 'Изменить' : 'Выбрать из 1С'}</button>
-              ${item.onec_guid ? `<button type="button" class="nom-picker-open" onclick="CatalogAliases.openFromInvoice(${data.id}, ${item.id})">Синонимы</button>` : ''}
+              <span class="nom-picker-current${item.onec_guid || item.name_overridden ? '' : ' nom-picker-current--none'}">${item.onec_guid || item.name_overridden ? safeName : 'Позиция 1С не выбрана'}</span>
+              <button type="button" class="nom-picker-open${item.onec_guid ? ' nom-picker-open--edit' : ''}" onclick="NomenclaturePicker.open(${data.id}, ${item.id})" aria-label="${item.onec_guid ? 'Изменить' : 'Выбрать'} позицию 1С для строки ${no}">${item.onec_guid ? 'Изменить' : 'Выбрать из 1С'}</button>
             </div>
             ${(!item.onec_guid || (item.mapping_confidence ?? 0) < 0.8) && !item.name_overridden
               ? `<div class="nom-cands" id="nom-cands-${item.id}" data-invoice-id="${data.id}" data-item-id="${item.id}"></div>`
@@ -989,19 +1250,28 @@ const Invoices = {
                  value="${item.quantity != null ? String(item.quantity).replace('.', ',') : ''}" ${editAttrs('quantity')}><input type="text" class="item-edit item-edit-unit" aria-label="Единица"
                  value="${App.esc(item.unit || '')}" ${editAttrs('unit')}></span>
           ${convText ? `<span class="ic-sub-line" title="${App.esc(item.conv_note || '')}">${App.esc(convText)}</span>` : ''}
-          ${data.status === 'processed' && !data.approved_for_1c ? `<button type="button" class="ic-qty-review" onclick="Invoices.reviewItemQuantity(${data.id}, ${item.id})">${Number(item.qty_confirmed) === 1 ? 'Проверено · изменить' : 'Проверить количество'}</button>` : ''}
+          ${data.status === 'processed' && !data.approved_for_1c && (Number(item.qty_confirmed) === 1 || (item.qty_flag && Number(item.qty_confirmed) !== 1))
+            ? `<button type="button" class="ic-qty-review" onclick="Invoices.reviewItemQuantity(${data.id}, ${item.id})">${Number(item.qty_confirmed) === 1 ? '✓ проверено' : 'Проверить количество'}</button>`
+            : ''}
         </td>
         <td class="ic-num" data-label="Цена с НДС">
           <input type="text" inputmode="decimal" class="item-edit item-edit-price" aria-label="Цена с НДС" title="Цена за единицу с НДС — сумма пересчитается"
-                 value="${item.price != null ? Number(item.price).toFixed(2).replace('.', ',') : ''}" ${editAttrs('price')}>${median}
+                 value="${this._moneyInput(item.price)}" ${editAttrs('price')}>${median}
         </td>
         <td class="ic-num" data-label="Сумма">
           <input type="text" inputmode="decimal" class="item-edit item-edit-total" aria-label="Сумма строки"
-                 value="${item.total != null ? Number(item.total).toFixed(2).replace('.', ',') : ''}" ${editAttrs('total')}>
+                 value="${this._moneyInput(item.total)}" ${editAttrs('total')}>
         </td>
         <td class="ic-num" data-label="НДС">${this._vatSelect(data.id, item)}</td>
         <td class="ic-cell-menu"><button type="button" class="ic-row-more" aria-haspopup="menu" aria-expanded="false" aria-label="Действия со строкой ${no}" title="Действия со строкой" onclick="InvoiceCard.openRowMenu(this, ${item.id})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td>
       </tr>`;
+  },
+
+  /** Деньги в поле строки: «5 700,00» — с разрядами, как сумма накладной в шапке. */
+  _moneyInput(value) {
+    if (value == null || value === '' || !Number.isFinite(Number(value))) return '';
+    const [int, frac] = Math.abs(Number(value)).toFixed(2).split('.');
+    return `${Number(value) < 0 ? '-' : ''}${int.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0')},${frac}`;
   },
 
   // Метки проблем строки у названия: нужен вес, количество под вопросом, цена выше обычной,
@@ -1024,9 +1294,8 @@ const Invoices = {
     if (item.price_deviation_pct != null && item.price_deviation_pct > 10) {
       tags.push(`<span class="ic-tag ic-tag--amber" title="Цена выше обычной на ${Math.round(item.price_deviation_pct)}%">цена +${Math.round(item.price_deviation_pct)}%</span>`);
     }
-    if (!item.onec_guid && !item.name_overridden) {
-      tags.push('<span class="ic-tag ic-tag--red" title="В строке не сохранена привязка к позиции 1С. Выберите предложенный вариант или найдите товар в справочнике.">не выбрана позиция 1С</span>');
-    } else if (item.onec_guid && (item.mapping_confidence ?? 1) < 0.8) {
+    // «Не выбрана позиция 1С» — одной строкой под названием (nom-picker), без второй метки.
+    if (item.onec_guid && (item.mapping_confidence ?? 1) < 0.8) {
       tags.push(`<span class="ic-tag ic-tag--amber" title="Позиция 1С подобрана неуверенно — проверьте">позиция ${Math.round((item.mapping_confidence || 0) * 100)}%</span>`);
     }
     return tags.join('');
@@ -1101,7 +1370,7 @@ const Invoices = {
     return `
       <div class="items-toolbar">
         <button type="button" class="btn btn-soft btn-sm" onclick="Invoices.toggleAddItem(${invoiceId})">+ Добавить строку</button>
-        <label class="items-toolbar-vat">НДС для всех строк
+        <label class="items-toolbar-vat">НДС всем строкам
           <select onchange="Invoices.setAllVat(${invoiceId}, this)">
             <option value="__" selected>выбрать…</option>
             ${this._VAT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
@@ -1187,7 +1456,7 @@ const Invoices = {
       : '—';
     const device = this._deviceLabel(data.upload_user_agent);
     const ua = device
-      ? `<div class="muted" style="font-size:12px;margin-top:2px" title="${App.esc(data.upload_user_agent)}">${App.esc(device)}</div>`
+      ? `<div class="muted" style="font-size:0.75rem;margin-top:2px" title="${App.esc(data.upload_user_agent)}">${App.esc(device)}</div>`
       : '';
     const duration = App.formatDuration(data.created_at, data.recognized_at);
 
@@ -1296,7 +1565,7 @@ const Invoices = {
         edits.map(e => {
           let ctx = {};
           try { ctx = e.context ? JSON.parse(e.context) : {}; } catch { ctx = {}; }
-          const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:12px">${App.esc(ctx.original_name)}</div>` : '');
+          const what = (LABELS[e.field] || App.esc(e.field)) + (ctx.original_name ? `<div class="muted" style="font-size:0.75rem">${App.esc(ctx.original_name)}</div>` : '');
           const oldV = e.field === 'onec_guid' ? fmt(ctx.old_name) : fmtVal(e.field, e.old_value);
           const newV = e.field === 'onec_guid' ? fmt(ctx.new_name) : fmtVal(e.field, e.new_value);
           const src = ctx.restored_from ? ` <span class="muted">(откат из снимка)</span>` : '';
@@ -1319,7 +1588,7 @@ const Invoices = {
       const btn = differs(sn)
         ? `<button class="btn btn-sm btn-outline" data-restore-kind="${kind}">Вернуть номер, дату, сумму и НДС</button>`
         : '<span class="muted">совпадает с текущими</span>';
-      return `<tr><td>${title}<div class="muted" style="font-size:12px">${App.formatDateTime(sn.created_at)}</div></td>
+      return `<tr><td>${title}<div class="muted" style="font-size:0.75rem">${App.formatDateTime(sn.created_at)}</div></td>
         <td>${fmt(sn.invoice_number)}</td><td>${fmt(sn.invoice_date)}</td><td>${money(sn.total_sum)}</td><td>${money(sn.vat_sum)}</td><td>${btn}</td></tr>`;
     };
     const snapsRows = snapRow('recognized', 'Как распознано') + snapRow('baseline', 'До обновления v2 (29.09)');
@@ -1476,7 +1745,7 @@ const Invoices = {
       }
       if (!slot.isConnected || this._currentInvoiceId !== invoiceId) return;
       if (!list || !list.length) {
-        slot.textContent = 'Нет автоматических предложений — найдите товар по названию или коду.';
+        slot.textContent = '';
         continue;
       }
       slot.innerHTML = `<span class="muted">Варианты для выбора:</span> ` + list.map(c => `
@@ -1534,18 +1803,37 @@ const Invoices = {
     dialog.id = 'quantity-review-dialog';
     dialog.className = 'quantity-review-dialog';
     dialog.setAttribute('aria-labelledby', 'quantity-review-title');
-    dialog.innerHTML = `<form><h2 id="quantity-review-title">Проверить количество</h2><p class="quantity-review-name">${App.esc(item.original_name)}</p><p class="quantity-review-help">Укажите фактическое количество или вес. Для штучного товара можно оставить «шт».</p>${item.raw_quantity != null ? `<div class="quantity-review-source">В накладной: <strong>${App.esc(App.formatQty(item.raw_quantity))} ${App.esc(item.raw_unit || '')}</strong></div>` : ''}<div class="quantity-review-fields"><label>Количество / вес<input name="quantity" type="text" inputmode="decimal" autocomplete="off" required value="${App.esc(item.quantity == null ? '' : String(item.quantity).replace('.', ','))}"></label><label>Единица измерения<input name="unit" type="text" autocomplete="off" maxlength="32" required value="${App.esc(item.unit || '')}"></label></div><p class="quantity-review-help">Сумма строки: ${App.esc(App.formatMoney(item.total))} ₽. При изменении количества цена за единицу пересчитается, сумма сохранится.</p><label class="quantity-review-check"><input name="confirmed" type="checkbox" ${Number(item.qty_confirmed) === 1 ? 'checked' : ''}><span>Количество и единица измерения проверены, всё верно</span></label><p class="quantity-review-help">Подтверждение относится только к этой строке. Изменение чисел или позиции 1С снимет отметку.</p><p class="quantity-review-error" role="alert" hidden></p><div class="quantity-review-actions"><button type="button" class="btn btn-outline" data-cancel>Отмена</button>${Number(item.qty_confirmed) === 1 ? '<button type="button" class="btn btn-outline" data-revoke>Снять отметку</button>' : ''}<button type="submit" class="btn btn-primary" disabled>Сохранить</button></div></form>`;
+    const rememberWeightMarkup = item.can_remember_weight
+      ? '<div data-weight-rule hidden><label class="quantity-review-check"><input name="remember_weight" type="checkbox"><span></span></label></div>'
+      : '';
+    dialog.innerHTML = `<form><h2 id="quantity-review-title">Проверить количество</h2><p class="quantity-review-name">${App.esc(item.original_name)}</p><p class="quantity-review-help">Укажите фактическое количество или вес. Для штучного товара можно оставить «шт».</p>${item.raw_quantity != null ? `<div class="quantity-review-source">В накладной: <strong>${App.esc(App.formatQty(item.raw_quantity))} ${App.esc(item.raw_unit || '')}</strong></div>` : ''}<div class="quantity-review-fields"><label>Количество / вес<input name="quantity" type="text" inputmode="decimal" autocomplete="off" required value="${App.esc(item.quantity == null ? '' : String(item.quantity).replace('.', ','))}"></label><label>Единица измерения<input name="unit" type="text" autocomplete="off" maxlength="32" required value="${App.esc(item.unit || '')}"></label></div><p class="quantity-review-help">Сумма строки: ${App.esc(App.formatMoney(item.total))} ₽. При изменении количества цена за единицу пересчитается, сумма сохранится.</p><label class="quantity-review-check"><input name="confirmed" type="checkbox" ${Number(item.qty_confirmed) === 1 ? 'checked' : ''}><span>Количество и единица измерения проверены, всё верно</span></label><p class="quantity-review-help">Подтверждение относится только к этой строке. Изменение чисел или позиции 1С снимет отметку.</p>${rememberWeightMarkup}<p class="quantity-review-error" role="alert" hidden></p><div class="quantity-review-actions"><button type="button" class="btn btn-outline" data-cancel>Отмена</button>${Number(item.qty_confirmed) === 1 ? '<button type="button" class="btn btn-outline" data-revoke>Снять отметку</button>' : ''}<button type="submit" class="btn btn-primary" disabled>Сохранить</button></div></form>`;
     document.body.appendChild(dialog);
     const form = dialog.querySelector('form');
     const save = form.querySelector('[type="submit"]');
     const check = form.elements.namedItem('confirmed');
+    const remember = form.elements.namedItem('remember_weight');
     const error = form.querySelector('.quantity-review-error');
     let busy = false;
+    const readQuantity = () => Number(form.elements.namedItem('quantity').value.trim().replace(',', '.'));
+    const readUnit = () => form.elements.namedItem('unit').value.trim();
+    const updateWeightOption = () => {
+      if (!remember) return;
+      const label = remember.closest('[data-weight-rule]');
+      const factor = readQuantity() / Number(item.raw_quantity);
+      const eligible = this._normUnit(readUnit()) === 'кг' && Number.isFinite(factor) && factor > 0 && factor <= 100000;
+      label.hidden = !eligible;
+      if (!eligible) remember.checked = false;
+      else label.querySelector('span').textContent =
+        `Запомнить для этого товара у поставщика: 1 ${item.raw_unit} = ${factor.toLocaleString('ru-RU', { maximumSignificantDigits: 8 })} кг`;
+    };
+    updateWeightOption();
     check.onchange = () => { save.disabled = !check.checked; };
     save.disabled = !check.checked;
     ['quantity', 'unit'].forEach(name => form.elements.namedItem(name).addEventListener('input', () => {
       check.checked = false;
       save.disabled = true;
+      if (remember) remember.checked = false;
+      updateWeightOption();
     }));
     form.querySelector('[data-cancel]').onclick = () => dialog.close();
     const onNavigate = () => { if (!busy) dialog.close(); };
@@ -1558,8 +1846,9 @@ const Invoices = {
     }, { once: true });
     const submit = async confirmed => {
       if (busy) return;
-      const quantity = Number(form.elements.namedItem('quantity').value.trim().replace(',', '.'));
-      const unit = form.elements.namedItem('unit').value.trim();
+      const quantity = readQuantity();
+      const unit = readUnit();
+      const rememberWeight = confirmed && remember?.checked === true;
       if (confirmed && (!check.checked || !Number.isFinite(quantity) || quantity <= 0 || !unit)) {
         error.textContent = 'Укажите положительное количество, единицу и отметьте, что всё проверено.';
         error.hidden = false;
@@ -1570,11 +1859,14 @@ const Invoices = {
       form.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
       try {
         await App.apiJson(`/invoices/${invoiceId}/items/${itemId}/quantity-confirmation`, {
-          method: 'POST', body: { confirmed, expected: item.qty_review_token, ...(confirmed ? { quantity, unit } : {}) },
+          method: 'POST', body: { confirmed, expected: item.qty_review_token,
+            ...(confirmed ? { quantity, unit, remember_weight: rememberWeight } : {}) },
         });
         dialog.close();
         if (location.hash.split('?')[0] === `#/invoices/${invoiceId}`) this.showDetail(invoiceId);
-        App.notify(confirmed ? 'Количество и единица подтверждены' : 'Подтверждение снято', 'success');
+        const message = rememberWeight ? 'Вес сохранён для следующих поставок'
+          : confirmed ? 'Количество и единица подтверждены' : 'Подтверждение снято';
+        App.notify(message, 'success');
       } catch (cause) {
         error.textContent = cause.message || 'Не удалось сохранить проверку';
         error.hidden = false;
@@ -1635,7 +1927,7 @@ const Invoices = {
       </div></div>`;
     }
     if (data.supplier_match === 'manual' && (data.supplier_inn_ocr || data.supplier_name_ocr)) {
-      return `<div style="margin-bottom:14px;font-size:13px;color:var(--text-secondary)">
+      return `<div style="margin-bottom:14px;font-size:0.8125rem;color:var(--text-secondary)">
         Поставщик выбран вручную из справочника: ${card}. На фото было: ${ocrName ? ocrName + ', ' : ''}${ocrInn}.
       </div>`;
     }
@@ -1728,11 +2020,11 @@ const Invoices = {
       const step = inputType === 'number' ? 'step="0.01"' : '';
       if (name === 'invoice_type') {
         const types = [['счет_на_оплату','Счёт на оплату'],['торг_12','ТОРГ-12'],['упд','УПД'],['счет_фактура','Счёт-фактура'],['акт','Акт'],['кассовый_чек','Кассовый чек'],['авансовый_отчет','Авансовый отчёт'],['прочее','Прочее']];
-        return `<label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--muted,#64748b)">${label}</span><select name="invoice_type">${types.map(([type, title]) => `<option value="${type}"${value === type ? ' selected' : ''}>${title}</option>`).join('')}</select></label>`;
+        return `<label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:0.75rem;color:var(--muted,#64748b)">${label}</span><select name="invoice_type">${types.map(([type, title]) => `<option value="${type}"${value === type ? ' selected' : ''}>${title}</option>`).join('')}</select></label>`;
       }
       return `
         <label style="display:flex;flex-direction:column;gap:4px;${wide ? 'grid-column:1/-1' : ''}">
-          <span style="font-size:12px;color:var(--muted,#64748b)">${label}${star}</span>
+          <span style="font-size:0.75rem;color:var(--muted,#64748b)">${label}${star}</span>
           <input type="${inputType}" name="${name}" value="${App.esc(value)}" ${step} style="${inputBg}">
         </label>
       `;
@@ -1741,7 +2033,7 @@ const Invoices = {
     const reasonBlock = reasonText ? `
       <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.4);padding:10px 14px;border-radius:8px;margin-bottom:14px;color:rgb(120,53,15)">
         <strong>${App.esc(reasonText)}</strong>
-        ${missing.size > 0 ? `<div style="margin-top:6px;font-size:13px">Не хватает: ${Array.from(missing).map(f => `«${App.esc(this._FIELD_LABELS[f] || f)}»`).join(', ')}</div>` : ''}
+        ${missing.size > 0 ? `<div style="margin-top:6px;font-size:0.8125rem">Не хватает: ${Array.from(missing).map(f => `«${App.esc(this._FIELD_LABELS[f] || f)}»`).join(', ')}</div>` : ''}
       </div>` : '';
 
     modal.innerHTML = `
@@ -1845,7 +2137,7 @@ const Invoices = {
       const unmappedCount = (invoice.items || []).filter(it => !it.onec_guid).length;
       if (unmappedCount > 0) {
         const ok = confirm(
-          `В накладной ${unmappedCount} несопоставленных товар(ов).\n\n` +
+          `${unmappedCount} ${this._plural(unmappedCount, 'товар', 'товара', 'товаров')} без позиции 1С.\n\n` +
           `При загрузке в 1С они будут созданы как НОВЫЕ позиции в справочнике Номенклатура по их названию из скана.\n\n` +
           `Продолжить?`
         );
@@ -1857,7 +2149,7 @@ const Invoices = {
       if (suspect.length > 0) {
         const names = suspect.slice(0, 5).map(it => '• ' + (it.original_name || it.mapped_name || '')).join('\n');
         const ok = confirm(
-          `Количество под вопросом в ${suspect.length} строк(ах):\n${names}${suspect.length > 5 ? '\n…' : ''}\n\n` +
+          `Количество под вопросом — ${suspect.length} ${this._plural(suspect.length, 'строка', 'строки', 'строк')}:\n${names}${suspect.length > 5 ? '\n…' : ''}\n\n` +
           `Проверьте пересчёт единиц (кнопки под количеством). Всё равно отправить в 1С?`
         );
         if (!ok) return;
@@ -1872,12 +2164,13 @@ const Invoices = {
     });
   },
 
-  async unapproveForOneC(id) {
+  async unapproveForOneC(id, ev) {
+    ev?.stopPropagation();
     return this._withGuard(`unapprove:${id}`, async () => {
       try {
         await App.apiJson(`/invoices/${id}/unapprove`, { method: 'POST' });
         App.notify('Отправка отозвана', 'success');
-        this.showDetail(id);
+        if (this._currentInvoiceId === id) this.showDetail(id); else this.loadTable();
       } catch (e) {
         App.notify('Ошибка: ' + e.message, 'error');
       }
@@ -1935,7 +2228,11 @@ const Invoices = {
         const fd = new FormData();
         let resp;
         try {
-          for (const f of files) fd.append('files', await Upload.memoryBlob(f), f.name);
+          // Как в загрузке: копия в памяти (WebKit 319985) и сжатие до 3200 px.
+          for (const f of files) {
+            const page = await Upload.shrinkPhoto(await Upload.memoryBlob(f), f.name);
+            fd.append('files', page.blob, page.name);
+          }
           resp = await App.api(`/invoices/${id}/add-pages`, { method: 'POST', body: fd });
         } catch (e) { App.notify('Ошибка загрузки: ' + e.message, 'error'); return; }
         if (!resp.ok) {
@@ -2068,22 +2365,22 @@ const Invoices = {
         if (requested === 0) {
           App.notify(all ? 'В накладной нет товаров' : 'Нет несопоставленных товаров', 'success');
         } else if (all) {
-          if (changed === 0) App.notify(`LLM подтвердил текущие сопоставления (${matched} из ${requested})`, 'success');
-          else App.notify(`LLM обновил ${changed} из ${requested} (подтверждено ${matched})`, 'success');
+          if (changed === 0) App.notify(`ИИ подтвердил выбранные позиции 1С (${matched} из ${requested})`, 'success');
+          else App.notify(`ИИ сменил позицию 1С у ${changed} из ${requested} товаров, подтвердил ${matched}`, 'success');
         } else if (matched === 0) {
-          App.notify(`LLM не нашёл совпадений (${requested} товаров)`, 'error');
+          App.notify(`ИИ не нашёл подходящих позиций 1С (товаров: ${requested})`, 'error');
         } else {
-          App.notify(`LLM сопоставил ${matched} из ${requested} товаров`, 'success');
+          App.notify(`ИИ подобрал позиции 1С: ${matched} из ${requested}`, 'success');
         }
         this.showDetail(id);
       } catch (e) {
-        App.notify('Ошибка LLM-маппинга: ' + e.message, 'error');
+        App.notify('Не удалось подобрать позиции ИИ: ' + e.message, 'error');
       }
     }));
   },
 
   async resetStatus(id) {
-    if (!confirm('Сбросить статус накладной? Она станет "Обработан" и исчезнет из списка готовых к 1С. Для повторной отправки нужно будет снова нажать "Отправить в 1С".')) {
+    if (!confirm('Вернуть накладную на проверку? Она уйдёт из списка готовых к 1С — чтобы отправить её снова, нажмите «Отправить в 1С».')) {
       return;
     }
     return this._withGuard(`reset:${id}`, async () => {
@@ -2098,7 +2395,7 @@ const Invoices = {
   },
 
   async unlinkDuplicate(id) {
-    if (!confirm('Снять отметку «дубликат»? Накладная превратится в обычную (status=processed), но items в неё не вернутся — для полноценной обработки нужно её удалить и переотсканировать.')) return;
+    if (!confirm('Снять отметку «дубликат»? Накладная станет обычной, но строки товаров в неё не вернутся — чтобы их получить, удалите её и загрузите фото заново.')) return;
     try {
       const res = await App.api(`/invoices/${id}/unlink-duplicate`, { method: 'POST' });
       if (!res.ok) {
@@ -2120,12 +2417,12 @@ const Invoices = {
     }
     this.showConfirm(
       'Удалить накладную?',
-      `Накладная #${id} будет удалена вместе с фото. Это действие нельзя отменить.`,
+      `Накладная #${id} попадёт в корзину: 30 дней её можно вернуть вместе с фото (Накладные → Корзина).`,
       async () => {
         return this._withGuard(`delete:${id}`, async () => {
           try {
             await App.apiJson(`/invoices/${id}`, { method: 'DELETE' });
-            App.notify('Накладная удалена', 'success');
+            App.notify('Накладная в корзине — вернуть можно 30 дней', 'success');
             App.navigate('#/invoices');
             this.showList();
           } catch (e) {
@@ -2296,13 +2593,13 @@ const Invoices = {
 
       const chip = document.createElement('div');
       chip.className = 'nom-suggest';
-      chip.style.cssText = 'margin-top:4px;font-size:12px;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+      chip.style.cssText = 'margin-top:4px;font-size:0.75rem;color:var(--text-muted,#888);display:flex;gap:6px;align-items:center;flex-wrap:wrap';
       const label = document.createElement('span');
       label.textContent = 'Предложение: ' + top.name;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-outline';
-      btn.style.cssText = 'padding:2px 8px;font-size:12px';
+      btn.style.cssText = 'padding:2px 8px;font-size:0.75rem';
       btn.textContent = 'Применить';
       btn.addEventListener('click', () =>
         Invoices.selectNomItem(String(invoiceId), String(item.id), top.guid, top.name));
@@ -2325,9 +2622,11 @@ const Invoices = {
   async onItemEdit(event) {
     const el = event.target;
     const { invoiceId, itemId, field } = el.dataset;
-    const raw = el.value.trim().replace(',', '.');
+    // В числах — пробелы разрядов («5 700,00»); в единице («уп 10») пробелы значимы.
+    const norm = (v) => (field === 'unit' ? v.trim() : v.replace(/[\s\u00a0]/g, '').replace(',', '.'));
+    const raw = norm(el.value);
     // Remember the last-saved value per input to avoid pointless PATCHes.
-    const prev = el.dataset.lastSaved ?? el.defaultValue.trim().replace(',', '.');
+    const prev = el.dataset.lastSaved ?? norm(el.defaultValue);
     if (raw === prev) return;
 
     let payload;
@@ -2392,7 +2691,7 @@ const Invoices = {
 
   // Вкладки карточки: «Товары», «Поставщик и банк», «История» (с текстом распознавания).
   switchTab(tab) {
-    const panels = { items: 'invoice-tab-items', supplier: 'invoice-tab-supplier', history: 'invoice-tab-history-wrap' };
+    const panels = { items: 'invoice-tab-items', supplier: 'invoice-tab-supplier', history: 'invoice-tab-history-wrap', notes: 'invoice-tab-notes' };
     if (!panels[tab]) tab = 'items';
     Object.entries(panels).forEach(([key, id]) => { const el = document.getElementById(id); if (el) el.hidden = key !== tab; });
     document.querySelectorAll('#invoice-detail .ic-tab').forEach(b => {
@@ -2400,6 +2699,48 @@ const Invoices = {
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', String(on));
     });
+  },
+
+  // ── Заметки к накладной (2026-11-17) ──────────────────────────────────────
+  async loadNotes(id = this._currentInvoiceId) {
+    const host = document.getElementById('invoice-notes-list');
+    const count = document.getElementById('ic-notes-count');
+    if (!host || !id) return;
+    try {
+      const { data } = await App.apiJson(`/invoices/${id}/comments`);
+      if (id !== this._currentInvoiceId) return;
+      if (count) count.textContent = data.length ? `· ${data.length}` : '';
+      host.innerHTML = data.length
+        ? data.map(n => `<div class="ic-note"><div class="ic-note-meta"><b>${App.esc(n.author || 'Без имени')}</b><span>${App.esc(App.formatDateTime(n.created_at))}</span>${n.mine ? `<button type="button" class="btn-link" onclick="Invoices.deleteNote(${n.id})">удалить</button>` : ''}</div><p>${App.esc(n.body)}</p></div>`).join('')
+        : '<p class="ic-muted">Заметок пока нет.</p>';
+    } catch {
+      host.innerHTML = '<p class="ic-muted">Не удалось загрузить заметки.</p>';
+    }
+  },
+
+  async addNote(ev) {
+    ev.preventDefault();
+    const input = document.getElementById('invoice-note-input');
+    const body = (input?.value || '').trim();
+    const id = this._currentInvoiceId;
+    if (!body || !id) return;
+    const btn = ev.submitter || ev.target.querySelector('button[type="submit"]');
+    return App.withBusyButton(btn, async () => {
+      try {
+        await App.apiJson(`/invoices/${id}/comments`, { method: 'POST', body: { body } });
+        input.value = '';
+        await this.loadNotes(id);
+      } catch (e) { App.notify(e.message || 'Не удалось сохранить заметку', 'error'); }
+    });
+  },
+
+  async deleteNote(commentId) {
+    const id = this._currentInvoiceId;
+    if (!id || !window.confirm('Удалить заметку?')) return;
+    try {
+      await App.apiJson(`/invoices/${id}/comments/${commentId}`, { method: 'DELETE' });
+      await this.loadNotes(id);
+    } catch (e) { App.notify(e.message || 'Не удалось удалить заметку', 'error'); }
   },
 
   async loadPhotos() {

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Значок уведомления в строке состояния: белые полосы ScanFlow на прозрачном. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M5,6.5L19,6.5"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M5,12L15.5,12"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M5,17.5L12,17.5"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+</vector>

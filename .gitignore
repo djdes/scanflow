@@ -36,8 +36,9 @@ cwww1C-JPGExchangetemp_invoice.json
 temp_*.json
 temp_*.txt
 
-# Backups (server-only)
+# Backups & promo JSON cache (server-only)
 data/backups/
+data/promo-cache/
 datainbox.gitkeep
 architecture.excalidraw
 improvements.excalidraw
@@ -79,3 +80,11 @@ docs/investigations/
 # Dispatcher local config & logs (BSQL Ralph worker)
 dispatcher/config.json
 dispatcher/logs/
+
+# Android (android/): сборка и ключи подписи не коммитятся
+android/.gradle/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore
+*.apk

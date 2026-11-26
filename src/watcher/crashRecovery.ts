@@ -6,6 +6,7 @@ import { invoiceRepo } from '../database/repositories/invoiceRepo';
 import { emit as emitNotification } from '../notifications/events';
 import { AiUnavailableError } from '../ai/errors';
 import type { FileWatcher } from './fileWatcher';
+import { plural } from '../utils/ru';
 
 /**
  * How many times a stale invoice may be re-driven through OCR before we park it
@@ -59,8 +60,8 @@ export async function recoverStaleInvoices(watcher: FileWatcher): Promise<number
       await invoiceRepo.updateStatus(
         s.id,
         'error',
-        `Обработка прерывалась ${attempts - 1} раз(а) подряд (процесс падал). `
-        + 'Фото отложено в failed/ — проверьте логи и запустите «Пересканировать фото» вручную.',
+        `Распознавание прерывалось ${attempts - 1} ${plural(attempts - 1, 'раз', 'раза', 'раз')} подряд. `
+        + 'Нажмите «Пересканировать фото» или загрузите фото заново.',
       );
       emitNotification('recognition_error', {
         invoice_id: s.id,

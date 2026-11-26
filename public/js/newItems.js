@@ -74,10 +74,10 @@ const NewItems = {
         <table class="cards-mobile ni-table">
           <thead><tr>
             <th>Товар из накладных</th>
-            <th>Строк / накл.</th>
-            <th>Ед.</th>
+            <th>Где встречается</th>
+            <th>Единица</th>
             <th>Поставщики</th>
-            <th>Статус</th>
+            <th>Заявка в 1С</th>
             <th></th>
           </tr></thead>
           <tbody>${rows.join('')}</tbody>
@@ -85,6 +85,15 @@ const NewItems = {
       </div>`;
     }
     this.renderWaiting();
+  },
+
+  /** «3 строки в 2 накладных» вместо загадочного «3 / 2». */
+  _where(lines, invoices) {
+    const pl = (n, one, few, many) => {
+      const m10 = n % 10, m100 = n % 100;
+      return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+    };
+    return `${lines} ${pl(lines, 'строка', 'строки', 'строк')} в ${invoices} ${pl(invoices, 'накладной', 'накладных', 'накладных')}`;
   },
 
   _matches(g, q) {
@@ -113,13 +122,13 @@ const NewItems = {
     return `
       <tr class="ni-row${isOpen ? ' is-open' : ''}">
         <td data-label="Товар">${nameCell}</td>
-        <td data-label="Строк / накладных"><span class="ni-cell"><strong>${Number(g.lines) || 0}</strong> / ${(g.invoices || []).length}</span></td>
-        <td data-label="Ед."><div class="ni-cell">${esc(g.unit || '—')}${priceLine}</div></td>
+        <td data-label="Где встречается"><span class="ni-cell">${this._where(Number(g.lines) || 0, (g.invoices || []).length)}</span></td>
+        <td data-label="Единица"><div class="ni-cell">${esc(g.unit || '—')}${priceLine}</div></td>
         <td data-label="Поставщики">${suppliers}</td>
-        <td data-label="Статус">${this.statusHtml(g)}</td>
+        <td data-label="Заявка в 1С">${this.statusHtml(g)}</td>
         <td class="cell-action">
           <div class="ni-actions">
-            <button type="button" class="btn btn-sm btn-outline" data-action="open-map" data-i="${i}">Сопоставить с позицией 1С</button>
+            <button type="button" class="btn btn-sm btn-outline" data-action="open-map" data-i="${i}" title="Выбрать существующую позицию справочника 1С">Сопоставить</button>
             <button type="button" class="btn btn-sm btn-soft" data-action="open-create" data-i="${i}">${createLabel}</button>
           </div>
         </td>
@@ -129,7 +138,8 @@ const NewItems = {
   statusHtml(g) {
     const esc = (s) => App.esc(s);
     const r = g.request;
-    if (!r) return '<span class="badge badge-new">Нет в 1С</span>';
+    // На этой странице все товары без позиции 1С — «Нет в 1С» в каждой строке ничего не добавлял.
+    if (!r) return '';
     if (r.status === 'created') {
       return `<div class="ni-cell"><span class="badge badge-sent">Создана в 1С</span>
         <div class="ni-sub">Сопоставьте строки с новой позицией</div></div>`;
@@ -332,7 +342,7 @@ const NewItems = {
       method: 'POST',
       body: { name_key: g.name_key, onec_guid: guid },
     });
-    App.notify(`Сопоставлено с «${data.name}»: ${data.lines} стр. в ${data.invoices} накл.`, 'success');
+    App.notify(`Сопоставлено с «${data.name}»: ${this._where(Number(data.lines) || 0, Number(data.invoices) || 0)}`, 'success');
     this.closeForm(false);
     await this.load();
   },

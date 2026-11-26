@@ -125,7 +125,7 @@ describe.runIf((process.env.DB_NAME || '').includes('test'))('bulk send 1C/Sber'
 
   it('Sber maps a 400 no-INN response to no_inn', async () => {
     const inv = await mkInvoice(1);
-    mockLoopback({ [inv]: { status: 400, json: { error: 'invoice has no supplier_inn' } } });
+    mockLoopback({ [inv]: { status: 400, json: { error: 'ИНН поставщика — 10 или 12 цифр', code: 'no_inn' } } });
     const res = await request(app).post('/api/invoices/send-sber-batch').set('X-API-Key', 'k1').send({ ids: [inv] });
     expect(res.body.data.sent).toBe(0);
     expect(res.body.data.skipped).toEqual([{ id: inv, reason: 'no_inn' }]);

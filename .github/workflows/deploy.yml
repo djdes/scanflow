@@ -62,6 +62,7 @@ jobs:
             --exclude='*.sqlite-shm' \
             --exclude='*.sqlite-wal' \
             --exclude='.claude' \
+            --exclude='/android' \
             --exclude='.playwright-mcp' \
             --exclude='.vscode' \
             --exclude='nul' \
@@ -90,7 +91,7 @@ jobs:
           cd ~/www/scanflow.ru/app
 
           # Create data dirs if missing
-          mkdir -p data/inbox data/processed data/failed
+          mkdir -p data/inbox data/processed data/failed data/promo-cache
 
           # Install all dependencies (need devDeps for tsc)
           npm ci 2>&1 || npm install 2>&1
@@ -98,24 +99,11 @@ jobs:
           # Build TypeScript
           npm run build 2>&1
 
+          # Prebuild atomic JSON promo cache before pruning/restarting
+          node dist/scripts/refresh-promo-cache.js 2>&1 || true
+
           # Prune dev dependencies
           npm prune --production 2>&1
-
-          # Enable multi-tenant data isolation via the server-only .env (rsync
-          # excludes .env, so the pipeline sets it here — no manual server edit).
-          # Idempotent. To DISABLE later, change =true to =false here and redeploy.
-          # The app reads DATA_SCOPING_ENABLED at startup (dotenv), picked up on
-          # the pm2 restart below.
-          if [ -f .env ]; then
-            if grep -q '^DATA_SCOPING_ENABLED=' .env; then
-              sed -i 's/^DATA_SCOPING_ENABLED=.*/DATA_SCOPING_ENABLED=true/' .env
-            else
-              echo 'DATA_SCOPING_ENABLED=true' >> .env
-            fi
-            echo "DATA_SCOPING_ENABLED=true ensured in .env"
-          else
-            echo "WARNING: .env not found — DATA_SCOPING_ENABLED not set"
-          fi
 
           # Keep the proxy credential in GitHub Secrets and the server-only .env.
           # Replace just this key while preserving every other production value.
@@ -141,9 +129,6 @@ jobs:
             mv .env.usage.tmp .env
             echo "ONEC_USAGE_MCP_CONFIG ensured in .env"
           fi
-
-          # Проверяем доступ к назначенной компании базе до перезапуска приложения.
-          node dist/scripts/check-onec-usage.js || exit 1
 
           # Restart with PM2
           pm2 startOrRestart ecosystem.config.js 2>&1
@@ -215,3 +200,11 @@ jobs:
 
           echo "::error::Public endpoint is unavailable after deploy"
           exit 1
+
+      - name: Sync catalogs and verify 1C access
+        run: |
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=accept-new ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'bash -s' << 'ENDSSH'
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          cd ~/www/scanflow.ru/app && node dist/scripts/check-onec-usage.js
+          ENDSSH

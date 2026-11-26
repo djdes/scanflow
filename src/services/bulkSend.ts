@@ -75,11 +75,10 @@ export async function bulkSendSber(invoices: Invoice[], apiKey: string): Promise
     }
     if (status === 409) { skipped.push({ id: inv.id, reason: 'already_paid' }); continue; }
     if (status === 400) {
+      // Причина — по коду ответа; текст ошибки — для человека и может меняться.
       const err = String(json.error ?? '');
-      const reason = err.includes('supplier_inn') ? 'no_inn'
-        : err.includes('total_sum') ? 'no_total'
-        : err.includes('not connected') ? 'sber_not_connected'
-        : err.includes('payer details') ? 'payer_incomplete'
+      const code = String(json.code ?? '');
+      const reason = ['no_inn', 'no_total', 'sber_not_connected', 'payer_incomplete'].includes(code) ? code
         : err.includes('владелец') ? 'no_owner'
         : 'invalid';
       skipped.push({ id: inv.id, reason }); continue;

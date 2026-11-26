@@ -23,6 +23,7 @@ vi.mock('../../src/services/recognitionQueue', () => ({ enqueueRecognitionFile: 
 import uploadRouter, { setFileWatcher, uploadExtension } from '../../src/api/routes/upload';
 import { config } from '../../src/config';
 import { enqueueRecognitionFile } from '../../src/services/recognitionQueue';
+import { terminalErrorHandler } from '../../src/api/middleware/errorHandler';
 
 const fw = { markProcessing: vi.fn(), unmarkProcessing: vi.fn(), processFile: vi.fn(async () => 1) };
 setFileWatcher(fw as never);
@@ -33,9 +34,8 @@ function app() {
   const a = express();
   a.use((req, _res, next) => { req.user = { id: 7, username: 'u', role: 'user' } as never; next(); });
   a.use('/api/upload', uploadRouter);
-  a.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(400).json({ error: err.message });
-  });
+  // Тот же обработчик ошибок, что в server.ts: отказ fileFilter — 415 с текстом для человека.
+  a.use(terminalErrorHandler);
   return a;
 }
 
@@ -83,8 +83,8 @@ describe('POST /api/upload — XML из ЭДО', () => {
   it('неподдерживаемый формат — отказ, processFile не зовётся', async () => {
     const res = await request(app()).post('/api/upload')
       .attach('file', Buffer.from('hello'), { filename: 'notes.txt', contentType: 'text/plain' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Unsupported file type: .txt');
+    expect(res.status).toBe(415);
+    expect(res.body.error).toBe('Такой файл не подходит (.txt). Подходят фото, PDF и XML');
     expect(fw.processFile).not.toHaveBeenCalled();
   });
 });

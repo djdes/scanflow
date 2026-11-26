@@ -23,8 +23,8 @@ const Mappings = {
     if (OnecCatalog.items.length === 0) {
       el.innerHTML = '<span style="color:#b91c1c">Справочник не выгружен.</span>';
     } else {
-      const ts = OnecCatalog.lastSyncedAt ? new Date(OnecCatalog.lastSyncedAt).toLocaleString('ru-RU') : '—';
-      el.innerHTML = `Справочник из 1С: <strong>${OnecCatalog.items.length}</strong> товаров · Последняя выгрузка: ${ts}`;
+      const ts = OnecCatalog.lastSyncedAt ? App.formatDateTime(OnecCatalog.lastSyncedAt) : '';
+      el.innerHTML = `Справочник из 1С: <strong>${OnecCatalog.items.length}</strong> товаров${ts ? ` · обновлён ${App.esc(ts)}` : ''}`;
     }
   },
 
@@ -77,16 +77,16 @@ const Mappings = {
     if (host.dataset.ready) return;
     host.dataset.ready = '1';
     host.innerHTML = `
-      <div class="card" style="margin-top:20px">
-        <h3 style="margin-bottom:6px">Вернуть правила из резервной копии</h3>
-        <div class="field-hint" style="margin-bottom:12px">Возвращаются только недостающие правила, чья позиция есть в текущем каталоге 1С. Существующие правила не меняются; обрывки названий, спорные вес/объём и отклонённые («не это») пропускаются. Вернувшиеся правила — неподтверждённые (метка «восстановлено»).</div>
+      <details class="card settings-details" style="margin-top:20px">
+        <summary><h3 style="display:inline">Вернуть правила из резервной копии</h3></summary>
+        <div class="field-hint" style="margin:10px 0 12px">Возвращаются только недостающие правила, чья позиция есть в текущем каталоге 1С. Существующие правила не меняются; обрывки названий, спорные вес/объём и отклонённые («не это») пропускаются. Вернувшиеся правила — неподтверждённые (метка «восстановлено»).</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input type="file" id="mappings-restore-file" accept=".json,application/json">
           <button class="btn btn-soft btn-sm" id="mappings-restore-check" disabled>Проверить</button>
-          <button class="btn btn-primary btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
+          <button class="btn btn-outline btn-sm" id="mappings-restore-apply" disabled>Вернуть</button>
         </div>
         <div id="mappings-restore-result" style="margin-top:12px"></div>
-      </div>`;
+      </details>`;
     const file = document.getElementById('mappings-restore-file');
     const check = document.getElementById('mappings-restore-check');
     const apply = document.getElementById('mappings-restore-apply');
@@ -230,7 +230,7 @@ const Mappings = {
             <td></td>
             <td colspan="2">
               <div style="display:flex;gap:8px;align-items:center">
-                <input type="text" id="add-variant-${esc(g.onec_guid)}" placeholder="Новый вариант..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px"
+                <input type="text" id="add-variant-${esc(g.onec_guid)}" placeholder="Новый вариант..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem"
                        data-guid="${esc(g.onec_guid)}" data-name="${esc(g.mapped_name)}"
                        onclick="event.stopPropagation()"
                        onkeydown="if(event.key==='Enter'){event.stopPropagation();Mappings.addVariant(this.dataset.guid,this.dataset.name)}">
@@ -541,7 +541,7 @@ const Mappings = {
     // Show sync info
     const syncEl = document.getElementById('catalog-sync-info');
     if (syncEl) {
-      const ts = OnecCatalog.lastSyncedAt ? new Date(OnecCatalog.lastSyncedAt).toLocaleString('ru-RU') : '—';
+      const ts = OnecCatalog.lastSyncedAt ? App.formatDateTime(OnecCatalog.lastSyncedAt) : '—';
       syncEl.textContent = `${OnecCatalog.items.length} товаров · Обновлено: ${ts}`;
     }
     let items = OnecCatalog.items || [];
@@ -570,7 +570,7 @@ const Mappings = {
         <td data-label="Наименование"><strong>${esc(it.name)}</strong><br><button type="button" class="btn btn-outline btn-sm" data-alias-guid="${esc(it.guid)}" onclick="CatalogAliases.open(this.dataset.aliasGuid)">Синонимы · ${(it.aliases || []).length}</button></td>
         <td data-label="Полное">${esc(it.full_name) || '—'}</td>
         <td data-label="Ед.">${esc(it.unit) || '—'}</td>
-        <td data-label="GUID"><code style="font-size:11px" title="${esc(it.guid)}">${guidShort}</code></td>
+        <td data-label="GUID"><code style="font-size:0.6875rem" title="${esc(it.guid)}">${guidShort}</code></td>
       </tr>`;
     }).join('');
   },

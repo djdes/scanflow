@@ -1,0 +1,173 @@
+name: Android APK
+
+# APK приложения ScanFlow (Trusted Web Activity над https://scanflow.ru/m/).
+# Спек: docs/superpowers/specs/2026-11-06-mobile-app-design.md, порядок работы —
+# docs/runbooks/android-apk.md.
+# - PR с правками android/ — проверочная debug-сборка, APK в артефактах.
+# - main (правки android/) или запуск вручную — подписанный APK. Ключ подписи
+#   живёт на сервере в ~/scanflow-android/ (вне каталога приложения, выкладка
+#   его не трогает); первая сборка создаёт его сама. APK и отпечаток ключа
+#   уходят в data/downloads/ — оттуда их отдают /downloads/scanflow.apk и
+#   /.well-known/assetlinks.json. Секреты — те же SSH_*, что у выкладки.
+
+on:
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Подписанные сборки (только main) идут строго по одной: ключ создаётся один раз.
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GRADLE_VERSION: '8.14.3'
+  BUILD_TOOLS: '36.0.0'
+  # Подписанный APK и выкладка на сервер — только из main (push или ручной
+  # запуск). Ручной запуск на другой ветке собирает проверочный debug.
+  RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Android SDK
+        # «yes» получает SIGPIPE, когда sdkmanager закончил, — при pipefail это не ошибка.
+        run: (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;${BUILD_TOOLS}" > /dev/null
+
+      # ── PR и ветки: проверочная сборка без ключа ──────────────────────
+      - name: Debug build
+        if: env.RELEASE != 'true'
+        run: gradle -p android --no-daemon assembleDebug
+
+      - name: Upload debug APK
+        if: env.RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanflow-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+      # ── main: подписанный APK на сервер ───────────────────────────────
+      - name: Setup SSH
+        if: env.RELEASE == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} -T 10 ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>&1 || echo "keyscan failed, relying on accept-new"
+
+      - name: Signing key (from the server, created on first run)
+        if: env.RELEASE == 'true'
+        env:
+          SSH_TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          set -euo pipefail
+          remote() { ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "$@"; }
+          SIGN="$RUNNER_TEMP/sign"
+          mkdir -p "$SIGN" && chmod 700 "$SIGN"
+
+          if ! remote 'test -s ~/scanflow-android/release.p12 && test -s ~/scanflow-android/password'; then
+            echo "Ключа на сервере нет — создаю постоянный ключ подписи"
+            openssl rand -hex 24 > "$SIGN/new-password"
+            NEW_PASS="$(cat "$SIGN/new-password")"
+            echo "::add-mask::$NEW_PASS"
+            keytool -genkeypair -keystore "$SIGN/new.p12" -storetype PKCS12 -alias scanflow \
+              -keyalg RSA -keysize 3072 -validity 10000 \
+              -storepass "$NEW_PASS" -keypass "$NEW_PASS" \
+              -dname "CN=ScanFlow, O=ScanFlow, C=RU" > /dev/null
+            # Ключ и пароль — во временный каталог этого запуска, затем на место
+            # одной командой. Ключ, который уже есть, не затирать: им могли
+            # подписать APK, и без него обновление не встанет поверх.
+            TMP="~/scanflow-android/.new-${GITHUB_RUN_ID}"
+            remote "umask 077 && mkdir -p $TMP && cat > $TMP/release.p12" < "$SIGN/new.p12"
+            remote "umask 077 && cat > $TMP/password" < "$SIGN/new-password"
+            remote "cd ~/scanflow-android && if [ -s release.p12 ]; then rm -rf $TMP; else mv $TMP/password password && mv $TMP/release.p12 release.p12 && rmdir $TMP; fi"
+          fi
+
+          # Подписываем всегда тем, что лежит на сервере.
+          remote 'cat ~/scanflow-android/release.p12' > "$SIGN/release.p12"
+          remote 'cat ~/scanflow-android/password' > "$SIGN/password"
+          PASS="$(tr -d '\r\n' < "$SIGN/password")"
+          echo "::add-mask::$PASS"
+          {
+            echo "SF_KEYSTORE=$SIGN/release.p12"
+            echo "SF_KEYSTORE_PASSWORD=$PASS"
+            echo "SF_KEY_ALIAS=scanflow"
+            echo "SF_KEY_PASSWORD=$PASS"
+          } >> "$GITHUB_ENV"
+
+      - name: Release build
+        if: env.RELEASE == 'true'
+        run: |
+          export SF_VERSION_CODE="${{ github.run_number }}"
+          export SF_VERSION_NAME="$(date -u +%Y.%m.%d).${{ github.run_number }}"
+          gradle -p android --no-daemon assembleRelease
+
+      - name: Verify signature
+        if: env.RELEASE == 'true'
+        id: sig
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | tee "$RUNNER_TEMP/certs.txt"
+          FP="$(awk '/SHA-256 digest/ {print $NF; exit}' "$RUNNER_TEMP/certs.txt" | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')"
+          echo "$FP" | grep -Eq '^([0-9A-F]{2}:){31}[0-9A-F]{2}$'
+          echo "fingerprint=$FP" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to the server
+        if: env.RELEASE == 'true'
+        env:
+          SSH_TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          FP: ${{ steps.sig.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          remote() { ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "$@"; }
+          DIR='~/www/scanflow.ru/app/data/downloads'
+          remote "mkdir -p $DIR && cat > $DIR/scanflow.apk.new" < android/app/build/outputs/apk/release/app-release.apk
+          remote "cd $DIR && mv scanflow.apk.new scanflow.apk && printf '%s\n' '$FP' > android-cert-sha256.txt"
+
+      - name: Upload release APK
+        if: env.RELEASE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanflow-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Summary
+        if: env.RELEASE == 'true'
+        run: |
+          {
+            echo "### APK ScanFlow"
+            echo "- Скачать: https://scanflow.ru/downloads/scanflow.apk"
+            echo "- Отпечаток ключа (SHA-256): \`${{ steps.sig.outputs.fingerprint }}\`"
+            echo "- Проверка связи с сайтом: https://scanflow.ru/.well-known/assetlinks.json"
+          } >> "$GITHUB_STEP_SUMMARY"

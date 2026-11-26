@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import { MULTIPART_UTF8 } from '../../utils/uploadFileName';
 import { onecNomenclatureRepo, OnecNomenclatureInput } from '../../database/repositories/onecNomenclatureRepo';
 import { mappingRepo } from '../../database/repositories/mappingRepo';
 import { logger } from '../../utils/logger';
@@ -29,7 +30,7 @@ function hasMcpSource(ownerUserId: number): boolean {
   }
 }
 
-const catalogUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const catalogUpload = multer({ ...MULTIPART_UTF8, storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
 function receiveCatalogFile(req: Request, res: Response, next: NextFunction): void {
   catalogUpload.single('file')(req, res, error => {
@@ -156,7 +157,7 @@ router.post('/sync', requireAdmin, async (req: Request, res: Response) => {
     res.json({ data: { upserted, total: items.length, orphaned_removed: orphaned } });
   } catch (err) {
     logger.error('Nomenclature sync failed', { error: (err as Error).message });
-    res.status(500).json({ error: 'Sync failed: ' + (err as Error).message });
+    res.status(500).json({ error: 'Не удалось синхронизировать: ' + (err as Error).message });
   }
 });
 
@@ -179,7 +180,7 @@ router.delete('/', requireAdmin, async (req: Request, res: Response) => {
     res.json({ data: { deleted } });
   } catch (err) {
     logger.error('Nomenclature clear failed', { error: (err as Error).message });
-    res.status(500).json({ error: 'Clear failed: ' + (err as Error).message });
+    res.status(500).json({ error: 'Не удалось очистить: ' + (err as Error).message });
   }
 });
 
