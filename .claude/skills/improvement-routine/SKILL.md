@@ -45,7 +45,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 
 | Репозиторий | Сделано |
 |---|---|
-| ProjectsFlow | JSON-LD главной с ценами и FAQ (#28), Dependabot (#26) |
+| ProjectsFlow | JSON-LD главной с ценами и FAQ (#28), Dependabot (#26), soft-404 → настоящий 404 у SPA (#92) |
 | OrdersFlow | og:image в PNG (#6, закрыт), цена тарифа в пререндере и JSON-LD (#11) |
 | TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12), выгода длинного срока (#15), LCP лендинга (#16), `og:image` в PNG (#17, ждёт решения) |
 | scanflow | Dependabot (#15), gitleaks (#8), npm audit (#6, #9) — ждут решения |
@@ -66,7 +66,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 - ~~**OrdersFlow**: `Restaurant`/`Menu` JSON-LD на `/m/:slug`~~ — не делать: страница `noindex`, разметку поиск не увидит.
 - **yesbeatru**: ~~`Product` + `Offer`~~ (уже есть с 10.09); осталось `ItemList` в каталоге и `MusicRecording` (BPM, длительность) в карточке трека (цена, BPM, длительность) —
   витрина в Google/Яндексе; `ItemList` в каталоге. Выкладка — двумя PR (main + prod).
-- **TasksFlow**: `HowTo`-разметка на кластерных страницах блога; прайс-якорь «за сотрудника в месяц».
+- **TasksFlow**: прайс-якорь «за сотрудника в месяц». (`HowTo` не делать: Google убрал этот расширенный сниппет в 2023.)
 - **HASSR-Online**: аудит Core Web Vitals лендинга (LCP-картинка с `fetchpriority=high`, `font-display`).
 - Финансы везде: годовая оплата со скидкой (если в биллинге есть `months: 12`) — показать экономию на лендинге.
 - Визуал: прогнать скилл [`heydamir/unslop`](https://github.com/heydamir/unslop) по одной странице
@@ -106,6 +106,12 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 canonical, типы JSON-LD и чем на самом деле отвечает `og:image`. SVG или не-картинка в `og:image` = ссылка в
 Telegram/WhatsApp/VK без превью (так найден TasksFlow #17). Запускать в п. 0, до выбора идеи; единичное
 «НЕ ОТКРЫЛСЯ» — сбой прокси облака, перепроверить.
+Обход soft-404 по всем сайтам: `curl -o /dev/null -w '%{http_code}' https://<сайт>/no-such-page-xyz`;
+200 = находка (так найден ProjectsFlow #92; scanflow, OrdersFlow и TasksFlow уже отдают 404).
+Проверки боевых сайтов (и `head-audit.sh`) — с раннера GitHub Actions, а не из облачного контейнера: 21.11 из
+контейнера не открылись scanflow.ru, wesetup.ru и yesbeat.ru (len=0), projectsflow.ru — через раз.
+Нужен еженедельный workflow `seo-probe.yml` (curl: код главной, неизвестного пути, robots,
+sitemap, llms.txt, canonical, og:image) с отчётом в summary; рутина читает итог через `actions_list`.
 Кандидаты на следующие разы: проверка сниппетов через Rich Results Test в Playwright;
 ежемесячный отчёт по позициям из Яндекс.Вебмастера (нужен токен в секретах среды);
 снимки «до/после» визуальных PR прямо в описании (скилл visual-check).
