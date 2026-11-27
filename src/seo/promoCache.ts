@@ -26,7 +26,7 @@ const DATASET_NAME = 'promo-bundle';
  * (новое поле, новая вставка в <head>), иначе снимок, собранный прежним кодом
  * при тех же файлах public/, отдавался бы и дальше.
  */
-const BUNDLE_FORMAT = 2;
+const BUNDLE_FORMAT = 3; // 3: sitemap без «сегодня» в lastmod
 
 export interface ScanflowPromoBundle {
   landingHtml: string;

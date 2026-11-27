@@ -44,13 +44,28 @@ describe('buildSitemapXml', () => {
     expect(xml).not.toContain('//blog');
   });
 
-  it('emits lastmod in W3C YYYY-MM-DD format for home and blog', () => {
-    const xml = buildSitemapXml('https://scanflow.ru', []);
-    // Both static entries should have a YYYY-MM-DD lastmod (not full ISO timestamp).
+  it('emits lastmod in W3C YYYY-MM-DD format', () => {
+    const xml = buildSitemapXml('https://scanflow.ru', [a('foo', '2026-05-01')]);
     const matches = xml.match(/<lastmod>([^<]+)<\/lastmod>/g) ?? [];
     expect(matches.length).toBeGreaterThanOrEqual(2);
     for (const m of matches) {
       expect(m).toMatch(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
     }
+  });
+
+  it('never stamps today: blog index gets the newest article date, landing gets no lastmod', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const arts = [a('old', '2026-03-01'), { ...a('edited', '2026-02-01'), updated: '2026-06-15' }, a('mid', '2026-05-01')];
+    const xml = buildSitemapXml('https://scanflow.ru', arts);
+    expect(xml).not.toContain(`<lastmod>${today}</lastmod>`);
+    const blog = xml.match(/<loc>https:\/\/scanflow\.ru\/blog<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/);
+    expect(blog?.[1]).toBe('2026-06-15');
+    const home = xml.match(/<url>\s*<loc>https:\/\/scanflow\.ru\/<\/loc>([\s\S]*?)<\/url>/);
+    expect(home?.[1]).not.toContain('<lastmod>');
+  });
+
+  it('omits blog lastmod when there are no articles', () => {
+    const xml = buildSitemapXml('https://scanflow.ru', []);
+    expect(xml).not.toContain('<lastmod>');
   });
 });
