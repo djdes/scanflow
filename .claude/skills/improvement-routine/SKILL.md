@@ -50,6 +50,7 @@ gh api -X GET search/repositories -f q="topic:claude-skills stars:>100" -f sort=
 | TasksFlow | Тарифы в JSON-LD `AggregateOffer` (#12), выгода длинного срока (#15), LCP лендинга (#16), `og:image` в PNG (#17, ждёт решения) |
 | scanflow | Dependabot (#15), gitleaks (#8), npm audit (#6, #9) — ждут решения |
 | yesbeatru | проверка секретов в PR (#537) |
+| scanflow, OrdersFlow | `lastmod` в sitemap без «сегодня» (27.11) |
 
 Дополняй таблицу в каждом PR этого скилла — или полагайся на `ledger.mjs`.
 
@@ -112,6 +113,10 @@ Telegram/WhatsApp/VK без превью (так найден TasksFlow #17). З
 контейнера не открылись scanflow.ru, wesetup.ru и yesbeat.ru (len=0), projectsflow.ru — через раз.
 Нужен еженедельный workflow `seo-probe.yml` (curl: код главной, неизвестного пути, robots,
 sitemap, llms.txt, canonical, og:image) с отчётом в summary; рутина читает итог через `actions_list`.
+SEO-инварианты по исходникам — `bash seo-grep.sh` (рядом с этим файлом): `lastmod` = «сегодня» в sitemap,
+SVG в `og:image`, `noindex`, canonical на http/localhost — grep по всем репозиториям, сеть не нужна. Запускать
+в п. 0 вместе с `head-audit.sh`: 27.11 из облака не открылся ни один боевой сайт, а grep нашёл «сегодня» в
+sitemap scanflow и OrdersFlow.
 Кандидаты на следующие разы: проверка сниппетов через Rich Results Test в Playwright;
 ежемесячный отчёт по позициям из Яндекс.Вебмастера (нужен токен в секретах среды);
 снимки «до/после» визуальных PR прямо в описании (скилл visual-check).
